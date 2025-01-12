@@ -1,0 +1,2 @@
+When working on clerk middleware, always refer to the clerk-middleware.txt file
+Never use the authMiddleware function, always follow the documentaiton and use the clerkMiddleware function

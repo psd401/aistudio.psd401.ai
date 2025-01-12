@@ -1,8 +1,10 @@
 import { ClerkProvider } from '@clerk/nextjs';
-import { ColorSchemeScript, MantineProvider } from '@mantine/core';
+import { ColorSchemeScript } from '@mantine/core';
 import '@mantine/core/styles.css';
+import '@mantine/notifications/styles.css';
 import './globals.css';
-import { NavBar } from '~/components/NavBar';
+import { AuthenticatedNavBar } from '~/components/AuthenticatedNavBar';
+import { MantineClientProvider } from '~/components/MantineClientProvider';
 
 export const metadata = {
   title: 'Enterprise App Template',
@@ -15,18 +17,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
-        <ColorSchemeScript />
+        <ColorSchemeScript defaultColorScheme="light" />
       </head>
-      <body>
+      <body suppressHydrationWarning>
         <ClerkProvider>
-          <MantineProvider>
-            <NavBar />
+          <MantineClientProvider>
+            <AuthenticatedNavBar />
             <main className="p-4">
               {children}
             </main>
-          </MantineProvider>
+          </MantineClientProvider>
         </ClerkProvider>
       </body>
     </html>

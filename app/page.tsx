@@ -1,5 +1,5 @@
-import { SignIn } from '@clerk/nextjs';
 import { Button, Container, Stack, Text, Title } from '@mantine/core';
+import Link from 'next/link';
 
 export default function Home() {
   return (
@@ -7,7 +7,9 @@ export default function Home() {
       <Stack align="center" spacing="xl">
         <Title>Welcome to Enterprise App Template</Title>
         <Text>Please sign in to continue</Text>
-        <SignIn />
+        <Button component={Link} href="/sign-in">
+          Sign In
+        </Button>
       </Stack>
     </Container>
   );

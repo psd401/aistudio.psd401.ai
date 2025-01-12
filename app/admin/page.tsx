@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs';
+import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import { Container, Title, Table, Text } from '@mantine/core';
 import { db } from '~/lib/db';
