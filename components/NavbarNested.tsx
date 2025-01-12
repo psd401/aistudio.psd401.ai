@@ -10,6 +10,7 @@ import {
   IconSettings,
   IconShield,
   IconRobot,
+  IconBulb,
 } from '@tabler/icons-react';
 import { LinksGroup } from './NavbarLinksGroup';
 import { UserButton } from './UserButton';
@@ -80,6 +81,11 @@ const getNavItems = (role?: string) => {
         { label: 'Compliance Agent', link: '/administrative-agents/compliance' },
         { label: 'Planning Agent', link: '/administrative-agents/planning' },
       ],
+    },
+    { 
+      label: 'Ideas', 
+      icon: IconBulb,
+      link: '/ideas'
     },
     { 
       label: 'Settings', 
