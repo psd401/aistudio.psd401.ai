@@ -35,16 +35,18 @@ tests/             # Test suites
 
 ### Authentication (Clerk)
 - User authentication is handled by Clerk
-- Protected routes must verify authentication using `auth()` from '@clerk/nextjs'
-- Unauthenticated users are redirected to the home page
+- Protected routes must verify authentication using `currentUser()` from '@clerk/nextjs/server'
+- Unauthenticated users are redirected to the sign-in page
+- Debug logging should be disabled in middleware to reduce console noise
 
 ### Role-Based Access Control
-- Three roles: 'Admin', 'Staff' (default), and 'User'
+- Two roles: 'Admin' and 'Staff' (default)
 - Role hierarchy:
   - Admin: Full access to all features
   - Staff: Access to dashboard and basic features
-  - User: Limited access (future implementation)
 - Role checks must be performed at both UI and API levels
+- Role synchronization between database and Clerk metadata is required
+- Case-insensitive role comparison should be used
 
 ## Database Schema
 
@@ -67,24 +69,33 @@ Table users {
 
 ### NavBar
 - Consistent navigation across all pages
-- Shows user authentication status
-- Role-based visibility of admin links
+- Shows user authentication status using `useUser()` hook
+- Role-based visibility of admin links using role check endpoint
 - Must maintain responsive design
+- Should handle loading and error states gracefully
 
 ### UserRoleForm
 - Used for role management in admin panel
 - Implements proper validation
 - Shows loading states during operations
 - Handles errors gracefully
+- Resets to initial state on error
 
 ## API Endpoints
 
-### User Role Management (/api/users/role)
+### User Role Management (/api/admin/users/[userId]/role)
 - PUT endpoint for updating user roles
-- Requires admin authentication
+- Requires admin authentication using `currentUser()`
 - Validates input data
 - Returns appropriate HTTP status codes
 - Implements proper error handling
+- Syncs roles with Clerk metadata after updates
+
+### Role Check Endpoint (/api/auth/check-role)
+- GET endpoint for checking user roles
+- Used by client components for role-based UI updates
+- Returns boolean indicating if user has specified role
+- Implements proper error handling and logging
 
 ## Testing Requirements
 
