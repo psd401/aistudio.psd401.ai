@@ -1,36 +1,44 @@
+import '@mantine/core/styles.css';
 import { ClerkProvider } from '@clerk/nextjs';
 import { ColorSchemeScript } from '@mantine/core';
-import '@mantine/core/styles.css';
-import '@mantine/notifications/styles.css';
-import './globals.css';
-import { AuthenticatedNavBar } from '~/components/AuthenticatedNavBar';
-import { MantineClientProvider } from '~/components/MantineClientProvider';
+import { MantineClientProvider } from '../components/MantineClientProvider';
+import { NavbarNested } from '../components/NavbarNested';
+import { Group } from '@mantine/core';
+import { auth } from '@clerk/nextjs/server';
 
 export const metadata = {
-  title: 'Enterprise App Template',
-  description: 'Next.js 14+ Enterprise Template with Clerk, Drizzle, and Mantine',
+  title: 'PSD401.AI',
+  description: 'AI Tools for PSD401',
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const { userId } = await auth();
+
   return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        <ColorSchemeScript defaultColorScheme="light" />
-      </head>
-      <body suppressHydrationWarning>
-        <ClerkProvider>
+    <ClerkProvider>
+      <html lang="en" suppressHydrationWarning>
+        <head>
+          <ColorSchemeScript defaultColorScheme="light" />
+        </head>
+        <body suppressHydrationWarning>
           <MantineClientProvider>
-            <AuthenticatedNavBar />
-            <main className="p-4">
-              {children}
-            </main>
+            {userId ? (
+              <Group align="flex-start" wrap="nowrap">
+                <NavbarNested />
+                <main style={{ flex: 1, padding: 'var(--mantine-spacing-md)' }}>
+                  {children}
+                </main>
+              </Group>
+            ) : (
+              children
+            )}
           </MantineClientProvider>
-        </ClerkProvider>
-      </body>
-    </html>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }
