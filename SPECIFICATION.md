@@ -162,18 +162,82 @@ Table users {
 
 ## UI/UX Guidelines
 
-### Components
-- Use Mantine UI components
-- Maintain consistent styling
-- Implement proper loading states
-- Show error messages clearly
-- Follow accessibility best practices
+### Page Layout Patterns
+- Each major page should follow consistent layout structure
+- Common page sections should be organized as:
+  ```
+  page/
+  ├── Header/Title Section
+  ├── Main Content Area
+  └── Supporting Content
+  ```
+- Dashboard pages should prioritize:
+  - Clear visual hierarchy
+  - Responsive design
+  - Consistent spacing using Mantine's spacing system
+  - Proper component separation
+
+### Component Organization
+- Feature sections should be self-contained components
+- Components should follow naming convention:
+  ```
+  components/
+  ├── ComponentName.tsx        # Main component file
+  └── ComponentName.module.css # Styles for the component
+  ```
+- Interactive components must include 'use client' directive
+- Each component should handle its own:
+  - Layout and styling
+  - Loading states
+  - Error states
+  - Responsive behavior
+
+### Component Best Practices
+- Use Mantine's built-in components where possible
+- Maintain consistent styling with:
+  - Proper spacing (mt, mb, mx, my)
+  - Consistent color usage
+  - Typography hierarchy
+- Feature sections should include:
+  - Clear titles/headers
+  - Descriptive content
+  - Proper icon usage
+  - Responsive grid layouts
+- FAQ/Information sections should use:
+  - Accordion components for expandable content
+  - Clear section headings
+  - Proper content hierarchy
+  - Consistent spacing
 
 ### Forms
-- Implement proper validation
-- Show loading states
-- Clear error messages
-- Disable submit during processing
+- Use Mantine form components and hooks
+- Implement proper validation:
+  - Client-side validation using Mantine's form validation
+  - Server-side validation for security
+  - Clear error messages below fields
+- Show loading states:
+  - Disable form during submission
+  - Show loading indicators
+  - Prevent double submissions
+- Error handling:
+  - Display field-level errors
+  - Show form-level error messages
+  - Handle network errors gracefully
+- Accessibility:
+  - Proper label associations
+  - Clear error announcements
+  - Keyboard navigation support
+- State management:
+  - Clear initial states
+  - Proper form reset functionality
+  - Maintain state during async operations
+- Layout:
+  - Consistent spacing between fields
+  - Logical field grouping
+  - Responsive design for all screen sizes
+  - Clear action buttons (submit, cancel, etc.)
+
+### Components
 
 ## Security Requirements
 
