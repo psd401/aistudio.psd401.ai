@@ -14,7 +14,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@clerk/nextjs": "^4.29.3",
+    "@clerk/nextjs": "^6.9.9",
     "@emotion/react": "^11.11.3",
     "@mantine/core": "^7.4.1",
     "@mantine/form": "^7.4.1",
