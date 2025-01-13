@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, timestamp, text, integer } from 'drizzle-orm/pg-core';
+import { pgTable, serial, varchar, timestamp, text, integer, boolean } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -39,6 +39,19 @@ export const ideaVotes = pgTable("idea_votes", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const aiModels = pgTable("ai_models", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  provider: text("provider").notNull(), // 'azure', 'amazon-bedrock', or 'google'
+  modelId: text("model_id").notNull(), // The actual model identifier used by the provider
+  description: text("description"),
+  capabilities: text("capabilities"), // JSON string of model capabilities
+  maxTokens: integer("max_tokens"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at"),
+});
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 
@@ -49,4 +62,7 @@ export type IdeaNote = typeof ideaNotes.$inferSelect;
 export type NewIdeaNote = typeof ideaNotes.$inferInsert;
 
 export type IdeaVote = typeof ideaVotes.$inferSelect;
-export type NewIdeaVote = typeof ideaVotes.$inferInsert; 
+export type NewIdeaVote = typeof ideaVotes.$inferInsert;
+
+export type AiModel = typeof aiModels.$inferSelect;
+export type NewAiModel = typeof aiModels.$inferInsert; 

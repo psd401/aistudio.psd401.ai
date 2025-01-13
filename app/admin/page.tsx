@@ -1,10 +1,10 @@
 import { currentUser } from '@clerk/nextjs/server';
 import { Container, Title, Text, Stack, Code } from '@mantine/core';
 import { db } from '~/lib/db';
-import { users } from '~/lib/schema';
+import { users, aiModels } from '~/lib/schema';
 import { eq } from 'drizzle-orm';
-import { UserRoleForm } from '~/components/UserRoleForm';
 import { hasRole, syncUserRole } from '~/utils/roles';
+import { AdminClientWrapper } from './components/AdminClientWrapper';
 
 export default async function AdminPage() {
   const user = await currentUser();
@@ -48,21 +48,15 @@ export default async function AdminPage() {
   }
 
   const allUsers = await db.query.users.findMany();
+  const allModels = await db.select().from(aiModels).orderBy(aiModels.name);
 
-  return (
-    <Container>
-      <Title>Admin Dashboard</Title>
-      <Text>Welcome back, {user.firstName || user.id}!</Text>
-      
-      <Stack mt="lg">
-        {allUsers.map(user => (
-          <div key={user.id} style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-            <Text>{user.clerkId}</Text>
-            <Text>{user.role}</Text>
-            <UserRoleForm userId={user.clerkId} initialRole={user.role} />
-          </div>
-        ))}
-      </Stack>
-    </Container>
-  );
+  // Only pass the properties we need
+  const currentUserData = {
+    id: user.id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.emailAddresses[0]?.emailAddress
+  };
+
+  return <AdminClientWrapper currentUser={currentUserData} users={allUsers} models={allModels} />;
 } 
