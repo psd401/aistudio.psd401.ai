@@ -8,6 +8,10 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  output: 'standalone',
+  images: {
+    domains: ['images.clerk.dev'],
+  },
 };
 
 module.exports = nextConfig;
