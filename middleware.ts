@@ -12,7 +12,10 @@ export default clerkMiddleware({
     '/dashboard(.*)',
     '/admin(.*)',
     '/api/auth/:path*',
-    '/api/users/:path*'
+    '/api/users/:path*',
+    // Add ideas routes
+    '/ideas(.*)',
+    '/api/ideas(.*)'
   ]
 });
 
