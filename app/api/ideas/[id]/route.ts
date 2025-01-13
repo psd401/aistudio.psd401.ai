@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs';
+import { getAuth } from '@clerk/nextjs/server';
 import { db } from '~/lib/db';
-import { ideas, Idea } from '~/lib/schema';
+import { ideas } from '~/lib/schema';
 import { eq } from 'drizzle-orm';
 
 export async function PATCH(
@@ -9,7 +9,7 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { userId } = auth();
+    const { userId } = getAuth();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -18,12 +18,12 @@ export async function PATCH(
     const ideaId = parseInt(params.id);
 
     const updatedIdea = await db
-      .update(Idea)
+      .update(ideas)
       .set({
         status,
         ...(status === 'completed' ? { completedBy: userId, completedAt: new Date() } : {}),
       })
-      .where(eq(Idea.id, ideaId))
+      .where(eq(ideas.id, ideaId))
       .returning();
 
     return NextResponse.json(updatedIdea[0]);
