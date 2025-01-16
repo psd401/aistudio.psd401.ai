@@ -18,7 +18,7 @@ export function NavBar() {
 
   async function checkAdminRole() {
     try {
-      const response = await fetch('/api/auth/check-role?role=Admin');
+      const response = await fetch('/api/auth/check-role?role=administrator');
       if (response.ok) {
         const { hasRole } = await response.json();
         console.log('Admin role check result:', hasRole);

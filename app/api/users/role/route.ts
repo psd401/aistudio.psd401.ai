@@ -1,8 +1,10 @@
 import { auth } from '@clerk/nextjs/server';
 import { db } from '~/lib/db';
 import { users } from '~/lib/schema';
+import type { Role } from '~/lib/schema';
 import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
+import { hasRole } from '~/utils/roles';
 
 export async function POST(request: Request) {
   const { userId } = auth();
@@ -11,25 +13,22 @@ export async function POST(request: Request) {
     return new NextResponse('Unauthorized', { status: 401 });
   }
 
-  // Check if current user is admin
-  const currentUser = await db.query.users.findFirst({
-    where: eq(users.clerkId, userId),
-  });
-
-  if (!currentUser || currentUser.role !== 'Admin') {
+  // Check if current user is administrator
+  const isAdmin = await hasRole(userId, 'administrator');
+  if (!isAdmin) {
     return new NextResponse('Forbidden', { status: 403 });
   }
 
   try {
     const { targetUserId, role } = await request.json();
 
-    if (!targetUserId || !role || !['Admin', 'Staff'].includes(role)) {
+    if (!targetUserId || !role || !['student', 'staff', 'administrator'].includes(role)) {
       return new NextResponse('Invalid request', { status: 400 });
     }
 
     const [updatedUser] = await db
       .update(users)
-      .set({ role })
+      .set({ role: role as Role })
       .where(eq(users.clerkId, targetUserId))
       .returning();
 

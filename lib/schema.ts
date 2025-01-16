@@ -1,9 +1,11 @@
 import { pgTable, serial, varchar, timestamp, text, integer, boolean } from 'drizzle-orm/pg-core';
 
+export type Role = 'student' | 'staff' | 'administrator';
+
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   clerkId: varchar('clerk_id', { length: 255 }).notNull().unique(),
-  role: varchar('role', { length: 50 }).notNull().default('Staff'),
+  role: varchar('role', { length: 50 }).notNull().default('student'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

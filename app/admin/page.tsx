@@ -24,8 +24,8 @@ export default async function AdminPage() {
   // Sync user's role with Clerk metadata
   const userRole = await syncUserRole(user.id);
 
-  // Check if user has admin role
-  const isAdmin = await hasRole(user.id, 'Admin');
+  // Check if user has administrator role
+  const isAdmin = await hasRole(user.id, 'administrator');
 
   const debugInfo = {
     userId: user.id,
@@ -39,7 +39,7 @@ export default async function AdminPage() {
       <Container>
         <Stack>
           <Title>Access Denied</Title>
-          <Text>You do not have admin privileges.</Text>
+          <Text>You do not have administrator privileges.</Text>
           <Text>Debug Information:</Text>
           <Code block>{JSON.stringify(debugInfo, null, 2)}</Code>
         </Stack>

@@ -77,7 +77,7 @@ const getNavItems = (role?: string) => {
   ];
 
   // Admin-only navigation items
-  if (role?.toLowerCase() === 'admin') {
+  if (role?.toLowerCase() === 'administrator') {
     items.push({
       label: 'Admin',
       icon: IconShield,

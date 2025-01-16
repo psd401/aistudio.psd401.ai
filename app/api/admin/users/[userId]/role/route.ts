@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { currentUser } from '@clerk/nextjs/server';
+import { currentUser, clerkClient } from '@clerk/nextjs/server';
 import { db } from '~/lib/db';
 import { users } from '~/lib/schema';
+import type { Role } from '~/lib/schema';
 import { eq } from 'drizzle-orm';
+import { hasRole } from '~/utils/roles';
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { userId: string } }
+  context: { params: Promise<{ userId: string }> }
 ) {
+  const params = await context.params;
   const user = await currentUser();
   
   if (!user) {
@@ -15,33 +18,38 @@ export async function PUT(
     return new NextResponse('Unauthorized', { status: 401 });
   }
 
-  // Check if user is admin
-  const adminUser = await db.query.users.findFirst({
-    where: eq(users.clerkId, user.id),
-  });
-
-  if (!adminUser || adminUser.role !== 'Admin') {
-    console.log('User not admin:', { userId: user.id, role: adminUser?.role });
+  // Check if user is administrator
+  const isAdmin = await hasRole(user.id, 'administrator');
+  if (!isAdmin) {
+    console.log('User not administrator:', { userId: user.id });
     return new NextResponse('Forbidden', { status: 403 });
   }
 
   try {
     const { role } = await request.json();
     
-    if (!role || !['Admin', 'Staff'].includes(role)) {
+    if (!role || !['student', 'staff', 'administrator'].includes(role)) {
       return new NextResponse('Invalid role', { status: 400 });
     }
 
-    // Update user role
+    // Update user role in database
     const [updatedUser] = await db
       .update(users)
-      .set({ role })
+      .set({ role: role as Role })
       .where(eq(users.clerkId, params.userId))
       .returning();
 
     if (!updatedUser) {
       return new NextResponse('User not found', { status: 404 });
     }
+
+    // Sync the role with Clerk
+    const client = await clerkClient();
+    await client.users.updateUserMetadata(params.userId, {
+      publicMetadata: {
+        role: role
+      },
+    });
 
     return NextResponse.json(updatedUser);
   } catch (error) {

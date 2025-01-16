@@ -12,10 +12,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Update user role to Admin
+    // Update user role to administrator
     const [updatedUser] = await db
       .update(users)
-      .set({ role: 'Admin' })
+      .set({ role: 'administrator' })
       .where(eq(users.clerkId, userId))
       .returning();
 
