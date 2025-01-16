@@ -3,14 +3,13 @@
 import { Group, ScrollArea, Image } from '@mantine/core';
 import {
   IconHome,
-  IconMessage,
   IconChalkboard,
   IconBuildingBank,
   IconBriefcase,
   IconSettings,
   IconShield,
-  IconRobot,
   IconBulb,
+  IconFlask,
 } from '@tabler/icons-react';
 import { LinksGroup } from './NavbarLinksGroup';
 import { UserButton } from './UserButton';
@@ -26,60 +25,43 @@ const getNavItems = (role?: string) => {
       link: '/dashboard'
     },
     {
-      label: 'Chat',
-      icon: IconMessage,
-      link: '/chat'
-    },
-    {
-      label: 'Teacher Assistants',
+      label: 'Instructional',
       icon: IconChalkboard,
       links: [
-        { label: 'Evaluation Assistant', link: '/teacher-assistants/evaluation' },
-        { label: 'Lesson Plan Assistant', link: '/teacher-assistants/lesson-plan' },
-        { label: 'Communication Assistant', link: '/teacher-assistants/communication' },
+        { label: 'Evaluation', link: '/instructional/evaluation' },
+        { label: 'Lesson Planning', link: '/instructional/lesson-plan' },
+        { label: 'Communication', link: '/instructional/communication' },
+        { label: 'Curriculum', link: '/instructional/curriculum' },
+        { label: 'Assessment', link: '/instructional/assessment' },
+        { label: 'Resources', link: '/instructional/resources' },
       ],
     },
     {
-      label: 'Teacher Agents',
-      icon: IconRobot,
-      links: [
-        { label: 'Curriculum Agent', link: '/teacher-agents/curriculum' },
-        { label: 'Assessment Agent', link: '/teacher-agents/assessment' },
-        { label: 'Resource Agent', link: '/teacher-agents/resources' },
-      ],
-    },
-    {
-      label: 'Operational Assistants',
+      label: 'Operational',
       icon: IconBuildingBank,
       links: [
-        { label: 'Scheduling Assistant', link: '/operational-assistants/scheduling' },
-        { label: 'Resource Assistant', link: '/operational-assistants/resources' },
+        { label: 'Scheduling', link: '/operational/scheduling' },
+        { label: 'Resources', link: '/operational/resources' },
+        { label: 'Process Management', link: '/operational/process' },
+        { label: 'Analytics', link: '/operational/analytics' },
       ],
     },
     {
-      label: 'Operational Agents',
-      icon: IconRobot,
-      links: [
-        { label: 'Process Agent', link: '/operational-agents/process' },
-        { label: 'Analytics Agent', link: '/operational-agents/analytics' },
-      ],
-    },
-    {
-      label: 'Administrative Assistants',
+      label: 'Administrative',
       icon: IconBriefcase,
       links: [
-        { label: 'Evaluation Assistant', link: '/administrative-assistants/evaluation' },
-        { label: 'Lesson Plan Assistant', link: '/administrative-assistants/lesson-plan' },
-        { label: 'Policy Assistant', link: '/administrative-assistants/policy' },
+        { label: 'Evaluation', link: '/administrative/evaluation' },
+        { label: 'Planning', link: '/administrative/planning' },
+        { label: 'Policy', link: '/administrative/policy' },
+        { label: 'Performance', link: '/administrative/performance' },
+        { label: 'Compliance', link: '/administrative/compliance' },
       ],
     },
     {
-      label: 'Administrative Agents',
-      icon: IconRobot,
+      label: 'Experiments',
+      icon: IconFlask,
       links: [
-        { label: 'Performance Agent', link: '/administrative-agents/performance' },
-        { label: 'Compliance Agent', link: '/administrative-agents/compliance' },
-        { label: 'Planning Agent', link: '/administrative-agents/planning' },
+        { label: 'Chat', link: '/chat' },
       ],
     },
     { 
