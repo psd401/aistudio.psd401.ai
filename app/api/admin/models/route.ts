@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       return new NextResponse('Unauthorized', { status: 401 });
     }
 
-    const isAdmin = await hasRole(userId, 'Admin');
+    const isAdmin = await hasRole(userId, 'administrator');
     if (!isAdmin) {
       return new NextResponse('Forbidden', { status: 403 });
     }
@@ -100,7 +100,7 @@ export async function PUT(request: Request) {
       return new NextResponse('Unauthorized', { status: 401 });
     }
 
-    const isAdmin = await hasRole(userId, 'Admin');
+    const isAdmin = await hasRole(userId, 'administrator');
     if (!isAdmin) {
       return new NextResponse('Forbidden', { status: 403 });
     }
@@ -169,7 +169,7 @@ export async function DELETE(request: Request) {
       return new NextResponse('Unauthorized', { status: 401 });
     }
 
-    const isAdmin = await hasRole(userId, 'Admin');
+    const isAdmin = await hasRole(userId, 'administrator');
     if (!isAdmin) {
       return new NextResponse('Forbidden', { status: 403 });
     }
