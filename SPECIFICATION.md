@@ -81,6 +81,107 @@ Table users {
 - Handles errors gracefully
 - Resets to initial state on error
 
+## AI Chat Integration
+
+### Chat Architecture
+- Use Vercel AI SDK for real-time chat functionality
+- Implement conversation persistence in database
+- Support multiple LLM providers through a unified interface
+
+### Database Schema
+```sql
+Table conversations {
+  id        serial    primary key
+  clerkId   text      references users(clerkId)
+  title     text      not null
+  modelId   text      references ai_models(modelId)
+  createdAt timestamp default now()
+  updatedAt timestamp default now()
+}
+
+Table messages {
+  id              serial    primary key
+  conversationId  integer   references conversations(id)
+  role           text      check (role in ('user', 'assistant'))
+  content        text      not null
+  createdAt      timestamp default now()
+}
+
+Table ai_models {
+  id          serial    primary key
+  name        text      not null
+  provider    text      not null
+  modelId     text      unique not null
+  description text
+  capabilities text     # JSON string of model capabilities
+  maxTokens   integer
+  active      boolean   default true
+  createdAt   timestamp default now()
+  updatedAt   timestamp
+}
+
+### Chat Components
+- ChatInterface component must:
+  - Handle real-time message streaming
+  - Support multiple model selection
+  - Maintain conversation state
+  - Implement proper error handling
+  - Show loading states
+  - Support message copying
+  - Format messages with proper spacing and styling
+  - Handle long messages with scrolling
+  - Support keyboard shortcuts (Shift+Enter for new lines)
+
+- ConversationsList component must:
+  - Show conversation history
+  - Support conversation title editing
+  - Allow conversation deletion
+  - Show active conversation
+  - Support creating new conversations
+  - Handle empty states
+
+### API Endpoints
+
+#### Chat Messages (/api/chat/messages)
+- POST endpoint for sending messages
+- Implements:
+  - User authentication
+  - Conversation creation/updating
+  - Message persistence
+  - LLM integration
+  - Error handling
+  - Response streaming
+
+#### Conversations (/api/chat/conversations)
+- GET endpoint for listing conversations
+- POST endpoint for creating conversations
+- DELETE endpoint for removing conversations
+- PUT endpoint for updating conversation titles
+
+#### Messages (/api/chat/conversations/[id]/messages)
+- GET endpoint for fetching conversation messages
+- Implements proper pagination
+- Orders messages chronologically
+
+### LLM Integration
+- Support multiple LLM providers
+- Implement provider-specific adapters
+- Handle rate limiting
+- Manage API keys securely
+- Support streaming responses
+- Implement fallback mechanisms
+- Monitor token usage
+
+### Testing Requirements
+- Test real-time message handling
+- Verify conversation persistence
+- Test multiple model support
+- Validate error scenarios
+- Test rate limiting
+- Verify message ordering
+- Test concurrent conversations
+- Validate streaming functionality
+
 ## API Endpoints
 
 ### User Role Management (/api/admin/users/[userId]/role)
