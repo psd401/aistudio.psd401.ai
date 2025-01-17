@@ -25,7 +25,7 @@
     "@opentelemetry/api": "^1.9.0",
     "@supabase/supabase-js": "^2.39.8",
     "@tabler/icons-react": "^3.28.1",
-    "ai": "^2.2.35",
+    "ai": "^4.0.39",
     "dotenv": "^16.4.5",
     "drizzle-orm": "^0.30.1",
     "next": "^15.1.4",
