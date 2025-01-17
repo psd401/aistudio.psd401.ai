@@ -14,6 +14,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.529.1",
     "@clerk/nextjs": "^6.9.9",
     "@emotion/react": "^11.11.4",
     "@mantine/core": "^7.7.0",
@@ -21,8 +22,10 @@
     "@mantine/hooks": "^7.7.0",
     "@mantine/modals": "^7.7.0",
     "@mantine/notifications": "^7.7.0",
+    "@opentelemetry/api": "^1.9.0",
     "@supabase/supabase-js": "^2.39.8",
     "@tabler/icons-react": "^3.28.1",
+    "ai": "^2.2.35",
     "dotenv": "^16.4.5",
     "drizzle-orm": "^0.30.1",
     "next": "^15.1.4",

@@ -15,7 +15,10 @@ export default clerkMiddleware({
     '/api/users/:path*',
     // Add ideas routes
     '/ideas(.*)',
-    '/api/ideas(.*)'
+    '/api/ideas(.*)',
+    // Add chat routes
+    '/chat(.*)',
+    '/api/chat(.*)'
   ]
 });
 

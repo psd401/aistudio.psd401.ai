@@ -54,6 +54,23 @@ export const aiModels = pgTable("ai_models", {
   updatedAt: timestamp("updated_at"),
 });
 
+export const conversations = pgTable("conversations", {
+  id: serial("id").primaryKey(),
+  clerkId: varchar("clerk_id", { length: 255 }).notNull().references(() => users.clerkId),
+  title: text("title").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  modelId: text("model_id").notNull().references(() => aiModels.modelId),
+});
+
+export const messages = pgTable("messages", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").notNull().references(() => conversations.id),
+  role: text("role").notNull(), // 'user' or 'assistant'
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 
@@ -67,4 +84,10 @@ export type IdeaVote = typeof ideaVotes.$inferSelect;
 export type NewIdeaVote = typeof ideaVotes.$inferInsert;
 
 export type AiModel = typeof aiModels.$inferSelect;
-export type NewAiModel = typeof aiModels.$inferInsert; 
+export type NewAiModel = typeof aiModels.$inferInsert;
+
+export type Conversation = typeof conversations.$inferSelect;
+export type NewConversation = typeof conversations.$inferInsert;
+
+export type Message = typeof messages.$inferSelect;
+export type NewMessage = typeof messages.$inferInsert; 
