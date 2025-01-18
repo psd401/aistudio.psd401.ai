@@ -15,17 +15,12 @@ const nextConfig = {
     domains: ['images.clerk.dev'],
   },
   webpack: (config) => {
+    // Modify cache configuration
     config.cache = {
-      type: 'filesystem',
-      buildDependencies: {
-        config: [__filename],
-      },
-      cacheDirectory: path.resolve(__dirname, '.next/cache'),
-      maxAge: 5184000000, // 60 days
-      compression: 'gzip',
-      allowCollectingMemory: true,
-      memoryCacheUnaffected: true,
+      type: 'memory',
+      maxGenerations: 1,
     };
+
     return config;
   },
 };
