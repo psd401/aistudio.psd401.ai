@@ -10,7 +10,7 @@ export async function PATCH(request: Request, context: { params: { id: string } 
   const { userId } = await auth.protect();
 
   // Only admins can change status
-  const isAdmin = await hasRole(userId, 'Admin');
+  const isAdmin = await hasRole(userId, 'administrator');
   if (!isAdmin) {
     return new NextResponse('Forbidden', { status: 403 });
   }

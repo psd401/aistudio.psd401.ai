@@ -35,8 +35,8 @@ export async function POST(request: Request, context: { params: { id: string } }
 
   // Only staff or admin can add notes
   const [isStaff, isAdmin] = await Promise.all([
-    hasRole(userId, 'Staff'),
-    hasRole(userId, 'Admin')
+    hasRole(userId, 'staff'),
+    hasRole(userId, 'administrator')
   ]);
   if (!isStaff && !isAdmin) {
     return new NextResponse('Forbidden', { status: 403 });

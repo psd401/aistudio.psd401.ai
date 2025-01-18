@@ -14,8 +14,8 @@ export async function POST(request: Request, context: { params: { id: string } }
 
   // Only staff or admin can vote
   const [isStaff, isAdmin] = await Promise.all([
-    hasRole(userId, 'Staff'),
-    hasRole(userId, 'Admin')
+    hasRole(userId, 'staff'),
+    hasRole(userId, 'administrator')
   ]);
   console.log('Role check:', { isStaff, isAdmin });
   

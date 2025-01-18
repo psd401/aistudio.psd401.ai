@@ -49,8 +49,8 @@ export async function POST(request: Request) {
 
   // Only staff or admin can create ideas
   const [isStaff, isAdmin] = await Promise.all([
-    hasRole(userId, 'Staff'),
-    hasRole(userId, 'Admin')
+    hasRole(userId, 'staff'),
+    hasRole(userId, 'administrator')
   ]);
   if (!isStaff && !isAdmin) {
     return new NextResponse('Forbidden', { status: 403 });
