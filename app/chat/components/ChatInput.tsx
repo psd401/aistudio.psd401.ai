@@ -1,125 +1,81 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Card, Group, Select, Textarea, Button } from '@mantine/core';
-import { IconSend } from '@tabler/icons-react';
-import { notifications } from '@mantine/notifications';
+import { forwardRef, useEffect, useState } from 'react';
+import { Textarea, Group, Button, Select } from '@mantine/core';
+import type { FormEvent } from 'react';
+
+interface AIModel {
+  id: number;
+  modelId: string;
+  name: string;
+}
 
 interface ChatInputProps {
   input: string;
   handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
-  handleSubmit: (e: React.FormEvent<HTMLFormElement>, model: string) => void;
+  handleSubmit: (e: FormEvent<HTMLFormElement>, model: string) => Promise<void>;
   isLoading: boolean;
 }
 
-interface Model {
-  id: number;
-  name: string;
-  modelId: string;
-  active: boolean;
-}
-
-export function ChatInput({
+export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(({
   input,
   handleInputChange,
   handleSubmit,
-  isLoading,
-}: ChatInputProps) {
-  const [models, setModels] = useState<{ value: string; label: string; }[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string | null>(null);
-  const [isLoadingModels, setIsLoadingModels] = useState(true);
+  isLoading
+}, ref) => {
+  const [models, setModels] = useState<AIModel[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>('');
 
   useEffect(() => {
-    const loadModels = async () => {
+    async function loadModels() {
       try {
-        setIsLoadingModels(true);
-        const response = await fetch('/api/chat/models');
-        if (!response.ok) {
-          throw new Error(`Failed to load models: ${response.statusText}`);
+        const response = await fetch('/api/models');
+        if (!response.ok) throw new Error('Failed to load models');
+        const data = await response.json();
+        const bedrockModels = data.filter(m => m.provider === 'amazon-bedrock');
+        setModels(bedrockModels);
+        if (bedrockModels.length > 0) {
+          setSelectedModel(bedrockModels[0].modelId);
         }
-        const data: Model[] = await response.json();
-        const activeBedrockModels = data
-          .filter(m => m.active && m.modelId.startsWith('anthropic.claude'))
-          .map(m => ({
-            value: m.modelId,
-            label: m.name
-          }));
-        
-        if (activeBedrockModels.length === 0) {
-          throw new Error('No active Claude models found');
-        }
-        
-        setModels(activeBedrockModels);
-        setSelectedModel(activeBedrockModels[0].value);
       } catch (error) {
-        notifications.show({
-          title: 'Error',
-          message: error instanceof Error ? error.message : 'Failed to load models',
-          color: 'red'
-        });
-      } finally {
-        setIsLoadingModels(false);
+        console.error('Failed to load models:', error);
       }
-    };
-
+    }
     loadModels();
   }, []);
 
-  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!selectedModel || !input.trim()) return;
-    
-    try {
-      await handleSubmit(e, selectedModel);
-    } catch (error) {
-      notifications.show({
-        title: 'Error',
-        message: error instanceof Error ? error.message : 'Failed to send message',
-        color: 'red'
-      });
-    }
-  };
-
   return (
-    <Card component="form" onSubmit={onSubmit} withBorder p="md">
-      <Group gap="sm">
+    <form onSubmit={(e) => handleSubmit(e, selectedModel)}>
+      <Group align="flex-end" style={{ padding: '16px', backgroundColor: 'var(--mantine-color-body)', borderTop: '1px solid var(--mantine-color-gray-3)' }}>
         <Select
-          data={models}
           value={selectedModel}
-          onChange={setSelectedModel}
-          placeholder="Select model"
-          style={{ width: '200px' }}
-          disabled={isLoading || isLoadingModels}
-          error={models.length === 0 && !isLoadingModels ? 'No models available' : undefined}
+          onChange={(value) => setSelectedModel(value || '')}
+          data={models.map(model => ({ 
+            value: model.modelId, 
+            label: model.name 
+          }))}
+          style={{
+            minWidth: '200px'
+          }}
         />
         <Textarea
+          ref={ref}
           placeholder="Type your message... (Shift+Enter for new line)"
           value={input}
           onChange={handleInputChange}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              if (!isLoading && input.trim() && selectedModel) {
-                onSubmit(e as any);
-              }
-            }
-          }}
           style={{ flex: 1 }}
-          disabled={isLoading || !selectedModel || isLoadingModels}
-          error={!selectedModel && !isLoadingModels ? 'Please select a model' : undefined}
           autosize
           minRows={1}
           maxRows={5}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmit(e as any as FormEvent<HTMLFormElement>, selectedModel);
+            }
+          }}
         />
-        <Button 
-          type="submit" 
-          rightSection={<IconSend size={16} />}
-          loading={isLoading}
-          disabled={!input.trim() || !selectedModel || isLoadingModels}
-        >
-          Send
-        </Button>
+        <Button type="submit" loading={isLoading}>Send</Button>
       </Group>
-    </Card>
+    </form>
   );
-} 
+}); 

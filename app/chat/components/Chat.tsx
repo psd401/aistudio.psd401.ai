@@ -1,35 +1,24 @@
 'use client';
 
-import { useChat, type Message as MessageType } from 'ai/react';
-import { Card, Stack, Text, ScrollArea, Group, Button } from '@mantine/core';
-import { IconReload, IconPlayerStop } from '@tabler/icons-react';
-import { Message as MessageComponent } from './Message';
-import { ChatInput as ChatInputComponent } from './ChatInput';
-import { useRef, useEffect, useCallback } from 'react';
-import type { FormEvent, ReactElement } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
+import { Stack, ScrollArea, Group, Button, Text, ActionIcon } from '@mantine/core';
+import { useChat } from 'ai/react';
 import { notifications } from '@mantine/notifications';
+import { IconReload, IconPlayerStop, IconPlus } from '@tabler/icons-react';
+import { Message } from './Message';
+import { ChatInput } from './ChatInput';
+import type { FormEvent } from 'react';
 
 interface ChatProps {
-  initialMessages?: MessageType[];
   conversationId?: number;
 }
 
-export function Chat({ initialMessages = [], conversationId }: ChatProps): ReactElement {
+export function Chat({ conversationId }: ChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  
-  const {
-    messages,
-    input,
-    handleInputChange,
-    handleSubmit: handleChatSubmit,
-    isLoading,
-    error,
-    reload,
-    stop,
-  } = useChat({
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const { messages, input, handleInputChange, handleSubmit: handleChatSubmit, isLoading, error, reload, stop } = useChat({
     api: '/api/chat',
     id: conversationId?.toString(),
-    initialMessages,
     body: {
       conversationId,
     },
@@ -57,21 +46,34 @@ export function Chat({ initialMessages = [], conversationId }: ChatProps): React
       if (scrollRef.current) {
         scrollRef.current.scrollTo({
           top: scrollRef.current.scrollHeight,
-          behavior: 'smooth',
+          behavior: 'smooth'
         });
       }
     }
   });
 
-  // Scroll to bottom when messages change
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior: 'smooth',
+    if (conversationId) {
+      loadConversation();
+    }
+  }, [conversationId]);
+
+  async function loadConversation() {
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}/messages`);
+      if (!response.ok) {
+        throw new Error('Failed to load conversation');
+      }
+      const messages = await response.json();
+      reload(messages);
+    } catch (error) {
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to load conversation history',
+        color: 'red'
       });
     }
-  }, [messages]);
+  }
 
   const handleSubmit = useCallback(async (e: FormEvent<HTMLFormElement>, model: string) => {
     e.preventDefault();
@@ -85,68 +87,79 @@ export function Chat({ initialMessages = [], conversationId }: ChatProps): React
       notifications.show({
         title: 'Error',
         message: error instanceof Error ? error.message : 'Failed to send message',
-        color: 'red',
-        autoClose: 5000
+        color: 'red'
       });
     }
   }, [handleChatSubmit]);
 
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [messages]);
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [messages]);
+
   return (
-    <Stack h="100%" gap="md">
-      <Card withBorder flex={1} p={0}>
-        <ScrollArea h="calc(100vh - 200px)" viewportRef={scrollRef}>
-          <Stack gap="md" p="md">
-            {messages.length === 0 ? (
-              <Text c="dimmed" ta="center" pt="xl">
-                Start a new conversation by typing a message
-              </Text>
-            ) : (
-              messages.map((message) => (
-                <MessageComponent
-                  key={message.id}
-                  message={message}
-                />
-              ))
-            )}
-            {error && (
-              <Text c="red" ta="center">
-                {error.message || 'An error occurred. Please try again.'}
-              </Text>
-            )}
-          </Stack>
-        </ScrollArea>
-      </Card>
-
-      <Group justify="center" mb="xs">
-        {isLoading && (
-          <Button
-            variant="light"
-            color="red"
-            size="xs"
-            leftSection={<IconPlayerStop size={16} />}
-            onClick={() => stop()}
-          >
-            Stop Generating
-          </Button>
+    <Stack style={{ height: '100%', position: 'relative' }}>
+      <ScrollArea style={{ height: 'calc(100vh - 180px)', padding: '16px' }}>
+        {messages.map((message) => (
+          <Message key={message.id} message={message} />
+        ))}
+        {messages.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--mantine-color-gray-6)' }}>
+            Start a new conversation by typing a message
+          </div>
         )}
-        {error && (
-          <Button
-            variant="light"
-            size="xs"
-            leftSection={<IconReload size={16} />}
-            onClick={() => reload()}
-          >
-            Retry
-          </Button>
-        )}
-      </Group>
+      </ScrollArea>
 
-      <ChatInputComponent
+      {isLoading && (
+        <ActionIcon
+          variant="light"
+          color="red"
+          size="md"
+          onClick={() => stop()}
+          style={{
+            position: 'absolute',
+            bottom: '140px',
+            right: '24px',
+            zIndex: 1000
+          }}
+        >
+          <IconPlayerStop size={20} />
+        </ActionIcon>
+      )}
+
+      <ChatInput
+        ref={inputRef}
         input={input}
         handleInputChange={handleInputChange}
         handleSubmit={handleSubmit}
         isLoading={isLoading}
       />
+
+      <ActionIcon
+        variant="filled"
+        color="blue"
+        size="xl"
+        radius="xl"
+        onClick={() => handleSubmit(new Event('click') as any, '')}
+        style={{
+          position: 'fixed',
+          bottom: '100px',
+          right: '24px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+        }}
+      >
+        <IconPlus size={24} />
+      </ActionIcon>
     </Stack>
   );
 } 

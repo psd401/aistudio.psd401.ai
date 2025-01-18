@@ -78,7 +78,9 @@ export async function POST(req: NextRequest) {
           await db.transaction(async (tx) => {
             // Handle conversation
             let activeConversationId = conversationId;
+            
             if (!activeConversationId) {
+              // Only create a new conversation if we don't have one
               console.log('Creating new conversation...');
               const [newConversation] = await tx
                 .insert(conversations)
@@ -92,8 +94,8 @@ export async function POST(req: NextRequest) {
               activeConversationId = newConversation.id;
               console.log('Created conversation:', newConversation);
             } else {
+              // Update existing conversation's timestamp
               console.log('Using existing conversation:', activeConversationId);
-              // Update conversation timestamp for existing conversation
               await tx
                 .update(conversations)
                 .set({ updatedAt: new Date() })
