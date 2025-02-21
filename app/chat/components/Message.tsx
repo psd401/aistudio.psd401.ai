@@ -1,7 +1,8 @@
 'use client';
 
-import { Paper, Text } from '@mantine/core';
+import { Card, CardContent } from '@/components/ui/card';
 import type { Message as MessageType } from 'ai';
+import { cn } from '@/lib/utils';
 
 interface MessageProps {
   message: MessageType;
@@ -11,28 +12,21 @@ export function Message({ message }: MessageProps) {
   const isUser = message.role === 'user';
 
   return (
-    <div style={{ 
-      display: 'flex', 
-      justifyContent: isUser ? 'flex-end' : 'flex-start',
-      marginBottom: '16px'
-    }}>
-      <Paper
-        p="md"
-        style={{
-          maxWidth: '80%',
-          backgroundColor: isUser ? 'var(--mantine-color-blue-1)' : 'var(--mantine-color-gray-1)',
-          borderRadius: '12px',
-          borderTopRightRadius: isUser ? '4px' : '12px',
-          borderTopLeftRadius: isUser ? '12px' : '4px'
-        }}
-      >
-        <Text style={{ 
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word'
-        }}>
-          {message.content}
-        </Text>
-      </Paper>
+    <div className={cn(
+      "flex mb-4",
+      isUser ? "justify-end" : "justify-start"
+    )}>
+      <Card className={cn(
+        "max-w-[80%] border-0",
+        isUser ? "bg-blue-50 dark:bg-blue-950" : "bg-muted",
+        isUser ? "rounded-tr-sm" : "rounded-tl-sm"
+      )}>
+        <CardContent className="p-4">
+          <p className="whitespace-pre-wrap break-words">
+            {message.content}
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 } 

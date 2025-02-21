@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useCallback } from 'react';
-import { Stack, ScrollArea, Group, Button, Text, ActionIcon } from '@mantine/core';
 import { useChat } from 'ai/react';
-import { notifications } from '@mantine/notifications';
 import { IconReload, IconPlayerStop, IconPlus } from '@tabler/icons-react';
 import { Message } from './Message';
 import { ChatInput } from './ChatInput';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { useToast } from '@/components/ui/use-toast';
 import type { FormEvent } from 'react';
 
 interface ChatProps {
@@ -16,6 +17,7 @@ interface ChatProps {
 export function Chat({ conversationId }: ChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const { toast } = useToast();
   const { messages, input, handleInputChange, handleSubmit: handleChatSubmit, isLoading, error, reload, stop } = useChat({
     api: '/api/chat',
     id: conversationId?.toString(),
@@ -26,20 +28,18 @@ export function Chat({ conversationId }: ChatProps) {
     maxSteps: 10,
     onResponse: (response) => {
       if (!response.ok) {
-        notifications.show({
+        toast({
           title: 'Error',
-          message: `Failed to send message: ${response.statusText}`,
-          color: 'red',
-          autoClose: 5000
+          description: `Failed to send message: ${response.statusText}`,
+          variant: 'destructive',
         });
       }
     },
     onError: (error) => {
-      notifications.show({
+      toast({
         title: 'Error',
-        message: error.message || 'An error occurred while sending your message',
-        color: 'red',
-        autoClose: 5000
+        description: error.message || 'An error occurred while sending your message',
+        variant: 'destructive',
       });
     },
     onFinish: () => {
@@ -67,10 +67,10 @@ export function Chat({ conversationId }: ChatProps) {
       const messages = await response.json();
       reload(messages);
     } catch (error) {
-      notifications.show({
+      toast({
         title: 'Error',
-        message: 'Failed to load conversation history',
-        color: 'red'
+        description: 'Failed to load conversation history',
+        variant: 'destructive',
       });
     }
   }
@@ -84,13 +84,13 @@ export function Chat({ conversationId }: ChatProps) {
         }
       });
     } catch (error) {
-      notifications.show({
+      toast({
         title: 'Error',
-        message: error instanceof Error ? error.message : 'Failed to send message',
-        color: 'red'
+        description: error instanceof Error ? error.message : 'Failed to send message',
+        variant: 'destructive',
       });
     }
-  }, [handleChatSubmit]);
+  }, [handleChatSubmit, toast]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -108,33 +108,29 @@ export function Chat({ conversationId }: ChatProps) {
   }, [messages]);
 
   return (
-    <Stack style={{ height: '100%', position: 'relative' }}>
-      <ScrollArea style={{ height: 'calc(100vh - 180px)', padding: '16px' }}>
-        {messages.map((message) => (
-          <Message key={message.id} message={message} />
-        ))}
-        {messages.length === 0 && (
-          <div style={{ textAlign: 'center', color: 'var(--mantine-color-gray-6)' }}>
-            Start a new conversation by typing a message
-          </div>
-        )}
+    <div className="flex flex-col h-full relative">
+      <ScrollArea ref={scrollRef} className="flex-1 h-[calc(100vh-180px)] p-4">
+        <div className="space-y-4">
+          {messages.map((message) => (
+            <Message key={message.id} message={message} />
+          ))}
+          {messages.length === 0 && (
+            <div className="text-center text-muted-foreground">
+              Start a new conversation by typing a message
+            </div>
+          )}
+        </div>
       </ScrollArea>
 
       {isLoading && (
-        <ActionIcon
-          variant="light"
-          color="red"
-          size="md"
+        <Button
+          variant="outline"
+          size="icon"
+          className="absolute bottom-36 right-6 z-50"
           onClick={() => stop()}
-          style={{
-            position: 'absolute',
-            bottom: '140px',
-            right: '24px',
-            zIndex: 1000
-          }}
         >
-          <IconPlayerStop size={20} />
-        </ActionIcon>
+          <IconPlayerStop className="h-5 w-5" />
+        </Button>
       )}
 
       <ChatInput
@@ -145,21 +141,13 @@ export function Chat({ conversationId }: ChatProps) {
         isLoading={isLoading}
       />
 
-      <ActionIcon
-        variant="filled"
-        color="blue"
-        size="xl"
-        radius="xl"
+      <Button
+        size="icon"
+        className="fixed bottom-24 right-6 h-12 w-12 rounded-full shadow-lg"
         onClick={() => handleSubmit(new Event('click') as any, '')}
-        style={{
-          position: 'fixed',
-          bottom: '100px',
-          right: '24px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
-        }}
       >
-        <IconPlus size={24} />
-      </ActionIcon>
-    </Stack>
+        <IconPlus className="h-6 w-6" />
+      </Button>
+    </div>
   );
 } 

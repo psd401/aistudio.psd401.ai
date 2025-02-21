@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Stack, Text, Button, NavLink } from '@mantine/core';
+import { Button } from '@/components/ui/button';
 import { IconMessage, IconPlus } from '@tabler/icons-react';
 import { usePathname, useRouter } from 'next/navigation';
+import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
 interface Conversation {
   id: number;
@@ -37,33 +39,37 @@ export function ConversationsList() {
   };
 
   return (
-    <Stack gap="md">
+    <div className="flex flex-col gap-4">
       <Button
-        leftSection={<IconPlus size={16} />}
-        variant="light"
+        variant="outline"
         onClick={handleNewChat}
+        className="flex items-center gap-2"
       >
+        <IconPlus className="h-4 w-4" />
         New Chat
       </Button>
 
-      <Stack gap="xs">
+      <div className="space-y-1">
         {conversations.length === 0 ? (
-          <Text c="dimmed" ta="center" size="sm">
+          <p className="text-sm text-muted-foreground text-center">
             No conversations yet
-          </Text>
+          </p>
         ) : (
           conversations.map((conversation) => (
-            <NavLink
+            <Link
               key={conversation.id}
-              component="a"
               href={`/chat/${conversation.id}`}
-              label={conversation.title}
-              leftSection={<IconMessage size={16} />}
-              active={pathname === `/chat/${conversation.id}`}
-            />
+              className={cn(
+                "flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-accent",
+                pathname === `/chat/${conversation.id}` && "bg-accent"
+              )}
+            >
+              <IconMessage className="h-4 w-4" />
+              <span className="truncate">{conversation.title}</span>
+            </Link>
           ))
         )}
-      </Stack>
-    </Stack>
+      </div>
+    </div>
   );
 } 

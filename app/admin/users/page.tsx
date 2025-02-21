@@ -1,17 +1,28 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Text, LoadingOverlay } from '@mantine/core';
 import { useAuth } from '@clerk/nextjs';
-import { modals } from '@mantine/modals';
-import { notifications } from '@mantine/notifications';
-import { UsersTable } from '@/components/UsersTable';
+import { UsersTable } from '@/components/user/users-table';
 import { User } from '@/lib/types';
+import { useToast } from '@/components/ui/use-toast';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<{ id: number; clerkId: string } | null>(null);
   const { userId } = useAuth();
+  const { toast } = useToast();
 
   const fetchUsers = async () => {
     try {
@@ -20,10 +31,10 @@ export default function AdminUsersPage() {
       const data = await response.json();
       setUsers(data);
     } catch (error) {
-      notifications.show({
+      toast({
         title: 'Error',
-        message: 'Failed to load users',
-        color: 'red',
+        description: 'Failed to load users',
+        variant: 'destructive',
       });
     } finally {
       setLoading(false);
@@ -48,64 +59,84 @@ export default function AdminUsersPage() {
         user.id === userId ? { ...user, role: newRole } : user
       ));
 
-      notifications.show({
+      toast({
         title: 'Success',
-        message: 'User role updated successfully',
-        color: 'green',
+        description: 'User role updated successfully',
+        variant: 'default',
       });
     } catch (error) {
-      notifications.show({
+      toast({
         title: 'Error',
-        message: 'Failed to update user role',
-        color: 'red',
+        description: 'Failed to update user role',
+        variant: 'destructive',
       });
     }
   };
 
   const handleDeleteUser = async (userId: number, clerkId: string) => {
-    modals.openConfirmModal({
-      title: 'Delete User',
-      children: (
-        <Text size="sm">
-          Are you sure you want to delete this user? This action cannot be undone.
-        </Text>
-      ),
-      labels: { confirm: 'Delete', cancel: 'Cancel' },
-      confirmProps: { color: 'red' },
-      onConfirm: async () => {
-        try {
-          const response = await fetch(`/api/admin/users/${userId}`, {
-            method: 'DELETE',
-          });
-          
-          if (!response.ok) throw new Error('Failed to delete user');
-          
-          setUsers(users.filter(user => user.id !== userId));
-          notifications.show({
-            title: 'Success',
-            message: 'User deleted successfully',
-            color: 'green',
-          });
-        } catch (error) {
-          notifications.show({
-            title: 'Error',
-            message: 'Failed to delete user',
-            color: 'red',
-          });
-        }
-      },
-    });
+    setUserToDelete({ id: userId, clerkId });
+    setShowDeleteDialog(true);
   };
 
+  const confirmDelete = async () => {
+    if (!userToDelete) return;
+
+    try {
+      const response = await fetch(`/api/admin/users/${userToDelete.id}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) throw new Error('Failed to delete user');
+      
+      setUsers(users.filter(user => user.id !== userToDelete.id));
+      toast({
+        title: 'Success',
+        description: 'User deleted successfully',
+        variant: 'default',
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to delete user',
+        variant: 'destructive',
+      });
+    } finally {
+      setShowDeleteDialog(false);
+      setUserToDelete(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-[200px] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
   return (
-    <div style={{ position: 'relative', padding: '20px' }}>
-      <LoadingOverlay visible={loading} />
+    <div className="p-6">
       <UsersTable
         users={users}
         currentUserId={userId}
         onRoleChange={handleRoleChange}
         onDeleteUser={handleDeleteUser}
       />
+
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete User</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this user? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 } 

@@ -1,9 +1,6 @@
-import '@mantine/core/styles.css';
+import '@/app/globals.css';
 import { ClerkProvider } from '@clerk/nextjs';
-import { ColorSchemeScript } from '@mantine/core';
-import { MantineClientProvider } from '../components/MantineClientProvider';
-import { NavbarNested } from '../components/NavbarNested';
-import { Group } from '@mantine/core';
+import { NavbarNested } from '@/components/navigation/navbar-nested';
 import { auth } from '@clerk/nextjs/server';
 
 export const metadata = {
@@ -21,22 +18,18 @@ export default async function RootLayout({
   return (
     <ClerkProvider>
       <html lang="en" suppressHydrationWarning>
-        <head>
-          <ColorSchemeScript defaultColorScheme="light" />
-        </head>
+        <head />
         <body suppressHydrationWarning>
-          <MantineClientProvider>
-            {userId ? (
-              <Group align="flex-start" wrap="nowrap">
-                <NavbarNested />
-                <main style={{ flex: 1, padding: 'var(--mantine-spacing-md)' }}>
-                  {children}
-                </main>
-              </Group>
-            ) : (
-              children
-            )}
-          </MantineClientProvider>
+          {userId ? (
+            <div className="flex min-h-screen">
+              <NavbarNested />
+              <main className="flex-1 p-4">
+                {children}
+              </main>
+            </div>
+          ) : (
+            children
+          )}
         </body>
       </html>
     </ClerkProvider>

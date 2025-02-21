@@ -1,5 +1,5 @@
-import { FeaturesCards } from '~/components/FeaturesCards';
-import { Faq } from '~/components/Faq';
+import { FeaturesCards } from '@/components/features/features-cards';
+import { Faq } from '@/components/features/faq';
 
 export default function DashboardPage() {
   return (

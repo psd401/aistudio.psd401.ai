@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { UserRoleForm } from '../../../components/UserRoleForm';
+import { UserRoleForm } from '../../../components/user/user-role-form';
 import { TestWrapper } from '../../utils';
 
 describe('UserRoleForm', () => {

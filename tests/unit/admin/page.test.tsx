@@ -3,11 +3,11 @@ import AdminPage from '../../../app/admin/page';
 import { redirect } from 'next/navigation';
 import { auth } from '@clerk/nextjs';
 import { db } from '../../../lib/db';
-import { MantineProvider } from '@mantine/core';
 import { eq } from 'drizzle-orm';
 import { users } from '../../../lib/db/schema';
+import { TestWrapper } from '../../utils';
 
-// Mock scrollIntoView for Mantine components
+// Mock scrollIntoView for tests
 window.HTMLElement.prototype.scrollIntoView = jest.fn();
 
 jest.mock('next/navigation', () => ({
@@ -32,12 +32,6 @@ jest.mock('../../../lib/db', () => ({
     }
   }
 }));
-
-const TestWrapper = ({ children }: { children: React.ReactNode }) => (
-  <MantineProvider>
-    {children}
-  </MantineProvider>
-);
 
 describe('AdminPage', () => {
   const mockAdminUser = {

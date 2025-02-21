@@ -1,5 +1,4 @@
 import { currentUser } from '@clerk/nextjs/server';
-import { Container, Title, Text, Stack, Code } from '@mantine/core';
 import { db } from '~/lib/db';
 import { users, aiModels } from '~/lib/schema';
 import { eq } from 'drizzle-orm';
@@ -9,10 +8,10 @@ import { AdminClientWrapper } from './components/AdminClientWrapper';
 export default async function AdminPage() {
   const user = await currentUser();
   if (!user?.id) return (
-    <Container>
-      <Title>Not Authenticated</Title>
-      <Text>Please sign in to continue.</Text>
-    </Container>
+    <div className="container">
+      <h1 className="text-3xl font-bold">Not Authenticated</h1>
+      <p className="text-muted-foreground">Please sign in to continue.</p>
+    </div>
   );
 
   // Get user directly from DB first for debugging
@@ -36,14 +35,16 @@ export default async function AdminPage() {
 
   if (!isAdmin) {
     return (
-      <Container>
-        <Stack>
-          <Title>Access Denied</Title>
-          <Text>You do not have administrator privileges.</Text>
-          <Text>Debug Information:</Text>
-          <Code block>{JSON.stringify(debugInfo, null, 2)}</Code>
-        </Stack>
-      </Container>
+      <div className="container">
+        <div className="space-y-4">
+          <h1 className="text-3xl font-bold">Access Denied</h1>
+          <p className="text-muted-foreground">You do not have administrator privileges.</p>
+          <p className="text-muted-foreground">Debug Information:</p>
+          <pre className="rounded-lg bg-muted p-4 font-mono text-sm">
+            {JSON.stringify(debugInfo, null, 2)}
+          </pre>
+        </div>
+      </div>
     );
   }
 

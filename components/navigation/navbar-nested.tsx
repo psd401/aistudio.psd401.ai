@@ -1,6 +1,14 @@
 'use client';
 
-import { Group, ScrollArea, Image } from '@mantine/core';
+import { useState } from 'react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { useUser } from '@clerk/nextjs';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
+import { Menu } from 'lucide-react';
 import {
   IconHome,
   IconChalkboard,
@@ -11,11 +19,8 @@ import {
   IconBulb,
   IconFlask,
 } from '@tabler/icons-react';
-import { LinksGroup } from './NavbarLinksGroup';
-import { UserButton } from './UserButton';
-import Link from 'next/link';
-import { useUser } from '@clerk/nextjs';
-import classes from './NavbarNested.module.css';
+import { LinksGroup } from './navbar-links-group';
+import { UserButton } from '../user/user-button';
 
 const getNavItems = (role?: string) => {
   const items = [
@@ -88,31 +93,59 @@ const getNavItems = (role?: string) => {
   return items;
 };
 
-export function NavbarNested() {
+function NavigationContent() {
   const { user } = useUser();
   const role = user?.publicMetadata?.role as string;
   const links = getNavItems(role).map((item) => <LinksGroup {...item} key={item.label} />);
 
   return (
-    <nav className={classes.navbar}>
-      <div className={classes.header}>
-        <div className={classes.logoContainer}>
-          <Link href="/dashboard" className={classes.logoLink}>
-            <Image
-              src="/logo.png"
-              alt="PSD401.AI"
-              w={96}
-              fit="contain"
-            />
-          </Link>
-        </div>
+    <div className="flex h-screen flex-col">
+      <div className="border-b p-4">
+        <Link href="/dashboard" className="flex items-center justify-center">
+          <Image
+            src="/logo.png"
+            alt="PSD401.AI"
+            width={96}
+            height={40}
+            className="object-contain"
+          />
+        </Link>
       </div>
 
-      <ScrollArea className={classes.links}>
-        <div className={classes.linksInner}>{links}</div>
+      <ScrollArea className="flex-1 px-3">
+        <div className="py-2">{links}</div>
       </ScrollArea>
 
-      <UserButton />
-    </nav>
+      <Separator />
+      <div className="p-4">
+        <UserButton />
+      </div>
+    </div>
+  );
+}
+
+export function NavbarNested() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      {/* Mobile Navigation */}
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetTrigger asChild className="lg:hidden">
+          <Button variant="ghost" size="icon" className="md:hidden">
+            <Menu className="h-6 w-6" />
+            <span className="sr-only">Toggle navigation menu</span>
+          </Button>
+        </SheetTrigger>
+        <SheetContent side="left" className="w-[300px] p-0">
+          <NavigationContent />
+        </SheetContent>
+      </Sheet>
+
+      {/* Desktop Navigation */}
+      <nav className="hidden lg:block h-screen w-[300px] border-r bg-background">
+        <NavigationContent />
+      </nav>
+    </>
   );
 } 

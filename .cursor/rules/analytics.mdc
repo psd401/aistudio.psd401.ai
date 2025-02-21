@@ -1,0 +1,7 @@
+---
+description: Follow these rules when working on analytics.
+globs: 
+---
+### Analytics Rules
+
+It uses PostHog for analytics.

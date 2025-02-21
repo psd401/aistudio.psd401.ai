@@ -1,29 +1,27 @@
 'use client';
 
 import { IconBrain, IconShield, IconSpeedboat } from '@tabler/icons-react';
-import { Container, SimpleGrid, Text, Badge } from '@mantine/core';
-import classes from './FeaturesCards.module.css';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 
-interface FeatureProps extends React.ComponentPropsWithoutRef<'div'> {
+interface FeatureProps {
   icon: React.FC<any>;
   title: string;
   description: string;
 }
 
-function Feature({ icon: Icon, title, description, className, ...others }: FeatureProps) {
+function Feature({ icon: Icon, title, description }: FeatureProps) {
   return (
-    <div className={classes.feature} {...others}>
-      <div className={classes.overlay} />
-      <div className={classes.content}>
-        <Icon size={38} className={classes.icon} stroke={1.5} />
-        <Text fw={700} fz="lg" className={classes.title}>
-          {title}
-        </Text>
-        <Text c="dimmed" fz="sm" className={classes.description}>
-          {description}
-        </Text>
-      </div>
-    </div>
+    <Card className="relative overflow-hidden">
+      <div className="absolute h-24 w-40 top-0 left-0 bg-blue-100/20 rounded-br-[60%] rounded-tl-lg" />
+      <CardHeader>
+        <Icon size={38} className="text-blue-600 mb-2" stroke={1.5} />
+        <CardTitle className="text-lg font-bold">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-muted-foreground text-sm leading-relaxed">{description}</p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -52,21 +50,21 @@ export function FeaturesCards() {
   const items = features.map((item) => <Feature {...item} key={item.title} />);
 
   return (
-    <Container mt={30} mb={30} size="lg">
-      <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-        <Badge variant="filled" size="lg">
+    <div className="container mx-auto py-8">
+      <div className="text-center mb-12">
+        <Badge variant="default" className="text-lg px-4 py-2">
           PENINSULA SCHOOL DISTRICT
         </Badge>
-        <Text fz="3rem" fw={900} style={{ marginTop: '1rem' }}>
+        <h1 className="text-5xl font-black mt-4">
           AI Tools for Education
-        </Text>
-        <Text c="dimmed" size="lg" maw={600} mx="auto" mt="1rem">
+        </h1>
+        <p className="text-lg text-muted-foreground mt-4 max-w-xl mx-auto">
           Empowering teachers and students with custom-built artificial intelligence solutions
-        </Text>
+        </p>
       </div>
-      <SimpleGrid cols={{ base: 1, sm: 3 }} spacing={50}>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {items}
-      </SimpleGrid>
-    </Container>
+      </div>
+    </div>
   );
 } 

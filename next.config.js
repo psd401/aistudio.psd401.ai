@@ -3,7 +3,6 @@ const path = require('path');
 
 const nextConfig = {
   reactStrictMode: true,
-  transpilePackages: ['@mantine/core', '@mantine/hooks', '@mantine/modals', '@mantine/notifications'],
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -12,7 +11,12 @@ const nextConfig = {
   },
   output: 'standalone',
   images: {
-    domains: ['images.clerk.dev'],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'img.clerk.com',
+      },
+    ],
   },
   webpack: (config) => {
     // Modify cache configuration

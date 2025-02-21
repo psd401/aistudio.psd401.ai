@@ -4,7 +4,7 @@ export default function ChatLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div style={{ width: '100%', padding: 'var(--mantine-spacing-md)' }}>
+    <div className="w-full p-4">
       {children}
     </div>
   );

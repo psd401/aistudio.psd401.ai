@@ -1,6 +1,5 @@
 'use client';
 
-import { Group } from '@mantine/core';
 import { Chat } from './components/Chat';
 import { ConversationList } from './components/ConversationList';
 import { useEffect, useState } from 'react';
@@ -62,7 +61,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 60px)' }}>
+    <div className="flex h-[calc(100vh-60px)]">
       <ConversationList
         conversations={conversations}
         activeConversationId={activeConversationId}
@@ -70,7 +69,7 @@ export default function ChatPage() {
         onConversationRename={handleRename}
         onConversationSelect={handleSelect}
       />
-      <div style={{ flex: 1, height: '100%', maxWidth: 'calc(100% - 240px)' }}>
+      <div className="flex-1 h-full max-w-[calc(100%-240px)]">
         <Chat conversationId={activeConversationId} />
       </div>
     </div>

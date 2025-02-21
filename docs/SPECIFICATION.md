@@ -81,6 +81,15 @@ Table users {
 - Handles errors gracefully
 - Resets to initial state on error
 
+### UI Components
+- Use Shadcn components for consistent design
+- Follow Tailwind CSS best practices
+- Maintain consistent spacing using Tailwind's spacing system
+- Implement proper dark mode support
+- Use Shadcn's built-in components where possible
+- Implement proper form validation using React Hook Form
+- Client-side validation using Zod schema validation
+
 ## AI Chat Integration
 
 ### Chat Architecture
@@ -119,6 +128,7 @@ Table ai_models {
   createdAt   timestamp default now()
   updatedAt   timestamp
 }
+```
 
 ### Chat Components
 - ChatInterface component must:

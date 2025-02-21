@@ -1,10 +1,14 @@
 'use client';
 
-import { Container, Title, Text, Stack, Tabs, Group, Button, Checkbox, Select } from '@mantine/core';
-import { AiModelsClient } from '~/components/AiModelsClient';
-import { UserRoleForm } from '~/components/UserRoleForm';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { AiModelsClient } from '@/components/features/ai-models-client';
+import { UserRoleForm } from '@/components/user/user-role-form';
 import type { User, AiModel } from '~/lib/schema';
 import { useEffect, useState } from 'react';
+import { useToast } from '@/components/ui/use-toast';
 
 interface AdminClientWrapperProps {
   currentUser: {
@@ -29,6 +33,7 @@ export function AdminClientWrapper({ currentUser, users, models }: AdminClientWr
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [bulkRole, setBulkRole] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const { toast } = useToast();
   
   useEffect(() => {
     // Fetch user details from Clerk for each user
@@ -67,69 +72,81 @@ export function AdminClientWrapper({ currentUser, users, models }: AdminClientWr
       setSelectedUsers([]);
       setBulkRole(null);
       
+      toast({
+        title: 'Success',
+        description: 'User roles updated successfully',
+        variant: 'default',
+      });
+      
       // Refresh the page to show updated roles
       window.location.reload();
     } catch (error) {
       console.error('Error updating roles:', error);
-      alert('Failed to update some user roles');
+      toast({
+        title: 'Error',
+        description: 'Failed to update some user roles',
+        variant: 'destructive',
+      });
     } finally {
       setIsUpdating(false);
     }
   };
   
   return (
-    <Container size="xl">
-      <Title>Admin Dashboard</Title>
-      <Text mb="lg">Welcome back, {displayName}!</Text>
+    <div className="container">
+      <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+      <p className="text-muted-foreground mb-8">Welcome back, {displayName}!</p>
       
-      <Tabs defaultValue="users">
-        <Tabs.List>
-          <Tabs.Tab value="users">Users</Tabs.Tab>
-          <Tabs.Tab value="models">AI Models</Tabs.Tab>
-        </Tabs.List>
+      <Tabs defaultValue="users" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="users">Users</TabsTrigger>
+          <TabsTrigger value="models">AI Models</TabsTrigger>
+        </TabsList>
 
-        <Tabs.Panel value="users" pt="xl">
+        <TabsContent value="users">
           {selectedUsers.length > 0 && (
-            <Group mb="md">
+            <div className="flex items-center gap-4 mb-6">
               <Select
-                value={bulkRole}
-                onChange={setBulkRole}
-                data={[
-                  { value: 'student', label: 'Student' },
-                  { value: 'staff', label: 'Staff' },
-                  { value: 'administrator', label: 'Administrator' }
-                ]}
-                placeholder="Select role for selected users"
-              />
+                value={bulkRole || ''}
+                onValueChange={setBulkRole}
+              >
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Select role for users" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="student">Student</SelectItem>
+                  <SelectItem value="staff">Staff</SelectItem>
+                  <SelectItem value="administrator">Administrator</SelectItem>
+                </SelectContent>
+              </Select>
               <Button 
                 onClick={handleBulkUpdate}
-                loading={isUpdating}
-                disabled={!bulkRole}
+                disabled={!bulkRole || isUpdating}
               >
                 Update Selected Users
               </Button>
               <Button 
-                variant="subtle" 
+                variant="outline" 
                 onClick={() => setSelectedUsers([])}
                 disabled={isUpdating}
               >
                 Clear Selection
               </Button>
-            </Group>
+            </div>
           )}
           
-          <Stack>
+          <div className="space-y-4">
             {users.map(user => {
               const details = userDetails[user.clerkId];
               const userName = details ? `${details.firstName || ''} ${details.lastName || ''}`.trim() : '';
               const userEmail = details?.emailAddresses[0]?.emailAddress;
               
               return (
-                <Group key={user.id} align="center">
+                <div key={user.id} className="flex items-center gap-4">
                   <Checkbox
+                    id={`user-${user.id}`}
                     checked={selectedUsers.includes(user.clerkId)}
-                    onChange={(event) => {
-                      const checked = event.currentTarget.checked;
+                    onCheckedChange={(checked) => {
                       setSelectedUsers(old => 
                         checked
                           ? [...old, user.clerkId]
@@ -145,16 +162,16 @@ export function AdminClientWrapper({ currentUser, users, models }: AdminClientWr
                     userEmail={userEmail}
                     disabled={isUpdating || selectedUsers.length > 0}
                   />
-                </Group>
+                </div>
               );
             })}
-          </Stack>
-        </Tabs.Panel>
+          </div>
+        </TabsContent>
 
-        <Tabs.Panel value="models" pt="xl">
+        <TabsContent value="models">
           <AiModelsClient initialModels={models} />
-        </Tabs.Panel>
+        </TabsContent>
       </Tabs>
-    </Container>
+    </div>
   );
 } 

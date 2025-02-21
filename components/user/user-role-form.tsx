@@ -1,6 +1,6 @@
 'use client';
 
-import { Select, Group, Text } from '@mantine/core';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useState } from 'react';
 
 interface UserRoleFormProps {
@@ -39,26 +39,26 @@ export function UserRoleForm({ userId, initialRole, userName, userEmail, disable
   }
 
   return (
-    <Group align="center" gap="md" style={{ flex: 1 }}>
-      {userName && <Text fw={500}>{userName}</Text>}
-      {userEmail && <Text size="sm" c="dimmed">{userEmail}</Text>}
+    <div className="flex items-center gap-4 flex-1">
+      {userName && <div className="font-medium">{userName}</div>}
+      {userEmail && <div className="text-sm text-muted-foreground">{userEmail}</div>}
       <Select
-        data-testid="role-select"
-        name="role"
-        value={role}
-        onChange={(value) => {
-          if (value) {
-            setRole(value);
-            updateRole(value);
-          }
+        defaultValue={role}
+        onValueChange={(value) => {
+          setRole(value);
+          updateRole(value);
         }}
-        data={[
-          { value: 'student', label: 'Student' },
-          { value: 'staff', label: 'Staff' },
-          { value: 'administrator', label: 'Administrator' }
-        ]}
         disabled={isLoading || disabled}
-      />
-    </Group>
+      >
+        <SelectTrigger data-testid="role-select" className="w-[180px]">
+          <SelectValue placeholder="Select a role" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="student">Student</SelectItem>
+          <SelectItem value="staff">Staff</SelectItem>
+          <SelectItem value="administrator">Administrator</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
   );
 } 

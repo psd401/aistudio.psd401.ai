@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { AiModelsTable } from './AiModelsTable';
+import { AiModelsTable } from './ai-models-table';
 import type { AiModel } from '~/lib/schema';
-import { notifications } from '@mantine/notifications';
+import { useToast } from '@/components/ui/use-toast';
 
 export function AiModelsClient({ initialModels }: { initialModels: AiModel[] }) {
   const [models, setModels] = useState<AiModel[]>(initialModels);
+  const { toast } = useToast();
 
   const handleAddModel = async (model: Omit<AiModel, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
@@ -26,17 +27,17 @@ export function AiModelsClient({ initialModels }: { initialModels: AiModel[] }) 
       const newModel = await response.json();
       console.log('Received new model from API:', newModel);
       setModels([...models, newModel]);
-      notifications.show({
+      toast({
         title: 'Success',
-        message: 'AI model added successfully',
-        color: 'green',
+        description: 'AI model added successfully',
+        variant: 'default',
       });
     } catch (error) {
       console.error('Error adding model:', error);
-      notifications.show({
+      toast({
         title: 'Error',
-        message: error instanceof Error ? error.message : 'Failed to add AI model',
-        color: 'red',
+        description: error instanceof Error ? error.message : 'Failed to add AI model',
+        variant: 'destructive',
       });
     }
   };
@@ -61,17 +62,17 @@ export function AiModelsClient({ initialModels }: { initialModels: AiModel[] }) 
       setModels(models.map(model => 
         model.id === modelId ? updatedModel : model
       ));
-      notifications.show({
+      toast({
         title: 'Success',
-        message: 'AI model updated successfully',
-        color: 'green',
+        description: 'AI model updated successfully',
+        variant: 'default',
       });
     } catch (error) {
       console.error('Error updating model:', error);
-      notifications.show({
+      toast({
         title: 'Error',
-        message: error instanceof Error ? error.message : 'Failed to update AI model',
-        color: 'red',
+        description: error instanceof Error ? error.message : 'Failed to update AI model',
+        variant: 'destructive',
       });
     }
   };
@@ -91,17 +92,17 @@ export function AiModelsClient({ initialModels }: { initialModels: AiModel[] }) 
 
       console.log('Model deleted successfully');
       setModels(models.filter(model => model.id !== modelId));
-      notifications.show({
+      toast({
         title: 'Success',
-        message: 'AI model deleted successfully',
-        color: 'green',
+        description: 'AI model deleted successfully',
+        variant: 'default',
       });
     } catch (error) {
       console.error('Error deleting model:', error);
-      notifications.show({
+      toast({
         title: 'Error',
-        message: error instanceof Error ? error.message : 'Failed to delete AI model',
-        color: 'red',
+        description: error instanceof Error ? error.message : 'Failed to delete AI model',
+        variant: 'destructive',
       });
     }
   };

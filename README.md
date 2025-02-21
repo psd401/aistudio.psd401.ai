@@ -4,7 +4,7 @@ A modern, production-ready template for building internal enterprise application
 
 - 🔒 Authentication with [Clerk](https://clerk.com)
 - 🗄️ Database with [Drizzle ORM](https://orm.drizzle.team) + [Supabase](https://supabase.com)
-- 🎨 UI with [Mantine](https://mantine.dev)
+- 🎨 UI with [Shadcn](https://ui.shadcn.com)
 - 🚀 Deployment with [AWS Amplify](https://aws.amazon.com/amplify)
 
 ## Features

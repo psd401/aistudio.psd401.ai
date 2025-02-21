@@ -1,0 +1,7 @@
+---
+description: Follow these rules when working on payments.
+globs: 
+---
+### Payments Rules
+
+It uses Stripe for payments.

@@ -19,7 +19,7 @@ This is a detailed spec for building an internal enterprise Next.js 14+ template
 
 1. **Next.js 14+ (App Router)**
 
-2. **UI/Styling**: Tailwind CSS, Chakra UI, Mantine, or similar. 
+2. **UI/Styling**: Shadcn UI with Tailwind CSS
 
 3. **Auth**: [Clerk](https://clerk.com/). 
 
@@ -327,7 +327,7 @@ DROP TABLE IF EXISTS users;
 1. **Styling Library**
 
 - **Tailwind**: Minimal `tailwind.config.js` and `globals.css`. 
-- **Chakra/Mantine**: Provide a wrapped theme provider in layout. 
+- **Shadcn**: Provide a wrapped theme provider in layout. 
 
   
 
