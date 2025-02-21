@@ -4,7 +4,7 @@ import { NavbarNested } from '@/components/navigation/navbar-nested';
 import { auth } from '@clerk/nextjs/server';
 
 export const metadata = {
-  title: 'PSD401.AI',
+  title: 'PSD AI Tools',
   description: 'AI Tools for PSD401',
 };
 
