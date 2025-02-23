@@ -1,4 +1,4 @@
-import { Role } from '~/lib/schema';
+import { Role } from "@/types"
 
 export {};
 

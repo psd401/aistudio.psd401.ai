@@ -1,27 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { currentUser, clerkClient } from '@clerk/nextjs/server';
-import { db } from '~/lib/db';
-import { users } from '~/lib/schema';
-import type { Role } from '~/lib/schema';
+import { getAuth, clerkClient } from '@clerk/nextjs/server';
+import { db } from '@/db/db';
+import { usersTable } from '@/db/schema';
+import type { Role } from '@/types';
 import { eq } from 'drizzle-orm';
-import { hasRole } from '~/utils/roles';
+import { hasRole } from '@/utils/roles';
 
 export async function PUT(
   request: NextRequest,
-  context: { params: Promise<{ userId: string }> }
+  context: { params: { userId: string } }
 ) {
-  const params = await context.params;
-  const user = await currentUser();
+  const { userId } = getAuth();
   
-  if (!user) {
-    console.log('No user found in request');
+  if (!userId) {
     return new NextResponse('Unauthorized', { status: 401 });
   }
 
   // Check if user is administrator
-  const isAdmin = await hasRole(user.id, 'administrator');
+  const isAdmin = await hasRole(userId, 'administrator');
   if (!isAdmin) {
-    console.log('User not administrator:', { userId: user.id });
     return new NextResponse('Forbidden', { status: 403 });
   }
 
@@ -34,9 +31,9 @@ export async function PUT(
 
     // Update user role in database
     const [updatedUser] = await db
-      .update(users)
+      .update(usersTable)
       .set({ role: role as Role })
-      .where(eq(users.clerkId, params.userId))
+      .where(eq(usersTable.id, parseInt(context.params.userId)))
       .returning();
 
     if (!updatedUser) {
@@ -44,16 +41,22 @@ export async function PUT(
     }
 
     // Sync the role with Clerk
-    const client = await clerkClient();
-    await client.users.updateUserMetadata(params.userId, {
+    await clerkClient.users.updateUserMetadata(updatedUser.clerkId, {
       publicMetadata: {
         role: role
       },
     });
 
-    return NextResponse.json(updatedUser);
+    return NextResponse.json({
+      isSuccess: true,
+      message: 'User role updated successfully',
+      data: updatedUser
+    });
   } catch (error) {
     console.error('Error updating user role:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
+    return NextResponse.json(
+      { isSuccess: false, message: 'Failed to update user role' },
+      { status: 500 }
+    );
   }
 } 

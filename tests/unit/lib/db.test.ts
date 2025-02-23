@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from '@jest/globals';
-import { db } from '../../../lib/db';
-import { users } from '../../../lib/schema';
+import { db } from '@/db/db';
+import { usersTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
 jest.mock('drizzle-orm', () => ({
@@ -50,33 +50,33 @@ describe('Database Operations', () => {
   });
 
   it('creates a user successfully', async () => {
-    const result = await db.insert(users).values(testUser).returning();
+    const result = await db.insert(usersTable).values(testUser).returning();
     expect(result[0]).toEqual(testUser);
-    expect(db.insert).toHaveBeenCalledWith(users);
+    expect(db.insert).toHaveBeenCalledWith(usersTable);
     expect(mockValues).toHaveBeenCalledWith(testUser);
   });
 
   it('retrieves a user by id', async () => {
-    const result = await db.select().from(users).where(eq(users.id, testUser.id));
+    const result = await db.select().from(usersTable).where(eq(usersTable.id, testUser.id));
     expect(result[0]).toEqual(testUser);
     expect(db.select).toHaveBeenCalled();
   });
 
   it('updates a user role', async () => {
     const result = await db
-      .update(users)
+      .update(usersTable)
       .set({ role: 'admin' })
-      .where(eq(users.id, testUser.id))
+      .where(eq(usersTable.id, testUser.id))
       .returning();
     
     expect(result[0]).toEqual(testUser);
-    expect(db.update).toHaveBeenCalledWith(users);
+    expect(db.update).toHaveBeenCalledWith(usersTable);
     expect(mockSet).toHaveBeenCalledWith({ role: 'admin' });
   });
 
   it('deletes a user', async () => {
-    await db.delete(users).where(eq(users.id, testUser.id));
-    expect(db.delete).toHaveBeenCalledWith(users);
+    await db.delete(usersTable).where(eq(usersTable.id, testUser.id));
+    expect(db.delete).toHaveBeenCalledWith(usersTable);
     expect(mockWhere).toHaveBeenCalled();
   });
 }); 

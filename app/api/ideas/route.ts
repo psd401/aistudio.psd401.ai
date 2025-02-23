@@ -1,9 +1,9 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
-import { db } from '~/lib/db';
-import { ideas, ideaVotes, ideaNotes } from '~/lib/schema';
+import { db } from '@/db/db';
+import { ideasTable, ideaVotesTable, ideaNotesTable } from '@/db/schema';
 import { desc, eq, and, sql } from 'drizzle-orm';
-import { hasRole } from '~/utils/roles';
+import { hasRole } from '@/utils/roles';
 
 export async function GET() {
   // Protect route from unauthenticated users
@@ -13,20 +13,20 @@ export async function GET() {
     // Get all ideas with vote counts and note counts
     const allIdeas = await db
       .select({
-        ...ideas,
-        voteCount: sql<number>`count(distinct ${ideaVotes.id})::int`,
-        noteCount: sql<number>`count(distinct ${ideaNotes.id})::int`
+        ...ideasTable,
+        voteCount: sql<number>`count(distinct ${ideaVotesTable.id})::int`,
+        noteCount: sql<number>`count(distinct ${ideaNotesTable.id})::int`
       })
-      .from(ideas)
-      .leftJoin(ideaVotes, eq(ideas.id, ideaVotes.ideaId))
-      .leftJoin(ideaNotes, eq(ideas.id, ideaNotes.ideaId))
-      .groupBy(ideas.id)
-      .orderBy(desc(ideas.createdAt));
+      .from(ideasTable)
+      .leftJoin(ideaVotesTable, eq(ideasTable.id, ideaVotesTable.ideaId))
+      .leftJoin(ideaNotesTable, eq(ideasTable.id, ideaNotesTable.ideaId))
+      .groupBy(ideasTable.id)
+      .orderBy(desc(ideasTable.createdAt));
 
     // Get all votes for the current user
     const userVotes = await db.select()
-      .from(ideaVotes)
-      .where(eq(ideaVotes.userId, userId));
+      .from(ideaVotesTable)
+      .where(eq(ideaVotesTable.userId, userId));
 
     // Add hasVoted flag to each idea
     const ideasWithVotes = allIdeas.map(idea => ({
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
       return new NextResponse('Missing required fields', { status: 400 });
     }
 
-    const [newIdea] = await db.insert(ideas).values({
+    const [newIdea] = await db.insert(ideasTable).values({
       title,
       description,
       priorityLevel,

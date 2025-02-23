@@ -1,10 +1,10 @@
 import { auth } from '@clerk/nextjs/server';
-import { db } from '~/lib/db';
-import { users } from '~/lib/schema';
-import type { Role } from '~/lib/schema';
+import { db } from '@/db/db';
+import { usersTable } from '@/db/schema';
+import type { Role } from '@/types';
 import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
-import { hasRole } from '~/utils/roles';
+import { hasRole } from '@/utils/roles';
 
 export async function POST(request: Request) {
   const { userId } = auth();
@@ -27,9 +27,9 @@ export async function POST(request: Request) {
     }
 
     const [updatedUser] = await db
-      .update(users)
+      .update(usersTable)
       .set({ role: role as Role })
-      .where(eq(users.clerkId, targetUserId))
+      .where(eq(usersTable.clerkId, targetUserId))
       .returning();
 
     return NextResponse.json(updatedUser);

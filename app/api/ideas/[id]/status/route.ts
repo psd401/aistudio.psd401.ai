@@ -1,9 +1,9 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
-import { db } from '~/lib/db';
-import { ideas } from '~/lib/schema';
+import { db } from '@/db/db';
+import { ideasTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
-import { hasRole } from '~/utils/roles';
+import { hasRole } from '@/utils/roles';
 
 export async function PATCH(request: Request, context: { params: { id: string } }) {
   // Protect route from unauthenticated users
@@ -35,9 +35,9 @@ export async function PATCH(request: Request, context: { params: { id: string } 
       } : {})
     };
 
-    const [updatedIdea] = await db.update(ideas)
+    const [updatedIdea] = await db.update(ideasTable)
       .set(updateData)
-      .where(eq(ideas.id, ideaId))
+      .where(eq(ideasTable.id, ideaId))
       .returning();
 
     return NextResponse.json(updatedIdea);

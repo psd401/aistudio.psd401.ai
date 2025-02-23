@@ -1,8 +1,8 @@
 import { auth } from '@clerk/nextjs';
 import { redirect } from 'next/navigation';
 import { db } from '@/lib/db';
-import { conversations } from '@/lib/schema';
-import { and, eq } from 'drizzle-orm';
+import { conversations, messages } from '@/lib/schema';
+import { and, eq, asc } from 'drizzle-orm';
 import { Chat } from '../components/Chat';
 
 interface ConversationPageProps {
@@ -19,25 +19,32 @@ export default async function ConversationPage({ params }: ConversationPageProps
   }
 
   const conversationId = parseInt(params.id);
-  const conversation = await db.query.conversations.findFirst({
-    where: and(
-      eq(conversations.id, conversationId),
-      eq(conversations.clerkId, userId)
-    ),
-    with: {
-      messages: {
-        orderBy: (messages, { asc }) => [asc(messages.createdAt)],
-      },
-    },
-  });
+  
+  // First get the conversation
+  const [conversation] = await db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.clerkId, userId)
+      )
+    );
 
   if (!conversation) {
     redirect('/chat');
   }
 
+  // Then get the messages
+  const conversationMessages = await db
+    .select()
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(asc(messages.createdAt));
+
   return (
     <Chat
-      initialMessages={conversation.messages.map(msg => ({
+      initialMessages={conversationMessages.map(msg => ({
         id: msg.id.toString(),
         content: msg.content,
         role: msg.role,

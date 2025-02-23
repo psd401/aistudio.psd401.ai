@@ -2,7 +2,7 @@ import { getAuth } from '@clerk/nextjs/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { conversations, NewConversation } from '@/lib/schema';
-import { eq } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 
 export async function GET(req: NextRequest) {
   const { userId } = getAuth(req);
@@ -12,10 +12,11 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const userConversations = await db.query.conversations.findMany({
-      where: eq(conversations.clerkId, userId),
-      orderBy: (conversations, { desc }) => [desc(conversations.createdAt)],
-    });
+    const userConversations = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.clerkId, userId))
+      .orderBy(desc(conversations.createdAt));
 
     return NextResponse.json(userConversations);
   } catch (error) {

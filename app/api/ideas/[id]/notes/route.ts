@@ -1,9 +1,9 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
-import { db } from '~/lib/db';
-import { ideas, ideaNotes } from '~/lib/schema';
+import { db } from '@/db/db';
+import { ideasTable, ideaNotesTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
-import { hasRole } from '~/utils/roles';
+import { hasRole } from '@/utils/roles';
 
 export async function GET(request: Request, context: { params: { id: string } }) {
   // Protect route from unauthenticated users
@@ -18,9 +18,9 @@ export async function GET(request: Request, context: { params: { id: string } })
 
     // Get all notes for the idea
     const notes = await db.select()
-      .from(ideaNotes)
-      .where(eq(ideaNotes.ideaId, ideaId))
-      .orderBy(ideaNotes.createdAt);
+      .from(ideaNotesTable)
+      .where(eq(ideaNotesTable.ideaId, ideaId))
+      .orderBy(ideaNotesTable.createdAt);
 
     return NextResponse.json(notes);
   } catch (error) {
@@ -51,8 +51,8 @@ export async function POST(request: Request, context: { params: { id: string } }
 
     // Check if idea exists
     const idea = await db.select()
-      .from(ideas)
-      .where(eq(ideas.id, ideaId))
+      .from(ideasTable)
+      .where(eq(ideasTable.id, ideaId))
       .limit(1);
 
     if (idea.length === 0) {
@@ -65,7 +65,7 @@ export async function POST(request: Request, context: { params: { id: string } }
     }
 
     // Create note
-    const [newNote] = await db.insert(ideaNotes)
+    const [newNote] = await db.insert(ideaNotesTable)
       .values({
         ideaId,
         content,

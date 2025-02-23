@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { auth } from '@clerk/nextjs';
 import { redirect } from 'next/navigation';
-import { db } from '../../lib/db';
+import { db } from '@/db/db';
 import AdminPage from '../../app/admin/page';
 import { TestWrapper } from '../utils';
 

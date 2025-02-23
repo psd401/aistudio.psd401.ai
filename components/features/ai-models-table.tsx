@@ -10,6 +10,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { IconPlus, IconEdit, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react';
 import type { AiModel } from '~/lib/schema';
+import type { SelectAiModel } from '@/types';
+import { useToast } from '@/components/ui/use-toast';
+import { Pencil, Trash2 } from 'lucide-react';
+import { ModelForm } from './model-form';
 
 interface ModelFormProps {
   modelData: ModelFormData;
@@ -102,10 +106,10 @@ function ModelForm({ modelData, setModelData, onSubmit, onCancel, isEditing }: M
 }
 
 interface AiModelsTableProps {
-  models: AiModel[];
-  onAddModel: (model: Omit<AiModel, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  onDeleteModel: (modelId: number) => void;
-  onUpdateModel: (modelId: number, updates: Partial<AiModel>) => void;
+  models: SelectAiModel[];
+  onAddModel?: (model: Omit<SelectAiModel, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  onUpdateModel?: (modelId: number, updates: Partial<SelectAiModel>) => Promise<void>;
+  onDeleteModel?: (modelId: number) => Promise<void>;
 }
 
 type ModelFormData = Omit<AiModel, 'id' | 'createdAt' | 'updatedAt'>;
@@ -122,7 +126,7 @@ const emptyModel: ModelFormData = {
 
 export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel }: AiModelsTableProps) {
   const [showAddForm, setShowAddForm] = useState(false);
-  const [editingModel, setEditingModel] = useState<AiModel | null>(null);
+  const [editingModel, setEditingModel] = useState<SelectAiModel | null>(null);
   const [modelData, setModelData] = useState<ModelFormData>(emptyModel);
 
   const handleSubmit = () => {
@@ -136,7 +140,7 @@ export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel
     setModelData(emptyModel);
   };
 
-  const handleEdit = (model: AiModel) => {
+  const handleEdit = (model: SelectAiModel) => {
     setEditingModel(model);
     setModelData({
       name: model.name,

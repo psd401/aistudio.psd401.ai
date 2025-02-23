@@ -1,9 +1,9 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
-import { db } from '~/lib/db';
-import { ideas, ideaVotes } from '~/lib/schema';
+import { db } from '@/db/db';
+import { ideasTable, ideaVotesTable } from '@/db/schema';
 import { and, eq, sql } from 'drizzle-orm';
-import { hasRole } from '~/utils/roles';
+import { hasRole } from '@/utils/roles';
 
 export async function POST(request: Request, context: { params: { id: string } }) {
   console.log('Vote route called with params:', context.params);
@@ -36,8 +36,8 @@ export async function POST(request: Request, context: { params: { id: string } }
 
     // First check if the idea exists
     const idea = await db.select()
-      .from(ideas)
-      .where(eq(ideas.id, ideaId))
+      .from(ideasTable)
+      .where(eq(ideasTable.id, ideaId))
       .limit(1);
     console.log('Found idea:', idea);
 
@@ -48,10 +48,10 @@ export async function POST(request: Request, context: { params: { id: string } }
 
     // Check if user has already voted
     const existingVote = await db.select()
-      .from(ideaVotes)
+      .from(ideaVotesTable)
       .where(and(
-        eq(ideaVotes.ideaId, ideaId),
-        eq(ideaVotes.userId, userId)
+        eq(ideaVotesTable.ideaId, ideaId),
+        eq(ideaVotesTable.userId, userId)
       ))
       .limit(1);
     console.log('Existing vote check:', existingVote);
@@ -65,7 +65,7 @@ export async function POST(request: Request, context: { params: { id: string } }
     console.log('Starting vote transaction');
     await db.transaction(async (tx) => {
       // Create vote
-      await tx.insert(ideaVotes).values({
+      await tx.insert(ideaVotesTable).values({
         ideaId,
         userId,
         createdAt: new Date()
@@ -73,16 +73,16 @@ export async function POST(request: Request, context: { params: { id: string } }
       console.log('Vote inserted');
 
       // Increment vote count
-      await tx.update(ideas)
-        .set({ votes: sql`${ideas.votes} + 1` })
-        .where(eq(ideas.id, ideaId));
+      await tx.update(ideasTable)
+        .set({ votes: sql`${ideasTable.votes} + 1` })
+        .where(eq(ideasTable.id, ideaId));
       console.log('Vote count incremented');
     });
 
     // Get updated idea with new vote count
     const [updatedIdea] = await db.select()
-      .from(ideas)
-      .where(eq(ideas.id, ideaId))
+      .from(ideasTable)
+      .where(eq(ideasTable.id, ideaId))
       .limit(1);
     console.log('Updated idea:', updatedIdea);
 

@@ -2,9 +2,9 @@ import { render, screen } from '@testing-library/react';
 import AdminPage from '../../../app/admin/page';
 import { redirect } from 'next/navigation';
 import { auth } from '@clerk/nextjs';
-import { db } from '../../../lib/db';
+import { db } from '@/db/db';
 import { eq } from 'drizzle-orm';
-import { users } from '../../../lib/db/schema';
+import { usersTable } from '@/db/schema';
 import { TestWrapper } from '../../utils';
 
 // Mock scrollIntoView for tests

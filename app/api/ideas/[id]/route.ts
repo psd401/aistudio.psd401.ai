@@ -1,7 +1,7 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { getAuth } from '@clerk/nextjs/server';
-import { db } from '~/lib/db';
-import { ideas } from '~/lib/schema';
+import { db } from '@/db/db';
+import { ideasTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
 export async function PATCH(
@@ -18,12 +18,12 @@ export async function PATCH(
     const ideaId = parseInt(params.id);
 
     const updatedIdea = await db
-      .update(ideas)
+      .update(ideasTable)
       .set({
         status,
         ...(status === 'completed' ? { completedBy: userId, completedAt: new Date() } : {}),
       })
-      .where(eq(ideas.id, ideaId))
+      .where(eq(ideasTable.id, ideaId))
       .returning();
 
     return NextResponse.json(updatedIdea[0]);

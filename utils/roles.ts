@@ -1,7 +1,7 @@
 import { clerkClient } from '@clerk/nextjs/server';
-import { db } from '~/lib/db';
-import { users } from '~/lib/schema';
-import type { Role } from '~/lib/schema';
+import { db } from '@/db/db';
+import { usersTable } from '@/db/schema';
+import type { Role } from '@/types';
 import { eq } from 'drizzle-orm';
 
 const roleHierarchy: Record<Role, number> = {
@@ -12,9 +12,10 @@ const roleHierarchy: Record<Role, number> = {
 
 export async function syncUserRole(userId: string) {
   // Get user from database
-  const dbUser = await db.query.users.findFirst({
-    where: eq(users.clerkId, userId),
-  });
+  const [dbUser] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.clerkId, userId));
 
   // Get user from Clerk
   const client = await clerkClient();
@@ -34,7 +35,7 @@ export async function syncUserRole(userId: string) {
   // If user exists in Clerk but not in DB, sync Clerk -> DB
   if (!dbUser && clerkRole) {
     const [newUser] = await db
-      .insert(users)
+      .insert(usersTable)
       .values({
         clerkId: userId,
         role: clerkRole,
@@ -57,20 +58,30 @@ export async function syncUserRole(userId: string) {
 }
 
 export async function hasRole(userId: string, role: Role): Promise<boolean> {
-  const dbUser = await db.query.users.findFirst({
-    where: eq(users.clerkId, userId),
-  });
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.clerkId, userId));
 
-  if (!dbUser?.role) return false;
+  if (!user) return false;
 
-  // Check if user's role is at least as high as the required role in the hierarchy
-  return roleHierarchy[dbUser.role] >= roleHierarchy[role as Role];
+  switch (role) {
+    case 'student':
+      return true;
+    case 'staff':
+      return user.role === 'staff' || user.role === 'administrator';
+    case 'administrator':
+      return user.role === 'administrator';
+    default:
+      return false;
+  }
 }
 
 export async function hasExactRole(userId: string, role: Role): Promise<boolean> {
-  const dbUser = await db.query.users.findFirst({
-    where: eq(users.clerkId, userId),
-  });
+  const [dbUser] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.clerkId, userId));
 
   return dbUser?.role?.toLowerCase() === role.toLowerCase();
 } 

@@ -428,5 +428,147 @@ CLERK_SECRET_KEY=sk_...
 - Have rollback plans
 - Document migration steps
 
+## Communication Analysis
+
+### Architecture
+- Uses Vercel AI SDK for unified AI provider integration
+- Supports multiple providers (Azure OpenAI, Amazon Bedrock, Google) through a single interface
+- Implements audience-specific analysis with persona context
+- Supports meta-analysis across all audiences
+
+### Database Schema
+```sql
+Table communication_settings {
+  id            uuid      primary key
+  minimumRole   text      check (minimumRole in ('administrator', 'staff', 'student'))
+  createdAt     timestamp default now()
+  updatedAt     timestamp default now()
+}
+
+Table communication_audiences {
+  id          uuid      primary key
+  name        text      not null
+  description text      # Stores audience persona
+  createdAt   timestamp default now()
+  updatedAt   timestamp default now()
+}
+
+Table communication_analysis_prompts {
+  id            uuid      primary key
+  audienceId    uuid      references communication_audiences(id)
+  modelId       integer   references ai_models(id)
+  prompt        text      not null
+  isMetaAnalysis boolean  default false
+  createdAt     timestamp default now()
+  updatedAt     timestamp default now()
+}
+
+Table communication_analysis_results {
+  id                uuid      primary key
+  userId           text      not null
+  originalMessage   text      not null
+  audienceId       uuid      references communication_audiences(id)
+  feedback         text      not null
+  suggestedRevisions text
+  metaAnalysis     text
+  modelId          integer   references ai_models(id)
+  promptId         uuid      references communication_analysis_prompts(id)
+  createdAt        timestamp default now()
+  updatedAt        timestamp default now()
+}
+
+Table communication_access_control {
+  id           uuid      primary key
+  userId       text      not null
+  accessLevel  text      check (accessLevel in ('administrator', 'staff', 'student'))
+  createdAt    timestamp default now()
+  updatedAt    timestamp default now()
+}
+
+Table communication_audience_configs {
+  id          uuid      primary key
+  audienceId  uuid      references communication_audiences(id)
+  modelId     integer   references ai_models(id)
+  createdAt   timestamp default now()
+  updatedAt   timestamp default now()
+}
+```
+
+### AI Model Integration
+- Unified interface through `lib/ai-helpers.ts`
+- Provider-specific configuration:
+  ```typescript
+  // Azure OpenAI
+  const azureClient = createAzure({
+    apiKey: process.env.AZURE_OPENAI_KEY,
+    resourceName: process.env.AZURE_OPENAI_RESOURCENAME
+  })
+
+  // Amazon Bedrock
+  const bedrock = createAmazonBedrock({
+    region: process.env.BEDROCK_REGION,
+    accessKeyId: process.env.BEDROCK_ACCESS_KEY_ID,
+    secretAccessKey: process.env.BEDROCK_SECRET_ACCESS_KEY
+  })
+
+  // Google AI
+  process.env.GOOGLE_GENERATIVE_AI_API_KEY = process.env.GOOGLE_API_KEY
+  const googleModel = google(modelConfig.modelId)
+  ```
+
+### Components
+- CommunicationAnalysis: Main component handling message input and analysis display
+- Supports:
+  - Multiple audience analysis
+  - Meta-analysis across all audiences
+  - Real-time analysis with loading states
+  - Markdown rendering of analysis results
+  - Error handling and user feedback
+
+### API Endpoints
+
+#### Analysis (/api/communication-analysis/analyze)
+- POST endpoint for analyzing messages
+- Implements:
+  - Audience-specific analysis
+  - Meta-analysis across audiences
+  - Provider selection based on configuration
+  - Error handling and validation
+  - Response formatting
+
+#### Settings (/api/communication-analysis/settings)
+- GET/PUT endpoints for managing analysis settings
+- Controls:
+  - Minimum role requirements
+  - Provider configurations
+  - Audience management
+
+### Environment Variables
+Required variables for each provider:
+```env
+# Azure OpenAI
+AZURE_OPENAI_KEY=
+AZURE_OPENAI_ENDPOINT=
+AZURE_OPENAI_RESOURCENAME=
+
+# AWS Bedrock
+BEDROCK_ACCESS_KEY_ID=
+BEDROCK_SECRET_ACCESS_KEY=
+BEDROCK_REGION=
+
+# Google AI
+GOOGLE_API_KEY=
+```
+
+### Testing Requirements
+- Test analysis functionality for each provider
+- Verify audience persona integration
+- Test meta-analysis capabilities
+- Validate error handling
+- Test concurrent analysis requests
+- Verify proper provider selection
+- Test markdown rendering
+- Validate environment configuration
+
 ## Conclusion
 This specification serves as the foundation for maintaining and extending the application. All new development must follow these guidelines to ensure consistency, reliability, and maintainability of the codebase. Remember: Tests First, Code Second. 

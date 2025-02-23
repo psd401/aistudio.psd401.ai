@@ -15,9 +15,10 @@ export async function DELETE(
   }
 
   // Check if user is admin
-  const adminUser = await db.query.users.findFirst({
-    where: (users, { eq }) => eq(users.clerkId, adminId),
-  });
+  const [adminUser] = await db
+    .select()
+    .from(users)
+    .where(eq(users.clerkId, adminId));
 
   if (!adminUser || adminUser.role !== 'Admin') {
     return new NextResponse('Forbidden', { status: 403 });
@@ -30,9 +31,10 @@ export async function DELETE(
     }
 
     // Get user from our database
-    const targetUser = await db.query.users.findFirst({
-      where: (users, { eq }) => eq(users.id, targetUserId),
-    });
+    const [targetUser] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, targetUserId));
 
     if (!targetUser) {
       return new NextResponse('User not found', { status: 404 });

@@ -2,14 +2,18 @@
 
 import { useState } from 'react';
 import { AiModelsTable } from './ai-models-table';
-import type { AiModel } from '~/lib/schema';
+import type { SelectAiModel } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
 
-export function AiModelsClient({ initialModels }: { initialModels: AiModel[] }) {
-  const [models, setModels] = useState<AiModel[]>(initialModels);
+interface AiModelsClientProps {
+  initialModels: SelectAiModel[];
+}
+
+export function AiModelsClient({ initialModels }: AiModelsClientProps) {
+  const [models, setModels] = useState(initialModels);
   const { toast } = useToast();
 
-  const handleAddModel = async (model: Omit<AiModel, 'id' | 'createdAt' | 'updatedAt'>) => {
+  const handleAddModel = async (model: Omit<SelectAiModel, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
       console.log('Sending model data to API:', model);
       const response = await fetch('/api/admin/models', {
@@ -42,7 +46,7 @@ export function AiModelsClient({ initialModels }: { initialModels: AiModel[] }) 
     }
   };
 
-  const handleUpdateModel = async (modelId: number, updates: Partial<AiModel>) => {
+  const handleUpdateModel = async (modelId: number, updates: Partial<SelectAiModel>) => {
     try {
       console.log('Sending update data to API:', { id: modelId, ...updates });
       const response = await fetch('/api/admin/models', {
