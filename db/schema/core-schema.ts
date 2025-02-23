@@ -23,11 +23,7 @@ export const ideasTable = pgTable("ideas", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   createdBy: text("created_by").notNull(),
   completedAt: timestamp("completed_at"),
-  completedBy: text("completed_by"),
-  updatedAt: timestamp("updated_at")
-    .defaultNow()
-    .notNull()
-    .$onUpdate(() => new Date())
+  completedBy: text("completed_by")
 });
 
 export const ideaNotesTable = pgTable("idea_notes", {

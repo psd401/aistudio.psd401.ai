@@ -99,7 +99,6 @@ export function UsersClient({ currentUser, initialUsers }: UsersClientProps) {
             <TableHead>Name</TableHead>
             <TableHead>Role</TableHead>
             <TableHead>Created At</TableHead>
-            <TableHead>Last Updated</TableHead>
             <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -127,9 +126,6 @@ export function UsersClient({ currentUser, initialUsers }: UsersClientProps) {
               </TableCell>
               <TableCell>
                 {new Date(user.createdAt).toLocaleString()}
-              </TableCell>
-              <TableCell>
-                {user.updatedAt ? new Date(user.updatedAt).toLocaleString() : 'Never'}
               </TableCell>
               <TableCell>
                 <Button

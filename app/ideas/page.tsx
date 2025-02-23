@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
-import { IconThumbUp, IconNote, IconCheck, IconTrash } from '@tabler/icons-react';
+import { IconThumbUp, IconNote, IconCheck, IconTrash, IconEdit } from '@tabler/icons-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 type Idea = {
@@ -23,6 +23,7 @@ type Idea = {
   notes: number;
   createdBy: string;
   createdAt: Date;
+  updatedAt: Date;
   completedAt?: Date;
   completedBy?: string;
   hasVoted?: boolean;
@@ -44,6 +45,7 @@ export default function IdeasPage() {
   const [sortBy, setSortBy] = useState<'newest' | 'priority' | 'votes'>('newest');
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showNotesDialog, setShowNotesDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const [loading, setLoading] = useState(false);
   const [selectedIdea, setSelectedIdea] = useState<Idea | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -53,8 +55,14 @@ export default function IdeasPage() {
     description: '',
     priorityLevel: 'medium',
   });
+  const [editData, setEditData] = useState({
+    title: '',
+    description: '',
+    priorityLevel: '',
+  });
 
-  const isAdmin = user?.publicMetadata?.role === 'Admin';
+  const isAdmin = user?.publicMetadata?.role === 'administrator';
+  const isStaff = user?.publicMetadata?.role === 'staff';
 
   useEffect(() => {
     fetchIdeas();
@@ -62,6 +70,11 @@ export default function IdeasPage() {
 
   const sortIdeas = (ideasToSort: Idea[]) => {
     return [...ideasToSort].sort((a, b) => {
+      // First sort by completion status
+      if (a.status === 'completed' && b.status !== 'completed') return 1;
+      if (a.status !== 'completed' && b.status === 'completed') return -1;
+      
+      // Then apply the selected sort within each group
       switch (sortBy) {
         case 'priority':
           const priorityOrder = { high: 0, medium: 1, low: 2 };
@@ -249,6 +262,52 @@ export default function IdeasPage() {
     }
   };
 
+  const handleEdit = async () => {
+    if (!selectedIdea) return;
+    setLoading(true);
+    try {
+      const token = await getToken();
+      const response = await fetch(`/api/ideas/${selectedIdea.id}`, {
+        method: 'PATCH',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(editData),
+      });
+      
+      if (!response.ok) throw new Error('Failed to update idea');
+      
+      await fetchIdeas();
+      setShowEditDialog(false);
+      setSelectedIdea(null);
+      setEditData({ title: '', description: '', priorityLevel: '' });
+      toast({
+        title: 'Success',
+        description: 'Idea updated successfully',
+        variant: 'default',
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update idea',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenEdit = (idea: Idea) => {
+    setSelectedIdea(idea);
+    setEditData({
+      title: idea.title,
+      description: idea.description,
+      priorityLevel: idea.priorityLevel,
+    });
+    setShowEditDialog(true);
+  };
+
   return (
     <div className="container py-8">
       <div className="flex items-center justify-between mb-8">
@@ -281,7 +340,10 @@ export default function IdeasPage() {
                 <div>
                   <CardTitle>{idea.title}</CardTitle>
                   <CardDescription>
-                    {new Date(idea.createdAt).toLocaleDateString()}
+                    Created: {new Date(idea.createdAt).toLocaleDateString()}
+                    {idea.updatedAt && idea.updatedAt !== idea.createdAt && (
+                      <> · Updated: {new Date(idea.updatedAt).toLocaleDateString()}</>
+                    )}
                   </CardDescription>
                 </div>
                 <Badge variant={idea.status === 'completed' ? 'default' : 'secondary'}>
@@ -299,37 +361,51 @@ export default function IdeasPage() {
               </div>
             </CardContent>
 
-            <CardFooter className="flex justify-between">
-              <div className="flex gap-2">
+            <CardFooter className="pt-0">
+              <div className="flex items-center w-full">
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="px-2"
                   onClick={() => handleVote(idea.id)}
                   disabled={idea.hasVoted}
                 >
-                  <IconThumbUp className="h-4 w-4 mr-1" />
-                  Vote
+                  <IconThumbUp className="h-4 w-4" />
+                  <span className="ml-1">Vote</span>
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="px-2"
                   onClick={() => handleOpenNotes(idea)}
                 >
-                  <IconNote className="h-4 w-4 mr-1" />
-                  Notes
+                  <IconNote className="h-4 w-4" />
+                  <span className="ml-1">Notes</span>
                 </Button>
-              </div>
+                {(isAdmin || isStaff) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="px-2"
+                    onClick={() => handleOpenEdit(idea)}
+                  >
+                    <IconEdit className="h-4 w-4" />
+                    <span className="ml-1">Edit</span>
+                  </Button>
+                )}
 
-              {isAdmin && idea.status !== 'completed' && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleStatusChange(idea.id, 'completed')}
-                >
-                  <IconCheck className="h-4 w-4 mr-1" />
-                  Complete
-                </Button>
-              )}
+                {isAdmin && idea.status !== 'completed' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="px-2 ml-auto"
+                    onClick={() => handleStatusChange(idea.id, 'completed')}
+                  >
+                    <IconCheck className="h-4 w-4" />
+                    <span className="ml-1">Complete</span>
+                  </Button>
+                )}
+              </div>
             </CardFooter>
           </Card>
         ))}
@@ -428,6 +504,68 @@ export default function IdeasPage() {
             />
             <Button onClick={handleAddNote}>Add</Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Idea</DialogTitle>
+            <DialogDescription>
+              Update the details of this idea.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Title</label>
+              <Input
+                value={editData.title}
+                onChange={(e) => setEditData({ ...editData, title: e.target.value })}
+                placeholder="Enter idea title"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Description</label>
+              <Textarea
+                value={editData.description}
+                onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                placeholder="Describe your idea"
+                rows={4}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Priority Level</label>
+              <Select
+                value={editData.priorityLevel}
+                onValueChange={(value) => setEditData({ ...editData, priorityLevel: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select priority" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleEdit} disabled={loading}>
+              {loading ? (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              ) : (
+                'Save Changes'
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -37,14 +37,7 @@ const getNavItems = (role?: string) => {
       {
         label: 'Instructional',
         icon: IconChalkboard,
-        links: [
-          { label: 'Evaluation', link: '/instructional/evaluation' },
-          { label: 'Lesson Planning', link: '/instructional/lesson-plan' },
-          { label: 'Communication', link: '/instructional/communication' },
-          { label: 'Curriculum', link: '/instructional/curriculum' },
-          { label: 'Assessment', link: '/instructional/assessment' },
-          { label: 'Resources', link: '/instructional/resources' },
-        ],
+        links: [],
       },
       {
         label: 'Operational',
@@ -56,13 +49,7 @@ const getNavItems = (role?: string) => {
       {
         label: 'Administrative',
         icon: IconBriefcase,
-        links: [
-          { label: 'Evaluation', link: '/administrative/evaluation' },
-          { label: 'Planning', link: '/administrative/planning' },
-          { label: 'Policy', link: '/administrative/policy' },
-          { label: 'Performance', link: '/administrative/performance' },
-          { label: 'Compliance', link: '/administrative/compliance' },
-        ],
+        links: [],
       },
       {
         label: 'Experiments',
@@ -78,13 +65,6 @@ const getNavItems = (role?: string) => {
       }
     );
   }
-
-  // Common sections for all users
-  items.push({ 
-    label: 'Settings', 
-    icon: IconSettings,
-    link: '/settings'
-  });
 
   // Administrator-only section
   if (role === 'administrator') {
