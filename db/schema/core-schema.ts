@@ -3,6 +3,8 @@ import { pgTable, serial, varchar, timestamp, text, integer, boolean } from 'dri
 export const usersTable = pgTable('users', {
   id: serial('id').primaryKey(),
   clerkId: varchar('clerk_id', { length: 255 }).notNull().unique(),
+  firstName: varchar('first_name', { length: 255 }),
+  lastName: varchar('last_name', { length: 255 }),
   role: varchar('role', { length: 50 }).notNull().default('student'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
