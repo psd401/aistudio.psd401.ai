@@ -3,6 +3,7 @@ import { ClerkProvider } from '@clerk/nextjs';
 import { NavbarNested } from '@/components/navigation/navbar-nested';
 import { auth } from '@clerk/nextjs/server';
 import { Toaster } from 'sonner';
+import { AuthWrapper } from '@/components/auth/auth-wrapper';
 
 export const metadata = {
   title: 'PSD AI Tools',
@@ -27,16 +28,18 @@ export default async function RootLayout({
         </head>
         <body suppressHydrationWarning>
           <Toaster />
-          {userId ? (
-            <div className="flex min-h-screen">
-              <NavbarNested />
-              <main className="flex-1 p-4">
-                {children}
-              </main>
-            </div>
-          ) : (
-            children
-          )}
+          <AuthWrapper>
+            {userId ? (
+              <div className="flex min-h-screen">
+                <NavbarNested />
+                <main className="flex-1 p-4">
+                  {children}
+                </main>
+              </div>
+            ) : (
+              children
+            )}
+          </AuthWrapper>
         </body>
       </html>
     </ClerkProvider>

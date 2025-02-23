@@ -23,6 +23,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 interface UsersClientProps {
   currentUser: SelectUser
@@ -31,8 +37,9 @@ interface UsersClientProps {
 
 export function UsersClient({ currentUser, initialUsers }: UsersClientProps) {
   const [users, setUsers] = useState(initialUsers)
-  const [userToDelete, setUserToDelete] = useState<SelectUser | null>(null)
   const [isUpdating, setIsUpdating] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [userToDelete, setUserToDelete] = useState<SelectUser | null>(null)
 
   const handleRoleChange = async (userId: number, newRole: string) => {
     setIsUpdating(true)
@@ -51,14 +58,16 @@ export function UsersClient({ currentUser, initialUsers }: UsersClientProps) {
 
       toast.success("User role updated successfully")
     } catch (error) {
+      console.error("Error updating user role:", error)
       toast.error("Failed to update user role")
     } finally {
       setIsUpdating(false)
     }
   }
 
-  const handleDelete = async (user: SelectUser) => {
+  const handleDelete = (user: SelectUser) => {
     setUserToDelete(user)
+    setShowDeleteDialog(true)
   }
 
   const confirmDelete = async () => {
@@ -74,8 +83,10 @@ export function UsersClient({ currentUser, initialUsers }: UsersClientProps) {
       setUsers(users.filter(user => user.id !== userToDelete.id))
       toast.success("User deleted successfully")
     } catch (error) {
+      console.error("Error deleting user:", error)
       toast.error("Failed to delete user")
     } finally {
+      setShowDeleteDialog(false)
       setUserToDelete(null)
     }
   }
@@ -85,34 +96,47 @@ export function UsersClient({ currentUser, initialUsers }: UsersClientProps) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>ID</TableHead>
-            <TableHead>Clerk ID</TableHead>
+            <TableHead>Name</TableHead>
             <TableHead>Role</TableHead>
             <TableHead>Created At</TableHead>
+            <TableHead>Last Updated</TableHead>
             <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {users.map(user => (
             <TableRow key={user.id}>
-              <TableCell>{user.id}</TableCell>
-              <TableCell>{user.clerkId}</TableCell>
+              <TableCell>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger className="text-left">
+                      {user.firstName} {user.lastName || '(No name set)'}
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Clerk ID: {user.clerkId}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </TableCell>
               <TableCell>
                 <UserRoleSelect
                   currentRole={user.role}
                   onRoleChange={(newRole) => handleRoleChange(user.id, newRole)}
-                  disabled={user.id === currentUser.id || isUpdating}
+                  disabled={user.clerkId === currentUser.clerkId || isUpdating}
                 />
               </TableCell>
               <TableCell>
                 {new Date(user.createdAt).toLocaleString()}
               </TableCell>
               <TableCell>
+                {user.updatedAt ? new Date(user.updatedAt).toLocaleString() : 'Never'}
+              </TableCell>
+              <TableCell>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => handleDelete(user)}
-                  disabled={user.id === currentUser.id}
+                  disabled={user.clerkId === currentUser.clerkId}
                   className="text-destructive hover:text-destructive"
                 >
                   Delete
@@ -123,17 +147,20 @@ export function UsersClient({ currentUser, initialUsers }: UsersClientProps) {
         </TableBody>
       </Table>
 
-      <AlertDialog open={!!userToDelete} onOpenChange={() => setUserToDelete(null)}>
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete User</AlertDialogTitle>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this user? This action cannot be undone.
+              This action cannot be undone. This will permanently delete the user
+              account.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+            <AlertDialogAction onClick={confirmDelete}>
+              Continue
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
