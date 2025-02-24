@@ -570,5 +570,77 @@ GOOGLE_API_KEY=
 - Test markdown rendering
 - Validate environment configuration
 
+## Feature Documentation
+
+### Meta-Prompting Tool
+
+The meta-prompting tool is structured as follows:
+
+#### Components
+- `meta-prompting-tool.tsx` - Main tool interface for generating prompts
+- `meta-prompting-tool-client-wrapper.tsx` - Client wrapper for data fetching
+- `techniques-manager.tsx` - Admin interface for managing techniques
+- `techniques-manager-client-wrapper.tsx` - Client wrapper for techniques management
+- `templates-manager.tsx` - Admin interface for managing templates
+- `templates-manager-client-wrapper.tsx` - Client wrapper for templates management
+
+#### Schema
+```ts
+// Technique Types
+export const techniqueTypeEnum = pgEnum("technique_type", [
+  "prompt_generation",
+  "iterative_refinement", 
+  "feedback",
+  "role_reversal",
+  "bot_to_bot",
+  "meta_questioning"
+])
+
+// Techniques Table
+export const metaPromptingTechniquesTable = pgTable("meta_prompting_techniques", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  type: techniqueTypeEnum("type").notNull(),
+  example: text("example").notNull(),
+  exampleInput: text("example_input"),
+  exampleOutput: text("example_output"),
+  modelId: integer("model_id").references(() => aiModelsTable.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull().$onUpdate(() => new Date())
+})
+
+// Templates Table
+export const metaPromptingTemplatesTable = pgTable("meta_prompting_templates", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  techniqueId: uuid("technique_id").references(() => metaPromptingTechniquesTable.id, { onDelete: "cascade" }).notNull(),
+  template: text("template").notNull(),
+  variables: jsonb("variables"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull().$onUpdate(() => new Date())
+})
+```
+
+#### API Routes
+- `/api/meta-prompting/techniques` - CRUD operations for techniques
+- `/api/meta-prompting/templates` - CRUD operations for templates
+- `/api/meta-prompting/generate` - Generate prompts using selected technique/template
+
+#### Usage Pattern
+1. Admin configures techniques and templates through the admin interface
+2. Users select a technique from the available options
+3. Optionally select and configure a template
+4. Enter their goal/requirements
+5. Generate an enhanced prompt using the selected technique
+
+#### Key Features
+- Multiple technique types for different prompt enhancement approaches
+- Template system with variable substitution
+- Integration with AI models for generation
+- Full CRUD operations for techniques and templates
+- Responsive UI with proper loading states
+
 ## Conclusion
 This specification serves as the foundation for maintaining and extending the application. All new development must follow these guidelines to ensure consistency, reliability, and maintainability of the codebase. Remember: Tests First, Code Second. 

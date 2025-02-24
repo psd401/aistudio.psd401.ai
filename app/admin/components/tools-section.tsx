@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { AccessControlManagerClientWrapper } from "@/components/features/communication-analysis/access-control-manager-client-wrapper"
 import { ModelsManagerClientWrapper } from "@/components/features/communication-analysis/models-manager-client-wrapper"
+import { TechniquesManagerClientWrapper } from "@/components/features/meta-prompting/techniques-manager-client-wrapper"
+import { TemplatesManagerClientWrapper } from "@/components/features/meta-prompting/templates-manager-client-wrapper"
 
 interface ToolSection {
   id: string
@@ -44,8 +46,24 @@ const tools: Tool[] = [
         component: () => <AccessControlManagerClientWrapper />
       }
     ]
+  },
+  {
+    id: "meta-prompting",
+    name: "Meta-Prompting",
+    description: "Configure meta-prompting techniques and templates",
+    sections: [
+      {
+        id: "techniques",
+        name: "Techniques",
+        component: () => <TechniquesManagerClientWrapper />
+      },
+      {
+        id: "templates",
+        name: "Templates",
+        component: () => <TemplatesManagerClientWrapper />
+      }
+    ]
   }
-  // Add more tools here as needed
 ]
 
 export function ToolsSection() {

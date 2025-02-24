@@ -15,7 +15,8 @@ import {
   ideaVotesTable,
   aiModelsTable,
   conversationsTable,
-  messagesTable
+  messagesTable,
+  metaPromptingTechniquesTable
 } from "./schema"
 
 if (!process.env.DATABASE_URL) {
@@ -40,6 +41,7 @@ export const db = drizzle(client, {
     ideaVotes: ideaVotesTable,
     aiModels: aiModelsTable,
     conversations: conversationsTable,
-    messages: messagesTable
+    messages: messagesTable,
+    metaPromptingTechniques: metaPromptingTechniquesTable
   }
 }) 

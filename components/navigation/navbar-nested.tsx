@@ -18,9 +18,12 @@ import {
   IconShield,
   IconBulb,
   IconFlask,
+  IconTools,
+  IconBeaker,
 } from '@tabler/icons-react';
 import { LinksGroup } from './navbar-links-group';
 import { UserButton } from '../user/user-button';
+import { usePathname } from 'next/navigation';
 
 const getNavItems = (role?: string) => {
   const items = [
@@ -43,7 +46,8 @@ const getNavItems = (role?: string) => {
         label: 'Operational',
         icon: IconBuildingBank,
         links: [
-          { label: 'Communication Analysis', link: '/operations/communication-analysis' }
+          { label: 'Communication Analysis', link: '/operations/communication-analysis' },
+          { label: 'Meta-Prompting', link: '/meta-prompting' }
         ],
       },
       {
@@ -129,8 +133,8 @@ function NavigationContent() {
   const links = getNavItems(role).map((item) => <LinksGroup {...item} key={item.label} />);
 
   return (
-    <div className="flex h-screen flex-col">
-      <div className="border-b p-4">
+    <div className="flex flex-col h-full">
+      <div className="shrink-0 border-b p-4">
         <Link href="/dashboard" className="flex items-center justify-center">
           <Image
             src="/logo.png"
@@ -142,12 +146,15 @@ function NavigationContent() {
         </Link>
       </div>
 
-      <ScrollArea className="flex-1 px-3">
-        <div className="py-2">{links}</div>
-      </ScrollArea>
+      <div className="flex-1 overflow-hidden">
+        <ScrollArea className="h-full">
+          <div className="px-3 py-2">
+            {links}
+          </div>
+        </ScrollArea>
+      </div>
 
-      <Separator />
-      <div className="p-4">
+      <div className="shrink-0 border-t p-4 bg-background">
         <UserButton />
       </div>
     </div>

@@ -1,2 +1,3 @@
 export * from "./core-schema"
-export * from "./communication-analysis-schema" 
+export * from "./communication-analysis-schema"
+export * from "./meta-prompting-schema" 
