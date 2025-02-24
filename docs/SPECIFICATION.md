@@ -642,5 +642,97 @@ export const metaPromptingTemplatesTable = pgTable("meta_prompting_templates", {
 - Full CRUD operations for techniques and templates
 - Responsive UI with proper loading states
 
+## Political Wording Analysis
+
+### Architecture
+- Multi-stage analysis pipeline (Initial, Context, Synthesis)
+- Support for multiple AI providers through unified interface
+- Context-aware analysis with configurable prompts
+- Progress tracking and state management
+
+### Database Schema
+```sql
+Table political_prompts {
+  id          uuid      primary key
+  name        text      not null
+  description text
+  content     text      not null
+  stage       text      check (stage in ('initial', 'context', 'synthesis'))
+  modelId     integer   references ai_models(id)
+  contextId   uuid      references political_contexts(id)
+  usesLatimer boolean   default false
+  createdAt   timestamp default now()
+  updatedAt   timestamp default now()
+}
+
+Table political_contexts {
+  id          uuid      primary key
+  name        text      not null
+  description text
+  content     text      not null
+  createdAt   timestamp default now()
+  updatedAt   timestamp default now()
+}
+
+Table political_settings {
+  id          uuid      primary key
+  name        text      not null
+  value       text      not null
+  createdAt   timestamp default now()
+  updatedAt   timestamp default now()
+}
+```
+
+### Components
+- PoliticalWording component must:
+  - Handle multi-stage analysis flow
+  - Show progress indicators
+  - Display results with proper formatting
+  - Support markdown rendering
+  - Handle loading and error states
+  - Maintain analysis state
+  - Show model attribution
+
+- Admin components must:
+  - Support prompt management for each stage
+  - Allow context configuration
+  - Enable model selection
+  - Support Latimer integration configuration
+  - Handle CRUD operations for prompts and contexts
+  - Validate configurations
+
+### Analysis Pipeline
+- Three-stage analysis:
+  1. Initial Analysis: First-pass political sensitivity check
+  2. Context Analysis: Deeper analysis with configured context
+  3. Synthesis: Combined analysis of previous stages
+- Each stage must:
+  - Use configured prompts and models
+  - Handle errors gracefully
+  - Return structured results
+  - Support progress tracking
+
+### Server Actions
+- Must follow ActionState pattern:
+  ```typescript
+  type ActionState<T> =
+    | { isSuccess: true; message: string; data: T }
+    | { isSuccess: false; message: string; data?: never }
+  ```
+- Implement proper error handling
+- Support transaction rollback
+- Validate inputs
+- Return appropriate status messages
+
+### Testing Requirements
+- Test multi-stage analysis flow
+- Verify prompt configurations
+- Test context integration
+- Validate error scenarios
+- Test progress tracking
+- Verify result formatting
+- Test admin CRUD operations
+- Validate model integration
+
 ## Conclusion
 This specification serves as the foundation for maintaining and extending the application. All new development must follow these guidelines to ensure consistency, reliability, and maintainability of the codebase. Remember: Tests First, Code Second. 

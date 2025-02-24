@@ -53,7 +53,9 @@ const getNavItems = (role?: string) => {
       {
         label: 'Administrative',
         icon: IconBriefcase,
-        links: [],
+        links: [
+          { label: 'Political Wording', link: '/operations/political-wording' }
+        ],
       },
       {
         label: 'Experiments',
