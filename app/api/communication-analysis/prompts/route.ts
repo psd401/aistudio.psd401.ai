@@ -13,8 +13,11 @@ export async function PUT(request: Request) {
       )
     }
 
-    const isStaff = await hasRole(userId, "staff")
-    if (!isStaff) {
+    const [isStaff, isAdmin] = await Promise.all([
+      hasRole(userId, "staff"),
+      hasRole(userId, "administrator")
+    ])
+    if (!isStaff && !isAdmin) {
       return NextResponse.json(
         { isSuccess: false, message: "Forbidden" },
         { status: 403 }
@@ -47,8 +50,11 @@ export async function GET(request: Request) {
       )
     }
 
-    const isStaff = await hasRole(userId, "staff")
-    if (!isStaff) {
+    const [isStaff, isAdmin] = await Promise.all([
+      hasRole(userId, "staff"),
+      hasRole(userId, "administrator")
+    ])
+    if (!isStaff && !isAdmin) {
       return NextResponse.json(
         { isSuccess: false, message: "Forbidden" },
         { status: 403 }

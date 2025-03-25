@@ -24,53 +24,60 @@ import {
 import { LinksGroup } from './navbar-links-group';
 import { UserButton } from '../user/user-button';
 import { usePathname } from 'next/navigation';
+import { getUserTools } from '@/utils/roles';
 
-const getNavItems = (role?: string) => {
+const getNavItems = (role?: string, userTools: string[] = []) => {
   const items = [
     { 
       label: 'Dashboard',
       icon: IconHome,
       link: '/dashboard'
+    },
+    {
+      label: 'Instructional',
+      icon: IconChalkboard,
+      links: [],
+    },
+    {
+      label: 'Operational',
+      icon: IconBuildingBank,
+      links: [
+        userTools.includes('communication-analysis') && { 
+          label: 'Communication Analysis', 
+          link: '/operations/communication-analysis' 
+        },
+        userTools.includes('meta-prompting') && { 
+          label: 'Meta-Prompting', 
+          link: '/meta-prompting' 
+        }
+      ].filter(Boolean),
+    },
+    {
+      label: 'Administrative',
+      icon: IconBriefcase,
+      links: [
+        userTools.includes('political-wording') && { 
+          label: 'Political Wording', 
+          link: '/operations/political-wording' 
+        }
+      ].filter(Boolean),
+    },
+    {
+      label: 'Experiments',
+      icon: IconFlask,
+      links: [
+        userTools.includes('chat') && { 
+          label: 'Chat', 
+          link: '/chat' 
+        }
+      ].filter(Boolean),
+    },
+    { 
+      label: 'Ideas', 
+      icon: IconBulb,
+      link: '/ideas'
     }
   ];
-
-  // Staff and administrator sections
-  if (role === 'staff' || role === 'administrator') {
-    items.push(
-      {
-        label: 'Instructional',
-        icon: IconChalkboard,
-        links: [],
-      },
-      {
-        label: 'Operational',
-        icon: IconBuildingBank,
-        links: [
-          { label: 'Communication Analysis', link: '/operations/communication-analysis' },
-          { label: 'Meta-Prompting', link: '/meta-prompting' }
-        ],
-      },
-      {
-        label: 'Administrative',
-        icon: IconBriefcase,
-        links: [
-          { label: 'Political Wording', link: '/operations/political-wording' }
-        ],
-      },
-      {
-        label: 'Experiments',
-        icon: IconFlask,
-        links: [
-          { label: 'Chat', link: '/chat' },
-        ],
-      },
-      { 
-        label: 'Ideas', 
-        icon: IconBulb,
-        link: '/ideas'
-      }
-    );
-  }
 
   // Administrator-only section
   if (role === 'administrator') {
@@ -113,6 +120,7 @@ export function NavbarNested() {
 function NavigationContent() {
   const { user } = useUser();
   const [role, setRole] = useState<string>();
+  const [userTools, setUserTools] = useState<string[]>([]);
 
   useEffect(() => {
     const fetchRole = async () => {
@@ -127,12 +135,24 @@ function NavigationContent() {
       }
     };
 
+    const fetchTools = async () => {
+      if (user?.id) {
+        try {
+          const tools = await getUserTools(user.id);
+          setUserTools(tools);
+        } catch (error) {
+          console.error('Failed to fetch tools:', error);
+        }
+      }
+    };
+
     if (user?.id) {
       fetchRole();
+      fetchTools();
     }
   }, [user?.id]);
 
-  const links = getNavItems(role).map((item) => <LinksGroup {...item} key={item.label} />);
+  const links = getNavItems(role, userTools).map((item) => <LinksGroup {...item} key={item.label} />);
 
   return (
     <div className="flex flex-col h-full">
