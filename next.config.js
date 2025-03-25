@@ -18,6 +18,7 @@ const nextConfig = {
       },
     ],
   },
+  devIndicators: false,
   webpack: (config) => {
     // Modify cache configuration
     config.cache = {
