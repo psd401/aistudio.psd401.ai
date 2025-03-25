@@ -1,0 +1,119 @@
+import { NextResponse } from 'next/server';
+import { ErrorLevel } from '@/types/actions-types';
+import { handleError } from './error-utils';
+
+// Define AppError interface to match the one in actions-types
+interface AppError extends Error {
+  code?: string;
+  level: ErrorLevel;
+  details?: Record<string, unknown>;
+}
+
+/**
+ * Wrapper for API route handlers to standardize error handling
+ * @param handler The route handler function
+ * @returns A function that catches errors and returns standardized responses
+ */
+export function withErrorHandling<T>(
+  handler: () => Promise<T>
+): Promise<NextResponse> {
+  return handler()
+    .then((data) => {
+      return NextResponse.json({ 
+        success: true, 
+        data 
+      });
+    })
+    .catch((error) => {
+      // Use the common error handler for logging
+      const result = handleError(error, "API request failed", {
+        context: "API",
+        includeErrorInResponse: process.env.NODE_ENV === 'development'
+      });
+      
+      // Determine status code based on error
+      let statusCode = 500;
+      if (error instanceof AppError) {
+        switch (error.code) {
+          case 'UNAUTHORIZED':
+            statusCode = 401;
+            break;
+          case 'FORBIDDEN':
+            statusCode = 403;
+            break;
+          case 'NOT_FOUND':
+            statusCode = 404;
+            break;
+          case 'VALIDATION':
+            statusCode = 400;
+            break;
+          case 'CONFLICT':
+            statusCode = 409;
+            break;
+          default:
+            statusCode = 500;
+        }
+      }
+      
+      return NextResponse.json(
+        {
+          success: false,
+          message: result.message,
+          ...(result.error && { error: result.error })
+        }, 
+        { status: statusCode }
+      );
+    });
+}
+
+/**
+ * Creates an unauthorized response
+ */
+export function unauthorized(message = 'Unauthorized') {
+  return NextResponse.json(
+    { 
+      success: false, 
+      message 
+    }, 
+    { status: 401 }
+  );
+}
+
+/**
+ * Creates a forbidden response
+ */
+export function forbidden(message = 'Forbidden') {
+  return NextResponse.json(
+    { 
+      success: false, 
+      message 
+    }, 
+    { status: 403 }
+  );
+}
+
+/**
+ * Creates a not found response
+ */
+export function notFound(message = 'Not found') {
+  return NextResponse.json(
+    { 
+      success: false, 
+      message 
+    }, 
+    { status: 404 }
+  );
+}
+
+/**
+ * Creates a bad request response
+ */
+export function badRequest(message = 'Bad request') {
+  return NextResponse.json(
+    { 
+      success: false, 
+      message 
+    }, 
+    { status: 400 }
+  );
+}

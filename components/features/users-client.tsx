@@ -50,7 +50,19 @@ export function UsersClient({ currentUser, initialUsers }: UsersClientProps) {
         body: JSON.stringify({ role: newRole }),
       })
 
-      if (!response.ok) throw new Error("Failed to update role")
+      // Handle non-JSON responses
+      const text = await response.text()
+      let result
+      try {
+        result = text ? JSON.parse(text) : {}
+      } catch (parseError) {
+        console.error("Failed to parse JSON response:", text)
+        throw new Error("Invalid server response")
+      }
+      
+      if (!response.ok || (result && !result.success)) {
+        throw new Error((result && result.message) || "Failed to update role")
+      }
 
       setUsers(users.map(user => 
         user.id === userId ? { ...user, role: newRole } : user
@@ -59,7 +71,7 @@ export function UsersClient({ currentUser, initialUsers }: UsersClientProps) {
       toast.success("User role updated successfully")
     } catch (error) {
       console.error("Error updating user role:", error)
-      toast.error("Failed to update user role")
+      toast.error(error instanceof Error ? error.message : "Failed to update user role")
     } finally {
       setIsUpdating(false)
     }
@@ -77,14 +89,26 @@ export function UsersClient({ currentUser, initialUsers }: UsersClientProps) {
       const response = await fetch(`/api/admin/users/${userToDelete.id}`, {
         method: "DELETE",
       })
-
-      if (!response.ok) throw new Error("Failed to delete user")
+      
+      // Handle non-JSON responses
+      const text = await response.text()
+      let result
+      try {
+        result = text ? JSON.parse(text) : {}
+      } catch (parseError) {
+        console.error("Failed to parse JSON response:", text)
+        throw new Error("Invalid server response")
+      }
+      
+      if (!response.ok || (result && !result.success)) {
+        throw new Error((result && result.message) || "Failed to delete user")
+      }
 
       setUsers(users.filter(user => user.id !== userToDelete.id))
       toast.success("User deleted successfully")
     } catch (error) {
       console.error("Error deleting user:", error)
-      toast.error("Failed to delete user")
+      toast.error(error instanceof Error ? error.message : "Failed to delete user")
     } finally {
       setShowDeleteDialog(false)
       setUserToDelete(null)
@@ -162,4 +186,4 @@ export function UsersClient({ currentUser, initialUsers }: UsersClientProps) {
       </AlertDialog>
     </div>
   )
-} 
+}

@@ -24,11 +24,19 @@ app/
 └── layout.tsx      # Root layout
 
 components/         # Reusable UI components
-lib/               # Core utilities and database
-tests/             # Test suites
-├── unit/          # Unit tests
-├── integration/   # Integration tests
-└── utils/         # Test utilities
+├── ui/             # Shadcn UI components
+└── features/       # Feature-specific components
+
+actions/            # Server actions for database operations
+db/                 # Database schemas and configuration
+├── db.ts           # Central database connection
+└── schema/         # Schema definitions
+
+lib/                # Core utilities and helpers
+tests/              # Test suites
+├── unit/           # Unit tests
+├── integration/    # Integration tests
+└── utils/          # Test utilities
 ```
 
 ## Authentication & Authorization
@@ -61,9 +69,12 @@ Table users {
 
 ### Database Operations
 - Use Drizzle ORM for all database operations
+- Always import the database client from `/db/db.ts`
+- Always import schema from `/db/schema/index.ts` 
+- Follow table naming convention with `Table` suffix in schema (e.g., `usersTable`)
+- Use `InsertX` and `SelectX` naming convention for type definitions
 - Always use transactions for multi-step operations
 - Implement proper error handling and rollbacks
-- Follow the existing patterns in `lib/db.ts`
 
 ## Components
 
@@ -259,17 +270,88 @@ Table ai_models {
 
 ## Error Handling
 
+### Standard Error Utilities
+
+Use the following utilities for consistent error handling across the codebase:
+
+- `/types/actions-types.ts` - Contains the `ActionState<T>` type and `AppError` interface
+- `/lib/error-utils.ts` - Provides utility functions for error handling
+- `/lib/api-utils.ts` - Provides utilities for API route error handling
+- `/lib/hooks/use-action.ts` - React hook for handling server actions with error states
+
 ### Client-Side
-- Use try-catch blocks for async operations
-- Show appropriate error messages to users
+- Use `useAction()` hook to execute server actions with proper error handling
+- Show toast notifications for success and error states
 - Implement loading states during operations
 - Handle network errors gracefully
+- Use consistent pattern for error display
 
 ### Server-Side
-- Return appropriate HTTP status codes
-- Provide meaningful error messages
-- Log errors for debugging
-- Never expose internal error details to clients
+- Server actions must use the standardized utilities:
+  ```typescript
+  import { createSuccess, handleError, createError } from "@/lib/error-utils";
+  
+  export async function myAction(data: InputType): Promise<ActionState<OutputType>> {
+    try {
+      // Perform operations
+      return createSuccess(result, "Operation successful");
+    } catch (error) {
+      return handleError(error, "Operation failed", { context: "myAction" });
+    }
+  }
+  ```
+
+- API routes should use the `withErrorHandling` wrapper:
+  ```typescript
+  import { withErrorHandling } from "@/lib/api-utils";
+  
+  export async function GET() {
+    return withErrorHandling(async () => {
+      // Perform operations
+      return data;
+    });
+  }
+  ```
+
+- Use appropriate error codes and levels:
+  ```typescript
+  throw createError("Resource not found", { 
+    code: "NOT_FOUND", 
+    level: ErrorLevel.ERROR,
+    details: { resourceId: id }
+  });
+  ```
+
+- Never expose internal error details to clients in production
+- Log errors with appropriate context for debugging
+
+### Migration Strategy
+
+To migrate existing code to the new error handling system:
+
+1. Use the automated migration script:
+   ```bash
+   # Dry run (preview changes)
+   npx ts-node scripts/migrate-error-handling.ts --dry-run --all
+   
+   # Migrate server actions
+   npx ts-node scripts/migrate-error-handling.ts --actions
+   
+   # Migrate API routes
+   npx ts-node scripts/migrate-error-handling.ts --api
+   ```
+
+2. Manual migration steps:
+   - Update imports to include the new error utilities
+   - Replace direct ActionState return objects with `createSuccess()`
+   - Replace error handling with `handleError()`
+   - Refactor complex API routes to use `withErrorHandling()`
+   - Update client components to use the `useAction()` hook
+
+3. Testing after migration:
+   - Verify error messages are properly displayed
+   - Check logs for proper error context
+   - Test error scenarios to ensure they are handled correctly
 
 ## UI/UX Guidelines
 
@@ -713,16 +795,21 @@ Table political_settings {
   - Support progress tracking
 
 ### Server Actions
+- Must be placed in the `/actions/` directory
+- Follow naming convention with descriptive action names
+- Always import database from `/db/db.ts`
+- Use schema from `/db/schema/index.ts`
 - Must follow ActionState pattern:
   ```typescript
   type ActionState<T> =
     | { isSuccess: true; message: string; data: T }
     | { isSuccess: false; message: string; data?: never }
   ```
-- Implement proper error handling
+- Implement proper error handling with try/catch blocks
 - Support transaction rollback
 - Validate inputs
 - Return appropriate status messages
+- Sort actions in CRUD order (Create, Read, Update, Delete)
 
 ### Testing Requirements
 - Test multi-stage analysis flow
