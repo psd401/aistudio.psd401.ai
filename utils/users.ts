@@ -1,6 +1,6 @@
 import { clerkClient, currentUser } from '@clerk/nextjs/server';
 import { db } from '@/db/db';
-import { usersTable } from '@/db/schema';
+import { usersTable, rolesTable, userRolesTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
 export async function syncUserWithClerk(userId: string) {
@@ -19,16 +19,34 @@ export async function syncUserWithClerk(userId: string) {
       clerkId: userId,
       firstName: clerkUser.firstName || null,
       lastName: clerkUser.lastName || null,
-      role: dbUser?.role || 'student', // Preserve existing role or default to student
+      role: dbUser?.role || 'staff', // Default to staff role for new users
     };
 
+    let user;
     if (!dbUser) {
       // Create new user if they don't exist
       const [newUser] = await db
         .insert(usersTable)
         .values(userData)
         .returning();
-      return newUser;
+      user = newUser;
+
+      // Get the staff role ID
+      const [staffRole] = await db
+        .select()
+        .from(rolesTable)
+        .where(eq(rolesTable.name, 'staff'));
+
+      if (staffRole) {
+        // Assign staff role to new user
+        await db
+          .insert(userRolesTable)
+          .values({
+            userId: newUser.id,
+            roleId: staffRole.id
+          })
+          .onConflictDoNothing();
+      }
     } else {
       // Update existing user
       const [updatedUser] = await db
@@ -36,8 +54,10 @@ export async function syncUserWithClerk(userId: string) {
         .set(userData)
         .where(eq(usersTable.clerkId, userId))
         .returning();
-      return updatedUser;
+      user = updatedUser;
     }
+
+    return user;
   } catch (error) {
     console.error('Error syncing user with Clerk:', error);
     throw error;
