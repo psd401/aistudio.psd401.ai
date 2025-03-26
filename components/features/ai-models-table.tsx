@@ -200,7 +200,7 @@ export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel
         </TableHeader>
         <TableBody>
           {models.map((model) => (
-            <TableRow key={model.id}>
+            <TableRow key={String(model.id)}>
               <TableCell>{model.name}</TableCell>
               <TableCell>{model.provider}</TableCell>
               <TableCell className="font-mono text-sm">{model.modelId}</TableCell>
