@@ -12,14 +12,12 @@ import { ChevronRight } from 'lucide-react';
  * 
  * @property icon - The icon component to display
  * @property label - The text to display for the group
- * @property initiallyOpened - Whether the group should be initially expanded
  * @property links - Array of child links (for dropdown sections)
  * @property link - Direct link (for non-dropdown items)
  */
 interface LinksGroupProps {
   icon: React.FC<any>;
   label: string;
-  initiallyOpened?: boolean;
   links?: { label: string; link: string }[];
   link?: string;
 }
@@ -31,10 +29,10 @@ interface LinksGroupProps {
  * 1. A collapsible dropdown with child links (when links array is provided)
  * 2. A direct navigation link (when link is provided and no links array)
  * 
- * Used to build the navigation sidebar structure
+ * Used to build the navigation sidebar structure. All dropdowns are collapsed by default.
  */
-export function LinksGroup({ icon: Icon, label, initiallyOpened, links, link }: LinksGroupProps) {
-  const [isOpen, setIsOpen] = useState(initiallyOpened || false);
+export function LinksGroup({ icon: Icon, label, links, link }: LinksGroupProps) {
+  const [isOpen, setIsOpen] = useState(false);
   
   // Determine if this is a dropdown (has child links) or a direct link
   const hasLinks = Array.isArray(links) && links.length > 0;

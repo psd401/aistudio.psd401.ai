@@ -219,7 +219,6 @@ function NavigationContent() {
               <div className="text-center py-4">Loading...</div>
             ) : (
               processedItems.map((item) => {
-                // Get the icon component from the map, defaulting to IconHome if not found
                 const IconComponent = iconMap[item.icon] || IconHome;
                 
                 return (
@@ -229,7 +228,6 @@ function NavigationContent() {
                     icon={IconComponent}
                     links={item.links}
                     link={item.link}
-                    initiallyOpened={!!item.links && item.links.length > 0}
                   />
                 );
               })
