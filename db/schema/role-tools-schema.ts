@@ -10,11 +10,7 @@ export const roleToolsTable = pgTable("role_tools", {
   toolId: text("tool_id")
     .references(() => toolsTable.id, { onDelete: "cascade" })
     .notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at")
-    .defaultNow()
-    .notNull()
-    .$onUpdate(() => new Date())
+  createdAt: timestamp("created_at").defaultNow().notNull()
 })
 
 export const roleToolsRelations = relations(roleToolsTable, ({ one }) => ({

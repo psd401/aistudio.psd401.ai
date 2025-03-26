@@ -13,52 +13,35 @@ const roleHierarchy: Record<Role, number> = {
 };
 
 export async function syncUserRole(userId: string) {
-  // Get user from database
-  const [dbUser] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.clerkId, userId));
+  try {
+    // Get user's roles from the database via user_roles table
+    const userRoles = await getUserRoles(userId);
+    const highestRole = await getHighestUserRole(userId);
 
-  // Get user from Clerk
-  const client = await clerkClient();
-  const clerkUser = await client.users.getUser(userId);
-  const clerkRole = clerkUser.publicMetadata.role as Role | undefined;
-
-  // If user exists in DB but not in Clerk, sync DB -> Clerk
-  if (dbUser && !clerkRole) {
+    // Get user from Clerk
+    const client = await clerkClient();
+    const clerkUser = await client.users.getUser(userId);
+    
+    // Update Clerk public metadata with all roles
     await client.users.updateUserMetadata(userId, {
       publicMetadata: {
-        role: dbUser.role,
+        // Keep highest role for backward compatibility
+        role: highestRole || 'staff',
+        // Add all roles as an array
+        roles: userRoles
       },
     });
-    return dbUser.role;
+    
+    return highestRole;
+  } catch (error) {
+    console.error("Error syncing user role:", error);
+    return null;
   }
-
-  // If user exists in Clerk but not in DB, sync Clerk -> DB
-  if (!dbUser && clerkRole) {
-    const [newUser] = await db
-      .insert(usersTable)
-      .values({
-        clerkId: userId,
-        role: clerkRole,
-      })
-      .returning();
-    return newUser.role;
-  }
-
-  // If user exists in both places but roles don't match, prefer DB
-  if (dbUser && clerkRole && dbUser.role !== clerkRole) {
-    await client.users.updateUserMetadata(userId, {
-      publicMetadata: {
-        role: dbUser.role,
-      },
-    });
-    return dbUser.role;
-  }
-
-  return dbUser?.role;
 }
 
+/**
+ * Check if a user has a specific role
+ */
 export async function hasRole(userId: string, roleName: string): Promise<boolean> {
   try {
     const [role] = await db
@@ -68,12 +51,20 @@ export async function hasRole(userId: string, roleName: string): Promise<boolean
 
     if (!role) return false
 
+    // Get user's database ID first
+    const [dbUser] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.clerkId, userId))
+
+    if (!dbUser) return false;
+
     const [userRole] = await db
       .select()
       .from(userRolesTable)
       .where(
         and(
-          eq(userRolesTable.userId, userId),
+          eq(userRolesTable.userId, dbUser.id),
           eq(userRolesTable.roleId, role.id)
         )
       )
@@ -83,15 +74,6 @@ export async function hasRole(userId: string, roleName: string): Promise<boolean
     console.error("Error checking role:", error)
     return false
   }
-}
-
-export async function hasExactRole(userId: string, role: Role): Promise<boolean> {
-  const [dbUser] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.clerkId, userId));
-
-  return dbUser?.role?.toLowerCase() === role.toLowerCase();
 }
 
 /**
@@ -107,37 +89,32 @@ export async function hasToolAccess(userId: string, toolIdentifier: string): Pro
 
     if (!dbUser) return false
 
-    // Get tool
+    // Check if tool exists and is active
     const [tool] = await db
       .select()
       .from(toolsTable)
-      .where(eq(toolsTable.id, toolIdentifier))
-
-    if (!tool || !tool.isActive) return false
-
-    // Get user's roles
-    const userRoles = await db
-      .select({
-        roleId: userRolesTable.roleId
-      })
-      .from(userRolesTable)
-      .where(eq(userRolesTable.userId, dbUser.id))
-
-    if (!userRoles.length) return false
-
-    // Check if any of user's roles have access to the tool
-    const roleIds = userRoles.map(ur => ur.roleId)
-    const [roleToolAccess] = await db
-      .select()
-      .from(roleToolsTable)
       .where(
         and(
-          inArray(roleToolsTable.roleId, roleIds),
+          eq(toolsTable.identifier, toolIdentifier),
+          eq(toolsTable.isActive, true)
+        )
+      )
+
+    if (!tool) return false
+
+    // Check if any of user's roles have access to the tool
+    const [hasAccess] = await db
+      .select()
+      .from(userRolesTable)
+      .innerJoin(roleToolsTable, eq(userRolesTable.roleId, roleToolsTable.roleId))
+      .where(
+        and(
+          eq(userRolesTable.userId, dbUser.id),
           eq(roleToolsTable.toolId, tool.id)
         )
       )
 
-    return !!roleToolAccess
+    return !!hasAccess
   } catch (error) {
     console.error("Error checking tool access:", error)
     return false
@@ -149,6 +126,72 @@ export async function hasToolAccess(userId: string, toolIdentifier: string): Pro
  */
 export async function getUserTools(userId: string): Promise<string[]> {
   try {
+    if (!userId) {
+      return [];
+    }
+
+    console.log("Getting tools for user:", userId);
+
+    // Since we're having issues with the users query, let's do this step by step
+    // First, get the user by their Clerk ID
+    const dbUsers = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.clerkId, userId));
+    
+    if (!dbUsers.length) {
+      console.error("No user found with clerk ID:", userId);
+      return [];
+    }
+    
+    const dbUser = dbUsers[0];
+    console.log("Found user:", dbUser.id);
+
+    // Get user's roles from user_roles table
+    const userRoles = await db
+      .select({
+        roleId: userRolesTable.roleId
+      })
+      .from(userRolesTable)
+      .where(eq(userRolesTable.userId, dbUser.id));
+
+    if (!userRoles.length) {
+      console.error("No roles found for user:", dbUser.id);
+      return [];
+    }
+    
+    // Extract role IDs
+    const roleIds = userRoles.map(ur => ur.roleId);
+    console.log("Found role IDs:", roleIds);
+    
+    // Find all tools associated with any of the user's roles
+    const roleTools = await db
+      .select({
+        toolIdentifier: toolsTable.identifier
+      })
+      .from(roleToolsTable)
+      .innerJoin(toolsTable, eq(roleToolsTable.toolId, toolsTable.id))
+      .where(and(
+        inArray(roleToolsTable.roleId, roleIds),
+        eq(toolsTable.isActive, true)
+      ));
+    
+    // Extract unique tool identifiers
+    const tools = [...new Set(roleTools.map(rt => rt.toolIdentifier))];
+    console.log("Found tools:", tools);
+    
+    return tools;
+  } catch (error) {
+    console.error("Error fetching user tools:", error);
+    return [];
+  }
+}
+
+/**
+ * Get all roles a user has
+ */
+export async function getUserRoles(userId: string): Promise<string[]> {
+  try {
     // Get user's database ID first
     const [dbUser] = await db
       .select()
@@ -157,34 +200,58 @@ export async function getUserTools(userId: string): Promise<string[]> {
 
     if (!dbUser) return []
 
-    // Get user's roles
-    const userRoles = await db
+    // Get all roles the user has from user_roles table
+    const userRoleRecords = await db
       .select({
-        roleId: userRolesTable.roleId
+        name: rolesTable.name
       })
       .from(userRolesTable)
+      .innerJoin(rolesTable, eq(userRolesTable.roleId, rolesTable.id))
       .where(eq(userRolesTable.userId, dbUser.id))
 
-    if (!userRoles.length) return []
-
-    // Get all tools accessible by user's roles
-    const roleIds = userRoles.map(ur => ur.roleId)
-    const tools = await db
-      .select({
-        identifier: toolsTable.identifier
-      })
-      .from(roleToolsTable)
-      .innerJoin(toolsTable, eq(roleToolsTable.toolId, toolsTable.id))
-      .where(
-        and(
-          inArray(roleToolsTable.roleId, roleIds),
-          eq(toolsTable.isActive, true)
-        )
-      )
-
-    return [...new Set(tools.map(t => t.identifier))]
+    return userRoleRecords.map(r => r.name)
   } catch (error) {
-    console.error("Error getting user tools:", error)
+    console.error("Error getting user roles:", error)
     return []
+  }
+}
+
+/**
+ * Check if user has any of the specified roles
+ */
+export async function hasAnyRole(userId: string, roles: string[]): Promise<boolean> {
+  try {
+    const userRoles = await getUserRoles(userId)
+    return roles.some(role => userRoles.includes(role))
+  } catch (error) {
+    console.error("Error checking if user has any role:", error)
+    return false
+  }
+}
+
+/**
+ * Get the highest role a user has based on hierarchy
+ */
+export async function getHighestUserRole(userId: string): Promise<string | null> {
+  try {
+    const userRoles = await getUserRoles(userId)
+    if (!userRoles.length) return null
+    
+    // Find the highest role based on the hierarchy
+    let highestRole = userRoles[0]
+    let highestRank = roleHierarchy[highestRole as keyof typeof roleHierarchy] || -1
+    
+    for (const role of userRoles) {
+      const rank = roleHierarchy[role as keyof typeof roleHierarchy] || -1
+      if (rank > highestRank) {
+        highestRole = role
+        highestRank = rank
+      }
+    }
+    
+    return highestRole
+  } catch (error) {
+    console.error("Error getting highest user role:", error)
+    return null
   }
 } 

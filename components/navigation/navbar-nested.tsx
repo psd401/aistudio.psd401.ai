@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { useUser } from '@clerk/nextjs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { Menu } from 'lucide-react';
 import {
@@ -14,83 +13,75 @@ import {
   IconChalkboard,
   IconBuildingBank,
   IconBriefcase,
-  IconSettings,
   IconShield,
   IconBulb,
   IconFlask,
+  IconChartBar,
+  IconBraces,
+  IconFileAnalytics,
+  IconMessageCircle,
+  IconUsersGroup,
+  IconUser,
+  IconRobot,
   IconTools,
-  IconBeaker,
 } from '@tabler/icons-react';
 import { LinksGroup } from './navbar-links-group';
 import { UserButton } from '../user/user-button';
-import { usePathname } from 'next/navigation';
-import { getUserTools } from '@/utils/roles';
 
-const getNavItems = (role?: string, userTools: string[] = []) => {
-  const items = [
-    { 
-      label: 'Dashboard',
-      icon: IconHome,
-      link: '/dashboard'
-    },
-    {
-      label: 'Instructional',
-      icon: IconChalkboard,
-      links: [],
-    },
-    {
-      label: 'Operational',
-      icon: IconBuildingBank,
-      links: [
-        userTools.includes('communication-analysis') && { 
-          label: 'Communication Analysis', 
-          link: '/operations/communication-analysis' 
-        },
-        userTools.includes('meta-prompting') && { 
-          label: 'Meta-Prompting', 
-          link: '/meta-prompting' 
-        }
-      ].filter(Boolean),
-    },
-    {
-      label: 'Administrative',
-      icon: IconBriefcase,
-      links: [
-        userTools.includes('political-wording') && { 
-          label: 'Political Wording', 
-          link: '/operations/political-wording' 
-        }
-      ].filter(Boolean),
-    },
-    {
-      label: 'Experiments',
-      icon: IconFlask,
-      links: [
-        userTools.includes('chat') && { 
-          label: 'Chat', 
-          link: '/chat' 
-        }
-      ].filter(Boolean),
-    },
-    { 
-      label: 'Ideas', 
-      icon: IconBulb,
-      link: '/ideas'
-    }
-  ];
-
-  // Administrator-only section
-  if (role === 'administrator') {
-    items.push({
-      label: 'Admin',
-      icon: IconShield,
-      link: '/admin'
-    });
-  }
-
-  return items;
+/**
+ * Map of icon names to components
+ * Each icon name should correspond to a component from @tabler/icons-react
+ * Used to render the correct icon in the navigation
+ */
+const iconMap: Record<string, React.FC<any>> = {
+  IconHome,
+  IconChalkboard,
+  IconBuildingBank,
+  IconBriefcase,
+  IconShield,
+  IconBulb,
+  IconFlask,
+  IconChartBar,
+  IconBraces,
+  IconFileAnalytics,
+  IconMessageCircle,
+  IconUsersGroup,
+  IconUser,
+  IconRobot,
+  IconTools
 };
 
+/**
+ * Raw navigation item from the API
+ * Represents a single navigation item with its relationships
+ */
+interface NavigationItem {
+  id: string;
+  label: string;
+  icon: string;
+  link: string | null;
+  parent_id: string | null;
+  parent_label: string | null;
+  tool_id: string | null;
+  position: number;
+}
+
+/**
+ * Processed navigation item for the UI
+ * Used by the LinksGroup component to render navigation items
+ */
+interface ProcessedItem {
+  id: string;
+  label: string;
+  icon: string;
+  link?: string;
+  links?: { label: string; link: string }[];
+}
+
+/**
+ * Main navigation component that displays both mobile and desktop navigation
+ * Mobile navigation is displayed in a sheet, desktop in a sidebar
+ */
 export function NavbarNested() {
   const [open, setOpen] = useState(false);
 
@@ -117,42 +108,95 @@ export function NavbarNested() {
   );
 }
 
+/**
+ * Renders the navigation content
+ * - Fetches navigation items from API
+ * - Processes items into a hierarchical structure
+ * - Displays navigation items based on user permissions
+ */
 function NavigationContent() {
   const { user } = useUser();
-  const [role, setRole] = useState<string>();
-  const [userTools, setUserTools] = useState<string[]>([]);
+  const [navItems, setNavItems] = useState<NavigationItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [processedItems, setProcessedItems] = useState<ProcessedItem[]>([]);
 
+  // Fetch navigation items from the API
   useEffect(() => {
-    const fetchRole = async () => {
+    const fetchNavigation = async () => {
+      if (!user?.id) {
+        setIsLoading(false);
+        return;
+      }
+      
       try {
-        const response = await fetch('/api/auth/check-role');
-        const { isSuccess, role } = await response.json();
-        if (isSuccess) {
-          setRole(role);
+        setIsLoading(true);
+        
+        const navResponse = await fetch('/api/navigation');
+        const navData = await navResponse.json();
+        
+        if (navData.isSuccess && Array.isArray(navData.data)) {
+          setNavItems(navData.data);
+        } else {
+          console.error('Failed to fetch navigation:', navData.message);
+          setNavItems([]);
         }
       } catch (error) {
-        console.error('Failed to fetch role:', error);
+        console.error('Failed to fetch navigation data:', error);
+        setNavItems([]);
+      } finally {
+        setIsLoading(false);
       }
     };
 
-    const fetchTools = async () => {
-      if (user?.id) {
-        try {
-          const tools = await getUserTools(user.id);
-          setUserTools(tools);
-        } catch (error) {
-          console.error('Failed to fetch tools:', error);
-        }
-      }
-    };
-
-    if (user?.id) {
-      fetchRole();
-      fetchTools();
-    }
+    fetchNavigation();
   }, [user?.id]);
 
-  const links = getNavItems(role, userTools).map((item) => <LinksGroup {...item} key={item.label} />);
+  // Process navigation items into proper structure for the UI
+  useEffect(() => {
+    if (navItems.length === 0) {
+      setProcessedItems([]);
+      return;
+    }
+
+    // Find all top-level items (sections)
+    const topLevelItems = navItems.filter(item => item.parent_id === null);
+    
+    // Create a processed structure for each top-level item
+    const processed = topLevelItems.map(section => {
+      // Find children for this section
+      const children = navItems.filter(item => item.parent_id === section.id);
+      
+      const processedSection: ProcessedItem = {
+        id: section.id,
+        label: section.label,
+        icon: section.icon,
+      };
+      
+      // If section has a direct link, add it
+      if (section.link) {
+        processedSection.link = section.link;
+      }
+      
+      // If section has children, add them as links
+      if (children.length > 0) {
+        processedSection.links = children.map(child => ({
+          label: child.label,
+          link: child.link || '#'
+        }));
+      }
+      
+      return processedSection;
+    });
+    
+    // Sort by position
+    processed.sort((a, b) => {
+      const aItem = topLevelItems.find(item => item.id === a.id);
+      const bItem = topLevelItems.find(item => item.id === b.id);
+      return (aItem?.position || 0) - (bItem?.position || 0);
+    });
+    
+    setProcessedItems(processed);
+  }, [navItems]);
 
   return (
     <div className="flex flex-col h-full">
@@ -171,7 +215,25 @@ function NavigationContent() {
       <div className="flex-1 overflow-hidden">
         <ScrollArea className="h-full">
           <div className="px-3 py-2">
-            {links}
+            {isLoading ? (
+              <div className="text-center py-4">Loading...</div>
+            ) : (
+              processedItems.map((item) => {
+                // Get the icon component from the map, defaulting to IconHome if not found
+                const IconComponent = iconMap[item.icon] || IconHome;
+                
+                return (
+                  <LinksGroup 
+                    key={item.id}
+                    label={item.label}
+                    icon={IconComponent}
+                    links={item.links}
+                    link={item.link}
+                    initiallyOpened={!!item.links && item.links.length > 0}
+                  />
+                );
+              })
+            )}
           </div>
         </ScrollArea>
       </div>

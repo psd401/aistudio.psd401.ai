@@ -3,6 +3,7 @@ import { getAuth } from "@clerk/nextjs/server"
 import { db } from "@/db/db"
 import { usersTable } from "@/db/schema"
 import { eq } from "drizzle-orm"
+import { getUserRoles, getHighestUserRole } from "@/utils/roles"
 
 export async function GET(request: Request) {
   try {
@@ -14,22 +15,25 @@ export async function GET(request: Request) {
       )
     }
 
-    // Get user from database
-    const [user] = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.clerkId, userId))
+    // Get user's roles
+    const roles = await getUserRoles(userId)
+    
+    // Get the user's highest role for backward compatibility
+    const highestRole = await getHighestUserRole(userId)
 
-    if (!user) {
+    if (!roles.length) {
       return NextResponse.json(
-        { isSuccess: false, message: "User not found" },
+        { isSuccess: false, message: "User has no roles" },
         { status: 404 }
       )
     }
 
     return NextResponse.json({
       isSuccess: true,
-      role: user.role
+      // For backward compatibility with existing code
+      role: highestRole,
+      // New field with all roles
+      roles: roles
     })
   } catch (error) {
     console.error("Error checking role:", error)

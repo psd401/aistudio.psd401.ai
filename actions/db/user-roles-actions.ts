@@ -162,7 +162,6 @@ export async function getUsersByRoleAction(
         clerkId: usersTable.clerkId,
         firstName: usersTable.firstName,
         lastName: usersTable.lastName,
-        role: usersTable.role,
         createdAt: usersTable.createdAt,
         updatedAt: usersTable.updatedAt
       })

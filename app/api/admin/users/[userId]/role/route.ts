@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuth, clerkClient } from '@clerk/nextjs/server';
+import { getAuth } from '@clerk/nextjs/server';
 import { db } from '@/db/db';
-import { usersTable } from '@/db/schema';
-import type { Role } from '@/types';
+import { userRolesTable, rolesTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { hasRole } from '@/utils/roles';
 import { badRequest, unauthorized, forbidden, notFound } from '@/lib/api-utils';
@@ -12,60 +11,84 @@ export async function PUT(
   { params }: { params: { userId: string } }
 ) {
   try {
-    const { userId: currentUserId } = getAuth(request);
-    // Since Next.js 14.1, params should be explicitly awaited
-    const { userId } = await Promise.resolve(params);
-    
-    if (!currentUserId) {
-      return unauthorized();
+    const { userId: adminId } = getAuth(request);
+    if (!adminId) {
+      return NextResponse.json(
+        { isSuccess: false, message: 'Unauthorized' },
+        { status: 401 }
+      );
     }
 
-    // Check if user is administrator
-    const isAdmin = await hasRole(currentUserId, 'administrator');
+    const isAdmin = await hasRole(adminId, 'administrator');
     if (!isAdmin) {
-      return forbidden();
+      return NextResponse.json(
+        { isSuccess: false, message: 'Forbidden - Admin access required' },
+        { status: 403 }
+      );
     }
 
-    const { role } = await request.json();
+    const body = await request.json();
+    const { role: newRole } = body;
     
-    if (!role || !['student', 'staff', 'administrator'].includes(role)) {
-      return badRequest('Invalid role');
+    console.log('Role update request:', { userId: params.userId, newRole, body });
+    
+    if (!newRole || typeof newRole !== 'string') {
+      return NextResponse.json(
+        { isSuccess: false, message: 'Invalid role' },
+        { status: 400 }
+      );
+    }
+    
+    // Ensure we have a numeric user ID
+    const userId = parseInt(params.userId);
+    if (isNaN(userId)) {
+      return NextResponse.json(
+        { isSuccess: false, message: 'Invalid user ID' },
+        { status: 400 }
+      );
     }
 
-    // Update user role in database
-    const [updatedUser] = await db
-      .update(usersTable)
-      .set({ role: role as Role })
-      .where(eq(usersTable.id, parseInt(userId, 10)))
-      .returning();
+    // Get the role ID for the new role
+    const [roleRecord] = await db
+      .select()
+      .from(rolesTable)
+      .where(eq(rolesTable.name, newRole));
 
-    if (!updatedUser) {
-      return notFound('User not found');
+    console.log('Found role record:', roleRecord);
+
+    if (!roleRecord) {
+      return NextResponse.json(
+        { isSuccess: false, message: 'Invalid role' },
+        { status: 400 }
+      );
     }
 
-    // Safer Clerk client usage with error handling
-    try {
-      if (updatedUser.clerkId && clerkClient?.users?.updateUserMetadata) {
-        await clerkClient.users.updateUserMetadata(updatedUser.clerkId, {
-          publicMetadata: {
-            role: role
-          },
-        });
-      }
-    } catch (clerkError) {
-      console.error('Error updating Clerk metadata:', clerkError);
-      // Continue with the response even if Clerk update fails
-    }
+    // Delete existing roles for the user
+    await db
+      .delete(userRolesTable)
+      .where(eq(userRolesTable.userId, userId));
+
+    // Insert the new role
+    await db
+      .insert(userRolesTable)
+      .values({
+        userId: userId,
+        roleId: roleRecord.id
+      });
 
     return NextResponse.json({
-      success: true,
-      message: 'User role updated successfully',
-      data: updatedUser
+      isSuccess: true,
+      message: 'User role updated successfully'
     });
   } catch (error) {
     console.error('Error updating user role:', error);
     return NextResponse.json(
-      { success: false, message: error instanceof Error ? error.message : 'Failed to update user role' },
+      { 
+        isSuccess: false, 
+        message: error instanceof Error 
+          ? `Failed to update user role: ${error.message}` 
+          : 'Failed to update user role'
+      },
       { status: 500 }
     );
   }

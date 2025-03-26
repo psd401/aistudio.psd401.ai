@@ -27,13 +27,29 @@ export default function AdminUsersPage() {
   const fetchUsers = async () => {
     try {
       const response = await fetch('/api/admin/users');
-      if (!response.ok) throw new Error('Failed to fetch users');
-      const data = await response.json();
-      setUsers(data);
+      
+      // Handle status codes
+      if (response.status === 401) {
+        throw new Error('Unauthorized - Please log in');
+      } else if (response.status === 403) {
+        throw new Error('Forbidden - Admin access required');
+      } else if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      console.log('API response:', result);
+      
+      if (!result.isSuccess) {
+        throw new Error(result.message || 'Failed to fetch users');
+      }
+      
+      setUsers(result.data || []);
     } catch (error) {
+      console.error('Error fetching users:', error);
       toast({
         title: 'Error',
-        description: 'Failed to load users',
+        description: error instanceof Error ? error.message : 'Failed to load users',
         variant: 'destructive',
       });
     } finally {

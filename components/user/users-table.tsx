@@ -13,6 +13,8 @@ interface UsersTableProps {
 }
 
 export function UsersTable({ users, currentUserId, onRoleChange, onDeleteUser }: UsersTableProps) {
+  console.log('UsersTable received users:', users);
+  
   return (
     <Table>
       <TableHeader>
@@ -25,35 +27,43 @@ export function UsersTable({ users, currentUserId, onRoleChange, onDeleteUser }:
         </TableRow>
       </TableHeader>
       <TableBody>
-        {users.map((user) => (
-          <TableRow key={user.id}>
-            <TableCell>
-              {user.firstName} {user.lastName}
-            </TableCell>
-            <TableCell>{user.email}</TableCell>
-            <TableCell>
-              <UserRoleSelect
-                currentRole={user.role}
-                onRoleChange={(newRole) => onRoleChange(user.id, newRole)}
-                disabled={user.clerkId === currentUserId}
-              />
-            </TableCell>
-            <TableCell>
-              {user.lastSignInAt ? new Date(user.lastSignInAt).toLocaleString() : 'Never'}
-            </TableCell>
-            <TableCell>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onDeleteUser(user.id, user.clerkId)}
-                disabled={user.clerkId === currentUserId}
-                className="text-destructive hover:text-destructive"
-              >
-                Delete
-              </Button>
+        {users && users.length > 0 ? (
+          users.map((user) => (
+            <TableRow key={user.id}>
+              <TableCell>
+                {user.firstName || ''} {user.lastName || ''}
+              </TableCell>
+              <TableCell>{user.email || ''}</TableCell>
+              <TableCell>
+                <UserRoleSelect
+                  currentRole={user.role || ''}
+                  onRoleChange={(newRole) => onRoleChange(user.id, newRole)}
+                  disabled={user.clerkId === currentUserId}
+                />
+              </TableCell>
+              <TableCell>
+                {user.lastSignInAt ? new Date(user.lastSignInAt).toLocaleString() : 'Never'}
+              </TableCell>
+              <TableCell>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onDeleteUser(user.id, user.clerkId)}
+                  disabled={user.clerkId === currentUserId}
+                  className="text-destructive hover:text-destructive"
+                >
+                  Delete
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))
+        ) : (
+          <TableRow>
+            <TableCell colSpan={5} className="text-center py-4">
+              No users found
             </TableCell>
           </TableRow>
-        ))}
+        )}
       </TableBody>
     </Table>
   );

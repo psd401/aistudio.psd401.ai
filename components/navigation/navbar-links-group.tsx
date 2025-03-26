@@ -7,6 +7,15 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { cn } from '@/lib/utils';
 import { ChevronRight } from 'lucide-react';
 
+/**
+ * Props for the LinksGroup component
+ * 
+ * @property icon - The icon component to display
+ * @property label - The text to display for the group
+ * @property initiallyOpened - Whether the group should be initially expanded
+ * @property links - Array of child links (for dropdown sections)
+ * @property link - Direct link (for non-dropdown items)
+ */
 interface LinksGroupProps {
   icon: React.FC<any>;
   label: string;
@@ -15,10 +24,23 @@ interface LinksGroupProps {
   link?: string;
 }
 
+/**
+ * Navigation Links Group Component
+ * 
+ * Renders either:
+ * 1. A collapsible dropdown with child links (when links array is provided)
+ * 2. A direct navigation link (when link is provided and no links array)
+ * 
+ * Used to build the navigation sidebar structure
+ */
 export function LinksGroup({ icon: Icon, label, initiallyOpened, links, link }: LinksGroupProps) {
   const [isOpen, setIsOpen] = useState(initiallyOpened || false);
-  const hasLinks = Array.isArray(links);
+  
+  // Determine if this is a dropdown (has child links) or a direct link
+  const hasLinks = Array.isArray(links) && links.length > 0;
+  const isDirectLink = !!link && !hasLinks;
 
+  // Create the list of child links
   const items = (hasLinks ? links : []).map((link) => (
     <Link
       href={link.link}
@@ -29,6 +51,7 @@ export function LinksGroup({ icon: Icon, label, initiallyOpened, links, link }: 
     </Link>
   ));
 
+  // Common button content for both direct links and dropdown triggers
   const ButtonContent = () => (
     <>
       <div className="flex items-center flex-1">
@@ -46,7 +69,8 @@ export function LinksGroup({ icon: Icon, label, initiallyOpened, links, link }: 
     </>
   );
 
-  if (!hasLinks && link) {
+  // If it's a direct link (no dropdown)
+  if (isDirectLink) {
     return (
       <Link href={link} passHref>
         <Button
@@ -59,6 +83,7 @@ export function LinksGroup({ icon: Icon, label, initiallyOpened, links, link }: 
     );
   }
 
+  // If it's a dropdown with links
   return (
     <Collapsible
       open={isOpen}

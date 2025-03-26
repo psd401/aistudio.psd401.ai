@@ -9,6 +9,11 @@ export async function syncUserWithClerk(userId: string) {
     const client = await clerkClient();
     const clerkUser = await client.users.getUser(userId);
 
+    // Get primary email address from Clerk
+    const primaryEmail = clerkUser.emailAddresses.find(
+      email => email.id === clerkUser.primaryEmailAddressId
+    )?.emailAddress || '';
+
     // Get user from database
     const [dbUser] = await db
       .select()
@@ -19,7 +24,8 @@ export async function syncUserWithClerk(userId: string) {
       clerkId: userId,
       firstName: clerkUser.firstName || null,
       lastName: clerkUser.lastName || null,
-      role: dbUser?.role || 'staff', // Default to staff role for new users
+      email: primaryEmail,
+      lastSignInAt: clerkUser.lastSignInAt ? new Date(clerkUser.lastSignInAt) : null,
     };
 
     let user;
