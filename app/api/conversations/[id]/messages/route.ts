@@ -6,13 +6,15 @@ import { NextRequest } from 'next/server';
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   const { userId } = getAuth(req);
   if (!userId) {
     return new Response('Unauthorized', { status: 401 });
   }
 
+  // Await the params object
+  const params = await context.params;
   const conversationId = parseInt(params.id);
   if (isNaN(conversationId)) {
     return new Response('Invalid conversation ID', { status: 400 });

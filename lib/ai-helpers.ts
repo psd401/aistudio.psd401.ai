@@ -11,11 +11,12 @@ interface ModelConfig {
 
 export async function generateCompletion(
   modelConfig: ModelConfig,
-  systemPrompt: string,
+  systemPrompt: string | null | undefined,
   userMessage: string
 ) {
+  // Only include system message if it's provided and non-empty
   const messages = [
-    { role: 'system', content: systemPrompt },
+    ...(systemPrompt?.trim() ? [{ role: 'system', content: systemPrompt }] : []),
     { role: 'user', content: userMessage }
   ]
 

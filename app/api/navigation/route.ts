@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getAuth } from "@clerk/nextjs/server"
 import { db } from "@/db/db"
 import { navigationItemsTable, toolsTable } from "@/db/schema"
-import { eq, isNull, inArray } from "drizzle-orm"
+import { eq, isNull, inArray, asc } from "drizzle-orm"
 import { getUserTools, hasRole } from "@/utils/roles"
 
 /**
@@ -43,10 +43,11 @@ export async function GET(request: Request) {
     }
 
     // Get all navigation items
-    const navItems = await db.query.navigationItemsTable.findMany({
-      where: eq(navigationItemsTable.isActive, true),
-      orderBy: navigationItemsTable.position
-    })
+    const navItems = await db
+      .select()
+      .from(navigationItemsTable)
+      .where(eq(navigationItemsTable.isActive, true))
+      .orderBy(asc(navigationItemsTable.position))
 
     // Get user's tools by identifier
     const userTools = await getUserTools(userId)

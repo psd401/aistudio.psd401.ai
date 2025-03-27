@@ -1,6 +1,6 @@
 "use server"
 
-import { db } from "@/db/db"
+import { db } from "@/db/query"
 import { 
   InsertAudience, 
   SelectAudience, 

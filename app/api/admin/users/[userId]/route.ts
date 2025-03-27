@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: { userId: string } }
+  context: { params: Promise<{ userId: string }> }
 ) {
   const { userId: adminId } = auth();
   
@@ -25,6 +25,8 @@ export async function DELETE(
   }
 
   try {
+    // Await the params object before using it
+    const params = await context.params;
     const targetUserId = parseInt(params.userId);
     if (isNaN(targetUserId)) {
       return new NextResponse('Invalid user ID', { status: 400 });

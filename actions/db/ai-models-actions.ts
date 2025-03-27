@@ -1,6 +1,6 @@
 "use server"
 
-import { db } from "@/db/db"
+import { db } from "@/db/query"
 import { aiModelsTable } from "@/db/schema"
 import { ActionState, SelectAiModel } from "@/types"
 import { asc } from "drizzle-orm"

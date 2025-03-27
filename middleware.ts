@@ -10,9 +10,14 @@ const isPublicRoute = createRouteMatcher([
   "/api/webhooks(.*)"
 ])
 
+const isProtectedRoute = createRouteMatcher([
+  "/utilities/prompt-chains(.*)",
+  "/admin(.*)"
+])
+
 export default clerkMiddleware(async (auth, req) => {
-  if (!isPublicRoute(req)) {
-    // Protect all non-public routes
+  if (isProtectedRoute(req) || !isPublicRoute(req)) {
+    // Protect all non-public routes and explicitly protected routes
     await auth.protect()
   }
 })

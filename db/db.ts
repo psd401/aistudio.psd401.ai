@@ -8,18 +8,47 @@
  * ```ts
  * import { db } from "@/db/db"
  * ```
+ * 
+ * NOTE: For server actions, especially those requiring Clerk auth,
+ * it's strongly recommended to use @/db/query instead, which includes
+ * proper configuration for relationships required by auth functions.
  */
 
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
-import * as schema from "./schema"
+import * as schema from "@/db/schema"
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("Missing env.DATABASE_URL")
-}
+/**
+ * Database configuration using Drizzle ORM.
+ * 
+ * Schema includes:
+ * - Base system tables (tools, roles, etc.)
+ * - Prompt chain related tables
+ * - Navigation and role assignment tables
+ * 
+ * Note: When adding new tables, make sure to include them in the schema object below.
+ */
 
-// Singleton connection for better performance
-const client = postgres(process.env.DATABASE_URL)
+const connectionString = process.env.DATABASE_URL!
+const client = postgres(connectionString)
 
-// Export db with complete schema
-export const db = drizzle(client, { schema }) 
+export const db = drizzle(client, {
+  schema: {
+    // Base system tables
+    tools: schema.toolsTable,
+    roles: schema.rolesTable,
+    roleTools: schema.roleToolsTable,
+    navigationItems: schema.navigationItemsTable,
+    
+    // Prompt chain related tables
+    promptChainTools: schema.promptChainToolsTable,
+    toolInputFields: schema.toolInputFieldsTable,
+    chainPrompts: schema.chainPromptsTable,
+    toolEdits: schema.toolEditsTable,
+    toolExecutions: schema.toolExecutionsTable,
+    promptResults: schema.promptResultsTable,
+    
+    // AI models
+    aiModels: schema.aiModelsTable
+  }
+}) 

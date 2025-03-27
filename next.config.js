@@ -25,7 +25,7 @@ const nextConfig = {
       type: 'memory',
       maxGenerations: 1,
     };
-
+    
     return config;
   },
 };

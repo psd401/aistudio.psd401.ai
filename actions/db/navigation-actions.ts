@@ -1,6 +1,6 @@
 "use server"
 
-import { db } from "@/db/db"
+import { db } from "@/db/query"
 import { navigationItemsTable } from "@/db/schema"
 import { ActionState } from "@/types"
 import { eq, isNull } from "drizzle-orm"

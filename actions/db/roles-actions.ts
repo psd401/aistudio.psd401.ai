@@ -1,6 +1,6 @@
 "use server"
 
-import { db } from "@/db/db"
+import { db } from "@/db/query"
 import { rolesTable, userRolesTable, roleToolsTable } from "@/db/schema"
 import { ActionState } from "@/types"
 import { eq, and } from "drizzle-orm"

@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs';
+import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import { db } from '@/lib/db';
 import { conversations, messages } from '@/lib/schema';
@@ -6,9 +6,9 @@ import { and, eq, asc } from 'drizzle-orm';
 import { Chat } from '../components/Chat';
 
 interface ConversationPageProps {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
 export default async function ConversationPage({ params }: ConversationPageProps) {
@@ -18,7 +18,9 @@ export default async function ConversationPage({ params }: ConversationPageProps
     redirect('/sign-in');
   }
 
-  const conversationId = parseInt(params.id);
+  // Await the params object
+  const resolvedParams = await params;
+  const conversationId = parseInt(resolvedParams.id);
   
   // First get the conversation
   const [conversation] = await db

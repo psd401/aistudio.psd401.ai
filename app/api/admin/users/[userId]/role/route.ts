@@ -8,9 +8,13 @@ import { badRequest, unauthorized, forbidden, notFound } from '@/lib/api-utils';
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { userId: string } }
+  context: { params: Promise<{ userId: string }> }
 ) {
   try {
+    // Await the params object before using it
+    const params = await context.params;
+    const userIdString = params.userId;
+    
     const { userId: adminId } = getAuth(request);
     if (!adminId) {
       return NextResponse.json(
@@ -30,7 +34,7 @@ export async function PUT(
     const body = await request.json();
     const { role: newRole } = body;
     
-    console.log('Role update request:', { userId: params.userId, newRole, body });
+    console.log('Role update request:', { userId: userIdString, newRole, body });
     
     if (!newRole || typeof newRole !== 'string') {
       return NextResponse.json(
@@ -40,7 +44,7 @@ export async function PUT(
     }
     
     // Ensure we have a numeric user ID
-    const userId = parseInt(params.userId);
+    const userId = parseInt(userIdString);
     if (isNaN(userId)) {
       return NextResponse.json(
         { isSuccess: false, message: 'Invalid user ID' },
