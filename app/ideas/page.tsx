@@ -362,11 +362,10 @@ export default function IdeasPage() {
             </CardContent>
 
             <CardFooter className="pt-0">
-              <div className="flex items-center w-full">
+              <div className="flex flex-wrap items-center w-full gap-2">
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="px-2"
                   onClick={() => handleVote(idea.id)}
                   disabled={idea.hasVoted}
                 >
@@ -376,7 +375,6 @@ export default function IdeasPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="px-2"
                   onClick={() => handleOpenNotes(idea)}
                 >
                   <IconNote className="h-4 w-4" />
@@ -386,19 +384,16 @@ export default function IdeasPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="px-2"
                     onClick={() => handleOpenEdit(idea)}
                   >
                     <IconEdit className="h-4 w-4" />
                     <span className="ml-1">Edit</span>
                   </Button>
                 )}
-
                 {isAdmin && idea.status !== 'completed' && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="px-2 ml-auto"
                     onClick={() => handleStatusChange(idea.id, 'completed')}
                   >
                     <IconCheck className="h-4 w-4" />
