@@ -7,10 +7,11 @@ if (!process.env.DATABASE_URL) {
 }
 
 export default {
-  schema: './lib/schema.ts',
-  out: './migrations',
-  driver: 'pg',
+  schema: './db/schema/*',
+  out: './db/migrations',
+  driver: 'postgres',
   dbCredentials: {
-    connectionString: process.env.DATABASE_URL,
+    connectionString: process.env.DATABASE_URL!,
   },
+  dialect: 'postgresql'
 } satisfies Config; 

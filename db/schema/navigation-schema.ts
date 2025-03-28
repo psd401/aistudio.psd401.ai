@@ -1,11 +1,15 @@
-import { pgTable, text, integer, boolean, timestamp } from "drizzle-orm/pg-core"
+import { pgEnum, pgTable, text, integer, boolean, timestamp } from "drizzle-orm/pg-core"
 import { toolsTable } from "./tools-schema"
+
+export const navigationTypeEnum = pgEnum("navigation_type", ["link", "section", "page"])
 
 export const navigationItemsTable = pgTable("navigation_items", {
   id: text("id").primaryKey(),
   label: text("label").notNull(),
   icon: text("icon").notNull(),
   link: text("link"),
+  description: text("description"),
+  type: navigationTypeEnum("type").notNull().default("link"),
   parentId: text("parent_id").references(() => navigationItemsTable.id, { onDelete: "cascade" }),
   toolId: text("tool_id").references(() => toolsTable.id),
   requiresRole: text("requires_role"),

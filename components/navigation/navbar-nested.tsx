@@ -8,48 +8,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Menu } from 'lucide-react';
-import {
-  IconHome,
-  IconChalkboard,
-  IconBuildingBank,
-  IconBriefcase,
-  IconShield,
-  IconBulb,
-  IconFlask,
-  IconChartBar,
-  IconBraces,
-  IconFileAnalytics,
-  IconMessageCircle,
-  IconUsersGroup,
-  IconUser,
-  IconRobot,
-  IconTools,
-} from '@tabler/icons-react';
+import { iconMap, IconName } from './icon-map';
 import { LinksGroup } from './navbar-links-group';
 import { UserButton } from '../user/user-button';
-
-/**
- * Map of icon names to components
- * Each icon name should correspond to a component from @tabler/icons-react
- * Used to render the correct icon in the navigation
- */
-const iconMap: Record<string, React.FC<any>> = {
-  IconHome,
-  IconChalkboard,
-  IconBuildingBank,
-  IconBriefcase,
-  IconShield,
-  IconBulb,
-  IconFlask,
-  IconChartBar,
-  IconBraces,
-  IconFileAnalytics,
-  IconMessageCircle,
-  IconUsersGroup,
-  IconUser,
-  IconRobot,
-  IconTools
-};
 
 /**
  * Raw navigation item from the API
@@ -58,8 +19,10 @@ const iconMap: Record<string, React.FC<any>> = {
 interface NavigationItem {
   id: string;
   label: string;
-  icon: string;
+  icon: IconName;
   link: string | null;
+  description?: string;
+  type: 'link' | 'section' | 'page';
   parent_id: string | null;
   parent_label: string | null;
   tool_id: string | null;
@@ -73,9 +36,15 @@ interface NavigationItem {
 interface ProcessedItem {
   id: string;
   label: string;
-  icon: string;
+  icon: IconName;
+  type: 'link' | 'section' | 'page';
   link?: string;
-  links?: { label: string; link: string }[];
+  links?: {
+    label: string;
+    link: string;
+    description?: string;
+    icon?: IconName;
+  }[];
 }
 
 /**
@@ -169,7 +138,8 @@ function NavigationContent() {
       const processedSection: ProcessedItem = {
         id: section.id,
         label: section.label,
-        icon: section.icon,
+        icon: section.icon as IconName,
+        type: section.type
       };
       
       // If section has a direct link, add it
@@ -181,7 +151,9 @@ function NavigationContent() {
       if (children.length > 0) {
         processedSection.links = children.map(child => ({
           label: child.label,
-          link: child.link || '#'
+          link: child.link || '#',
+          description: child.description,
+          icon: child.icon as IconName
         }));
       }
       
@@ -219,13 +191,14 @@ function NavigationContent() {
               <div className="text-center py-4">Loading...</div>
             ) : (
               processedItems.map((item) => {
-                const IconComponent = iconMap[item.icon] || IconHome;
+                const IconComponent = iconMap[item.icon] || iconMap.IconHome;
                 
                 return (
                   <LinksGroup 
                     key={item.id}
                     label={item.label}
                     icon={IconComponent}
+                    type={item.type}
                     links={item.links}
                     link={item.link}
                   />

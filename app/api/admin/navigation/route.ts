@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { getAuth } from "@clerk/nextjs/server"
-import { db } from "@/db/db"
+import { db } from "@/db/query"
 import { navigationItemsTable } from "@/db/schema"
 import { eq } from "drizzle-orm"
 import { hasRole } from "@/utils/roles"
@@ -66,41 +66,150 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { id, ...data } = body
+    console.log("Received body:", JSON.stringify(body, null, 2));
 
-    // If id is provided, update existing item
-    if (id) {
-      const [updatedItem] = await db
-        .update(navigationItemsTable)
-        .set(data)
-        .where(eq(navigationItemsTable.id, id))
-        .returning()
+    // Validate required fields
+    if (!body.label || !body.icon || !body.type) {
+      return NextResponse.json(
+        { isSuccess: false, message: "Missing required fields" },
+        { status: 400 }
+      )
+    }
 
-      return NextResponse.json({
-        isSuccess: true,
-        message: "Navigation item updated successfully",
-        data: updatedItem
-      })
+    // Check if this is an update operation by looking for the item in the database
+    const existingItem = body.id ? await db
+      .select()
+      .from(navigationItemsTable)
+      .where(eq(navigationItemsTable.id, body.id))
+      .then(items => items[0])
+      : null;
+
+    // If the item exists, update it
+    if (existingItem) {
+      const { id, ...data } = body;
+      console.log("Updating existing item:", id);
+      try {
+        const [updatedItem] = await db
+          .update(navigationItemsTable)
+          .set(data)
+          .where(eq(navigationItemsTable.id, id))
+          .returning()
+
+        if (!updatedItem) {
+          throw new Error("Failed to update item");
+        }
+
+        return NextResponse.json({
+          isSuccess: true,
+          message: "Navigation item updated successfully",
+          data: updatedItem
+        })
+      } catch (error) {
+        console.error("Database error during update:", error);
+        return NextResponse.json(
+          { isSuccess: false, message: "Failed to update navigation item" },
+          { status: 500 }
+        )
+      }
     } 
     // Otherwise, create new item
     else {
-      const [newItem] = await db
-        .insert(navigationItemsTable)
-        .values(data)
-        .returning()
+      console.log("Creating new item:", body.id);
+      try {
+        const [newItem] = await db
+          .insert(navigationItemsTable)
+          .values(body)
+          .returning()
 
-      return NextResponse.json({
-        isSuccess: true,
-        message: "Navigation item created successfully",
-        data: newItem
-      })
+        if (!newItem) {
+          throw new Error("Failed to create item");
+        }
+
+        return NextResponse.json({
+          isSuccess: true,
+          message: "Navigation item created successfully",
+          data: newItem
+        })
+      } catch (error) {
+        console.error("Database error during insert:", error);
+        return NextResponse.json(
+          { isSuccess: false, message: "Failed to create navigation item" },
+          { status: 500 }
+        )
+      }
     }
   } catch (error) {
-    console.error("Error updating navigation item:", error)
+    console.error("Error in navigation POST route:", error)
     return NextResponse.json(
       { 
         isSuccess: false, 
-        message: error instanceof Error ? error.message : "Failed to update navigation item"
+        message: error instanceof Error ? error.message : "Failed to handle navigation item request"
+      },
+      { status: 500 }
+    )
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const { userId } = getAuth(request)
+    if (!userId) {
+      return NextResponse.json(
+        { isSuccess: false, message: "Unauthorized" },
+        { status: 401 }
+      )
+    }
+
+    // Check if user is admin
+    const isAdmin = await hasRole(userId, 'administrator')
+    if (!isAdmin) {
+      return NextResponse.json(
+        { isSuccess: false, message: "Forbidden - Admin access required" },
+        { status: 403 }
+      )
+    }
+
+    const body = await request.json()
+    console.log("PATCH request body:", body)
+    
+    if (!body.id || typeof body.position !== 'number') {
+      return NextResponse.json(
+        { isSuccess: false, message: "Missing id or position" },
+        { status: 400 }
+      )
+    }
+
+    try {
+      const [updatedItem] = await db
+        .update(navigationItemsTable)
+        .set({ position: body.position })
+        .where(eq(navigationItemsTable.id, body.id))
+        .returning()
+
+      console.log("Updated item:", updatedItem)
+
+      if (!updatedItem) {
+        return NextResponse.json(
+          { isSuccess: false, message: "Item not found" },
+          { status: 404 }
+        )
+      }
+
+      return NextResponse.json({
+        isSuccess: true,
+        message: "Position updated successfully",
+        data: updatedItem
+      })
+    } catch (error) {
+      console.error("Database error:", error)
+      throw error
+    }
+  } catch (error) {
+    console.error("Error updating position:", error)
+    return NextResponse.json(
+      { 
+        isSuccess: false, 
+        message: error instanceof Error ? error.message : "Failed to update position"
       },
       { status: 500 }
     )
