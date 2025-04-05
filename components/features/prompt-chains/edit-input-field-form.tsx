@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -23,8 +23,9 @@ import { useToast } from "@/components/ui/use-toast"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
-import { addInputFieldAction } from "@/actions/db/prompt-chains-actions"
+import { updateInputFieldAction } from "@/actions/db/prompt-chains-actions"
 import { PlusCircle, X } from "lucide-react"
+import type { SelectToolInputField } from "@/db/schema"
 import { fieldTypeEnum } from "@/db/schema"
 
 const optionSchema = z.object({
@@ -38,54 +39,24 @@ const formSchema = z.object({
   options: z.array(optionSchema).optional().default([])
 })
 
-interface InputFieldFormProps {
-  toolId: string
-  currentPosition: number
+interface EditInputFieldFormProps {
+  field: SelectToolInputField
   onSuccess: () => void
 }
 
-function TokenCount({ text }: { text: string }) {
-  const [tokens, setTokens] = useState<number | null>(null)
-
-  useEffect(() => {
-    async function countTokens() {
-      try {
-        const tiktoken = await import("js-tiktoken")
-        const enc = tiktoken.getEncoding("cl100k_base") // Base encoding for GPT-4 and GPT-3.5
-        const count = enc.encode(text).length
-        setTokens(count)
-      } catch (error) {
-        console.error("Error counting tokens:", error)
-        setTokens(null)
-      }
-    }
-    
-    countTokens()
-  }, [text])
-
-  if (tokens === null) return null
-
-  return (
-    <div className="text-xs text-muted-foreground mt-1">
-      {tokens.toLocaleString()} tokens
-    </div>
-  )
-}
-
-export function InputFieldForm({
-  toolId,
-  currentPosition,
+export function EditInputFieldForm({
+  field,
   onSuccess
-}: InputFieldFormProps) {
+}: EditInputFieldFormProps) {
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      name: "",
-      fieldType: fieldTypeEnum.enumValues[0],
-      options: []
+      name: field.name,
+      fieldType: field.fieldType,
+      options: field.options || []
     }
   })
 
@@ -113,12 +84,10 @@ export function InputFieldForm({
     try {
       setIsLoading(true)
       
-      const result = await addInputFieldAction({
-        toolId,
+      const result = await updateInputFieldAction(field.id, {
         name: values.name,
         fieldType: values.fieldType,
-        options: showOptionsField ? values.options : undefined,
-        position: currentPosition
+        options: showOptionsField ? values.options : undefined
       })
 
       if (!result.isSuccess) {
@@ -127,15 +96,14 @@ export function InputFieldForm({
 
       toast({
         title: "Success",
-        description: "Input field added successfully"
+        description: "Input field updated successfully"
       })
 
-      form.reset()
       onSuccess()
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to add input field",
+        description: error instanceof Error ? error.message : "Failed to update input field",
         variant: "destructive"
       })
     } finally {
@@ -184,11 +152,6 @@ export function InputFieldForm({
               </Select>
               <FormDescription>
                 The type of input field to display
-                {field.value === "long_text" && (
-                  <span className="block text-xs text-muted-foreground mt-1">
-                    Token count will be shown to users when they enter text
-                  </span>
-                )}
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -199,32 +162,32 @@ export function InputFieldForm({
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <FormLabel>Options</FormLabel>
-              <Button 
-                type="button" 
-                variant="outline" 
+              <Button
+                type="button"
+                variant="outline"
                 size="sm"
                 onClick={addOption}
-                className="flex items-center gap-1"
               >
-                <PlusCircle className="h-4 w-4" />
+                <PlusCircle className="h-4 w-4 mr-1" />
                 Add Option
               </Button>
             </div>
-            
-            <div className="space-y-2">
+            <div className="space-y-3">
               {options.map((option, index) => (
-                <div key={index} className="flex items-center gap-2">
+                <div key={index} className="flex gap-2">
                   <Input
                     placeholder="Label"
                     value={option.label}
-                    onChange={(e) => updateOption(index, "label", e.target.value)}
-                    className="flex-1"
+                    onChange={(e) =>
+                      updateOption(index, "label", e.target.value)
+                    }
                   />
                   <Input
                     placeholder="Value"
                     value={option.value}
-                    onChange={(e) => updateOption(index, "value", e.target.value)}
-                    className="flex-1"
+                    onChange={(e) =>
+                      updateOption(index, "value", e.target.value)
+                    }
                   />
                   <Button
                     type="button"
@@ -236,19 +199,15 @@ export function InputFieldForm({
                   </Button>
                 </div>
               ))}
-              
-              {options.length === 0 && (
-                <div className="p-4 border rounded text-sm text-muted-foreground">
-                  No options added yet. Click "Add Option" to create options for this field.
-                </div>
-              )}
             </div>
           </div>
         )}
 
-        <Button type="submit" disabled={isLoading}>
-          {isLoading ? "Adding..." : "Add Input Field"}
-        </Button>
+        <div className="flex justify-end gap-4">
+          <Button type="submit" disabled={isLoading}>
+            {isLoading ? "Saving..." : "Save Changes"}
+          </Button>
+        </div>
       </form>
     </Form>
   )

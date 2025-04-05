@@ -14,7 +14,7 @@ import { relations } from "drizzle-orm"
 
 // Enums
 export const fieldTypeEnum = pgEnum("field_type", [
-  "text",
+  "short_text",
   "long_text",
   "select",
   "multi_select"

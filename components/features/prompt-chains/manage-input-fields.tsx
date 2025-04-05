@@ -1,6 +1,21 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { 
+  DndContext, 
+  DragEndEvent, 
+  DragOverlay, 
+  DragStartEvent, 
+  PointerSensor, 
+  rectIntersection,
+  useSensor, 
+  useSensors 
+} from "@dnd-kit/core"
+import { 
+  SortableContext, 
+  arrayMove, 
+  rectSortingStrategy 
+} from "@dnd-kit/sortable"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -18,11 +33,14 @@ import {
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { InputFieldForm } from "@/components/features/prompt-chains/input-field-form"
+import { EditInputFieldForm } from "@/components/features/prompt-chains/edit-input-field-form"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
-import { Trash2 } from "lucide-react"
-import { deleteInputFieldAction } from "@/actions/db/prompt-chains-actions"
+import { Trash2, Edit, GripVertical } from "lucide-react"
+import { deleteInputFieldAction, reorderInputFieldsAction } from "@/actions/db/prompt-chains-actions"
 import type { PromptChainToolWithRelations } from "@/types"
+import { SortableInputField } from "./sortable-input-field"
+import { cn } from "@/lib/utils"
 
 interface ManageInputFieldsProps {
   tool: PromptChainToolWithRelations
@@ -32,11 +50,29 @@ interface ManageInputFieldsProps {
 export function ManageInputFields({ tool, canEdit }: ManageInputFieldsProps) {
   const router = useRouter()
   const { toast } = useToast()
-  const [isOpen, setIsOpen] = useState(false)
+  const [isAddOpen, setIsAddOpen] = useState(false)
+  const [isEditOpen, setIsEditOpen] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
+  const [fields, setFields] = useState(tool.inputFields || [])
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [isReordering, setIsReordering] = useState(false)
+  
+  // Update fields when tool.inputFields changes
+  useEffect(() => {
+    setFields(tool.inputFields || [])
+  }, [tool.inputFields])
+  
+  // Configure drag sensor with a minimum distance to prevent accidental drags
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  )
   
   // Sort input fields by position
-  const sortedFields = [...(tool.inputFields || [])].sort(
+  const sortedFields = [...fields].sort(
     (a, b) => a.position - b.position
   )
 
@@ -70,12 +106,68 @@ export function ManageInputFields({ tool, canEdit }: ManageInputFieldsProps) {
     }
   }
 
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string)
+  }
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event
+
+    if (over && active.id !== over.id) {
+      const oldIndex = sortedFields.findIndex((field) => field.id === active.id)
+      const newIndex = sortedFields.findIndex((field) => field.id === over.id)
+
+      const newFields = arrayMove(sortedFields, oldIndex, newIndex).map((field, index) => ({
+        ...field,
+        position: index
+      }))
+      
+      // Update local state immediately for smooth UI
+      setFields(newFields)
+      setIsReordering(true)
+
+      try {
+        const result = await reorderInputFieldsAction(
+          tool.id,
+          newFields.map((field) => ({
+            id: field.id,
+            position: field.position
+          }))
+        )
+
+        if (!result.isSuccess) {
+          throw new Error(result.message)
+        }
+
+        // Update the local state with the new positions
+        setFields(newFields)
+
+        toast({
+          title: "Success",
+          description: "Input fields reordered successfully"
+        })
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to reorder input fields",
+          variant: "destructive"
+        })
+        // Revert to original order
+        setFields(tool.inputFields || [])
+      } finally {
+        setIsReordering(false)
+      }
+    }
+
+    setActiveId(null)
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-medium">Input Fields</h3>
         {canEdit && (
-          <Dialog open={isOpen} onOpenChange={setIsOpen}>
+          <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
             <DialogTrigger asChild>
               <Button size="sm">Add Input Field</Button>
             </DialogTrigger>
@@ -87,7 +179,7 @@ export function ManageInputFields({ tool, canEdit }: ManageInputFieldsProps) {
                 toolId={tool.id} 
                 currentPosition={sortedFields.length}
                 onSuccess={() => {
-                  setIsOpen(false)
+                  setIsAddOpen(false)
                   handleSuccess()
                 }}
               />
@@ -106,49 +198,58 @@ export function ManageInputFields({ tool, canEdit }: ManageInputFieldsProps) {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {sortedFields.map((field) => (
-            <Card key={field.id}>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">{field.name}</CardTitle>
-                  <Badge variant="outline">{field.position + 1}</Badge>
-                </div>
-                <CardDescription>
-                  Type: {field.fieldType.replace("_", " ")}
-                </CardDescription>
-                <div className="mt-1 font-mono text-xs text-muted-foreground">ID: {field.id}</div>
-              </CardHeader>
-              <CardContent>
-                {field.options && field.options.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium">Options:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {field.options.map((option, i) => (
-                        <Badge key={i} variant="secondary">{option.label}</Badge>
-                      ))}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={rectIntersection}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={sortedFields.map(field => field.id)} strategy={rectSortingStrategy}>
+            <div className={cn(
+              "grid gap-4 md:grid-cols-2",
+              isReordering && "cursor-wait"
+            )}>
+              {sortedFields.map((field) => (
+                <SortableInputField
+                  key={field.id}
+                  field={field}
+                  canEdit={canEdit && !isReordering}
+                  isDeleting={isDeleting === field.id}
+                  isEditing={isEditOpen === field.id}
+                  onEdit={() => setIsEditOpen(field.id)}
+                  onEditClose={() => setIsEditOpen(null)}
+                  onDelete={() => handleDeleteField(field.id)}
+                  onSuccess={handleSuccess}
+                />
+              ))}
+            </div>
+          </SortableContext>
+
+          <DragOverlay>
+            {activeId ? (
+              <Card className="w-full md:w-[calc(50%-0.5rem)] opacity-80 rotate-2 border-2 border-primary/50 shadow-xl">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1 rounded-md bg-accent text-accent-foreground">
+                        <GripVertical className="h-4 w-4" />
+                      </div>
+                      <CardTitle className="text-lg">
+                        {fields.find(field => field.id === activeId)?.name}
+                      </CardTitle>
                     </div>
+                    <Badge variant="outline">
+                      {(fields.find(field => field.id === activeId)?.position || 0) + 1}
+                    </Badge>
                   </div>
-                )}
-                
-                {canEdit && (
-                  <div className="flex justify-end mt-4">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive/90 hover:bg-destructive/10"
-                      onClick={() => handleDeleteField(field.id)}
-                      disabled={isDeleting === field.id}
-                    >
-                      <Trash2 className="h-4 w-4 mr-1" />
-                      {isDeleting === field.id ? "Deleting..." : "Delete"}
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                  <CardDescription>
+                    Type: {fields.find(field => field.id === activeId)?.fieldType.replace("_", " ")}
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       )}
     </div>
   )

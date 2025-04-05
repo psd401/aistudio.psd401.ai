@@ -162,52 +162,12 @@ export function PromptChainExecution({ tool }: PromptChainExecutionProps) {
             {sortedInputFields.map((field) => (
               <div key={field.id} className="space-y-2">
                 <Label>{field.name}</Label>
-                {field.type === "text" && (
+                {field.fieldType === "short_text" && (
                   <Input
                     value={(inputs[field.id] as string) || ""}
                     onChange={(e) => handleInputChange(field, e.target.value)}
                     placeholder={field.description || `Enter ${field.name.toLowerCase()}...`}
                   />
-                )}
-                {field.type === "textarea" && (
-                  <Textarea
-                    value={(inputs[field.id] as string) || ""}
-                    onChange={(e) => handleInputChange(field, e.target.value)}
-                    placeholder={field.description || `Enter ${field.name.toLowerCase()}...`}
-                  />
-                )}
-                {field.type === "select" && field.options && (
-                  <Select
-                    value={(inputs[field.id] as string) || ""}
-                    onValueChange={(value) => handleInputChange(field, value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={`Select ${field.name.toLowerCase()}`} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {field.options.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {option}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                {field.type === "multi-select" && field.options && (
-                  <div className="space-y-2">
-                    {field.options.map((option) => (
-                      <div key={option} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={`${field.id}-${option}`}
-                          checked={isOptionChecked(field, option)}
-                          onCheckedChange={(checked) =>
-                            handleCheckboxChange(field, option, checked)
-                          }
-                        />
-                        <Label htmlFor={`${field.id}-${option}`}>{option}</Label>
-                      </div>
-                    ))}
-                  </div>
                 )}
                 {field.fieldType === "long_text" && (
                   <div className="space-y-1">
@@ -218,6 +178,39 @@ export function PromptChainExecution({ tool }: PromptChainExecutionProps) {
                       className="min-h-[100px]"
                     />
                     <TokenCount text={(inputs[field.id] as string) || ""} />
+                  </div>
+                )}
+                {field.fieldType === "select" && field.options && (
+                  <Select
+                    value={(inputs[field.id] as string) || ""}
+                    onValueChange={(value) => handleInputChange(field, value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={`Select ${field.name.toLowerCase()}`} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {field.options.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {field.fieldType === "multi_select" && field.options && (
+                  <div className="space-y-2">
+                    {field.options.map((option) => (
+                      <div key={option.value} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`${field.id}-${option.value}`}
+                          checked={isOptionChecked(field, option.value)}
+                          onCheckedChange={(checked) =>
+                            handleCheckboxChange(field, option.value, checked)
+                          }
+                        />
+                        <Label htmlFor={`${field.id}-${option.value}`}>{option.label}</Label>
+                      </div>
+                    ))}
                   </div>
                 )}
                 {field.description && (

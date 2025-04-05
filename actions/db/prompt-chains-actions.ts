@@ -413,6 +413,124 @@ export async function deleteInputFieldAction(
   }
 }
 
+export async function updateInputFieldAction(
+  id: string,
+  data: Partial<InsertToolInputField>
+): Promise<ActionState<SelectToolInputField>> {
+  try {
+    const { userId } = await auth()
+    if (!userId) {
+      return { isSuccess: false, message: "Unauthorized" }
+    }
+
+    // Find the field
+    const [field] = await db
+      .select()
+      .from(toolInputFieldsTable)
+      .where(eq(toolInputFieldsTable.id, id))
+
+    if (!field) {
+      return { isSuccess: false, message: "Input field not found" }
+    }
+
+    // Get the tool to check permissions
+    const [tool] = await db
+      .select()
+      .from(promptChainToolsTable)
+      .where(eq(promptChainToolsTable.id, field.toolId))
+
+    if (!tool) {
+      return { isSuccess: false, message: "Tool not found" }
+    }
+
+    // Only tool creator or admin can update fields
+    const isAdmin = await hasRole(userId, "administrator")
+    if (!isAdmin && tool.creatorId !== userId) {
+      return { isSuccess: false, message: "Forbidden" }
+    }
+
+    // Check if tool is in a state that allows editing
+    if (tool.status !== "draft" && tool.status !== "rejected" && !isAdmin) {
+      return { 
+        isSuccess: false, 
+        message: "Cannot update fields for tools that are not in draft or rejected status" 
+      }
+    }
+
+    // Update the field
+    const [updatedField] = await db
+      .update(toolInputFieldsTable)
+      .set(data)
+      .where(eq(toolInputFieldsTable.id, id))
+      .returning()
+
+    return {
+      isSuccess: true,
+      message: "Input field updated successfully",
+      data: updatedField
+    }
+  } catch (error) {
+    console.error("Error updating input field:", error)
+    return { isSuccess: false, message: "Failed to update input field" }
+  }
+}
+
+export async function reorderInputFieldsAction(
+  toolId: string,
+  fieldOrders: { id: string; position: number }[]
+): Promise<ActionState<SelectToolInputField[]>> {
+  try {
+    const { userId } = await auth()
+    if (!userId) {
+      return { isSuccess: false, message: "Unauthorized" }
+    }
+
+    // Get the tool to check permissions
+    const [tool] = await db
+      .select()
+      .from(promptChainToolsTable)
+      .where(eq(promptChainToolsTable.id, toolId))
+
+    if (!tool) {
+      return { isSuccess: false, message: "Tool not found" }
+    }
+
+    // Only tool creator or admin can reorder fields
+    const isAdmin = await hasRole(userId, "administrator")
+    if (!isAdmin && tool.creatorId !== userId) {
+      return { isSuccess: false, message: "Forbidden" }
+    }
+
+    // Check if tool is in a state that allows editing
+    if (tool.status !== "draft" && tool.status !== "rejected" && !isAdmin) {
+      return { 
+        isSuccess: false, 
+        message: "Cannot reorder fields for tools that are not in draft or rejected status" 
+      }
+    }
+
+    // Update each field's position
+    const updatedFields = await Promise.all(
+      fieldOrders.map(({ id, position }) =>
+        db
+          .update(toolInputFieldsTable)
+          .set({ position })
+          .where(eq(toolInputFieldsTable.id, id))
+          .returning()
+      )
+    )
+
+    return {
+      isSuccess: true,
+      message: "Input fields reordered successfully",
+      data: updatedFields.map(([field]) => field)
+    }
+  } catch (error) {
+    console.error("Error reordering input fields:", error)
+    return { isSuccess: false, message: "Failed to reorder input fields" }
+  }
+}
+
 // Chain Prompt Management Actions
 
 export async function addPromptAction(
