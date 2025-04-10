@@ -4,65 +4,76 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 43 27% 91%; /* Sea Foam */
+    --foreground: 200 34% 22%; /* Pacific */
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%; /* White */
+    --card-foreground: 200 34% 22%; /* Pacific */
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%; /* White */
+    --popover-foreground: 200 34% 22%; /* Pacific */
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 202 41% 35%; /* Whulge */
+    --primary-foreground: 45 100% 96%; /* Skylight */
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 41 24% 80%; /* Driftwood */
+    --secondary-foreground: 200 34% 22%; /* Pacific */
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 41 24% 80%; /* Driftwood */
+    --muted-foreground: 151 20% 34%; /* Cedar */
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 155 21% 53%; /* Sea Glass */
+    --accent-foreground: 200 34% 22%; /* Pacific */
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%; /* Keep old red */
+    --destructive-foreground: 0 0% 100%; /* White */
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 41 24% 85%; /* Slightly lighter Driftwood */
+    --input: 41 24% 85%; /* Slightly lighter Driftwood */
+    --ring: 202 41% 35%; /* Whulge */
 
-    --radius: 0.5rem;
+    --radius: 0.75rem; /* Increased radius */
+
+    /* Spacing System */
+    --spacing-1: 0.25rem;    /* 4px */
+    --spacing-2: 0.5rem;     /* 8px */
+    --spacing-3: 0.75rem;    /* 12px */
+    --spacing-4: 1rem;       /* 16px */
+    --spacing-5: 1.25rem;    /* 20px */
+    --spacing-6: 1.5rem;     /* 24px */
+    --spacing-8: 2rem;       /* 32px */
+    --spacing-10: 2.5rem;    /* 40px */
+    --spacing-12: 3rem;      /* 48px */
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 200 34% 22%; /* Pacific */
+    --foreground: 43 27% 91%; /* Sea Foam */
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 200 34% 27%; /* Darker Pacific */
+    --card-foreground: 43 27% 91%; /* Sea Foam */
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 200 34% 27%; /* Darker Pacific */
+    --popover-foreground: 43 27% 91%; /* Sea Foam */
 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 205 19% 58%; /* Ocean */
+    --primary-foreground: 200 34% 15%; /* Very Dark Pacific */
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 151 20% 34%; /* Cedar */
+    --secondary-foreground: 43 27% 91%; /* Sea Foam */
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 151 20% 34%; /* Cedar */
+    --muted-foreground: 205 19% 58%; /* Ocean */
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 139 22% 46%; /* Meadow */
+    --accent-foreground: 43 27% 91%; /* Sea Foam */
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 63% 31%; /* Keep old dark red */
+    --destructive-foreground: 0 0% 100%; /* White */
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --border: 202 41% 35%; /* Whulge */
+    --input: 202 41% 35%; /* Whulge */
+    --ring: 205 19% 58%; /* Ocean */
   }
 }
 
@@ -74,6 +85,45 @@
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
+}
+
+/* Content Spacing */
+.content-spacing {
+  @apply p-6 md:p-8;
+}
+
+.content-spacing-sm {
+  @apply p-4 md:p-6;
+}
+
+.content-spacing-lg {
+  @apply p-8 md:p-10;
+}
+
+/* Section Spacing */
+.section-spacing {
+  @apply space-y-6 md:space-y-8;
+}
+
+.section-spacing-sm {
+  @apply space-y-4 md:space-y-6;
+}
+
+.section-spacing-lg {
+  @apply space-y-8 md:space-y-10;
+}
+
+/* Card Spacing */
+.card-spacing {
+  @apply p-6 md:p-8;
+}
+
+.card-spacing-sm {
+  @apply p-4 md:p-6;
+}
+
+.card-spacing-lg {
+  @apply p-8 md:p-10;
 }
 
 body {
@@ -89,4 +139,25 @@ body {
 
 *:hover > .hover-visible {
   opacity: 1;
+}
+
+/* Spacing adjustments */
+.card {
+  @apply p-6;
+}
+
+.card-header {
+  @apply pb-4;
+}
+
+.card-content {
+  @apply space-y-4;
+}
+
+.section-container {
+  @apply space-y-6;
+}
+
+.page-header {
+  @apply mb-8 space-y-2;
 }

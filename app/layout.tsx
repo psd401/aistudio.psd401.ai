@@ -1,6 +1,7 @@
 import '@/app/globals.css';
 import { ClerkProvider } from '@clerk/nextjs';
 import { Toaster } from 'sonner';
+import { GlobalHeader } from '@/components/layout/global-header';
 import AuthLayoutContent from '@/components/layout/auth-layout-content';
 
 export const metadata = {
@@ -24,6 +25,7 @@ export default function RootLayout({
         </head>
         <body suppressHydrationWarning>
           <Toaster />
+          <GlobalHeader />
           <AuthLayoutContent>
             {children}
           </AuthLayoutContent>

@@ -4,13 +4,12 @@ import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useUser } from '@clerk/nextjs';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
-import { Menu } from 'lucide-react';
 import { iconMap, IconName } from './icon-map';
 import { LinksGroup } from './navbar-links-group';
 import { UserButton } from '../user/user-button';
+import { cn } from '@/lib/utils';
 
 /**
  * Raw navigation item from the API
@@ -27,6 +26,7 @@ interface NavigationItem {
   parent_label: string | null;
   tool_id: string | null;
   position: number;
+  color?: string;
 }
 
 /**
@@ -44,46 +44,52 @@ interface ProcessedItem {
     link: string;
     description?: string;
     icon?: IconName;
+    color?: string;
   }[];
+  color?: string;
+}
+
+// Variants for sidebar animation
+const sidebarVariants = {
+  expanded: { width: '300px' },
+  collapsed: { width: '68px' },
+};
+
+const logoTextVariants = {
+  expanded: { opacity: 1, x: 0, transition: { delay: 0.2 } },
+  collapsed: { opacity: 0, x: -10 },
 }
 
 /**
- * Main navigation component that displays both mobile and desktop navigation
- * Mobile navigation is displayed in a sheet, desktop in a sidebar
+ * Main collapsible navigation sidebar for desktop.
  */
 export function NavbarNested() {
-  const [open, setOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <>
-      {/* Mobile Navigation */}
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetTrigger asChild className="lg:hidden">
-          <Button variant="ghost" size="icon" className="md:hidden">
-            <Menu className="h-6 w-6" />
-            <span className="sr-only">Toggle navigation menu</span>
-          </Button>
-        </SheetTrigger>
-        <SheetContent side="left" className="w-[300px] p-0">
-          <NavigationContent />
-        </SheetContent>
-      </Sheet>
-
-      {/* Desktop Navigation */}
-      <nav className="hidden lg:block h-screen w-[300px] border-r bg-background">
-        <NavigationContent />
-      </nav>
-    </>
+    <motion.nav
+      initial={false}
+      animate={isExpanded ? 'expanded' : 'collapsed'}
+      variants={sidebarVariants}
+      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      className={cn(
+        'hidden lg:flex flex-col h-[100dvh] border-r bg-background fixed top-0 left-0',
+        'z-40'
+      )}
+      onMouseEnter={() => setIsExpanded(true)}
+      onMouseLeave={() => setIsExpanded(false)}
+    >
+      <div className="h-16" />
+      <NavigationContent isExpanded={isExpanded} />
+    </motion.nav>
   );
 }
 
 /**
- * Renders the navigation content
- * - Fetches navigation items from API
- * - Processes items into a hierarchical structure
- * - Displays navigation items based on user permissions
+ * Renders the navigation content (logo, links, user button).
+ * Accepts isExpanded prop to adjust layout.
  */
-function NavigationContent() {
+function NavigationContent({ isExpanded }: { isExpanded: boolean }) {
   const { user } = useUser();
   const [navItems, setNavItems] = useState<NavigationItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -139,7 +145,8 @@ function NavigationContent() {
         id: section.id,
         label: section.label,
         icon: section.icon as IconName,
-        type: section.type
+        type: section.type,
+        color: section.color
       };
       
       // If section has a direct link, add it
@@ -153,7 +160,8 @@ function NavigationContent() {
           label: child.label,
           link: child.link || '#',
           description: child.description,
-          icon: child.icon as IconName
+          icon: child.icon as IconName,
+          color: child.color
         }));
       }
       
@@ -171,47 +179,31 @@ function NavigationContent() {
   }, [navItems]);
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="shrink-0 border-b p-4">
-        <Link href="/dashboard" className="flex items-center justify-center">
-          <Image
-            src="/logo.png"
-            alt="PSD401.AI"
-            width={96}
-            height={40}
-            className="object-contain"
-          />
-        </Link>
-      </div>
-
-      <div className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full">
-          <div className="px-3 py-2">
+    <>
+      {/* Navigation Links Container */}
+      <div className="flex-1 flex flex-col h-full">
+        <ScrollArea className="flex-1">
+          <div className={cn(
+            "py-4",
+            isExpanded ? "px-3" : "px-2"
+          )}>
             {isLoading ? (
               <div className="text-center py-4">Loading...</div>
             ) : (
-              processedItems.map((item) => {
-                const IconComponent = iconMap[item.icon] || iconMap.IconHome;
-                
-                return (
-                  <LinksGroup 
+              <div className="space-y-2">
+                {processedItems.map((item) => (
+                  <LinksGroup
                     key={item.id}
-                    label={item.label}
-                    icon={IconComponent}
-                    type={item.type}
-                    links={item.links}
-                    link={item.link}
+                    isExpanded={isExpanded}
+                    {...item}
+                    icon={iconMap[item.icon] || iconMap.IconHome}
                   />
-                );
-              })
+                ))}
+              </div>
             )}
           </div>
         </ScrollArea>
       </div>
-
-      <div className="shrink-0 border-t p-4 bg-background">
-        <UserButton />
-      </div>
-    </div>
+    </>
   );
 } 

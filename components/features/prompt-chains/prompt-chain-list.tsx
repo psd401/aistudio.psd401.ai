@@ -70,7 +70,7 @@ export function PromptChainList({
           <Link
             key={tool.id}
             href={`/utilities/prompt-chains/${tool.id}`}
-            className="transition-colors hover:bg-muted/50"
+            className="transition-colors"
           >
             <Card>
               <CardHeader>

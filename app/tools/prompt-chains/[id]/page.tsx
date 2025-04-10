@@ -24,9 +24,8 @@ interface Props {
   }
 }
 
-export default async function PromptChainToolPage({ params }: Props) {
-  const id = params.id
-  
+export default async function PromptChainToolPage(props: Props) {
+  const { id } = await props.params
   const result = await getPromptChainToolAction(id)
   
   if (!result.isSuccess || result.data.status !== "approved") {

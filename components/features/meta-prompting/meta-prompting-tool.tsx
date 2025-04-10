@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -33,15 +33,25 @@ import { cn } from "@/lib/utils"
 interface MetaPromptingToolProps {
   techniques: SelectMetaPromptingTechnique[]
   templates: SelectMetaPromptingTemplate[]
+  initialTechniqueId: string
 }
 
-export function MetaPromptingTool({ techniques, templates }: MetaPromptingToolProps) {
-  const [selectedTechniqueId, setSelectedTechniqueId] = useState<string>("")
+export function MetaPromptingTool({ techniques, templates, initialTechniqueId }: MetaPromptingToolProps) {
+  const [selectedTechniqueId, setSelectedTechniqueId] = useState<string>(initialTechniqueId)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("")
   const [input, setInput] = useState("")
   const [variables, setVariables] = useState<Record<string, string>>({})
   const [output, setOutput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+
+  // Update selected technique when initialTechniqueId changes
+  useEffect(() => {
+    setSelectedTechniqueId(initialTechniqueId)
+    setSelectedTemplateId("")
+    setVariables({})
+    setInput("")
+    setOutput("")
+  }, [initialTechniqueId])
 
   const selectedTechnique = techniques.find(t => t.id === selectedTechniqueId)
   const selectedTemplate = templates.find(t => t.id === selectedTemplateId)
@@ -100,13 +110,13 @@ export function MetaPromptingTool({ techniques, templates }: MetaPromptingToolPr
                 </TooltipContent>
               </Tooltip>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {techniques.map((technique) => (
                 <Card 
                   key={technique.id}
                   className={cn(
-                    "cursor-pointer transition-colors hover:bg-accent",
-                    selectedTechniqueId === technique.id && "bg-accent"
+                    "relative cursor-pointer transition-colors",
+                    selectedTechniqueId === technique.id && "border-primary"
                   )}
                   onClick={() => {
                     setSelectedTechniqueId(technique.id)
@@ -116,12 +126,21 @@ export function MetaPromptingTool({ techniques, templates }: MetaPromptingToolPr
                     setOutput("")
                   }}
                 >
-                  <CardHeader className="space-y-1">
-                    <CardTitle className="text-base">{technique.name}</CardTitle>
-                    <CardDescription className="text-xs">
-                      {technique.description}
-                    </CardDescription>
+                  {selectedTechniqueId === technique.id && (
+                    <div className="absolute right-4 top-4 z-10">
+                      <div className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                        Selected
+                      </div>
+                    </div>
+                  )}
+                  <CardHeader>
+                    <CardTitle>{technique.name}</CardTitle>
                   </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                      {technique.description}
+                    </p>
+                  </CardContent>
                 </Card>
               ))}
             </div>
@@ -230,7 +249,7 @@ export function MetaPromptingTool({ techniques, templates }: MetaPromptingToolPr
                   </Tooltip>
                 </div>
                 <Card>
-                  <CardContent className="pt-6">
+                  <CardContent className="p-0">
                     <Textarea
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
@@ -238,7 +257,7 @@ export function MetaPromptingTool({ techniques, templates }: MetaPromptingToolPr
                         selectedTechnique.exampleInput || 
                         "Describe what you want to achieve..."
                       }
-                      className="min-h-[150px] border-0 focus-visible:ring-0 p-0 placeholder:text-muted-foreground text-base"
+                      className="min-h-[150px] border-0 focus-visible:ring-0 px-3 py-2 placeholder:text-muted-foreground text-base rounded-lg"
                     />
                   </CardContent>
                 </Card>
@@ -260,8 +279,8 @@ export function MetaPromptingTool({ techniques, templates }: MetaPromptingToolPr
                 <div className="space-y-4">
                   <h2 className="text-lg font-medium">Generated Result</h2>
                   <Card className="bg-accent">
-                    <CardContent className="pt-6">
-                      <pre className="whitespace-pre-wrap font-mono text-sm">
+                    <CardContent className="p-0">
+                      <pre className="whitespace-pre-wrap font-mono text-sm px-3 py-2 rounded-lg">
                         {output}
                       </pre>
                     </CardContent>

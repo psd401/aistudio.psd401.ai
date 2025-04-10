@@ -5,7 +5,11 @@ import { MetaPromptingTool } from "./meta-prompting-tool"
 import { SelectMetaPromptingTechnique, SelectMetaPromptingTemplate } from "@/db/schema"
 import { toast } from "sonner"
 
-export function MetaPromptingToolClientWrapper() {
+interface MetaPromptingToolClientWrapperProps {
+  selectedTechniqueId: string
+}
+
+export function MetaPromptingToolClientWrapper({ selectedTechniqueId }: MetaPromptingToolClientWrapperProps) {
   const [techniques, setTechniques] = useState<SelectMetaPromptingTechnique[]>([])
   const [templates, setTemplates] = useState<SelectMetaPromptingTemplate[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -50,5 +54,9 @@ export function MetaPromptingToolClientWrapper() {
     )
   }
 
-  return <MetaPromptingTool techniques={techniques} templates={templates} />
+  return <MetaPromptingTool 
+    techniques={techniques} 
+    templates={templates} 
+    initialTechniqueId={selectedTechniqueId}
+  />
 } 

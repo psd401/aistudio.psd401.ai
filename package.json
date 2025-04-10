@@ -52,6 +52,7 @@
     "drizzle-orm": "^0.38.4",
     "drizzle-zod": "^0.7.0",
     "eventsource-parser": "^3.0.0",
+    "framer-motion": "^12.6.3",
     "js-tiktoken": "^1.0.19",
     "lucide-react": "^0.475.0",
     "next": "^15.2.3",

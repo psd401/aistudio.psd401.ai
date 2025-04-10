@@ -14,14 +14,16 @@ export default function AuthLayoutContent({
   return (
     <AuthWrapper>
       {userId ? (
-        <div className="flex min-h-screen">
+        <div className="flex relative">
           <NavbarNested />
-          <main className="flex-1 p-4">
+          <main className="flex-1 p-6 md:p-8 lg:ml-[68px]">
             {children}
           </main>
         </div>
       ) : (
-        children
+        <main className="p-6 md:p-8">
+            {children}
+        </main>
       )}
     </AuthWrapper>
   );
