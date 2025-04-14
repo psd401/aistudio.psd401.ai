@@ -3,6 +3,7 @@
 import { IconBrain, IconShield, IconSpeedboat } from '@tabler/icons-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import Image from 'next/image';
 
 interface FeatureProps {
   icon: React.FC<any>;
@@ -51,16 +52,27 @@ export function FeaturesCards() {
 
   return (
     <div className="container mx-auto py-8">
-      <div className="text-center mb-12">
-        <Badge variant="default" className="text-lg px-4 py-2">
-          PENINSULA SCHOOL DISTRICT
-        </Badge>
-        <h1 className="text-5xl font-black mt-4">
-          AI Tools for Education
-        </h1>
-        <p className="text-lg text-muted-foreground mt-4 max-w-xl mx-auto">
-          Empowering teachers and students with custom-built artificial intelligence solutions
-        </p>
+      <div className="flex items-center justify-center gap-8 mb-12">
+        <div className="relative w-48 h-48 flex-shrink-0">
+          <Image
+            src="/psd-ai-logo.png"
+            alt="PSD AI Logo"
+            fill
+            className="object-contain rounded-lg border-2 border-border/40 p-2 bg-card/50"
+            priority
+          />
+        </div>
+        <div className="text-left">
+          <Badge variant="default" className="text-lg px-4 py-2">
+            PENINSULA SCHOOL DISTRICT
+          </Badge>
+          <h1 className="text-5xl font-black mt-4">
+            AI Tools for Education
+          </h1>
+          <p className="text-lg text-muted-foreground mt-4 max-w-xl">
+            Empowering teachers and students with custom-built artificial intelligence solutions
+          </p>
+        </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {items}
