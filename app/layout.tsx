@@ -5,8 +5,8 @@ import { GlobalHeader } from '@/components/layout/global-header';
 import AuthLayoutContent from '@/components/layout/auth-layout-content';
 
 export const metadata = {
-  title: 'PSD AI Tools',
-  description: 'AI Tools for PSD401',
+  title: 'PSD AI Studio',
+  description: 'A creative space for building, exploring, and innovating with AI in education',
 };
 
 export default function RootLayout({

@@ -30,7 +30,7 @@ export function GlobalHeader() {
               className="h-8 w-8 object-contain" // Adjust size as needed
             />
             {/* Change site name */}
-            <span className="font-semibold text-lg inline-block">AI Tools</span>
+            <span className="font-semibold text-lg inline-block">AI Studio</span>
           </Link>
         </div>
 
