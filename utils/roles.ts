@@ -81,16 +81,27 @@ export async function hasRole(userId: string, roleName: string): Promise<boolean
  */
 export async function hasToolAccess(userId: string, toolIdentifier: string): Promise<boolean> {
   try {
+    console.log(`[hasToolAccess] Started with userId: ${userId}, toolIdentifier: ${toolIdentifier}`)
+    
     // Get user's database ID
-    const [dbUser] = await db
+    console.log(`[hasToolAccess] Fetching user with clerk ID: ${userId}`)
+    const dbUsers = await db
       .select()
       .from(usersTable)
       .where(eq(usersTable.clerkId, userId))
-
-    if (!dbUser) return false
+    
+    console.log(`[hasToolAccess] dbUsers result:`, dbUsers)
+    if (!dbUsers.length || !dbUsers[0]) {
+      console.log(`[hasToolAccess] No user found with clerk ID: ${userId}`)
+      return false
+    }
+    
+    const dbUser = dbUsers[0]
+    console.log(`[hasToolAccess] Found user: ${dbUser.id}`)
 
     // Check if tool exists and is active
-    const [tool] = await db
+    console.log(`[hasToolAccess] Checking if tool '${toolIdentifier}' exists and is active`)
+    const tools = await db
       .select()
       .from(toolsTable)
       .where(
@@ -99,24 +110,50 @@ export async function hasToolAccess(userId: string, toolIdentifier: string): Pro
           eq(toolsTable.isActive, true)
         )
       )
-
-    if (!tool) return false
+    
+    console.log(`[hasToolAccess] tools result:`, tools)
+    if (!tools.length || !tools[0]) {
+      console.log(`[hasToolAccess] Tool '${toolIdentifier}' not found or not active`)
+      return false
+    }
+    
+    const tool = tools[0]
+    console.log(`[hasToolAccess] Found tool: ${tool.id}`)
 
     // Check if any of user's roles have access to the tool
-    const [hasAccess] = await db
+    console.log(`[hasToolAccess] Fetching roles for user: ${dbUser.id}`)
+    const userRoles = await db
       .select()
       .from(userRolesTable)
-      .innerJoin(roleToolsTable, eq(userRolesTable.roleId, roleToolsTable.roleId))
+      .where(eq(userRolesTable.userId, dbUser.id))
+    
+    console.log(`[hasToolAccess] userRoles result:`, userRoles)
+    if (!userRoles.length) {
+      console.log(`[hasToolAccess] User has no roles`)
+      return false
+    }
+
+    const roleIds = userRoles.map(r => r.roleId)
+    console.log(`[hasToolAccess] User has role IDs:`, roleIds)
+
+    console.log(`[hasToolAccess] Checking if any roles have access to tool: ${tool.id}`)
+    const roleTools = await db
+      .select()
+      .from(roleToolsTable)
       .where(
         and(
-          eq(userRolesTable.userId, dbUser.id),
-          eq(roleToolsTable.toolId, tool.id)
+          eq(roleToolsTable.toolId, tool.id),
+          inArray(roleToolsTable.roleId, roleIds)
         )
       )
-
-    return !!hasAccess
+    
+    console.log(`[hasToolAccess] roleTools result:`, roleTools)
+    const hasAccess = roleTools.length > 0
+    console.log(`[hasToolAccess] Result: User has${hasAccess ? '' : ' no'} access to tool '${toolIdentifier}'`)
+    
+    return hasAccess
   } catch (error) {
-    console.error("Error checking tool access:", error)
+    console.error(`[hasToolAccess] Error checking tool access for ${userId} to ${toolIdentifier}:`, error)
     return false
   }
 }

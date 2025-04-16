@@ -1,5 +1,9 @@
 import { boolean, integer, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
 import { aiModelsTable } from "./core-schema"
+import { relations } from "drizzle-orm"
+
+// Import related tables needed for relations
+import { analysisPromptsTable, analysisResultsTable, audienceConfigsTable } from './communication-analysis-schema'
 
 export const minimumRoleEnum = pgEnum("minimum_role", ["administrator", "staff", "student"])
 
@@ -24,10 +28,17 @@ export const audiencesTable = pgTable("communication_audiences", {
     .$onUpdate(() => new Date())
 })
 
+// Add audiencesRelations
+export const audiencesRelations = relations(audiencesTable, ({ many }) => ({
+  analysisPrompts: many(analysisPromptsTable),
+  analysisResults: many(analysisResultsTable),
+  audienceConfigs: many(audienceConfigsTable)
+}));
+
 export const accessControlTable = pgTable("communication_access_control", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: text("user_id").notNull(),
-  accessLevel: minimumRoleEnum("access_level").notNull().default("restricted"),
+  accessLevel: minimumRoleEnum("access_level").notNull().default("administrator"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

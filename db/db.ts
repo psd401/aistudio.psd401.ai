@@ -16,7 +16,67 @@
 
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
-import * as schema from "@/db/schema"
+import {
+  // Core
+  aiModelsTable,
+  usersTable,
+  ideasTable,
+  ideaNotesTable,
+  ideaVotesTable,
+  conversationsTable,
+  messagesTable,
+  // Roles
+  rolesTable,
+  userRolesTable,
+  roleToolsTable,
+  // Assistant Architect
+  assistantArchitectsTable,
+  toolInputFieldsTable,
+  chainPromptsTable,
+  toolExecutionsTable,
+  promptResultsTable,
+  // toolEditsTable, // Assuming toolEdits doesn't exist or relations aren't defined
+  // Tools
+  toolsTable,
+  toolAccessesTable,
+  // Communication
+  communicationSettingsTable,
+  audiencesTable,
+  accessControlTable,
+  // Communication Analysis
+  analysisPromptsTable,
+  analysisResultsTable,
+  audienceConfigsTable,
+  // Meta Prompting
+  metaPromptingTechniquesTable,
+  metaPromptingTemplatesTable,
+  // Navigation
+  navigationItemsTable,
+
+  // -- RELATIONS (Import only those confirmed defined) --
+  aiModelsRelations,
+  conversationsRelations,
+  messagesRelations,
+  rolesRelations,
+  userRolesRelations,
+  roleToolsRelations,
+  assistantArchitectsRelations,
+  toolInputFieldsRelations,
+  chainPromptsRelations,
+  toolExecutionsRelations,
+  promptResultsRelations,
+  // toolEditsRelations, // Removed
+  toolsRelations,
+  toolAccessesRelations,
+  audiencesRelations,
+  navigationItemsRelations,
+  // communicationRelations, // Removed
+  // audienceAnalysisRelations, // Removed
+  // metaPromptingTechniquesRelations, // Removed
+  // metaPromptingTemplatesRelations, // Removed
+  // politicalWordingPromptsRelations, // Removed
+  // politicalWordingContextsRelations, // Removed
+} from "@/db/schema"
 
 /**
  * Database configuration using Drizzle ORM.
@@ -29,26 +89,82 @@ import * as schema from "@/db/schema"
  * Note: When adding new tables, make sure to include them in the schema object below.
  */
 
-const connectionString = process.env.DATABASE_URL!
-const client = postgres(connectionString)
+/**
+ * Cache the database connection in development. This avoids creating a new connection on every HMR update.
+ */
+const globalForDb = globalThis as unknown as {
+  conn: postgres.Sql | undefined
+}
 
-export const db = drizzle(client, {
-  schema: {
-    // Base system tables
-    tools: schema.toolsTable,
-    roles: schema.rolesTable,
-    roleTools: schema.roleToolsTable,
-    navigationItems: schema.navigationItemsTable,
-    
-    // Prompt chain related tables
-    promptChainTools: schema.promptChainToolsTable,
-    toolInputFields: schema.toolInputFieldsTable,
-    chainPrompts: schema.chainPromptsTable,
-    toolEdits: schema.toolEditsTable,
-    toolExecutions: schema.toolExecutionsTable,
-    promptResults: schema.promptResultsTable,
-    
-    // AI models
-    aiModels: schema.aiModelsTable
-  }
+const connectionString = process.env.DATABASE_URL!
+const conn = globalForDb.conn ?? postgres(connectionString)
+if (process.env.NODE_ENV !== "production") globalForDb.conn = conn
+
+// Define the schema object ONLY with imported tables
+const schema = {
+  // Core
+  aiModels: aiModelsTable,
+  users: usersTable,
+  ideas: ideasTable,
+  ideaNotes: ideaNotesTable,
+  ideaVotes: ideaVotesTable,
+  conversations: conversationsTable,
+  messages: messagesTable,
+  // Roles
+  roles: rolesTable,
+  userRoles: userRolesTable,
+  roleTools: roleToolsTable,
+  // Assistant Architect
+  assistantArchitects: assistantArchitectsTable,
+  toolInputFields: toolInputFieldsTable,
+  chainPrompts: chainPromptsTable,
+  toolExecutions: toolExecutionsTable,
+  promptResults: promptResultsTable,
+  // toolEdits: toolEditsTable,
+  // Tools
+  tools: toolsTable,
+  toolAccesses: toolAccessesTable,
+  // Communication
+  communicationSettings: communicationSettingsTable,
+  audiences: audiencesTable,
+  accessControl: accessControlTable,
+   // Communication Analysis
+  analysisPrompts: analysisPromptsTable,
+  analysisResults: analysisResultsTable,
+  audienceConfigs: audienceConfigsTable,
+  // Meta Prompting
+  metaPromptingTechniques: metaPromptingTechniquesTable,
+  metaPromptingTemplates: metaPromptingTemplatesTable,
+  // Navigation
+  navigationItems: navigationItemsTable,
+  
+  // --- RELATIONS --- 
+  // Include relations only if they were successfully imported above
+  aiModelsRelations,
+  conversationsRelations,
+  messagesRelations,
+  rolesRelations,
+  userRolesRelations,
+  roleToolsRelations,
+  assistantArchitectsRelations,
+  toolInputFieldsRelations,
+  chainPromptsRelations,
+  toolExecutionsRelations,
+  promptResultsRelations,
+  // toolEditsRelations,
+  toolsRelations,
+  toolAccessesRelations,
+  audiencesRelations,
+  navigationItemsRelations,
+  // communicationRelations,
+  // audienceAnalysisRelations,
+  // metaPromptingTechniquesRelations,
+  // metaPromptingTemplatesRelations,
+  // politicalWordingPromptsRelations,
+  // politicalWordingContextsRelations,
+}
+
+export const db = drizzle(conn, {
+  schema: schema,
+  logger: process.env.NODE_ENV === 'development'
 }) 

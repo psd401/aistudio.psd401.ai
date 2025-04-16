@@ -1,4 +1,5 @@
 import { pgTable, serial, varchar, timestamp, text, integer, boolean } from 'drizzle-orm/pg-core';
+import { relations } from "drizzle-orm";
 
 export const usersTable = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -70,6 +71,10 @@ export const aiModelsTable = pgTable("ai_models", {
     .$onUpdate(() => new Date())
 });
 
+export const aiModelsRelations = relations(aiModelsTable, ({ many }) => ({
+  conversations: many(conversationsTable)
+}));
+
 export const conversationsTable = pgTable("conversations", {
   id: serial("id").primaryKey(),
   clerkId: varchar("clerk_id", { length: 255 }).notNull().references(() => usersTable.clerkId),
@@ -79,8 +84,14 @@ export const conversationsTable = pgTable("conversations", {
     .defaultNow()
     .notNull()
     .$onUpdate(() => new Date()),
-  modelId: text("model_id").notNull().references(() => aiModelsTable.modelId)
+  modelId: integer("model_id").notNull().references(() => aiModelsTable.id)
 });
+
+export const conversationsRelations = relations(conversationsTable, ({ one, many }) => ({
+  user: one(usersTable, { fields: [conversationsTable.clerkId], references: [usersTable.clerkId] }),
+  model: one(aiModelsTable, { fields: [conversationsTable.modelId], references: [aiModelsTable.id] }),
+  messages: many(messagesTable)
+}));
 
 export const messagesTable = pgTable("messages", {
   id: serial("id").primaryKey(),
@@ -95,6 +106,10 @@ export const messagesTable = pgTable("messages", {
     .notNull()
     .$onUpdate(() => new Date())
 });
+
+export const messagesRelations = relations(messagesTable, ({ one }) => ({
+  conversation: one(conversationsTable, { fields: [messagesTable.conversationId], references: [conversationsTable.id] })
+}));
 
 export type InsertUser = typeof usersTable.$inferInsert;
 export type SelectUser = typeof usersTable.$inferSelect;

@@ -1,6 +1,7 @@
 import { pgTable, serial, integer, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 import { usersTable } from './core-schema';
 import { rolesTable } from './roles-schema';
+import { relations } from "drizzle-orm";
 
 export const userRolesTable = pgTable('user_roles', {
   id: serial('id').primaryKey(),
@@ -16,6 +17,17 @@ export const userRolesTable = pgTable('user_roles', {
     unq: uniqueIndex('user_role_unq_idx').on(table.userId, table.roleId)
   };
 });
+
+export const userRolesRelations = relations(userRolesTable, ({ one }) => ({
+  user: one(usersTable, {
+    fields: [userRolesTable.userId],
+    references: [usersTable.id]
+  }),
+  role: one(rolesTable, {
+    fields: [userRolesTable.roleId],
+    references: [rolesTable.id]
+  })
+}));
 
 export type InsertUserRole = typeof userRolesTable.$inferInsert;
 export type SelectUserRole = typeof userRolesTable.$inferSelect; 

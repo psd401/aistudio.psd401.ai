@@ -8,7 +8,8 @@ export * from './role-tools-schema';
 
 // Tool schemas
 export * from './tools-schema';
-export * from './prompt-chains-schema';
+export * from './tool-accesses-schema';
+export * from './assistant-architects-schema';
 
 // Communication schemas
 export * from './communication-schema';

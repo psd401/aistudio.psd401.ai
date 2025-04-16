@@ -10,9 +10,11 @@ const isPublicRoute = createRouteMatcher([
   "/api/webhooks(.*)"
 ])
 
+// Corrected list of protected routes
 const isProtectedRoute = createRouteMatcher([
-  "/utilities/prompt-chains(.*)",
-  "/admin(.*)"
+  "/dashboard(.*)", 
+  "/admin(.*)",
+  "/utilities/assistant-architect(.*)" 
 ])
 
 export default clerkMiddleware(async (auth, req) => {

@@ -1,56 +1,120 @@
-import { pgTable } from 'drizzle-orm/pg-core';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
-import postgres from 'postgres';
-import * as schema from './schema';
-
-// Import all tables and their relations
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import {
-  promptChainToolsTable,
-  promptChainToolsRelations,
+  // Import ONLY tables and relations confirmed to exist and be exported
+  // Core
+  aiModelsTable,
+  usersTable,
+  ideasTable,
+  ideaNotesTable,
+  ideaVotesTable,
+  conversationsTable,
+  messagesTable,
+  // Roles
+  rolesTable,
+  userRolesTable,
+  roleToolsTable,
+  // Assistant Architect
+  assistantArchitectsTable,
   toolInputFieldsTable,
-  toolInputFieldsRelations,
   chainPromptsTable,
-  chainPromptsRelations,
   toolExecutionsTable,
-  toolExecutionsRelations,
   promptResultsTable,
-  promptResultsRelations
-} from './schema/prompt-chains-schema';
+  // toolEditsTable, // Assuming toolEdits doesn't exist or relations aren't defined
+  // Tools
+  toolsTable,
+  // Communication
+  communicationSettingsTable,
+  audiencesTable,
+  accessControlTable,
+  // Communication Analysis
+  analysisPromptsTable,
+  analysisResultsTable,
+  audienceConfigsTable,
+  // Meta Prompting
+  metaPromptingTechniquesTable,
+  metaPromptingTemplatesTable,
+  // Navigation
+  navigationItemsTable,
+
+  // RELATIONS
+  aiModelsRelations,
+  conversationsRelations,
+  messagesRelations,
+  rolesRelations,
+  userRolesRelations,
+  roleToolsRelations,
+  assistantArchitectsRelations,
+  toolInputFieldsRelations,
+  chainPromptsRelations,
+  toolExecutionsRelations,
+  promptResultsRelations,
+  // toolEditsRelations, // Removed
+  toolsRelations,
+  audiencesRelations,
+  navigationItemsRelations,
+} from "./schema";
 
 if (!process.env.DATABASE_URL) {
-  throw new Error("Missing env.DATABASE_URL")
+  throw new Error("DATABASE_URL environment variable is not set");
 }
 
-// Create the database connection
-const client = postgres(process.env.DATABASE_URL, {
-  prepare: true,
-  max: 10
-});
+const connectionString = process.env.DATABASE_URL;
+const client = postgres(connectionString);
 
-// Create the enhanced database instance with query builder
-export const db = drizzle(client, {
-  schema: {
-    ...schema,
-    promptChainTools: {
-      table: promptChainToolsTable,
-      relations: promptChainToolsRelations
-    },
-    toolInputFields: {
-      table: toolInputFieldsTable,
-      relations: toolInputFieldsRelations
-    },
-    chainPrompts: {
-      table: chainPromptsTable,
-      relations: chainPromptsRelations
-    },
-    toolExecutions: {
-      table: toolExecutionsTable,
-      relations: toolExecutionsRelations
-    },
-    promptResults: {
-      table: promptResultsTable,
-      relations: promptResultsRelations
-    }
-  }
-}); 
+// Define the schema object using ONLY the successfully imported items
+const schema = {
+  // Core
+  aiModels: aiModelsTable,
+  users: usersTable,
+  ideas: ideasTable,
+  ideaNotes: ideaNotesTable,
+  ideaVotes: ideaVotesTable,
+  conversations: conversationsTable,
+  messages: messagesTable,
+  // Roles
+  roles: rolesTable,
+  userRoles: userRolesTable,
+  roleTools: roleToolsTable,
+  // Assistant Architect
+  assistantArchitects: assistantArchitectsTable,
+  toolInputFields: toolInputFieldsTable,
+  chainPrompts: chainPromptsTable,
+  toolExecutions: toolExecutionsTable,
+  promptResults: promptResultsTable,
+  // toolEdits: toolEditsTable,
+  // Tools
+  tools: toolsTable,
+  // Communication
+  communicationSettings: communicationSettingsTable,
+  audiences: audiencesTable,
+  accessControl: accessControlTable,
+   // Communication Analysis
+  analysisPrompts: analysisPromptsTable,
+  analysisResults: analysisResultsTable,
+  audienceConfigs: audienceConfigsTable,
+  // Meta Prompting
+  metaPromptingTechniques: metaPromptingTechniquesTable,
+  metaPromptingTemplates: metaPromptingTemplatesTable,
+  // Navigation
+  navigationItems: navigationItemsTable,
+  
+  // RELATIONS 
+  aiModelsRelations,
+  conversationsRelations,
+  messagesRelations,
+  rolesRelations,
+  userRolesRelations,
+  roleToolsRelations,
+  assistantArchitectsRelations,
+  toolInputFieldsRelations,
+  chainPromptsRelations,
+  toolExecutionsRelations,
+  promptResultsRelations,
+  // toolEditsRelations,
+  toolsRelations,
+  audiencesRelations,
+  navigationItemsRelations,
+};
+
+export const db = drizzle(client, { schema }); 

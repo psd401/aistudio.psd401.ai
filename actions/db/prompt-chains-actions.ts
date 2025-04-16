@@ -1,3 +1,9 @@
+/**
+ * DEPRECATED: This file is being replaced by assistant-architect-actions.ts.
+ * This file is kept for backward compatibility but should not be used for new code.
+ * Please use the actions in assistant-architect-actions.ts instead.
+ */
+
 "use server"
 
 import { db } from "@/db/query"
@@ -265,7 +271,7 @@ export async function updatePromptChainToolAction(
       if (updatedTool.status === "approved") {
         const existingTool = await tx
           .query.tools.findFirst({
-            where: eq(toolsTable.promptChainToolId, id)
+            where: eq(toolsTable.assistantArchitectId, id)
           })
 
         if (existingTool) {
@@ -275,7 +281,7 @@ export async function updatePromptChainToolAction(
               name: updatedTool.name,
               description: updatedTool.description || undefined
             })
-            .where(eq(toolsTable.promptChainToolId, id))
+            .where(eq(toolsTable.assistantArchitectId, id))
         }
       }
 
@@ -843,7 +849,7 @@ export async function approvePromptChainToolAction(
       const [existingTool] = await tx
         .select()
         .from(toolsTable)
-        .where(eq(toolsTable.promptChainToolId, toolId))
+        .where(eq(toolsTable.assistantArchitectId, toolId))
 
       // Generate a unique identifier
       let identifier = generateToolIdentifier(updatedTool.name)
@@ -864,14 +870,14 @@ export async function approvePromptChainToolAction(
         name: updatedTool.name,
         description: updatedTool.description || undefined,
         identifier,
-        promptChainToolId: toolId
+        assistantArchitectId: toolId
       }
 
       if (existingTool) {
         await tx
           .update(toolsTable)
           .set(toolData)
-          .where(eq(toolsTable.promptChainToolId, toolId))
+          .where(eq(toolsTable.assistantArchitectId, toolId))
       } else {
         await tx.insert(toolsTable).values({
           ...toolData,
