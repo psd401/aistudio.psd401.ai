@@ -19,6 +19,13 @@ const nextConfig = {
     ],
   },
   devIndicators: false,
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '10mb',
+      // Increase the timeout for server actions
+      timeout: 300
+    },
+  },
   webpack: (config) => {
     // Modify cache configuration
     config.cache = {

@@ -26,4 +26,19 @@ applications:
       cache:
         paths:
           - node_modules/**/*
-          - .next/cache/**/* 
+          - .next/cache/**/*
+      customHeaders:
+        - pattern: '**/*'
+          headers:
+            - key: 'X-Frame-Options'
+              value: 'SAMEORIGIN'
+            - key: 'X-Content-Type-Options'
+              value: 'nosniff'
+        - pattern: '/api/*'
+          headers:
+            - key: 'Cache-Control'
+              value: 'no-store'
+            - key: 'Connection'
+              value: 'keep-alive'
+            - key: 'Keep-Alive'
+              value: 'timeout=60' 
