@@ -96,58 +96,109 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
   }
 
   useEffect(() => {
-    let intervalId: NodeJS.Timeout | null = null
+    let intervalId: NodeJS.Timeout | null = null;
+    let retryCount = 0;
+    const MAX_RETRIES = 120; // Allow up to 6 minutes (3s * 120)
+    const BACKOFF_THRESHOLD = 20; // After 20 retries, increase polling interval
+    let currentInterval = 3000; // Start with 3s intervals
 
     async function pollResults() {
-      if (!executionId) return
-      const result = await getExecutionResultsAction(executionId)
+      if (!executionId) return;
+      
+      try {
+        const result = await getExecutionResultsAction(executionId);
+        retryCount++;
 
-      if (result.isSuccess && result.data) {
-        
-        // Format the data to match the ExecutionResultDetails type
-        const formattedData: ExecutionResultDetails = {
-          id: executionId,
-          toolId: tool.id,
-          userId: "", // This will be filled by the backend
-          inputData: {},
-          status: result.data.status,
-          startedAt: new Date(),
-          promptResults: result.data.promptResults || [],
-        };
-        
-        setResults(formattedData);
+        if (result.isSuccess && result.data) {
+          // Format the data to match the ExecutionResultDetails type
+          const formattedData: ExecutionResultDetails = {
+            id: executionId,
+            toolId: tool.id,
+            userId: "", // This will be filled by the backend
+            inputData: {},
+            status: result.data.status,
+            startedAt: new Date(),
+            promptResults: result.data.promptResults || [],
+          };
+          
+          setResults(formattedData);
 
-        if (result.data.status === "completed" || result.data.status === "failed") {
-          setIsLoading(false)
-          setIsPolling(false)
-          toast({ title: "Execution Finished", description: `Status: ${result.data.status}` })
+          // If we have results, reset the error count
+          retryCount = 0;
+
+          if (result.data.status === "completed" || result.data.status === "failed") {
+            setIsLoading(false);
+            setIsPolling(false);
+            toast({ title: "Execution Finished", description: `Status: ${result.data.status}` });
+            if (intervalId) {
+              clearInterval(intervalId);
+            }
+          } else if (retryCount >= MAX_RETRIES) {
+            // Don't stop polling, just notify the user it's taking longer than expected
+            toast({ 
+              title: "Long Running Operation", 
+              description: "This operation is taking longer than usual. You can leave this page and check back later.",
+            });
+          } else if (retryCount >= BACKOFF_THRESHOLD && currentInterval === 3000) {
+            // After BACKOFF_THRESHOLD retries, increase polling interval to reduce load
+            if (intervalId) {
+              clearInterval(intervalId);
+            }
+            currentInterval = 10000; // Switch to 10s intervals
+            intervalId = setInterval(pollResults, currentInterval);
+          }
+        } else {
+          console.error(`Error polling for ${executionId}:`, result.message);
+          // Only show error toast if we've had multiple consecutive failures
+          if (retryCount >= 3) {
+            toast({ 
+              title: "Polling Warning", 
+              description: "Having trouble getting updates. Will keep trying.",
+              variant: "destructive"
+            });
+          }
         }
-      } else {
-        console.error(`Error polling for ${executionId}:`, result.message);
+      } catch (error) {
+        console.error("Polling error:", error);
+        // Only show error toast if we've had multiple consecutive failures
+        if (retryCount >= 3) {
+          toast({ 
+            title: "Connection Warning", 
+            description: "Having trouble connecting. Will keep trying.",
+            variant: "destructive"
+          });
+        }
       }
     }
 
     if (isPolling && executionId) {
+      // Initial poll
       pollResults();
-      intervalId = setInterval(pollResults, 3000);
+      // Then start interval
+      intervalId = setInterval(pollResults, currentInterval);
     }
 
     return () => {
       if (intervalId) {
         clearInterval(intervalId);
       }
-    }
-  }, [isPolling, executionId, toast, tool.id])
+    };
+  }, [isPolling, executionId, toast, tool.id]);
 
-  // Prevent clearing results when polling finishes
+  // Keep results displayed even after polling stops
   useEffect(() => {
-    // This guarantees we keep displaying results even after polling stops
     if (executionId && !isPolling && !isLoading && !results) {
-      getExecutionResultsAction(executionId).then(result => {
-        if (result.isSuccess && result.data) {
-          setResults(result.data);
+      const fetchResults = async () => {
+        try {
+          const result = await getExecutionResultsAction(executionId);
+          if (result.isSuccess && result.data) {
+            setResults(result.data);
+          }
+        } catch (error) {
+          console.error("Error fetching final results:", error);
         }
-      });
+      };
+      fetchResults();
     }
   }, [executionId, isPolling, isLoading, results]);
 
