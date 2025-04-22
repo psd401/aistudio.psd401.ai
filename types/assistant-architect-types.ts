@@ -17,7 +17,6 @@ export interface AssistantArchitectWithRelations extends SelectAssistantArchitec
   inputFields: SelectToolInputField[]
   prompts: SelectChainPrompt[]
   executions?: SelectToolExecution[] // Optional depending on context
-  // Add other relations if needed
 }
 
 // Interface for the form used to create a new tool
@@ -28,7 +27,7 @@ export interface CreateAssistantArchitectForm {
   // Add other fields needed for creation form if different from InsertAssistantArchitect
 }
 
-// Interface for execution results (might combine execution and prompt results)
+// Interface for execution results
 export interface ExecutionResultDetails extends SelectToolExecution {
   promptResults: SelectPromptResult[]
 }
@@ -135,4 +134,26 @@ export interface InsertChainPrompt {
   modelId?: number | null
   position: number
   inputMapping?: Record<string, string>
+}
+
+// Job system types
+/**
+ * Result of a single prompt execution within a job
+ */
+export interface JobPromptResult {
+  promptId: string
+  status: string
+  input: any
+  output: string
+  startTime: string
+  endTime?: string
+  executionTimeMs: number
+}
+
+/**
+ * Complete output format for a job execution
+ */
+export interface JobOutput {
+  executionId: string
+  results: JobPromptResult[]
 } 

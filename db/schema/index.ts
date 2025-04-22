@@ -22,4 +22,5 @@ export * from './meta-prompting-schema';
 export * from './political-wording-schema';
 
 // Additional schemas
-export * from './navigation-schema'; 
+export * from './navigation-schema';
+export * from './jobs-schema'; 

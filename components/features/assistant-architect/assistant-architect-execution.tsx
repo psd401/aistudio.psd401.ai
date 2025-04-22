@@ -26,8 +26,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useState, useEffect } from "react"
 import { useToast } from "@/components/ui/use-toast"
-import { executeAssistantArchitectAction, getExecutionResultsAction } from "@/actions/db/assistant-architect-actions"
-import { AssistantArchitectWithRelations, ExecutionResultDetails } from "@/types"
+import { executeAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
+import { getJobAction } from "@/actions/db/jobs-actions"
+import { SelectJob } from "@/db/schema"
+import { ExecutionResultDetails, JobOutput, JobPromptResult } from "@/types/assistant-architect-types"
 import { Loader2, Bot, User, Terminal } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import ErrorBoundary from "@/components/utilities/error-boundary"
@@ -39,13 +41,14 @@ interface AssistantArchitectExecutionProps {
 
 export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutionProps) {
   const { toast } = useToast()
-  const [executionId, setExecutionId] = useState<string | null>(null)
-  const [results, setResults] = useState<ExecutionResultDetails | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isPolling, setIsPolling] = useState(false)
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [results, setResults] = useState<ExecutionResultDetails | null>(null)
 
+  // Create form schema based on tool input fields
   const formSchema = z.object(
-    tool.inputFields.reduce((acc, field) => {
+    tool.inputFields.reduce((acc: Record<string, z.ZodTypeAny>, field: any) => {
       let fieldSchema: z.ZodTypeAny = z.string()
       if (field.type === "textarea") {
         fieldSchema = z.string()
@@ -59,148 +62,184 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
 
       acc[field.name] = fieldSchema
       return acc
-    }, {} as Record<string, z.ZodTypeAny>)
+    }, {})
   )
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: tool.inputFields.reduce((acc, field) => {
+    defaultValues: tool.inputFields.reduce((acc: Record<string, any>, field: any) => {
       acc[field.name] = field.defaultValue || ""
       return acc
-    }, {} as Record<string, any>)
+    }, {})
   })
 
-  async function onSubmit(values: z.infer<typeof formSchema>) {
+  const onSubmit = async (values: z.infer<typeof formSchema>) => {
     setIsLoading(true)
-    setExecutionId(null)
     setResults(null)
+    
+    try {
+      const result = await executeAssistantArchitectAction({
+        toolId: tool.id,
+        inputs: values
+      })
 
-    const result = await executeAssistantArchitectAction({
-      toolId: tool.id,
-      inputs: values
-    })
-
-    if (result.isSuccess && result.data.id) {
-      toast({ title: "Execution Started", description: "Polling for results..." })
-      setExecutionId(result.data.id)
-      setIsPolling(true)
-      setIsLoading(false)
-    } else {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: result.message || "Failed to start Assistant Architect execution."
+      if (result.isSuccess && result.data?.jobId) {
+        setJobId(result.data.jobId)
+        setIsPolling(true)
+        toast({ title: "Execution Started", description: "The tool is now running" })
+      } else {
+        toast({ 
+          title: "Execution Failed", 
+          description: result.message,
+          variant: "destructive"
+        })
+        setIsLoading(false)
+      }
+    } catch (error) {
+      console.error("Error executing tool:", error)
+      toast({ 
+        title: "Execution Error", 
+        description: "Failed to start execution",
+        variant: "destructive"
       })
       setIsLoading(false)
     }
   }
 
   useEffect(() => {
-    let intervalId: NodeJS.Timeout | null = null;
-    let retryCount = 0;
-    const MAX_RETRIES = 120; // Allow up to 6 minutes (3s * 120)
-    const BACKOFF_THRESHOLD = 20; // After 20 retries, increase polling interval
-    let currentInterval = 3000; // Start with 3s intervals
+    let intervalId: NodeJS.Timeout | null = null
+    let retryCount = 0
+    const MAX_RETRIES = 120 // Allow up to 6 minutes (3s * 120)
+    const BACKOFF_THRESHOLD = 20 // After 20 retries, increase polling interval
+    let currentInterval = 3000 // Start with 3s intervals
 
-    async function pollResults() {
-      if (!executionId) return;
+    async function pollJob() {
+      if (!jobId) return
       
       try {
-        const result = await getExecutionResultsAction(executionId);
-        retryCount++;
+        const result = await getJobAction(jobId)
+        retryCount++
 
         if (result.isSuccess && result.data) {
-          // Format the data to match the ExecutionResultDetails type
-          const formattedData: ExecutionResultDetails = {
-            id: executionId,
-            toolId: tool.id,
-            userId: "", // This will be filled by the backend
-            inputData: {},
-            status: result.data.status,
-            startedAt: new Date(),
-            promptResults: result.data.promptResults || [],
-          };
+          const job = result.data as SelectJob
           
-          setResults(formattedData);
+          if (job.status === "completed" || job.status === "failed") {
+            setIsLoading(false)
+            setIsPolling(false)
+            
+            if (job.output) {
+              const outputData = JSON.parse(job.output) as JobOutput
+              setResults({
+                id: outputData.executionId,
+                toolId: tool.id,
+                userId: job.userId,
+                status: job.status,
+                inputData: JSON.parse(job.input),
+                startedAt: new Date(job.createdAt),
+                promptResults: outputData.results.map((result: JobPromptResult) => ({
+                  id: result.promptId,
+                  executionId: outputData.executionId,
+                  promptId: result.promptId,
+                  inputData: result.input,
+                  outputData: result.output,
+                  status: result.status,
+                  startedAt: new Date(result.startTime),
+                  completedAt: result.endTime ? new Date(result.endTime) : undefined,
+                  executionTimeMs: result.executionTimeMs
+                }))
+              })
+            }
 
-          // If we have results, reset the error count
-          retryCount = 0;
+            toast({ 
+              title: "Execution Finished", 
+              description: `Status: ${job.status}${job.error ? ` - ${job.error}` : ""}`,
+              variant: job.status === "completed" ? "default" : "destructive"
+            })
 
-          if (result.data.status === "completed" || result.data.status === "failed") {
-            setIsLoading(false);
-            setIsPolling(false);
-            toast({ title: "Execution Finished", description: `Status: ${result.data.status}` });
             if (intervalId) {
-              clearInterval(intervalId);
+              clearInterval(intervalId)
             }
           } else if (retryCount >= MAX_RETRIES) {
-            // Don't stop polling, just notify the user it's taking longer than expected
             toast({ 
               title: "Long Running Operation", 
-              description: "This operation is taking longer than usual. You can leave this page and check back later.",
-            });
+              description: "This operation is taking longer than usual. You can leave this page and check back later."
+            })
           } else if (retryCount >= BACKOFF_THRESHOLD && currentInterval === 3000) {
-            // After BACKOFF_THRESHOLD retries, increase polling interval to reduce load
             if (intervalId) {
-              clearInterval(intervalId);
+              clearInterval(intervalId)
             }
-            currentInterval = 10000; // Switch to 10s intervals
-            intervalId = setInterval(pollResults, currentInterval);
+            currentInterval = 10000 // Switch to 10s intervals
+            intervalId = setInterval(pollJob, currentInterval)
           }
         } else {
-          console.error(`Error polling for ${executionId}:`, result.message);
-          // Only show error toast if we've had multiple consecutive failures
+          console.error(`Error polling job ${jobId}:`, result.message)
           if (retryCount >= 3) {
             toast({ 
               title: "Polling Warning", 
               description: "Having trouble getting updates. Will keep trying.",
               variant: "destructive"
-            });
+            })
           }
         }
       } catch (error) {
-        console.error("Polling error:", error);
-        // Only show error toast if we've had multiple consecutive failures
+        console.error("Polling error:", error)
         if (retryCount >= 3) {
           toast({ 
             title: "Connection Warning", 
             description: "Having trouble connecting. Will keep trying.",
             variant: "destructive"
-          });
+          })
         }
       }
     }
 
-    if (isPolling && executionId) {
-      // Initial poll
-      pollResults();
-      // Then start interval
-      intervalId = setInterval(pollResults, currentInterval);
+    if (isPolling && jobId) {
+      pollJob() // Initial poll
+      intervalId = setInterval(pollJob, currentInterval)
     }
 
     return () => {
       if (intervalId) {
-        clearInterval(intervalId);
+        clearInterval(intervalId)
       }
-    };
-  }, [isPolling, executionId, toast, tool.id]);
+    }
+  }, [isPolling, jobId, toast, tool.id])
 
   // Keep results displayed even after polling stops
   useEffect(() => {
-    if (executionId && !isPolling && !isLoading && !results) {
+    if (jobId && !isPolling && !isLoading && !results) {
       const fetchResults = async () => {
         try {
-          const result = await getExecutionResultsAction(executionId);
-          if (result.isSuccess && result.data) {
-            setResults(result.data);
+          const result = await getJobAction(jobId)
+          if (result.isSuccess && result.data && result.data.output) {
+            const outputData = JSON.parse(result.data.output)
+            setResults({
+              id: outputData.executionId,
+              toolId: tool.id,
+              userId: result.data.userId,
+              status: result.data.status,
+              inputData: JSON.parse(result.data.input),
+              startedAt: new Date(result.data.createdAt),
+              promptResults: outputData.results.map((result: JobPromptResult) => ({
+                id: result.promptId,
+                executionId: outputData.executionId,
+                promptId: result.promptId,
+                inputData: result.input,
+                outputData: result.output,
+                status: result.status,
+                startedAt: new Date(result.startTime),
+                completedAt: result.endTime ? new Date(result.endTime) : undefined,
+                executionTimeMs: result.executionTimeMs
+              }))
+            })
           }
         } catch (error) {
-          console.error("Error fetching final results:", error);
+          console.error("Error fetching final results:", error)
         }
-      };
-      fetchResults();
+      }
+      fetchResults()
     }
-  }, [executionId, isPolling, isLoading, results]);
+  }, [jobId, isPolling, isLoading, results, tool.id])
 
   return (
     <div className="space-y-6">
@@ -214,7 +253,7 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <CardContent className="space-y-4">
-              {tool.inputFields.map((field) => (
+              {tool.inputFields.map((field: any) => (
                 <FormField
                   key={field.id}
                   control={form.control}
@@ -231,7 +270,7 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
                               <SelectValue placeholder={`Select ${field.label}...`} />
                             </SelectTrigger>
                             <SelectContent>
-                              {(field.options || "").split(",").map((option) => (
+                              {(field.options || "").split(",").map((option: string) => (
                                 <SelectItem key={option.trim()} value={option.trim()}>
                                   {option.trim()}
                                 </SelectItem>
@@ -276,7 +315,7 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
                 </div>
               )}
               {results?.promptResults && results.promptResults.length > 0 ? (
-                results.promptResults.map((promptResult: SelectPromptResult, index: number) => (
+                results.promptResults.map((promptResult: JobPromptResult, index: number) => (
                   <div key={promptResult.id || index} className="space-y-2 p-4 border rounded-md bg-muted/20">
                     <div className="flex items-center text-sm font-medium text-muted-foreground">
                       <Terminal className="h-4 w-4 mr-2" /> Prompt {index + 1} ({promptResult.status})

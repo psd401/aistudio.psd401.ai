@@ -52,6 +52,7 @@ import {
   metaPromptingTemplatesTable,
   // Navigation
   navigationItemsTable,
+  jobsTable,
 
   // -- RELATIONS (Import only those confirmed defined) --
   aiModelsRelations,
@@ -137,6 +138,7 @@ const schema = {
   metaPromptingTemplates: metaPromptingTemplatesTable,
   // Navigation
   navigationItems: navigationItemsTable,
+  jobs: jobsTable,
   
   // --- RELATIONS --- 
   // Include relations only if they were successfully imported above

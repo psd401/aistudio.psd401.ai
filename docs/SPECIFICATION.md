@@ -822,4 +822,75 @@ Table political_settings {
 - Validate model integration
 
 ## Conclusion
-This specification serves as the foundation for maintaining and extending the application. All new development must follow these guidelines to ensure consistency, reliability, and maintainability of the codebase. Remember: Tests First, Code Second. 
+This specification serves as the foundation for maintaining and extending the application. All new development must follow these guidelines to ensure consistency, reliability, and maintainability of the codebase. Remember: Tests First, Code Second.
+
+### Backend Rules
+
+Follow these rules when working on the backend.
+
+It uses Postgres, Supabase, Drizzle ORM, and Server Actions.
+
+#### General Rules
+
+- Never generate migrations. You do not have to do anything in the `db/migrations` folder inluding migrations and metadata. Ignore it.
+
+#### Long-Running Tasks
+
+The application uses a job-based system for handling long-running tasks:
+
+```sql
+Table jobs {
+  id          uuid      primary key defaultRandom()
+  userId      text      not null
+  status      text      check (status in ('pending', 'running', 'completed', 'failed'))
+  type        text      not null
+  input       text      not null  # JSON string of input data
+  output      text                # JSON string of output data
+  error       text                # Error message if failed
+  createdAt   timestamp default now()
+  updatedAt   timestamp default now()
+}
+```
+
+Job System Features:
+- Asynchronous execution of long-running tasks
+- Status tracking (pending, running, completed, failed)
+- Input/output data persistence
+- Error handling and reporting
+- User association for access control
+
+Implementation Requirements:
+- Use the job system for any task that may take longer than 5 seconds
+- Store structured input/output as JSON strings
+- Include proper error handling and status updates
+- Implement polling with exponential backoff
+- Support job result retrieval after completion
+
+Example Job Output Format:
+```typescript
+interface JobOutput {
+  executionId: string
+  results: JobPromptResult[]
+}
+
+interface JobPromptResult {
+  promptId: string
+  status: string
+  input: any
+  output: string
+  startTime: string
+  endTime?: string
+  executionTimeMs: number
+}
+```
+
+Client Implementation:
+- Start with 3-second polling intervals
+- Increase to 10-second intervals after 20 retries
+- Maximum retry limit of 120 (6 minutes total)
+- Show appropriate loading and error states
+- Support result retrieval after page reload
+
+#### Organization
+
+// ... existing code ... 
