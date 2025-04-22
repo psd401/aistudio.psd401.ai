@@ -54,7 +54,6 @@ export const assistantArchitectsTable = pgTable("assistant_architects", {
   description: text("description"),
   creatorId: text("creator_id").notNull(),
   status: toolStatusEnum("status").default("draft").notNull(),
-  isParallel: boolean("is_parallel").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

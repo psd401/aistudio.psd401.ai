@@ -13,34 +13,23 @@ interface AssistantArchitectListProps {
 
 export function AssistantArchitectList({ tools }: AssistantArchitectListProps) {
   if (!tools?.length) {
-    return <p className="text-muted-foreground italic">No Assistant Architects found.</p>
+    return (
+      <div className="text-center text-muted-foreground">
+        No Assistant Architects found.
+      </div>
+    )
   }
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "draft":
-        return <Badge variant="outline" className="bg-slate-100">Draft</Badge>
+        return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" /> Draft</Badge>
       case "pending_approval":
-        return <Badge variant="outline" className="bg-yellow-100 text-yellow-800">Pending Approval</Badge>
+        return <Badge variant="warning"><Clock className="h-3 w-3 mr-1" /> Pending</Badge>
       case "approved":
-        return <Badge variant="outline" className="bg-green-100 text-green-800">Approved</Badge>
+        return <Badge variant="success"><Check className="h-3 w-3 mr-1" /> Approved</Badge>
       case "rejected":
-        return <Badge variant="outline" className="bg-red-100 text-red-800">Rejected</Badge>
-      default:
-        return <Badge variant="outline">{status}</Badge>
-    }
-  }
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "draft":
-        return <Edit className="h-4 w-4 mr-1" />
-      case "pending_approval":
-        return <Clock className="h-4 w-4 mr-1" />
-      case "approved":
-        return <Check className="h-4 w-4 mr-1" />
-      case "rejected":
-        return <X className="h-4 w-4 mr-1" />
+        return <Badge variant="destructive"><X className="h-3 w-3 mr-1" /> Rejected</Badge>
       default:
         return null
     }
@@ -68,9 +57,6 @@ export function AssistantArchitectList({ tools }: AssistantArchitectListProps) {
               </p>
               <p>
                 <span className="font-medium">Prompts:</span> {tool.prompts?.length || 0}
-              </p>
-              <p>
-                <span className="font-medium">Parallel Mode:</span> {tool.isParallel ? "Yes" : "No"}
               </p>
             </div>
           </CardContent>

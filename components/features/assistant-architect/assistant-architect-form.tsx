@@ -15,7 +15,6 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/components/ui/use-toast"
 import { useRouter } from "next/navigation"
 import { createAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
@@ -23,8 +22,7 @@ import type { CreateAssistantArchitectForm } from "@/types"
 
 const formSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters.").max(255),
-  description: z.string().max(1000).optional(),
-  isParallel: z.boolean().default(false)
+  description: z.string().max(1000).optional()
 })
 
 interface AssistantArchitectFormProps {
@@ -35,45 +33,40 @@ export function AssistantArchitectForm({ onSuccess }: AssistantArchitectFormProp
   const { toast } = useToast()
   const router = useRouter()
 
-  const form = useForm<CreateAssistantArchitectForm>({
+  const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: "",
-      description: "",
-      isParallel: false
+      description: ""
     }
   })
 
-  async function onSubmit(values: CreateAssistantArchitectForm) {
-    console.log("Form submitted:", values)
+  const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
-      console.log("About to call createAssistantArchitectAction")
       const result = await createAssistantArchitectAction(values)
-      console.log("Action result:", result)
-
-      if (result.isSuccess) {
+      
+      if (result.isSuccess && result.data) {
         toast({
-          title: "Success!",
-          description: "Assistant Architect created."
+          title: "Success",
+          description: "Assistant Architect created successfully"
         })
+        
         if (onSuccess) {
           onSuccess(result.data.id)
-        } else {
-          router.push(`/utilities/assistant-architect/${result.data.id}`)
         }
       } else {
         toast({
-          variant: "destructive",
           title: "Error",
-          description: result.message || "Failed to create Assistant Architect."
+          description: result.message,
+          variant: "destructive"
         })
       }
     } catch (error) {
-      console.error("Submission error:", error)
+      console.error("Error creating Assistant Architect:", error)
       toast({
-        variant: "destructive",
-        title: "Submission Error",
-        description: "An unexpected error occurred."
+        title: "Error",
+        description: "Failed to create Assistant Architect",
+        variant: "destructive"
       })
     }
   }
@@ -114,26 +107,6 @@ export function AssistantArchitectForm({ onSuccess }: AssistantArchitectFormProp
                 Explain the purpose and workflow of this Assistant Architect.
               </FormDescription>
               <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="isParallel"
-          render={({ field }) => (
-            <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 shadow">
-              <FormControl>
-                <Checkbox
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
-                />
-              </FormControl>
-              <div className="space-y-1 leading-none">
-                <FormLabel>Run Prompts in Parallel</FormLabel>
-                <FormDescription>
-                  If checked, all prompts in this Assistant Architect will be executed simultaneously (use with caution).
-                </FormDescription>
-              </div>
             </FormItem>
           )}
         />

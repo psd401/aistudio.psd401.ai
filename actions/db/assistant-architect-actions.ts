@@ -56,9 +56,17 @@ export async function createAssistantArchitectAction(
   data: InsertAssistantArchitect
 ): Promise<ActionState<SelectAssistantArchitect>> {
   try {
+    const { userId } = await auth()
+    if (!userId) {
+      return { isSuccess: false, message: "Unauthorized" }
+    }
+
     const [architect] = await db
       .insert(assistantArchitectsTable)
-      .values(data)
+      .values({
+        ...data,
+        creatorId: userId
+      })
       .returning()
 
     return {
@@ -435,14 +443,24 @@ export async function reorderInputFieldsAction(
 
 export async function addChainPromptAction(
   architectId: string,
-  data: { content: string; order: number }
+  data: {
+    name: string
+    content: string
+    systemContext?: string
+    modelId: number
+    position: number
+    inputMapping?: Record<string, string>
+  }
 ): Promise<ActionState<void>> {
   try {
     await db.insert(chainPromptsTable).values({
       toolId: architectId,
-      name: `Prompt ${data.order}`,
+      name: data.name,
       content: data.content,
-      position: data.order
+      systemContext: data.systemContext,
+      modelId: data.modelId,
+      position: data.position,
+      inputMapping: data.inputMapping
     })
 
     return {

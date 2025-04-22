@@ -23,7 +23,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
-import { addInputFieldAction } from "@/actions/db/assistant-architect-actions"
+import { addToolInputFieldAction } from "@/actions/db/assistant-architect-actions"
 import { InputFieldOption } from "@/types"
 
 const formSchema = z.object({
@@ -100,13 +100,15 @@ export function AddInputFieldForm({
       // Only include options for select/multi_select fields
       const optionsToSave = showOptions ? options : undefined
       
-      const result = await addInputFieldAction({
+      const result = await addToolInputFieldAction(
         toolId,
-        name: values.name,
-        fieldType: values.fieldType,
-        position: values.position,
-        options: optionsToSave
-      })
+        {
+          name: values.name,
+          type: values.fieldType,
+          position: values.position,
+          options: optionsToSave
+        }
+      )
 
       if (!result.isSuccess) {
         throw new Error(result.message)

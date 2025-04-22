@@ -23,7 +23,6 @@ export interface AssistantArchitectWithRelations extends SelectAssistantArchitec
 export interface CreateAssistantArchitectForm {
   name: string
   description?: string
-  isParallel?: boolean
   // Add other fields needed for creation form if different from InsertAssistantArchitect
 }
 

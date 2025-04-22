@@ -24,7 +24,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
-import { addPromptAction } from "@/actions/db/assistant-architect-actions"
+import { addChainPromptAction } from "@/actions/db/assistant-architect-actions"
 import type { SelectAiModel, SelectChainPrompt, SelectToolInputField } from "@/types"
 
 const formSchema = z.object({
@@ -123,15 +123,17 @@ export function AddPromptForm({
     try {
       setIsLoading(true)
       
-      const result = await addPromptAction({
+      const result = await addChainPromptAction(
         toolId,
-        name: values.name,
-        content: values.content,
-        systemContext: values.systemContext,
-        modelId: parseInt(values.modelId),
-        position: values.position,
-        inputMapping: Object.keys(mappings).length > 0 ? mappings : undefined
-      })
+        {
+          name: values.name,
+          content: values.content,
+          systemContext: values.systemContext,
+          modelId: parseInt(values.modelId),
+          position: values.position,
+          inputMapping: Object.keys(mappings).length > 0 ? mappings : undefined
+        }
+      )
 
       if (!result.isSuccess) {
         throw new Error(result.message)
@@ -142,6 +144,7 @@ export function AddPromptForm({
         description: "Prompt added successfully"
       })
 
+      router.push(`/utilities/assistant-architect/${toolId}`)
       router.refresh()
     } catch (error) {
       toast({

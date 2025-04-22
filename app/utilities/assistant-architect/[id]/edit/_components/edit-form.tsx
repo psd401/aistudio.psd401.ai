@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Checkbox } from "@/components/ui/checkbox"
 import { updateAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { useToast } from "@/components/ui/use-toast"
 
@@ -27,76 +26,65 @@ const formSchema = z.object({
     message: "Name must be at least 3 characters.",
   }),
   description: z.string().optional(),
-  isParallel: z.boolean().default(false),
 })
 
 type FormValues = z.infer<typeof formSchema>
 
-// Tool type matching the data needed for the form
-interface Tool {
+interface EditFormProps {
   id: string
-  name: string
-  description: string | null
-  isParallel: boolean
+  initialData: {
+    name: string
+    description?: string | null
+  }
 }
 
-interface EditAssistantArchitectFormProps {
-  tool: Tool
-}
-
-export function EditAssistantArchitectForm({ tool }: EditAssistantArchitectFormProps) {
+export default function EditForm({ id, initialData }: EditFormProps) {
   const router = useRouter()
   const { toast } = useToast()
-  const [isLoading, setIsLoading] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Initialize form with existing tool data
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      name: tool.name,
-      description: tool.description || "",
-      isParallel: tool.isParallel || false,
-    },
+      name: initialData.name,
+      description: initialData.description || ""
+    }
   })
 
   async function onSubmit(values: FormValues) {
-    setIsLoading(true)
+    setIsSubmitting(true)
     try {
-      const result = await updateAssistantArchitectAction(tool.id, {
-        name: values.name,
-        description: values.description,
-        isParallel: values.isParallel
-      })
-
+      const result = await updateAssistantArchitectAction(id, values)
+      
       if (result.isSuccess) {
         toast({
-          title: "Tool updated",
-          description: "Assistant Architect has been updated successfully"
+          title: "Success",
+          description: "Assistant Architect updated successfully"
         })
-        router.push(`/utilities/assistant-architect/${tool.id}`)
+        router.push(`/utilities/assistant-architect/${id}`)
         router.refresh()
       } else {
         toast({
-          variant: "destructive",
           title: "Error",
-          description: result.message
+          description: result.message,
+          variant: "destructive"
         })
       }
     } catch (error) {
+      console.error("Error updating Assistant Architect:", error)
       toast({
-        variant: "destructive",
         title: "Error",
-        description: "An unexpected error occurred"
+        description: "Failed to update Assistant Architect",
+        variant: "destructive"
       })
-      console.error(error)
     } finally {
-      setIsLoading(false)
+      setIsSubmitting(false)
     }
   }
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
         <FormField
           control={form.control}
           name="name"
@@ -104,16 +92,15 @@ export function EditAssistantArchitectForm({ tool }: EditAssistantArchitectFormP
             <FormItem>
               <FormLabel>Name</FormLabel>
               <FormControl>
-                <Input placeholder="Name of your tool" {...field} />
+                <Input {...field} />
               </FormControl>
               <FormDescription>
-                This is the name that will be displayed to users.
+                The name of your Assistant Architect.
               </FormDescription>
               <FormMessage />
             </FormItem>
           )}
         />
-
         <FormField
           control={form.control}
           name="description"
@@ -121,55 +108,18 @@ export function EditAssistantArchitectForm({ tool }: EditAssistantArchitectFormP
             <FormItem>
               <FormLabel>Description</FormLabel>
               <FormControl>
-                <Textarea
-                  placeholder="Describe what this tool does"
-                  className="resize-none"
-                  rows={3}
-                  {...field}
-                  value={field.value || ""}
-                />
+                <Textarea {...field} />
               </FormControl>
               <FormDescription>
-                Provide a brief description of what your Assistant Architect does.
+                A brief description of what this Assistant Architect does.
               </FormDescription>
               <FormMessage />
             </FormItem>
           )}
         />
-
-        <FormField
-          control={form.control}
-          name="isParallel"
-          render={({ field }) => (
-            <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 shadow">
-              <FormControl>
-                <Checkbox
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
-                />
-              </FormControl>
-              <div className="space-y-1 leading-none">
-                <FormLabel>Run Prompts in Parallel</FormLabel>
-                <FormDescription>
-                  If checked, all prompts in this Assistant Architect will be executed simultaneously (use with caution).
-                </FormDescription>
-              </div>
-            </FormItem>
-          )}
-        />
-
-        <div className="flex justify-between">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => router.push(`/utilities/assistant-architect/${tool.id}`)}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={isLoading}>
-            {isLoading ? "Updating..." : "Update Assistant Architect"}
-          </Button>
-        </div>
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? "Saving..." : "Save Changes"}
+        </Button>
       </form>
     </Form>
   )

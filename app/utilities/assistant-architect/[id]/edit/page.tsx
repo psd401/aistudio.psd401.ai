@@ -4,7 +4,7 @@ import { redirect, notFound } from "next/navigation"
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { auth } from "@clerk/nextjs/server"
-import { EditAssistantArchitectForm } from "./_components/edit-form"
+import EditForm from "./_components/edit-form"
 import { hasToolAccess } from "@/utils/roles"
 
 interface Props {
@@ -52,8 +52,12 @@ export default async function EditAssistantArchitectPage({ params }: Props) {
           <CardTitle>Edit Assistant Architect: {tool.name}</CardTitle>
         </CardHeader>
         <CardContent>
-          <EditAssistantArchitectForm 
-            tool={tool}
+          <EditForm 
+            id={tool.id}
+            initialData={{
+              name: tool.name,
+              description: tool.description
+            }}
           />
         </CardContent>
       </Card>
