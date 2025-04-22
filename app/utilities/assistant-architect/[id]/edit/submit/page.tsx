@@ -44,7 +44,7 @@ export default async function SubmitAssistantArchitectPage({ params }: Props) {
   }
 
   return (
-    <CreateLayout currentStep={5} assistantId={id} title="Submit for Approval">
+    <CreateLayout currentStep={5} assistantId={id} title="Submit your assistant for Approval">
       <SubmitForm id={id} tool={tool} />
     </CreateLayout>
   )

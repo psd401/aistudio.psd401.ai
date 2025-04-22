@@ -23,7 +23,7 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
     <CreateLayout currentStep={4} assistantId={id} title="Preview & Test">
       <div className="space-y-6">
         <p className="text-muted-foreground">
-          Test your Assistant Architect with the configured input fields and prompts.
+          Test your assistant with the configured input fields and prompts.
         </p>
 
         <PreviewPageClient

@@ -40,7 +40,6 @@ export function SubmitForm({ id, tool }: Props) {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Submit Assistant Architect</CardTitle>
           <CardDescription>
             Verify all required components are complete before submitting
           </CardDescription>

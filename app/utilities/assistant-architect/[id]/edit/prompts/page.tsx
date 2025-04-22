@@ -57,7 +57,7 @@ export default async function PromptsPage({
     <CreateLayout currentStep={3} assistantId={id} title="Add Prompts">
       <div className="space-y-6">
         <p className="text-muted-foreground">
-          Add and manage prompts that define how your assistant architect processes inputs and generates responses.
+          Add and manage prompts that define how your assistant processes inputs and generates responses.
         </p>
 
         <PromptsPageClient 

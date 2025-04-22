@@ -45,7 +45,7 @@ export default async function InputFieldsPage({
     <CreateLayout currentStep={2} assistantId={id} title="Add Input Fields">
       <div className="space-y-6">
         <p className="text-muted-foreground">
-          Add and manage input fields that your assistant architect tool will use.
+          Add and manage input fields that your assistant will use.
         </p>
 
         <InputFieldsPageClient assistantId={id} inputFields={sortedInputFields} />
