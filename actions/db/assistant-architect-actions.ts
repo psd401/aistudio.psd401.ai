@@ -238,14 +238,20 @@ export async function deleteAssistantArchitectAction(
 
 export async function addToolInputFieldAction(
   architectId: string,
-  data: { name: string; type: string }
+  data: { 
+    name: string; 
+    type: string;
+    position?: number;
+    options?: { label: string; value: string }[];
+  }
 ): Promise<ActionState<void>> {
   try {
     await db.insert(toolInputFieldsTable).values({
       toolId: architectId,
       name: data.name,
       fieldType: data.type as typeof fieldTypeEnum.enumValues[number],
-      position: 0
+      position: data.position ?? 0,
+      options: data.options
     })
 
     return {
@@ -581,7 +587,7 @@ export async function deletePromptAction(
 
 export async function updatePromptPositionAction(
   id: string,
-  direction: "up" | "down"
+  position: number
 ): Promise<ActionState<void>> {
   try {
     const { userId } = await auth()
@@ -615,42 +621,11 @@ export async function updatePromptPositionAction(
       return { isSuccess: false, message: "Forbidden" }
     }
 
-    // Get all prompts for this tool, ordered by position
-    const prompts = await db
-      .select()
-      .from(chainPromptsTable)
-      .where(eq(chainPromptsTable.toolId, prompt.toolId))
-      .orderBy(asc(chainPromptsTable.position))
-
-    // Find current index
-    const currentIndex = prompts.findIndex(p => p.id === id)
-    if (currentIndex === -1) {
-      return { isSuccess: false, message: "Prompt not found in sequence" }
-    }
-
-    // Calculate target index
-    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1
-    
-    // Validate target index
-    if (targetIndex < 0 || targetIndex >= prompts.length) {
-      return { isSuccess: false, message: "Cannot move prompt further" }
-    }
-
-    // Swap positions
-    const targetPrompt = prompts[targetIndex]
-    
-    // Update both prompts with their new positions
-    await db.transaction(async (tx) => {
-      await tx
-        .update(chainPromptsTable)
-        .set({ position: targetPrompt.position })
-        .where(eq(chainPromptsTable.id, prompt.id))
-      
-      await tx
-        .update(chainPromptsTable)
-        .set({ position: prompt.position })
-        .where(eq(chainPromptsTable.id, targetPrompt.id))
-    })
+    // Update the prompt's position
+    await db
+      .update(chainPromptsTable)
+      .set({ position })
+      .where(eq(chainPromptsTable.id, id))
 
     return {
       isSuccess: true,
@@ -1110,7 +1085,7 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
     // First, get all the tools the user has access to
     const userTools = await getUserTools(userId)
     if (userTools.length === 0) {
-      return { isSuccess: true, message: "No tools available", data: [] }
+      return { isSuccess: true, message: "No assistants found", data: [] }
     }
     
     // Get the base tools from the tools table
@@ -1130,7 +1105,7 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
       .filter((id): id is string => id !== null)
     
     if (architectIds.length === 0) {
-      return { isSuccess: true, message: "No approved architects found", data: [] }
+      return { isSuccess: true, message: "No assistants found", data: [] }
     }
     
     // 1. Fetch approved architects that the user has access to
@@ -1182,44 +1157,37 @@ export async function submitAssistantArchitectForApprovalAction(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    // Check if the user is the creator of the tool
     const [tool] = await db
       .select()
       .from(assistantArchitectsTable)
       .where(eq(assistantArchitectsTable.id, id))
+      .limit(1)
 
     if (!tool) {
-      return { isSuccess: false, message: "Tool not found" }
+      return { isSuccess: false, message: "Assistant not found" }
     }
 
-    if (tool.creatorId !== userId && !(await hasRole(userId, "administrator"))) {
-      return { isSuccess: false, message: "Only the creator or an administrator can submit a tool for approval" }
+    if (tool.userId !== userId) {
+      return { isSuccess: false, message: "Unauthorized" }
     }
 
-    // Check if the tool has the required components to be submitted
-    const prompts = await db
-      .select()
-      .from(chainPromptsTable)
-      .where(eq(chainPromptsTable.toolId, id))
-
-    if (prompts.length === 0) {
-      return { isSuccess: false, message: "Tool must have at least one prompt before submitting for approval" }
+    if (!tool.name || !tool.description || !tool.instructions || !tool.tools.length) {
+      return { isSuccess: false, message: "Assistant is incomplete" }
     }
 
-    // Update the status to pending_approval
     await db
       .update(assistantArchitectsTable)
-      .set({ status: "pending_approval" })
+      .set({ status: "pending" })
       .where(eq(assistantArchitectsTable.id, id))
 
     return {
       isSuccess: true,
-      message: "Tool submitted for approval",
+      message: "Assistant submitted for approval",
       data: undefined
     }
   } catch (error) {
-    console.error("Error submitting tool for approval:", error)
-    return { isSuccess: false, message: "Failed to submit tool for approval" }
+    console.error("Error submitting assistant for approval:", error)
+    return { isSuccess: false, message: "Failed to submit assistant" }
   }
 }
 
@@ -1323,5 +1291,42 @@ export async function getAiModelsAction(): Promise<ActionState<SelectAiModel[]>>
   } catch (error) {
     console.error("Error getting AI models:", error)
     return { isSuccess: false, message: "Failed to get AI models" }
+  }
+}
+
+export async function setPromptPositionsAction(
+  toolId: string,
+  positions: { id: string; position: number }[]
+): Promise<ActionState<void>> {
+  try {
+    const { userId } = await auth()
+    if (!userId) return { isSuccess: false, message: "Unauthorized" }
+
+    // Verify permissions
+    const [tool] = await db
+      .select()
+      .from(assistantArchitectsTable)
+      .where(eq(assistantArchitectsTable.id, toolId))
+
+    if (!tool) return { isSuccess: false, message: "Tool not found" }
+
+    const isAdmin = await hasRole(userId, "administrator")
+    if (!isAdmin && tool.creatorId !== userId) {
+      return { isSuccess: false, message: "Forbidden" }
+    }
+
+    await db.transaction(async (tx) => {
+      for (const { id, position } of positions) {
+        await tx
+          .update(chainPromptsTable)
+          .set({ position })
+          .where(eq(chainPromptsTable.id, id))
+      }
+    });
+
+    return { isSuccess: true, message: "Prompt positions updated", data: undefined }
+  } catch (error) {
+    console.error("Error setting prompt positions:", error)
+    return { isSuccess: false, message: "Failed to set prompt positions" }
   }
 }

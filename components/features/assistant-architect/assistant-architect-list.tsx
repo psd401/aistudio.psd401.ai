@@ -1,21 +1,29 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Edit, Eye, Clock, Check, X, Play } from "lucide-react"
+import { Edit, Eye, Clock, Check, X, Play, Trash2 } from "lucide-react"
 import { AssistantArchitectWithRelations } from "@/types"
+import { useToast } from "@/components/ui/use-toast"
+import { deleteAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
+import { useRouter } from "next/navigation"
 
 interface AssistantArchitectListProps {
   tools: AssistantArchitectWithRelations[]
 }
 
 export function AssistantArchitectList({ tools }: AssistantArchitectListProps) {
+  const { toast } = useToast()
+  const router = useRouter()
+  const [isDeleting, setIsDeleting] = useState<string | null>(null)
+
   if (!tools?.length) {
     return (
       <div className="text-center text-muted-foreground">
-        No Assistant Architects found.
+        No assistants found.
       </div>
     )
   }
@@ -32,6 +40,32 @@ export function AssistantArchitectList({ tools }: AssistantArchitectListProps) {
         return <Badge variant="destructive"><X className="h-3 w-3 mr-1" /> Rejected</Badge>
       default:
         return null
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    try {
+      setIsDeleting(id)
+      const result = await deleteAssistantArchitectAction(id)
+
+      if (!result.isSuccess) {
+        throw new Error(result.message)
+      }
+
+      toast({
+        title: "Success",
+        description: "Assistant architect deleted successfully"
+      })
+
+      router.refresh()
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete assistant architect",
+        variant: "destructive"
+      })
+    } finally {
+      setIsDeleting(null)
     }
   }
 
@@ -62,20 +96,33 @@ export function AssistantArchitectList({ tools }: AssistantArchitectListProps) {
           </CardContent>
           <CardFooter className="flex justify-between">
             <Button variant="outline" size="sm" asChild>
-              <Link href={`/utilities/assistant-architect/${tool.id}`}>
+              <Link href={`/utilities/assistant-architect/${tool.id}/edit`}>
                 <Eye className="h-4 w-4 mr-1" /> 
                 View
               </Link>
             </Button>
             
-            {tool.status === "approved" && (
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/tools/assistant-architect/${tool.id}`}>
-                  <Play className="h-4 w-4 mr-1" />
-                  Execute
-                </Link>
-              </Button>
-            )}
+            <div className="flex gap-2">
+              {tool.status === "approved" && (
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`/tools/assistant-architect/${tool.id}`}>
+                    <Play className="h-4 w-4 mr-1" />
+                    Execute
+                  </Link>
+                </Button>
+              )}
+              {(tool.status === "draft" || tool.status === "rejected") && (
+                <Button 
+                  variant="destructive" 
+                  size="sm"
+                  onClick={() => handleDelete(tool.id)}
+                  disabled={isDeleting === tool.id}
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  {isDeleting === tool.id ? "Deleting..." : "Delete"}
+                </Button>
+              )}
+            </div>
           </CardFooter>
         </Card>
       ))}

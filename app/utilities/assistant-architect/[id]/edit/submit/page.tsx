@@ -1,11 +1,11 @@
 "use server"
 
-import { redirect, notFound } from "next/navigation"
-import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { auth } from "@clerk/nextjs/server"
+import { redirect, notFound } from "next/navigation"
 import { hasToolAccess } from "@/utils/roles"
-import { CreateForm } from "../../create/_components/create-form"
-import { CreateLayout } from "../../create/_components/create-layout"
+import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
+import { CreateLayout } from "../../../create/_components/create-layout"
+import { SubmitForm } from "./_components/submit-form"
 
 interface Props {
   params: {
@@ -13,7 +13,7 @@ interface Props {
   }
 }
 
-export default async function EditAssistantArchitectPage({ params }: Props) {
+export default async function SubmitAssistantArchitectPage({ params }: Props) {
   const resolvedParams = await Promise.resolve(params)
   const id = resolvedParams.id
   
@@ -44,8 +44,8 @@ export default async function EditAssistantArchitectPage({ params }: Props) {
   }
 
   return (
-    <CreateLayout currentStep={1} assistantId={id} title="Edit Assistant">
-      <CreateForm initialData={tool} />
+    <CreateLayout currentStep={5} assistantId={id} title="Submit for Approval">
+      <SubmitForm id={id} tool={tool} />
     </CreateLayout>
   )
 } 

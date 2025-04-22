@@ -13,14 +13,6 @@ import {
   FormLabel,
   FormMessage
 } from "@/components/ui/form"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle
-} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -34,6 +26,7 @@ import { Loader2, Bot, User, Terminal } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import ErrorBoundary from "@/components/utilities/error-boundary"
 import type { SelectPromptResult } from "@/db/schema"
+import type { AssistantArchitectWithRelations } from "@/types/assistant-architect-types"
 
 interface AssistantArchitectExecutionProps {
   tool: AssistantArchitectWithRelations
@@ -159,42 +152,35 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
             if (intervalId) {
               clearInterval(intervalId)
             }
-          } else if (retryCount >= MAX_RETRIES) {
-            toast({ 
-              title: "Long Running Operation", 
-              description: "This operation is taking longer than usual. You can leave this page and check back later."
-            })
-          } else if (retryCount >= BACKOFF_THRESHOLD && currentInterval === 3000) {
-            if (intervalId) {
-              clearInterval(intervalId)
-            }
-            currentInterval = 10000 // Switch to 10s intervals
-            intervalId = setInterval(pollJob, currentInterval)
-          }
-        } else {
-          console.error(`Error polling job ${jobId}:`, result.message)
-          if (retryCount >= 3) {
-            toast({ 
-              title: "Polling Warning", 
-              description: "Having trouble getting updates. Will keep trying.",
-              variant: "destructive"
-            })
           }
         }
       } catch (error) {
-        console.error("Polling error:", error)
-        if (retryCount >= 3) {
+        console.error("Error polling job:", error)
+        retryCount++
+      }
+
+      // If we've exceeded max retries, stop polling
+      if (retryCount >= MAX_RETRIES) {
+        setIsLoading(false)
+        setIsPolling(false)
           toast({ 
-            title: "Connection Warning", 
-            description: "Having trouble connecting. Will keep trying.",
+          title: "Execution Timeout", 
+          description: "The execution took too long to complete",
             variant: "destructive"
           })
+        if (intervalId) {
+          clearInterval(intervalId)
         }
+        return
+      }
+
+      // Increase polling interval after threshold
+      if (retryCount > BACKOFF_THRESHOLD) {
+        currentInterval = 5000 // Increase to 5s intervals
       }
     }
 
-    if (isPolling && jobId) {
-      pollJob() // Initial poll
+    if (isPolling) {
       intervalId = setInterval(pollJob, currentInterval)
     }
 
@@ -203,7 +189,7 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
         clearInterval(intervalId)
       }
     }
-  }, [isPolling, jobId, toast, tool.id])
+  }, [isPolling, jobId, tool.id, toast])
 
   // Keep results displayed even after polling stops
   useEffect(() => {
@@ -243,16 +229,9 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Configure & Run: {tool.name}</CardTitle>
-          <CardDescription>
-            Fill in the required inputs to execute this Assistant Architect.
-          </CardDescription>
-        </CardHeader>
+      <div className="space-y-4">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <CardContent className="space-y-4">
               {tool.inputFields.map((field: any) => (
                 <FormField
                   key={field.id}
@@ -263,10 +242,14 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
                       <FormLabel>{field.label}{field.isRequired && " *"}</FormLabel>
                       <FormControl>
                         {field.type === "textarea" ? (
-                          <Textarea placeholder={`Enter ${field.label}...`} {...formField} />
+                        <Textarea 
+                          placeholder={`Enter ${field.label}...`} 
+                          {...formField} 
+                          className="bg-muted"
+                        />
                         ) : field.type === "select" ? (
                           <Select onValueChange={formField.onChange} defaultValue={formField.value}>
-                            <SelectTrigger>
+                          <SelectTrigger className="bg-muted">
                               <SelectValue placeholder={`Select ${field.label}...`} />
                             </SelectTrigger>
                             <SelectContent>
@@ -278,7 +261,11 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
                             </SelectContent>
                           </Select>
                         ) : (
-                          <Input placeholder={`Enter ${field.label}...`} {...formField} />
+                        <Input 
+                          placeholder={`Enter ${field.label}...`} 
+                          {...formField} 
+                          className="bg-muted"
+                        />
                         )}
                       </FormControl>
                       <FormMessage />
@@ -286,29 +273,36 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
                   )}
                 />
               ))}
-            </CardContent>
-            <CardFooter>
               <Button type="submit" disabled={isLoading}>
                 {isLoading ? (
-                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Executing...</>
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Running Test...</>
                 ) : (
-                  "Run Assistant Architect"
+                "Run Test"
                 )}
               </Button>
-            </CardFooter>
           </form>
         </Form>
-      </Card>
+      </div>
 
       {(isLoading || results) && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Execution Results</CardTitle>
-            {results && <CardDescription>Status: {results.status}{results.errorMessage ? ` - Error: ${results.errorMessage}` : ""}</CardDescription>}
-            {isLoading && !results && <CardDescription>Waiting for results...</CardDescription>}
-          </CardHeader>
+        <div className="border rounded-lg p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium">Test Results</div>
+            {results && (
+              <div className="text-sm text-muted-foreground">
+                Status: {results.status}
+                {results.errorMessage ? ` - Error: ${results.errorMessage}` : ""}
+              </div>
+            )}
+            {isLoading && !results && (
+              <div className="text-sm text-muted-foreground">
+                Waiting for results...
+              </div>
+            )}
+          </div>
+          
           <ErrorBoundary fallbackMessage="Failed to render execution results.">
-            <CardContent className="space-y-4">
+            <div className="space-y-4">
               {isLoading && !results && (
                 <div className="flex items-center justify-center p-8">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -338,26 +332,12 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
                         </ReactMarkdown>
                       </div>
                     )}
-                    {promptResult.errorMessage && (
-                      <div className="text-xs text-red-600 p-2 border border-red-200 bg-red-50 rounded">
-                        Error: {promptResult.errorMessage}
-                      </div>
-                    )}
-                    <div className="text-xs text-muted-foreground pt-1">
-                      Duration: {promptResult.executionTimeMs ? `${promptResult.executionTimeMs}ms` : "N/A"}
-                    </div>
                   </div>
                 ))
-              ) : (
-                !isLoading && (
-                  <div className="flex items-center justify-center p-8">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              ) : null}
                   </div>
-                )
-              )}
-            </CardContent>
           </ErrorBoundary>
-        </Card>
+        </div>
       )}
     </div>
   )

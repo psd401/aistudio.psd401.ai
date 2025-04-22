@@ -18,7 +18,7 @@ export default async function AssistantArchitectsPage() {
   const hasAccess = await hasToolAccess(userId, "assistant-architect")
   if (!hasAccess) redirect("/dashboard")
   
-  // Get all tools the user has access to
+  // Get all assistants the user has access to
   const result = await getAssistantArchitectsAction()
   if (!result.isSuccess) {
     throw new Error(result.message)
@@ -26,7 +26,7 @@ export default async function AssistantArchitectsPage() {
   
   const tools = result.data
   
-  // Filter tools by user and status
+  // Filter assistants by user and status
   const userTools = tools.filter((tool) => tool.creatorId === userId)
   const draftTools = userTools.filter((tool) => tool.status === "draft")
   const pendingTools = userTools.filter((tool) => tool.status === "pending_approval")
@@ -40,7 +40,7 @@ export default async function AssistantArchitectsPage() {
         <Button asChild>
           <Link href="/utilities/assistant-architect/create">
             <PlusCircle className="mr-2 h-4 w-4" />
-            Create New Assistant Architect
+            Create New Assistant
           </Link>
         </Button>
       </div>
@@ -57,7 +57,7 @@ export default async function AssistantArchitectsPage() {
 
       <Separator className="my-6" />
 
-      <h2 className="text-2xl font-semibold mb-4">My Approved Assistant Architects</h2>
+      <h2 className="text-2xl font-semibold mb-4">My Approved Assistants</h2>
       <AssistantArchitectList tools={approvedTools} />
 
       <Separator className="my-6" />

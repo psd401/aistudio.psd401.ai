@@ -95,7 +95,7 @@ export default function EditForm({ id, initialData }: EditFormProps) {
                 <Input {...field} />
               </FormControl>
               <FormDescription>
-                The name of your Assistant Architect.
+                The name of your assistant.
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -111,7 +111,7 @@ export default function EditForm({ id, initialData }: EditFormProps) {
                 <Textarea {...field} />
               </FormControl>
               <FormDescription>
-                A brief description of what this Assistant Architect does.
+                A brief description of what this assistant does.
               </FormDescription>
               <FormMessage />
             </FormItem>
