@@ -36,7 +36,7 @@ export default async function AssistantArchitectsPage() {
   return (
     <div className="container mx-auto py-8">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Assistant Architect</h1>
+        <h1 className="text-2xl font-bold">Assistant Architect</h1>
         <Button asChild>
           <Link href="/utilities/assistant-architect/create">
             <PlusCircle className="mr-2 h-4 w-4" />
@@ -47,22 +47,22 @@ export default async function AssistantArchitectsPage() {
 
       <Separator className="my-6" />
 
-      <h2 className="text-2xl font-semibold mb-4">My Drafts</h2>
+      <h2 className="text-xl font-semibold mb-4">My Drafts</h2>
       <AssistantArchitectList tools={draftTools} />
 
       <Separator className="my-6" />
 
-      <h2 className="text-2xl font-semibold mb-4">Pending Approval</h2>
+      <h2 className="text-xl font-semibold mb-4">Pending Approval</h2>
       <AssistantArchitectList tools={pendingTools} />
 
       <Separator className="my-6" />
 
-      <h2 className="text-2xl font-semibold mb-4">My Approved Assistants</h2>
+      <h2 className="text-xl font-semibold mb-4">My Approved Assistants</h2>
       <AssistantArchitectList tools={approvedTools} />
 
       <Separator className="my-6" />
 
-      <h2 className="text-2xl font-semibold mb-4">Rejected</h2>
+      <h2 className="text-xl font-semibold mb-4">Rejected</h2>
       <AssistantArchitectList tools={rejectedTools} />
     </div>
   )

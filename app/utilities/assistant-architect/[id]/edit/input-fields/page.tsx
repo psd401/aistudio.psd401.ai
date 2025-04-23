@@ -32,7 +32,7 @@ export default async function InputFieldsPage({
 
   // Check if user can edit this tool
   const isCreator = userId === tool.creatorId
-  const canEdit = isCreator && (tool.status === "draft" || tool.status === "rejected")
+  const canEdit = isCreator && (tool.status === "draft" || tool.status === "rejected" || tool.status === "approved")
 
   if (!canEdit) {
     redirect(`/utilities/assistant-architect/${id}`)
@@ -44,6 +44,15 @@ export default async function InputFieldsPage({
   return (
     <CreateLayout currentStep={2} assistantId={id} title="Add Input Fields">
       <div className="space-y-6">
+        {tool.status === "approved" && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-yellow-800">
+            <p className="text-sm">
+              <strong>Note:</strong> This assistant is currently approved and in use. 
+              Any changes you make will require re-approval, and the assistant will be unavailable 
+              until approved again.
+            </p>
+          </div>
+        )}
         <p className="text-muted-foreground">
           Add and manage input fields that your assistant will use.
         </p>

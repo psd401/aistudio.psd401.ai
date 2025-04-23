@@ -37,7 +37,7 @@ export default async function SubmitAssistantArchitectPage({ params }: Props) {
   
   // Check if user can edit this tool
   const isCreator = userId === tool.creatorId
-  const canEdit = isCreator && (tool.status === "draft" || tool.status === "rejected")
+  const canEdit = isCreator && (tool.status === "draft" || tool.status === "rejected" || tool.status === "approved")
   
   if (!canEdit) {
     redirect(`/utilities/assistant-architect/${id}`)
@@ -45,7 +45,18 @@ export default async function SubmitAssistantArchitectPage({ params }: Props) {
 
   return (
     <CreateLayout currentStep={5} assistantId={id} title="Submit your assistant for Approval">
-      <SubmitForm id={id} tool={tool} />
+      <div className="space-y-6">
+        {tool.status === "approved" && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-yellow-800">
+            <p className="text-sm">
+              <strong>Note:</strong> This assistant is currently approved and in use. 
+              Any changes you make will require re-approval, and the assistant will be unavailable 
+              until approved again.
+            </p>
+          </div>
+        )}
+        <SubmitForm id={id} tool={tool} />
+      </div>
     </CreateLayout>
   )
 } 

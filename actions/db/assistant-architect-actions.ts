@@ -198,20 +198,56 @@ export async function updateAssistantArchitectAction(
   data: Partial<InsertAssistantArchitect>
 ): Promise<ActionState<SelectAssistantArchitect>> {
   try {
-    const [architect] = await db
+    const { userId } = await auth()
+    if (!userId) {
+      return { isSuccess: false, message: "Unauthorized" }
+    }
+
+    // Get the current tool
+    const [currentTool] = await db
+      .select()
+      .from(assistantArchitectsTable)
+      .where(eq(assistantArchitectsTable.id, id))
+      .limit(1)
+
+    if (!currentTool) {
+      return { isSuccess: false, message: "Assistant not found" }
+    }
+
+    if (currentTool.creatorId !== userId) {
+      return { isSuccess: false, message: "Unauthorized" }
+    }
+
+    // If the tool was approved and is being edited, set status to pending_approval
+    // and deactivate it in the tools table
+    if (currentTool.status === "approved") {
+      data.status = "pending_approval"
+      
+      // Deactivate the tool in the tools table
+      await db
+        .update(toolsTable)
+        .set({ isActive: false })
+        .where(eq(toolsTable.assistantArchitectId, id))
+    }
+
+    // Update the tool
+    const [updatedTool] = await db
       .update(assistantArchitectsTable)
-      .set(data)
+      .set({
+        ...data,
+        updatedAt: new Date()
+      })
       .where(eq(assistantArchitectsTable.id, id))
       .returning()
 
     return {
       isSuccess: true,
-      message: "Assistant architect updated successfully",
-      data: architect
+      message: "Assistant updated successfully",
+      data: updatedTool
     }
   } catch (error) {
-    console.error("Error updating assistant architect:", error)
-    return { isSuccess: false, message: "Failed to update assistant architect" }
+    console.error("Error updating assistant:", error)
+    return { isSuccess: false, message: "Failed to update assistant" }
   }
 }
 
@@ -1328,5 +1364,60 @@ export async function setPromptPositionsAction(
   } catch (error) {
     console.error("Error setting prompt positions:", error)
     return { isSuccess: false, message: "Failed to set prompt positions" }
+  }
+}
+
+export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
+  ActionState<SelectAssistantArchitect[]>
+> {
+  try {
+    const { userId } = await auth()
+    if (!userId) {
+      return { isSuccess: false, message: "Unauthorized" }
+    }
+
+    // Check if user is an administrator
+    const isAdmin = await hasRole(userId, "administrator")
+    if (!isAdmin) {
+      return { isSuccess: false, message: "Only administrators can view approved tools" }
+    }
+
+    // Get all approved tools
+    const approvedTools = await db
+      .select()
+      .from(assistantArchitectsTable)
+      .where(eq(assistantArchitectsTable.status, "approved"));
+
+    // Get related data for each tool
+    const toolsWithRelations = await Promise.all(
+      approvedTools.map(async (tool) => {
+        const inputFields = await db
+          .select()
+          .from(toolInputFieldsTable)
+          .where(eq(toolInputFieldsTable.toolId, tool.id))
+          .orderBy(asc(toolInputFieldsTable.position));
+
+        const prompts = await db
+          .select()
+          .from(chainPromptsTable)
+          .where(eq(chainPromptsTable.toolId, tool.id))
+          .orderBy(asc(chainPromptsTable.position));
+
+        return {
+          ...tool,
+          inputFields,
+          prompts
+        };
+      })
+    );
+
+    return {
+      isSuccess: true,
+      message: "Approved Assistant Architects retrieved successfully",
+      data: toolsWithRelations
+    };
+  } catch (error) {
+    console.error("Error getting approved Assistant Architects:", error);
+    return { isSuccess: false, message: "Failed to get approved Assistant Architects" };
   }
 }

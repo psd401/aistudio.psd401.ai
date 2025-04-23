@@ -16,142 +16,180 @@ import {
   rejectAssistantArchitectAction
 } from "@/actions/db/assistant-architect-actions"
 import { Textarea } from "@/components/ui/textarea"
-import { Check, X } from "lucide-react"
-
-interface PendingAssistantArchitect {
-  id: string
-  name: string
-  description?: string | null
-  creatorId: string
-  inputFields: any[]
-  prompts: any[]
-}
+import { Check, X, Edit } from "lucide-react"
+import { SelectAssistantArchitect } from "@/db/schema"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 interface AssistantArchitectApprovalProps {
-  request: PendingAssistantArchitect
-  onProcessed?: () => void
+  request: SelectAssistantArchitect & {
+    inputFields: any[]
+    prompts: any[]
+  }
+  isApproved?: boolean
 }
 
-export function AssistantArchitectApproval({ request, onProcessed }: AssistantArchitectApprovalProps) {
+export function AssistantArchitectApproval({
+  request,
+  isApproved = false
+}: AssistantArchitectApprovalProps) {
+  const [isProcessing, setIsProcessing] = useState(false)
   const [rejectionReason, setRejectionReason] = useState("")
-  const [isRejecting, setIsRejecting] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
+  const [showRejectionForm, setShowRejectionForm] = useState(false)
   const { toast } = useToast()
+  const router = useRouter()
 
   async function handleApprove() {
-    setIsLoading(true)
-    const result = await approveAssistantArchitectAction(request.id)
-    setIsLoading(false)
-
-    if (result.isSuccess) {
-      toast({ title: "Success", description: "Assistant Architect approved." })
-      if (onProcessed) onProcessed()
-    } else {
+    try {
+      setIsProcessing(true)
+      const result = await approveAssistantArchitectAction(request.id)
+      if (result.isSuccess) {
+        toast({
+          title: "Success",
+          description: "Assistant approved successfully"
+        })
+        router.refresh()
+      } else {
+        toast({
+          title: "Error",
+          description: result.message,
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      console.error("Error approving assistant:", error)
       toast({
-        variant: "destructive",
-        title: "Error Approving",
-        description: result.message || "Failed to approve Assistant Architect."
+        title: "Error",
+        description: "Failed to approve assistant",
+        variant: "destructive"
       })
+    } finally {
+      setIsProcessing(false)
     }
   }
 
   async function handleReject() {
-    setIsLoading(true)
-    const result = await rejectAssistantArchitectAction({
-      id: request.id,
-      reason: rejectionReason
-    })
-    setIsLoading(false)
-
-    if (result.isSuccess) {
-      toast({ title: "Success", description: "Assistant Architect rejected." })
-      setIsRejecting(false)
-      if (onProcessed) onProcessed()
-    } else {
+    if (!rejectionReason) {
       toast({
-        variant: "destructive",
-        title: "Error Rejecting",
-        description: result.message || "Failed to reject Assistant Architect."
+        title: "Error",
+        description: "Please provide a reason for rejection",
+        variant: "destructive"
       })
+      return
+    }
+
+    try {
+      setIsProcessing(true)
+      const result = await rejectAssistantArchitectAction(request.id)
+      if (result.isSuccess) {
+        toast({
+          title: "Success",
+          description: "Assistant rejected successfully"
+        })
+        router.refresh()
+      } else {
+        toast({
+          title: "Error",
+          description: result.message,
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      console.error("Error rejecting assistant:", error)
+      toast({
+        title: "Error",
+        description: "Failed to reject assistant",
+        variant: "destructive"
+      })
+    } finally {
+      setIsProcessing(false)
+      setShowRejectionForm(false)
+      setRejectionReason("")
     }
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{request.name}</CardTitle>
-        <CardDescription>
-          {request.description || "No description provided."}
-        </CardDescription>
+        <CardTitle className="text-lg">{request.name}</CardTitle>
+        <CardDescription className="text-sm">{request.description}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div>
-          <h4 className="font-medium mb-2">Input Fields:</h4>
-          {request.inputFields.length > 0 ? (
-            <ul className="list-disc list-inside text-sm space-y-1">
-              {request.inputFields.map((field) => (
-                <li key={field.id}>{field.label} ({field.name} - {field.type})</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-muted-foreground">No input fields defined.</p>
-          )}
-        </div>
-         <div>
-          <h4 className="font-medium mb-2">Prompts:</h4>
-          {request.prompts.length > 0 ? (
-            <ul className="list-decimal list-inside text-sm space-y-1">
-              {request.prompts.map((prompt) => (
-                <li key={prompt.id}>{prompt.name || `Prompt ${prompt.position + 1}`} ({prompt.type})</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-muted-foreground">No prompts defined.</p>
-          )}
-        </div>
 
-        {isRejecting && (
-          <div className="space-y-2 pt-4 border-t">
-            <label htmlFor={`reject-reason-${request.id}`} className="font-medium text-sm">Rejection Reason (Optional)</label>
-            <Textarea
-              id={`reject-reason-${request.id}`}
-              placeholder="Provide feedback for the creator..."
-              value={rejectionReason}
-              onChange={(e) => setRejectionReason(e.target.value)}
-            />
-             <Button
-              variant="destructive"
-              onClick={handleReject}
-              disabled={isLoading}
-              size="sm"
-            >
-              {isLoading ? "Rejecting..." : "Confirm Rejection"}
-            </Button>
-             <Button
-              variant="outline"
-              onClick={() => setIsRejecting(false)}
-              disabled={isLoading}
-              size="sm"
-            >
-              Cancel Rejection
-            </Button>
+      <CardContent>
+        <div className="space-y-4">
+          <div>
+            <h4 className="text-sm font-medium mb-2">Input Fields</h4>
+            <ul className="list-disc list-inside text-sm">
+              {request.inputFields.map((field: any) => (
+                <li key={field.id}>{field.name}</li>
+              ))}
+            </ul>
           </div>
-        )}
+
+          <div>
+            <h4 className="text-sm font-medium mb-2">Prompts</h4>
+            <ul className="list-disc list-inside text-sm">
+              {request.prompts.map((prompt: any) => (
+                <li key={prompt.id}>{prompt.name}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
       </CardContent>
-      {!isRejecting && (
-        <CardFooter className="flex justify-end space-x-2">
-          <Button
-            variant="outline"
-            onClick={() => setIsRejecting(true)}
-            disabled={isLoading}
-          >
-            <X className="mr-2 h-4 w-4" /> Reject
+
+      <CardFooter className="flex justify-end gap-2">
+        {isApproved ? (
+          <Button variant="outline" asChild>
+            <Link href={`/utilities/assistant-architect/${request.id}/edit`}>
+              <Edit className="h-4 w-4 mr-2" />
+              Edit
+            </Link>
           </Button>
-          <Button onClick={handleApprove} disabled={isLoading}>
-             <Check className="mr-2 h-4 w-4" /> Approve
-          </Button>
-        </CardFooter>
-      )}
+        ) : (
+          <>
+            {showRejectionForm ? (
+              <div className="space-y-4 w-full">
+                <Textarea
+                  placeholder="Reason for rejection"
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                />
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowRejectionForm(false)}
+                    disabled={isProcessing}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={handleReject}
+                    disabled={isProcessing}
+                  >
+                    Confirm Rejection
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <Button
+                  variant="destructive"
+                  onClick={() => setShowRejectionForm(true)}
+                  disabled={isProcessing}
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  Reject
+                </Button>
+                <Button onClick={handleApprove} disabled={isProcessing}>
+                  <Check className="h-4 w-4 mr-2" />
+                  Approve
+                </Button>
+              </>
+            )}
+          </>
+        )}
+      </CardFooter>
     </Card>
   )
 } 
