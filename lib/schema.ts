@@ -1,55 +1,38 @@
-// This file is deprecated. Import from /db/schema/index.ts instead.
-// This helps with the transition to prevent breaking imports
-
+// This file is deprecated - Please use @/db/schema instead
 import {
-  usersTable as users,
-  ideasTable as ideas,
-  ideaNotesTable as ideaNotes,
-  ideaVotesTable as ideaVotes,
-  aiModelsTable as aiModels,
-  conversationsTable as conversations,
-  messagesTable as messages,
+  usersTable,
+  ideaNotesTable,
+  ideasTable,
+  conversationsTable,
+  messagesTable,
   // Types
-  SelectUser as User,
-  InsertUser as NewUser,
-  SelectIdea as Idea,
-  InsertIdea as NewIdea,
-  SelectIdeaNote as IdeaNote,
-  InsertIdeaNote as NewIdeaNote,
-  SelectIdeaVote as IdeaVote,
-  InsertIdeaVote as NewIdeaVote,
-  SelectAiModel as AiModel,
-  InsertAiModel as NewAiModel,
-  SelectConversation as Conversation,
-  InsertConversation as NewConversation,
-  SelectMessage as Message,
-  InsertMessage as NewMessage
-} from '../db/schema';
+  type SelectUser,
+  type InsertUser,
+  type SelectIdea,
+  type InsertIdea,
+  type SelectIdeaNote,
+  type InsertIdeaNote,
+  type SelectConversation,
+  type InsertConversation,
+  type SelectMessage,
+  type InsertMessage
+} from '@/db/schema';
 
-export type Role = 'student' | 'staff' | 'administrator';
+// Export tables for backward compatibility
+export const users = usersTable;
+export const ideas = ideasTable;
+export const ideaNotes = ideaNotesTable;
+export const conversations = conversationsTable;
+export const messages = messagesTable;
 
-// Re-export aliased tables and types to maintain compatibility
-export {
-  users,
-  ideas,
-  ideaNotes,
-  ideaVotes,
-  aiModels,
-  conversations,
-  messages,
-  // Types
-  User,
-  NewUser,
-  Idea,
-  NewIdea,
-  IdeaNote,
-  NewIdeaNote,
-  IdeaVote,
-  NewIdeaVote,
-  AiModel,
-  NewAiModel,
-  Conversation,
-  NewConversation,
-  Message,
-  NewMessage
-}; 
+// Export types for backward compatibility
+export type User = SelectUser;
+export type NewUser = InsertUser;
+export type Idea = SelectIdea;
+export type NewIdea = InsertIdea;
+export type IdeaNote = SelectIdeaNote;
+export type NewIdeaNote = InsertIdeaNote;
+export type Conversation = SelectConversation;
+export type NewConversation = InsertConversation;
+export type Message = SelectMessage;
+export type NewMessage = InsertMessage; 

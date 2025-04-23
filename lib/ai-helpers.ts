@@ -1,5 +1,4 @@
-import { streamText, generateText } from 'ai'
-import { openai } from '@ai-sdk/openai'
+import { generateText, CoreMessage } from 'ai'
 import { createAzure } from '@ai-sdk/azure'
 import { google } from '@ai-sdk/google'
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
@@ -11,17 +10,16 @@ interface ModelConfig {
 
 export async function generateCompletion(
   modelConfig: ModelConfig,
-  systemPrompt: string | null | undefined,
-  userMessage: string
+  messages: CoreMessage[]
 ) {
-  // Only include system message if it's provided and non-empty
-  const messages = [
-    ...(systemPrompt?.trim() ? [{ role: 'system', content: systemPrompt }] : []),
-    { role: 'user', content: userMessage }
-  ]
+  console.log('[generateCompletion] Received messages:', JSON.stringify(messages, null, 2));
 
   switch (modelConfig.provider) {
     case 'amazon-bedrock': {
+      const region = process.env.BEDROCK_REGION || 'unknown-region';
+      const accessKeyId = process.env.BEDROCK_ACCESS_KEY_ID?.substring(0, 4) + '...' || 'not-set';
+      console.log(`[generateCompletion] Bedrock: Using region '${region}', access key starting with '${accessKeyId}', model ID '${modelConfig.modelId}'`);
+      
       const bedrock = createAmazonBedrock({
         region: process.env.BEDROCK_REGION || '',
         accessKeyId: process.env.BEDROCK_ACCESS_KEY_ID || '',

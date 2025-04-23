@@ -1,14 +1,13 @@
-import { pgTable, serial, integer, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 import { usersTable } from './core-schema';
 import { rolesTable } from './roles-schema';
 import { relations } from "drizzle-orm";
 
 export const userRolesTable = pgTable('user_roles', {
-  id: serial('id').primaryKey(),
-  userId: integer('user_id')
+  userId: text('user_id')
     .references(() => usersTable.id, { onDelete: 'cascade' })
     .notNull(),
-  roleId: integer('role_id')
+  roleId: text('role_id')
     .references(() => rolesTable.id, { onDelete: 'cascade' })
     .notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull()

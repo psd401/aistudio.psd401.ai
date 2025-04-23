@@ -1,8 +1,8 @@
-import { pgTable, serial, varchar, timestamp, text, integer, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, timestamp, text, integer, boolean, serial } from 'drizzle-orm/pg-core';
 import { relations } from "drizzle-orm";
 
 export const usersTable = pgTable('users', {
-  id: serial('id').primaryKey(),
+  id: text('id').primaryKey(),
   clerkId: varchar('clerk_id', { length: 255 }).notNull().unique(),
   firstName: varchar('first_name', { length: 255 }),
   lastName: varchar('last_name', { length: 255 }),
@@ -64,6 +64,7 @@ export const aiModelsTable = pgTable("ai_models", {
   capabilities: text("capabilities"), // JSON string of model capabilities
   maxTokens: integer("max_tokens"),
   active: boolean("active").notNull().default(true),
+  chatEnabled: boolean("chat_enabled").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -111,23 +112,23 @@ export const messagesRelations = relations(messagesTable, ({ one }) => ({
   conversation: one(conversationsTable, { fields: [messagesTable.conversationId], references: [conversationsTable.id] })
 }));
 
-export type InsertUser = typeof usersTable.$inferInsert;
 export type SelectUser = typeof usersTable.$inferSelect;
+export type InsertUser = typeof usersTable.$inferInsert;
 
-export type InsertIdea = typeof ideasTable.$inferInsert;
 export type SelectIdea = typeof ideasTable.$inferSelect;
+export type InsertIdea = typeof ideasTable.$inferInsert;
 
-export type InsertIdeaNote = typeof ideaNotesTable.$inferInsert;
 export type SelectIdeaNote = typeof ideaNotesTable.$inferSelect;
+export type InsertIdeaNote = typeof ideaNotesTable.$inferInsert;
 
-export type InsertIdeaVote = typeof ideaVotesTable.$inferInsert;
 export type SelectIdeaVote = typeof ideaVotesTable.$inferSelect;
+export type InsertIdeaVote = typeof ideaVotesTable.$inferInsert;
 
-export type InsertAiModel = typeof aiModelsTable.$inferInsert;
 export type SelectAiModel = typeof aiModelsTable.$inferSelect;
+export type InsertAiModel = typeof aiModelsTable.$inferInsert;
 
-export type InsertConversation = typeof conversationsTable.$inferInsert;
 export type SelectConversation = typeof conversationsTable.$inferSelect;
+export type InsertConversation = typeof conversationsTable.$inferInsert;
 
-export type InsertMessage = typeof messagesTable.$inferInsert;
-export type SelectMessage = typeof messagesTable.$inferSelect; 
+export type SelectMessage = typeof messagesTable.$inferSelect;
+export type InsertMessage = typeof messagesTable.$inferInsert; 

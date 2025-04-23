@@ -1,7 +1,7 @@
 import { getAuth } from '@clerk/nextjs/server';
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { conversations, messages } from '@/lib/schema';
+import { db } from '@/db/db';
+import { conversationsTable, messagesTable } from '@/db/schema';
 import { eq, and, asc } from 'drizzle-orm';
 
 export async function GET(
@@ -20,11 +20,11 @@ export async function GET(
     // First get the conversation
     const [conversation] = await db
       .select()
-      .from(conversations)
+      .from(conversationsTable)
       .where(
         and(
-          eq(conversations.id, conversationId),
-          eq(conversations.clerkId, userId)
+          eq(conversationsTable.id, conversationId),
+          eq(conversationsTable.clerkId, userId)
         )
       );
 
@@ -35,9 +35,9 @@ export async function GET(
     // Then get the messages
     const conversationMessages = await db
       .select()
-      .from(messages)
-      .where(eq(messages.conversationId, conversationId))
-      .orderBy(asc(messages.createdAt));
+      .from(messagesTable)
+      .where(eq(messagesTable.conversationId, conversationId))
+      .orderBy(asc(messagesTable.createdAt));
 
     return NextResponse.json({ ...conversation, messages: conversationMessages });
   } catch (error) {
@@ -62,11 +62,11 @@ export async function PATCH(
 
     const [conversation] = await db
       .select()
-      .from(conversations)
+      .from(conversationsTable)
       .where(
         and(
-          eq(conversations.id, conversationId),
-          eq(conversations.clerkId, userId)
+          eq(conversationsTable.id, conversationId),
+          eq(conversationsTable.clerkId, userId)
         )
       );
 
@@ -75,9 +75,9 @@ export async function PATCH(
     }
 
     const [updatedConversation] = await db
-      .update(conversations)
+      .update(conversationsTable)
       .set({ title, updatedAt: new Date() })
-      .where(eq(conversations.id, conversationId))
+      .where(eq(conversationsTable.id, conversationId))
       .returning();
 
     return NextResponse.json(updatedConversation);
@@ -102,11 +102,11 @@ export async function DELETE(
     
     const [conversation] = await db
       .select()
-      .from(conversations)
+      .from(conversationsTable)
       .where(
         and(
-          eq(conversations.id, conversationId),
-          eq(conversations.clerkId, userId)
+          eq(conversationsTable.id, conversationId),
+          eq(conversationsTable.clerkId, userId)
         )
       );
 
@@ -116,13 +116,13 @@ export async function DELETE(
 
     // Delete all messages first
     await db
-      .delete(messages)
-      .where(eq(messages.conversationId, conversationId));
+      .delete(messagesTable)
+      .where(eq(messagesTable.conversationId, conversationId));
 
     // Then delete the conversation
     await db
-      .delete(conversations)
-      .where(eq(conversations.id, conversationId));
+      .delete(conversationsTable)
+      .where(eq(conversationsTable.id, conversationId));
 
     return new NextResponse(null, { status: 204 });
   } catch (error) {

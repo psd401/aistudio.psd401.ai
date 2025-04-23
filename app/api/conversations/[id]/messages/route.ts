@@ -1,5 +1,5 @@
-import { db } from '@/lib/db';
-import { messages, conversations } from '@/lib/schema';
+import { db } from '@/db/db';
+import { messagesTable, conversationsTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { getAuth } from '@clerk/nextjs/server';
 import { NextRequest } from 'next/server';
@@ -24,8 +24,8 @@ export async function GET(
     // Verify ownership
     const conversation = await db
       .select()
-      .from(conversations)
-      .where(eq(conversations.id, conversationId))
+      .from(conversationsTable)
+      .where(eq(conversationsTable.id, conversationId))
       .limit(1);
 
     if (!conversation.length || conversation[0].clerkId !== userId) {
@@ -35,9 +35,9 @@ export async function GET(
     // Fetch all messages for the conversation
     const conversationMessages = await db
       .select()
-      .from(messages)
-      .where(eq(messages.conversationId, conversationId))
-      .orderBy(messages.createdAt);
+      .from(messagesTable)
+      .where(eq(messagesTable.conversationId, conversationId))
+      .orderBy(messagesTable.createdAt);
 
     // Format messages for the chat
     const formattedMessages = conversationMessages.map(msg => ({

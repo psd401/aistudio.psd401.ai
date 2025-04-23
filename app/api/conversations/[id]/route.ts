@@ -1,5 +1,5 @@
-import { db } from '@/lib/db';
-import { conversations, messages } from '@/lib/schema';
+import { db } from '@/db/db';
+import { conversationsTable, messagesTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { getAuth } from '@clerk/nextjs/server';
 import { NextRequest } from 'next/server';
@@ -24,8 +24,8 @@ export async function DELETE(
     // Verify ownership
     const conversation = await db
       .select()
-      .from(conversations)
-      .where(eq(conversations.id, conversationId))
+      .from(conversationsTable)
+      .where(eq(conversationsTable.id, conversationId))
       .limit(1);
 
     if (!conversation.length || conversation[0].clerkId !== userId) {
@@ -35,13 +35,13 @@ export async function DELETE(
     await db.transaction(async (tx) => {
       // Delete all messages first
       await tx
-        .delete(messages)
-        .where(eq(messages.conversationId, conversationId));
+        .delete(messagesTable)
+        .where(eq(messagesTable.conversationId, conversationId));
 
       // Then delete the conversation
       await tx
-        .delete(conversations)
-        .where(eq(conversations.id, conversationId));
+        .delete(conversationsTable)
+        .where(eq(conversationsTable.id, conversationId));
     });
 
     return new Response(null, { status: 204 });
@@ -74,8 +74,8 @@ export async function PATCH(
     // Verify ownership
     const conversation = await db
       .select()
-      .from(conversations)
-      .where(eq(conversations.id, conversationId))
+      .from(conversationsTable)
+      .where(eq(conversationsTable.id, conversationId))
       .limit(1);
 
     if (!conversation.length || conversation[0].clerkId !== userId) {
@@ -88,12 +88,12 @@ export async function PATCH(
     }
 
     await db
-      .update(conversations)
+      .update(conversationsTable)
       .set({ 
         title: body.title.slice(0, 100),
         updatedAt: new Date()
       })
-      .where(eq(conversations.id, conversationId));
+      .where(eq(conversationsTable.id, conversationId));
 
     return new Response(null, { status: 204 });
   } catch (error) {

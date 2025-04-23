@@ -1,77 +1,96 @@
-'use client';
+"use server"
 
-import { Chat } from './components/Chat';
-import { ConversationList } from './components/ConversationList';
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { auth } from "@clerk/nextjs/server"
+import { redirect } from "next/navigation"
+import { Chat } from "./_components/chat"
+import { db } from "@/db/db"
+import { messagesTable, conversationsTable } from "@/db/schema"
+import { eq, and } from "drizzle-orm"
+import { hasToolAccess } from "@/utils/roles"
 
-interface Conversation {
-  id: number;
-  title: string;
-  updatedAt: Date;
+interface ChatPageProps {
+  searchParams: Promise<{ conversation?: string }>
 }
 
-export default function ChatPage() {
-  const router = useRouter();
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeConversationId, setActiveConversationId] = useState<number>();
-
-  useEffect(() => {
-    fetchConversations();
-  }, []);
-
-  async function fetchConversations() {
-    const response = await fetch('/api/conversations');
-    if (response.ok) {
-      const data = await response.json();
-      setConversations(data);
-    }
+export default async function ChatPage({ searchParams }: ChatPageProps) {
+  console.log("[ChatPage] Starting auth check")
+  const { userId } = await auth()
+  console.log("[ChatPage] Auth check complete, userId:", userId)
+  
+  if (!userId) {
+    console.log("[ChatPage] No userId, redirecting to sign-in")
+    redirect("/sign-in")
   }
 
-  async function handleDelete(id: number) {
-    const response = await fetch(`/api/conversations/${id}`, {
-      method: 'DELETE',
-    });
-    if (response.ok) {
-      setConversations(conversations.filter(c => c.id !== id));
-      if (activeConversationId === id) {
-        setActiveConversationId(undefined);
-      }
-    }
+  // Check if user has access to the chat tool
+  console.log("[ChatPage] Checking tool access for userId:", userId)
+  const hasAccess = await hasToolAccess(userId, "chat")
+  console.log("[ChatPage] Tool access check result:", hasAccess)
+  
+  if (!hasAccess) {
+    console.log("[ChatPage] No tool access, redirecting to dashboard")
+    redirect("/dashboard")
   }
 
-  async function handleRename(id: number, newTitle: string) {
-    const response = await fetch(`/api/conversations/${id}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ title: newTitle }),
-    });
-    if (response.ok) {
-      setConversations(conversations.map(c => 
-        c.id === id ? { ...c, title: newTitle } : c
-      ));
-    }
-  }
+  console.log("[ChatPage] Access granted, continuing")
+  
+  let initialMessages = []
+  const resolvedParams = await searchParams
+  const conversationIdParam = resolvedParams.conversation
+  const conversationId = conversationIdParam ? parseInt(conversationIdParam) : undefined
 
-  function handleSelect(id: number) {
-    setActiveConversationId(id);
-    router.push(`/chat?conversation=${id}`);
+  let conversationTitle = "New Chat"; // Default title
+
+  if (conversationId) {
+    console.log(`[ChatPage] Attempting to load conversation ID: ${conversationId} for user: ${userId}`);
+    // Step 1: Verify conversation exists and belongs to the user
+    const conversation = await db
+      .select({
+        id: conversationsTable.id,
+        title: conversationsTable.title,
+      })
+      .from(conversationsTable)
+      .where(
+        and(
+          eq(conversationsTable.id, conversationId),
+          eq(conversationsTable.clerkId, userId) // Ensure user owns the conversation
+        )
+      )
+      .limit(1);
+
+    if (conversation && conversation.length > 0) {
+      console.log(`[ChatPage] Found conversation: ${JSON.stringify(conversation[0])}`);
+      conversationTitle = conversation[0].title; // Set title from fetched conversation
+
+      // Step 2: Fetch messages for the verified conversation
+      const messages = await db
+        .select()
+        .from(messagesTable)
+        .where(eq(messagesTable.conversationId, conversationId))
+        .orderBy(messagesTable.createdAt);
+      
+      console.log(`[ChatPage] Fetched ${messages.length} messages for conversation ${conversationId}`);
+
+      initialMessages = messages.map(msg => ({
+        id: msg.id.toString(), // Convert serial ID to string if needed by Chat component
+        content: msg.content,
+        role: msg.role as "user" | "assistant"
+      }));
+    } else {
+      console.log(`[ChatPage] Conversation ID: ${conversationId} not found or not owned by user: ${userId}`);
+      // Optionally redirect or show an error if the conversation is not accessible
+      // For now, it will just proceed with an empty initialMessages array and default title
+    }
+  } else {
+    console.log("[ChatPage] No conversation ID provided, starting new chat.");
   }
 
   return (
-    <div className="flex h-[calc(100vh-60px)]">
-      <ConversationList
-        conversations={conversations}
-        activeConversationId={activeConversationId}
-        onConversationDelete={handleDelete}
-        onConversationRename={handleRename}
-        onConversationSelect={handleSelect}
-      />
-      <div className="flex-1 h-full max-w-[calc(100%-240px)]">
-        <Chat conversationId={activeConversationId} />
-      </div>
-    </div>
-  );
+    <Chat
+      // Pass conversationId only if it's valid and verified, otherwise undefined for new chat
+      conversationId={initialMessages.length > 0 ? conversationId : undefined}
+      title={conversationTitle} // Pass the fetched or default title
+      initialMessages={initialMessages}
+    />
+  )
 } 

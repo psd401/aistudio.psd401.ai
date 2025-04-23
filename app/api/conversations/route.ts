@@ -1,11 +1,13 @@
-import { db } from '@/lib/db';
-import { conversations } from '@/lib/schema';
+import { db } from '@/db/db';
+import { conversationsTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { getAuth } from '@clerk/nextjs/server';
 import { NextRequest } from 'next/server';
 
 export async function GET(req: NextRequest) {
-  const { userId } = getAuth(req);
+  const auth = getAuth(req);
+  const { userId } = auth;
+  
   if (!userId) {
     return new Response('Unauthorized', { status: 401 });
   }
@@ -13,9 +15,9 @@ export async function GET(req: NextRequest) {
   try {
     const userConversations = await db
       .select()
-      .from(conversations)
-      .where(eq(conversations.clerkId, userId))
-      .orderBy(conversations.updatedAt);
+      .from(conversationsTable)
+      .where(eq(conversationsTable.clerkId, userId))
+      .orderBy(conversationsTable.updatedAt);
 
     return new Response(JSON.stringify(userConversations), {
       headers: { 'Content-Type': 'application/json' },

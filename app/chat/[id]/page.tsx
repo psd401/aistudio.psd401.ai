@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { conversations, messages } from '@/lib/schema';
 import { and, eq, asc } from 'drizzle-orm';
 import { Chat } from '../components/Chat';
+import { hasToolAccess } from '@/utils/roles';
 
 interface ConversationPageProps {
   params: Promise<{
@@ -16,6 +17,12 @@ export default async function ConversationPage({ params }: ConversationPageProps
   
   if (!userId) {
     redirect('/sign-in');
+  }
+
+  // Check if user has access to the chat tool
+  const hasAccess = await hasToolAccess(userId, "chat")
+  if (!hasAccess) {
+    redirect("/dashboard")
   }
 
   // Await the params object

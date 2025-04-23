@@ -1,7 +1,7 @@
 import { getAuth } from '@clerk/nextjs/server';
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { conversations, NewConversation } from '@/lib/schema';
+import { db } from '@/db/db';
+import { conversationsTable, type InsertConversation } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 
 export async function GET(req: NextRequest) {
@@ -14,9 +14,9 @@ export async function GET(req: NextRequest) {
   try {
     const userConversations = await db
       .select()
-      .from(conversations)
-      .where(eq(conversations.clerkId, userId))
-      .orderBy(desc(conversations.createdAt));
+      .from(conversationsTable)
+      .where(eq(conversationsTable.clerkId, userId))
+      .orderBy(desc(conversationsTable.createdAt));
 
     return NextResponse.json(userConversations);
   } catch (error) {
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   try {
     const { title, modelId } = await req.json();
 
-    const newConversation: NewConversation = {
+    const newConversation: InsertConversation = {
       clerkId: userId,
       title,
       modelId,
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
       updatedAt: new Date(),
     };
 
-    const [conversation] = await db.insert(conversations)
+    const [conversation] = await db.insert(conversationsTable)
       .values(newConversation)
       .returning();
 

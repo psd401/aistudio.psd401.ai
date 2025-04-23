@@ -51,4 +51,9 @@ export type InsertAccessControl = typeof accessControlTable.$inferInsert
 export type SelectAccessControl = typeof accessControlTable.$inferSelect
 
 export type InsertCommunicationSettings = typeof communicationSettingsTable.$inferInsert
-export type SelectCommunicationSettings = typeof communicationSettingsTable.$inferSelect 
+export type SelectCommunicationSettings = typeof communicationSettingsTable.$inferSelect
+
+// Re-export all types from db/schema
+export * from '@/db/schema';
+
+// Add any additional types that aren't from the schema here 

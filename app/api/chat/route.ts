@@ -1,175 +1,191 @@
-import { streamText, convertToCoreMessages, type Message } from 'ai';
-import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
-import { getAuth } from '@clerk/nextjs/server';
 import { NextRequest } from 'next/server';
-import { db } from '@/lib/db';
-import { messages, conversations, aiModels } from '@/lib/schema';
+import { getAuth } from '@clerk/nextjs/server';
+import { db } from '@/db/db';
+import { messagesTable, conversationsTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
-
-const PROVIDER_MODEL_ID = 'anthropic.claude-3-haiku-20240307-v1:0';
-
-console.log('Bedrock Config:', {
-  region: process.env.BEDROCK_REGION,
-  hasAccessKey: !!process.env.BEDROCK_ACCESS_KEY_ID,
-  hasSecretKey: !!process.env.BEDROCK_SECRET_ACCESS_KEY
-});
-
-const bedrock = createAmazonBedrock({
-  bedrockOptions: {
-    region: process.env.BEDROCK_REGION!,
-    credentials: {
-      accessKeyId: process.env.BEDROCK_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.BEDROCK_SECRET_ACCESS_KEY!
-    }
-  }
-});
+import { convertToCoreMessages, Message } from 'ai';
+import { generateCompletion } from '@/lib/ai-helpers';
 
 export const maxDuration = 300;
 
 async function generateTitle(conversationMessages: Message[]) {
-  const titleResponse = await streamText({
-    model: bedrock(PROVIDER_MODEL_ID),
-    messages: [
-      {
-        role: 'user',
-        content: `Given this conversation, generate a very short (3-5 words) title that captures its essence:\n\n${conversationMessages.map(m => `${m.role}: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`).join('\n')}`
-      }
-    ],
-    system: 'You are a helpful AI assistant. Generate only the title text, nothing else.',
-  });
-
-  let title = '';
-  const stream = titleResponse.textStream;
-  for await (const chunk of stream) {
-    title += chunk;
-  }
+  console.log('[generateTitle] Starting title generation');
+  // Simple title generation based on the first few words of the first user message
+  // Avoids unnecessary LLM call for title generation for now
+  const firstUserMessage = conversationMessages.find(m => m.role === 'user');
+  const title = firstUserMessage 
+    ? (typeof firstUserMessage.content === 'string' ? firstUserMessage.content : JSON.stringify(firstUserMessage.content)).split(' ').slice(0, 5).join(' ') 
+    : 'New Conversation';
+  console.log('[generateTitle] Generated title:', title);
   return title.trim();
 }
 
 export async function POST(req: NextRequest) {
   console.log('=== Starting chat request ===');
-  const { messages: rawMessages, conversationId, model: modelId } = await req.json();
-  console.log('Raw request payload:', { userId: getAuth(req).userId, conversationId, modelId, messages: rawMessages });
-
-  const { userId } = getAuth(req);
-  if (!userId) {
-    console.log('Unauthorized request - no userId');
-    return new Response('Unauthorized', { status: 401 });
-  }
-
+  
   try {
-    console.log('Converting messages to core format...');
-    const coreMessages = convertToCoreMessages(rawMessages);
-    console.log('Core messages:', JSON.stringify(coreMessages, null, 2));
+    const body = await req.json();
+    console.log('[POST] Request body:', JSON.stringify(body, null, 2));
+    // Destructure modelConfig from body
+    const { messages: rawMessages, conversationId, modelConfig } = body; 
+    
+    const auth = getAuth(req);
+    console.log('[POST] Auth:', { userId: auth.userId, conversationId, modelId: modelConfig?.modelId });
 
-    console.log('Initializing stream with Bedrock...');
-    const result = await streamText({
-      model: bedrock(PROVIDER_MODEL_ID),
-      messages: coreMessages,
-      system: 'You are a helpful AI assistant. Be concise and clear in your responses.',
-      onFinish: async ({ text }) => {
-        console.log('=== Stream finished, saving to database ===');
-        if (!text) {
-          console.warn('No response text received');
-          return;
-        }
+    const { userId } = auth;
+    if (!userId) {
+      console.log('[POST] Unauthorized - no userId');
+      return new Response('Unauthorized', { status: 401 });
+    }
+    
+    // Check if modelConfig is provided
+    if (!modelConfig || !modelConfig.provider || !modelConfig.modelId) {
+      console.error('[POST] Missing or invalid model configuration');
+      return new Response('Model configuration is required', { status: 400 });
+    }
 
-        try {
-          await db.transaction(async (tx) => {
-            // Handle conversation
-            let activeConversationId = conversationId;
-            
-            if (!activeConversationId) {
-              // Only create a new conversation if we don't have one
-              console.log('Creating new conversation...');
-              const [newConversation] = await tx
-                .insert(conversations)
-                .values({
-                  clerkId: userId,
-                  title: rawMessages[rawMessages.length - 1].content.slice(0, 100),
-                  modelId: modelId,
-                  updatedAt: new Date()
-                })
-                .returning();
-              activeConversationId = newConversation.id;
-              console.log('Created conversation:', newConversation);
-            } else {
-              // Update existing conversation's timestamp
-              console.log('Using existing conversation:', activeConversationId);
-              await tx
-                .update(conversations)
-                .set({ updatedAt: new Date() })
-                .where(eq(conversations.id, activeConversationId));
-            }
+    console.log('[POST] Converting messages to core format...');
+    let coreMessages = convertToCoreMessages(rawMessages); // Use let to modify
+    console.log('[POST] Raw core messages:', JSON.stringify(coreMessages, null, 2));
 
-            // Save messages
-            console.log('Saving messages...');
-            const lastUserMessage = coreMessages[coreMessages.length - 1];
-            const userMessageContent = typeof lastUserMessage.content === 'string' 
-              ? lastUserMessage.content 
-              : JSON.stringify(lastUserMessage.content);
+    // Define the system prompt
+    const systemPrompt = 'You are a helpful AI assistant. Be concise and clear in your responses.';
 
-            const messagesToSave = [
-              // Only save the last message from the user
-              {
-                conversationId: activeConversationId,
-                role: lastUserMessage.role,
-                content: userMessageContent,
-                createdAt: new Date()
-              },
-              // Save the assistant's response
-              {
-                conversationId: activeConversationId,
-                role: 'assistant',
-                content: text,
-                createdAt: new Date()
-              }
-            ];
-            
-            console.log('Messages to save:', JSON.stringify(messagesToSave, null, 2));
-            await tx.insert(messages).values(messagesToSave);
+    // Prepend the system prompt to the messages array if it's not already there
+    // (Simple check: assumes system prompt is always the first message if present)
+    if (!coreMessages.length || coreMessages[0].role !== 'system') {
+      coreMessages = [
+        { role: 'system', content: systemPrompt },
+        ...coreMessages,
+      ];
+      console.log('[POST] Prepended system prompt.');
+    }
 
-            // Generate and update title after saving messages
-            console.log('Generating conversation title...');
-            const savedMessages = await tx
-              .select()
-              .from(messages)
-              .where(eq(messages.conversationId, activeConversationId));
-            
-            const formattedMessages = savedMessages.map(msg => ({
-              id: String(msg.id),
-              role: msg.role as "system" | "user" | "assistant" | "data",
-              content: msg.content
-            }));
-            
-            const title = await generateTitle(formattedMessages);
-            console.log('Generated title:', title);
+    console.log('[POST] Final core messages with system prompt:', JSON.stringify(coreMessages, null, 2));
 
-            await tx
-              .update(conversations)
-              .set({
-                title: title.slice(0, 100),
-                updatedAt: new Date()
-              })
-              .where(eq(conversations.id, activeConversationId));
+    // Get the last user message
+    const lastUserMessage = coreMessages[coreMessages.length - 1];
+    if (!lastUserMessage || lastUserMessage.role !== 'user') {
+      console.error('[POST] No valid user message found at the end');
+      return new Response('Invalid message sequence', { status: 400 });
+    }
 
-            console.log('Database transaction completed successfully');
-          });
-        } catch (error) {
-          console.error('Database error:', error instanceof Error ? {
-            name: error.name,
-            message: error.message,
-            stack: error.stack,
-            cause: error.cause
-          } : error);
-        }
+    const userMessageContent = typeof lastUserMessage.content === 'string' 
+      ? lastUserMessage.content 
+      : JSON.stringify(lastUserMessage.content);
+
+    // Get model configuration from request body
+    console.log('[POST] Model config from request:', modelConfig);
+
+    // Generate response using ai-helpers with dynamic model config
+    console.log('[POST] Generating response with ai-helpers...');
+    const response = await generateCompletion(
+      modelConfig, // Pass the modelConfig from the request
+      // Pass the full message history (now including system prompt)
+      coreMessages 
+    );
+    console.log('[POST] Generated response:', response);
+
+    // Save to database
+    console.log('=== Saving to database ===');
+    let finalConversationId = conversationId; // Use let to allow modification
+    
+    await db.transaction(async (tx) => {
+      // Handle conversation
+      if (!finalConversationId) {
+        console.log('[POST] Creating new conversation...');
+        const [newConversation] = await tx
+          .insert(conversationsTable)
+          .values({
+            clerkId: userId,
+            title: userMessageContent.slice(0, 100), // Initial title
+            modelId: modelConfig.modelId, // Use modelId from request
+            updatedAt: new Date()
+          })
+          .returning();
+        finalConversationId = newConversation.id; // Assign the new ID
+        console.log('[POST] Created conversation:', newConversation);
+      } else {
+        console.log('[POST] Using existing conversation:', finalConversationId);
+        await tx
+          .update(conversationsTable)
+          .set({ updatedAt: new Date() })
+          .where(eq(conversationsTable.id, finalConversationId));
       }
+
+      // Save messages
+      console.log('[POST] Saving messages...');
+      const messagesToSave = [
+        {
+          conversationId: finalConversationId,
+          role: lastUserMessage.role as 'user' | 'assistant', // Ensure correct type
+          content: userMessageContent,
+          createdAt: new Date()
+        },
+        {
+          conversationId: finalConversationId,
+          role: 'assistant' as const,
+          content: response,
+          createdAt: new Date()
+        }
+      ];
+      
+      console.log('[POST] Messages to save:', JSON.stringify(messagesToSave, null, 2));
+      await tx.insert(messagesTable).values(messagesToSave);
+
+      // Generate and update title if it was a new conversation
+      if (!conversationId) { // Only update title for new conversations for now
+        console.log('[POST] Generating conversation title...');
+        const savedMessages = await tx
+          .select()
+          .from(messagesTable)
+          .where(eq(messagesTable.conversationId, finalConversationId))
+          .orderBy(messagesTable.createdAt); // Order messages to ensure correct sequence
+        
+        const formattedMessages = savedMessages.map(msg => {
+          // Map DB roles to the narrower set expected by Message type
+          let role: "system" | "user" | "assistant" | "data";
+          switch (msg.role) {
+            case 'user':
+            case 'assistant':
+            case 'system':
+            case 'data':
+              role = msg.role;
+              break;
+            default:
+              // Handle unexpected roles, maybe default to 'data' or log an error
+              console.warn(`[POST] Unexpected message role from DB: ${msg.role}, defaulting to 'data'`);
+              role = 'data';
+          }
+          
+          return {
+            id: String(msg.id),
+            role: role,
+            content: msg.content
+          };
+        }) as Message[]; // Assert type after mapping
+        
+        const title = await generateTitle(formattedMessages);
+        console.log('[POST] Generated title:', title);
+
+        await tx
+          .update(conversationsTable)
+          .set({
+            title: title.slice(0, 100),
+            updatedAt: new Date()
+          })
+          .where(eq(conversationsTable.id, finalConversationId));
+      }
+
+      console.log('[POST] Database transaction completed successfully');
     });
 
-    console.log('Stream initialized, converting to response...');
-    return result.toTextStreamResponse();
+    console.log('[POST] Sending response');
+    return new Response(response, {
+      headers: { 'Content-Type': 'text/plain' }
+    });
   } catch (error) {
-    console.error('Route error:', error instanceof Error ? {
+    console.error('[POST] Route error:', error instanceof Error ? {
       name: error.name,
       message: error.message,
       stack: error.stack,
@@ -177,7 +193,7 @@ export async function POST(req: NextRequest) {
     } : error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : 'An error occurred' }),
-      { status: 500 }
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
 } 
