@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { aiModels } from '@/lib/schema';
+import { aiModelsTable } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { getAuth } from '@clerk/nextjs/server';
 
@@ -12,14 +12,14 @@ export async function GET(request: Request) {
     }
 
     const models = await db.select()
-      .from(aiModels)
+      .from(aiModelsTable)
       .where(
         and(
-          eq(aiModels.active, true),
-          eq(aiModels.provider, 'amazon-bedrock')
+          eq(aiModelsTable.active, true),
+          eq(aiModelsTable.provider, 'amazon-bedrock')
         )
       )
-      .orderBy(aiModels.name);
+      .orderBy(aiModelsTable.name);
 
     return NextResponse.json(models);
   } catch (error) {
