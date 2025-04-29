@@ -312,7 +312,6 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
       {(isLoading || results) && (
         <div className="border rounded-lg p-4 space-y-4">
           <div className="flex items-center justify-between">
-            <div className="text-sm font-medium">Test Results</div>
             {results && (
               <div className="text-sm text-muted-foreground">
                 Status: {results.status}
