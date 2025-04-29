@@ -26,30 +26,32 @@ interface ModelFormProps {
 function ModelForm({ modelData, setModelData, onSubmit, onCancel, isEditing }: ModelFormProps) {
   return (
     <div className="space-y-4">
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Name</label>
-        <Input
-          value={modelData.name}
-          onChange={(e) => setModelData({ ...modelData, name: e.target.value })}
-          required
-        />
-      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Name</label>
+          <Input
+            value={modelData.name}
+            onChange={(e) => setModelData({ ...modelData, name: e.target.value })}
+            required
+          />
+        </div>
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Provider</label>
-        <Select
-          value={modelData.provider}
-          onValueChange={(value) => setModelData({ ...modelData, provider: value })}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select a provider" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="azure">Azure OpenAI</SelectItem>
-            <SelectItem value="amazon-bedrock">Amazon Bedrock</SelectItem>
-            <SelectItem value="google">Google AI</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Provider</label>
+          <Select
+            value={modelData.provider}
+            onValueChange={(value) => setModelData({ ...modelData, provider: value })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select a provider" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="azure">Azure OpenAI</SelectItem>
+              <SelectItem value="amazon-bedrock">Amazon Bedrock</SelectItem>
+              <SelectItem value="google">Google AI</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -80,21 +82,32 @@ function ModelForm({ modelData, setModelData, onSubmit, onCancel, isEditing }: M
         />
       </div>
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Max Tokens</label>
-        <Input
-          type="number"
-          value={modelData.maxTokens}
-          onChange={(e) => setModelData({ ...modelData, maxTokens: parseInt(e.target.value) || 4096 })}
-        />
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Max Tokens</label>
+          <Input
+            type="number"
+            value={modelData.maxTokens}
+            onChange={(e) => setModelData({ ...modelData, maxTokens: parseInt(e.target.value) || 4096 })}
+          />
+        </div>
       </div>
 
-      <div className="flex items-center space-x-2">
-        <Switch
-          checked={modelData.active}
-          onCheckedChange={(checked) => setModelData({ ...modelData, active: checked })}
-        />
-        <label className="text-sm font-medium">Active</label>
+      <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-2">
+          <Switch
+            checked={modelData.active}
+            onCheckedChange={(checked) => setModelData({ ...modelData, active: checked })}
+          />
+          <label className="text-sm font-medium">Active</label>
+        </div>
+        <div className="flex items-center space-x-2">
+          <Switch
+            checked={modelData.chatEnabled}
+            onCheckedChange={(checked) => setModelData({ ...modelData, chatEnabled: checked })}
+          />
+          <label className="text-sm font-medium">Chat Enabled</label>
+        </div>
       </div>
 
       <div className="flex space-x-2 pt-4">
@@ -122,6 +135,7 @@ const emptyModel: ModelFormData = {
   capabilities: '',
   maxTokens: 4096,
   active: true,
+  chatEnabled: false,
 };
 
 export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel }: AiModelsTableProps) {
@@ -150,6 +164,7 @@ export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel
       capabilities: model.capabilities || '',
       maxTokens: model.maxTokens || 4096,
       active: model.active,
+      chatEnabled: model.chatEnabled,
     });
   };
 
@@ -191,25 +206,32 @@ export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel
           <TableRow>
             <TableHead className="w-[15%]">Name</TableHead>
             <TableHead className="w-[12%]">Provider</TableHead>
-            <TableHead className="w-[20%]">Model ID</TableHead>
-            <TableHead className="w-[25%]">Description</TableHead>
+            <TableHead className="w-[15%]">Model ID</TableHead>
+            <TableHead className="w-[20%]">Description</TableHead>
             <TableHead className="w-[10%] text-right">Max Tokens</TableHead>
-            <TableHead className="w-[8%] text-center">Status</TableHead>
-            <TableHead className="w-[10%] text-center">Actions</TableHead>
+            <TableHead className="w-[8%] text-center">Active</TableHead>
+            <TableHead className="w-[8%] text-center">Chat</TableHead>
+            <TableHead className="w-[12%] text-center">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {models.map((model) => (
             <TableRow key={String(model.id)}>
-              <TableCell>{model.name}</TableCell>
+              <TableCell className="font-medium">{model.name}</TableCell>
               <TableCell>{model.provider}</TableCell>
               <TableCell className="font-mono text-sm">{model.modelId}</TableCell>
-              <TableCell>{model.description}</TableCell>
+              <TableCell className="text-muted-foreground">{model.description}</TableCell>
               <TableCell className="text-right font-mono">{model.maxTokens?.toLocaleString()}</TableCell>
               <TableCell className="text-center">
                 <Switch
                   checked={model.active}
                   onCheckedChange={(checked) => onUpdateModel(model.id, { active: checked })}
+                />
+              </TableCell>
+              <TableCell className="text-center">
+                <Switch
+                  checked={model.chatEnabled}
+                  onCheckedChange={(checked) => onUpdateModel(model.id, { chatEnabled: checked })}
                 />
               </TableCell>
               <TableCell>

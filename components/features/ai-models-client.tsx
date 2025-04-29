@@ -30,7 +30,7 @@ export function AiModelsClient({ initialModels }: AiModelsClientProps) {
 
       const newModel = await response.json();
       console.log('Received new model from API:', newModel);
-      setModels([...models, newModel]);
+      setModels([...models, newModel.data]);
       toast({
         title: 'Success',
         description: 'AI model added successfully',
@@ -64,7 +64,7 @@ export function AiModelsClient({ initialModels }: AiModelsClientProps) {
       const updatedModel = await response.json();
       console.log('Received updated model from API:', updatedModel);
       setModels(models.map(model => 
-        model.id === modelId ? updatedModel : model
+        model.id === modelId ? updatedModel.data : model
       ));
       toast({
         title: 'Success',
