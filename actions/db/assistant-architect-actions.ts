@@ -977,9 +977,12 @@ async function executeAssistantArchitectJob(
           if (prompt.inputMapping) {
             for (const [key, value] of Object.entries(prompt.inputMapping as Record<string, string>)) {
               if (value.startsWith('input.')) {
-                const fieldName = value.replace('input.', '');
-                const inputFieldDef = tool.inputFields?.find((f: SelectToolInputField) => f.name === fieldName);
-                promptInputData[key] = inputFieldDef ? inputs[fieldName] : `[Mapping error: Input field '${fieldName}' not found]`;
+                const fieldId = value.replace('input.', '');
+                // Try to find by ID first (for preview), then by name (for compatibility)
+                const inputFieldDef = tool.inputFields?.find(
+                  (f: SelectToolInputField) => f.id === fieldId || f.name === fieldId
+                );
+                promptInputData[key] = inputFieldDef ? inputs[inputFieldDef.name] : `[Mapping error: Input field '${fieldId}' not found]`;
               } else {
                 const previousResult = results.find((r: PromptExecutionResult) => r.promptId === value);
                 promptInputData[key] = previousResult?.output ?? `[Mapping error: Result from prompt '${value}' not found]`;
