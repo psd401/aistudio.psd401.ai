@@ -34,9 +34,24 @@ export async function getDocumentsByConversationId({
 }: { 
   conversationId: number 
 }): Promise<SelectDocument[]> {
-  return await db.select()
-    .from(documentsTable)
-    .where(eq(documentsTable.conversationId, conversationId));
+  console.log(`[getDocumentsByConversationId] Starting fetch for conversation ID: ${conversationId}`);
+  
+  try {
+    // Generate and log the SQL query
+    const query = db.select()
+      .from(documentsTable)
+      .where(eq(documentsTable.conversationId, conversationId));
+    
+    console.log(`[getDocumentsByConversationId] Executing query: ${query.toSQL().sql}`);
+    console.log(`[getDocumentsByConversationId] With params: ${conversationId}`);
+    
+    const results = await query;
+    console.log(`[getDocumentsByConversationId] Query returned ${results.length} documents`);
+    return results;
+  } catch (error) {
+    console.error(`[getDocumentsByConversationId] Error fetching documents:`, error);
+    return [];
+  }
 }
 
 /**

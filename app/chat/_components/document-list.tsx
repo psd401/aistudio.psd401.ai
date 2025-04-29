@@ -17,39 +17,67 @@ interface DocumentListProps {
   conversationId?: number
   documents?: Document[]
   onDeleteDocument?: (documentId: string) => void
+  onRefresh?: () => void
 }
 
 export function DocumentList({ 
   conversationId, 
   documents: initialDocuments,
-  onDeleteDocument 
+  onDeleteDocument,
+  onRefresh
 }: DocumentListProps) {
   const [documents, setDocuments] = useState<Document[]>(initialDocuments || [])
   const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
+    console.log("[DocumentList] initialDocuments prop changed:", initialDocuments);
     if (initialDocuments) {
-      setDocuments(initialDocuments)
+      console.log("[DocumentList] Updating documents state from props:", initialDocuments.length, "documents");
+      setDocuments(initialDocuments);
     } else if (conversationId) {
-      fetchDocuments()
+      console.log("[DocumentList] No initialDocuments, but have conversationId, fetching documents");
+      fetchDocuments();
     }
   }, [conversationId, initialDocuments])
 
   const fetchDocuments = async () => {
     if (!conversationId) return;
     
+    console.log(`[DocumentList] fetchDocuments called for conversation: ${conversationId}`);
     setIsLoading(true)
     try {
-      const response = await fetch(`/api/documents?conversationId=${conversationId}`)
+      const response = await fetch(`/api/documents?conversationId=${conversationId}`, {
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+      })
       if (!response.ok) {
         throw new Error('Failed to fetch documents')
       }
       const data = await response.json()
-      setDocuments(data.documents || [])
+      console.log(`[DocumentList] fetchDocuments response:`, data);
+      
+      if (data.success && data.documents) {
+        console.log(`[DocumentList] Setting documents state with ${data.documents.length} documents`);
+        setDocuments(data.documents || [])
+      } else {
+        console.log(`[DocumentList] No documents in response:`, data);
+        setDocuments([])
+      }
     } catch (error) {
-      console.error('Error fetching documents:', error)
+      console.error('[DocumentList] Error fetching documents:', error)
+      setDocuments([])
     } finally {
       setIsLoading(false)
+    }
+  }
+  
+  const handleRefresh = () => {
+    console.log(`[DocumentList] handleRefresh called, has onRefresh: ${!!onRefresh}`);
+    if (onRefresh) {
+      console.log(`[DocumentList] Using parent onRefresh handler`);
+      onRefresh()
+    } else {
+      console.log(`[DocumentList] Using local fetchDocuments`);
+      fetchDocuments()
     }
   }
 
@@ -111,15 +139,53 @@ export function DocumentList({
 
   if (documents.length === 0) {
     return (
-      <div className="text-center p-4 text-sm text-muted-foreground">
-        No documents uploaded yet
+      <div className="space-y-2">
+        <div className="flex justify-between items-center">
+          <h3 className="text-sm font-medium">Documents</h3>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleRefresh}
+            title="Refresh documents"
+            className="h-7 w-7 p-0"
+          >
+            <RefreshCwIcon className="h-3.5 w-3.5" />
+            <span className="sr-only">Refresh</span>
+          </Button>
+        </div>
+        
+        {/* Debug info */}
+        <div className="text-center p-2 text-xs border border-amber-200 bg-amber-50 rounded-md text-amber-700">
+          <p>No documents found</p>
+          <p>Conversation ID: {conversationId || 'none'}</p>
+          <p>Documents state: {documents.length}</p>
+          <p>Initial docs: {initialDocuments?.length || 0}</p>
+          <button 
+            onClick={handleRefresh}
+            className="mt-2 px-2 py-1 bg-amber-100 rounded-md hover:bg-amber-200 text-amber-800"
+          >
+            Force Refresh
+          </button>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="text-sm font-medium">Documents</h3>
+      <div className="flex justify-between items-center">
+        <h3 className="text-sm font-medium">Documents</h3>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleRefresh}
+          title="Refresh documents"
+          className="h-7 w-7 p-0"
+        >
+          <RefreshCwIcon className="h-3.5 w-3.5" />
+          <span className="sr-only">Refresh</span>
+        </Button>
+      </div>
       <div className="space-y-2">
         {documents.map((doc) => (
           <div 

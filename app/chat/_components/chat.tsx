@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { IconPlayerStop } from "@tabler/icons-react"
 import { FileTextIcon } from "lucide-react"
 import type { SelectAiModel } from "@/types"
+import { RefreshCwIcon } from "lucide-react"
 
 interface Document {
   id: string
@@ -58,69 +59,90 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   useEffect(() => {
     console.log("[Chat] initialConversationId changed:", initialConversationId);
     setCurrentConversationId(initialConversationId);
-    // Clear document state when switching conversations
-    setDocuments([]);
+    
+    // Clear pending document state when switching conversations
     setPendingDocument(null);
     setProcessingDocumentId(null);
+    
     // Reset document upload ref
     needsDocumentUploadRef.current = false;
+    
+    // Instead of setting documents to empty, trigger a fetch if we have an ID
+    if (initialConversationId) {
+      console.log("[Chat] Fetching documents for initial conversation ID:", initialConversationId);
+      fetchDocuments(initialConversationId);
+    } else {
+      // Only clear documents if we don't have a conversation ID
+      setDocuments([]);
+    }
   }, [initialConversationId]);
 
+  // Separate effect for handling pending documents
   useEffect(() => {
-    // Fetch documents if we have a conversation ID
-    if (currentConversationId) {
-      fetchDocuments()
-      
-      // If we have a pending document and a conversation ID, we should upload it
-      if (pendingDocument) {
-        console.log("[Chat] Conversation ID received and pending document exists, triggering upload");
-        toast({
-          title: "Uploading document",
-          description: `Uploading ${pendingDocument.name} to conversation`,
-          variant: "default"
-        });
-        // We'll handle this via the DocumentUpload component's useEffect
-        needsDocumentUploadRef.current = true;
-      }
+    // If we have a pending document and a conversation ID, we should upload it
+    if (pendingDocument && currentConversationId) {
+      console.log("[Chat] Conversation ID received and pending document exists, triggering upload");
+      toast({
+        title: "Uploading document",
+        description: `Uploading ${pendingDocument.name} to conversation`,
+        variant: "default"
+      });
+      // We'll handle this via the DocumentUpload component's useEffect
+      needsDocumentUploadRef.current = true;
     }
-  }, [currentConversationId, pendingDocument])
+  }, [currentConversationId, pendingDocument, toast]);
 
-  const fetchDocuments = async () => {
-    if (!currentConversationId) return
+  // Add a useEffect to log and auto-show documents when they're available
+  useEffect(() => {
+    console.log("[Chat] Documents state changed:", documents);
+    if (documents.length > 0) {
+      console.log("[Chat] Auto-showing document panel because documents are available");
+      setShowDocuments(true);
+    }
+  }, [documents]);
+
+  const fetchDocuments = async (convId?: number) => {
+    const idToUse = convId || currentConversationId;
+    if (!idToUse) return;
 
     try {
-      const response = await fetch(`/api/documents?conversationId=${currentConversationId}`)
-      if (!response.ok) throw new Error("Failed to fetch documents")
+      console.log(`[fetchDocuments] Fetching documents for conversation: ${idToUse}`);
+      const response = await fetch(`/api/documents?conversationId=${idToUse}`, {
+        // Add cache buster to ensure we get fresh data
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
+        cache: 'no-store'
+      });
       
-      const data = await response.json()
+      if (!response.ok) throw new Error("Failed to fetch documents");
+      
+      const data = await response.json();
+      console.log(`[fetchDocuments] Response data:`, data);
+      
       if (data.success && data.documents) {
-        setDocuments(data.documents)
-        // Only auto-show documents panel if there are documents
+        console.log(`[fetchDocuments] Retrieved ${data.documents.length} documents`);
         if (data.documents.length > 0) {
-          setShowDocuments(true)
+          setDocuments(data.documents);
+          setShowDocuments(true);
         } else {
-          // If there are no documents, we might want to hide the panel
-          // But only if we're not actively uploading a document
-          if (!pendingDocument) {
-            setShowDocuments(false);
-          }
+          setDocuments([]);
         }
       } else {
-        // If the fetch didn't succeed or returned no documents, ensure the state is empty
+        console.log(`[fetchDocuments] No documents returned or success is false:`, data);
         setDocuments([]);
-        if (!pendingDocument) { 
-          setShowDocuments(false);
-        }
       }
     } catch (error) {
-      console.error('[fetchDocuments] Error:', error)
-      // Ensure documents are cleared on error too
+      console.error('[fetchDocuments] Error:', error);
       setDocuments([]);
-      if (!pendingDocument) { 
-        setShowDocuments(false);
-      }
     }
-  }
+  };
+
+  // Add a function to force document refresh
+  const forceDocumentRefresh = () => {
+    console.log("[Chat] Force refreshing documents");
+    if (currentConversationId) {
+      fetchDocuments(currentConversationId);
+    }
+  };
 
   const handleDocumentUpload = (documentInfo: Document) => {
     console.log("[handleDocumentUpload] Document uploaded:", documentInfo);
@@ -359,13 +381,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     handleAttachClick();
   }
 
-  // Add effect to refetch documents when conversation ID changes
-  useEffect(() => {
-    if (currentConversationId) {
-      fetchDocuments();
-    }
-  }, [currentConversationId]);
-
   return (
     <div className="flex flex-col h-full bg-background border border-border rounded-lg shadow-sm overflow-hidden">
       <div className="flex items-center justify-between p-3 border-b border-border">
@@ -379,14 +394,25 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
           <Button
             variant="outline"
             size="sm"
+            onClick={forceDocumentRefresh}
+            className="flex items-center gap-1"
+            title="Force refresh documents"
+          >
+            <RefreshCwIcon className="h-3.5 w-3.5" />
+            <span className="sr-only">Refresh Documents</span>
+          </Button>
+          
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => setShowDocuments(!showDocuments)}
             className="flex items-center gap-2"
           >
             <FileTextIcon className="h-4 w-4" />
             {showDocuments ? "Hide Documents" : "Documents"}
-            {(documents.length > 0 || pendingDocument) && (
+            {documents.length > 0 && (
               <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-medium rounded-full bg-primary text-primary-foreground">
-                {pendingDocument ? documents.length + 1 : documents.length}
+                {documents.length}
               </span>
             )}
           </Button>
@@ -415,6 +441,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                 conversationId={currentConversationId}
                 documents={documents}
                 onDeleteDocument={handleDocumentDelete}
+                onRefresh={() => fetchDocuments()}
               />
             </div>
           </div>

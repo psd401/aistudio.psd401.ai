@@ -9,6 +9,8 @@ import {
 
 export async function GET(request: NextRequest) {
   console.log('[documents GET] Request received');
+  console.log('[documents GET] URL:', request.url);
+  console.log('[documents GET] Headers:', Object.fromEntries(request.headers.entries()));
   
   // Check authentication
   const { userId } = getAuth(request);
@@ -21,6 +23,8 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const conversationId = searchParams.get('conversationId');
   const documentId = searchParams.get('id');
+  
+  console.log('[documents GET] Parameters:', { conversationId, documentId, userId });
 
   try {
     // If documentId is provided, fetch single document
@@ -38,7 +42,7 @@ export async function GET(request: NextRequest) {
       
       // Check if the document belongs to the authenticated user
       if (document.userId !== userId) {
-        console.log(`[documents GET] Unauthorized access to document: ${documentId}`);
+        console.log(`[documents GET] Unauthorized access to document: ${documentId}. Owner: ${document.userId}, Requester: ${userId}`);
         return NextResponse.json({ 
           success: false, 
           error: 'Unauthorized access to document' 
@@ -71,7 +75,7 @@ export async function GET(request: NextRequest) {
     
     // If conversationId is provided, fetch documents for conversation
     if (conversationId) {
-      console.log(`[documents GET] Fetching documents for conversation: ${conversationId}`);
+      console.log(`[documents GET] Fetching documents for conversation: ${conversationId}, user: ${userId}`);
       const parsedConversationId = parseInt(conversationId, 10);
       
       if (isNaN(parsedConversationId)) {
@@ -82,11 +86,18 @@ export async function GET(request: NextRequest) {
         }, { status: 400 });
       }
       
+      console.log(`[documents GET] Calling getDocumentsByConversationId for conversation: ${parsedConversationId}`);
       const documents = await getDocumentsByConversationId({ 
         conversationId: parsedConversationId 
       });
       
       console.log(`[documents GET] Found ${documents.length} documents for conversation ${conversationId}`);
+      console.log(`[documents GET] Document details:`, documents.map(doc => ({
+        id: doc.id, 
+        name: doc.name,
+        userId: doc.userId,
+        conversationId: doc.conversationId
+      })));
       
       // Get fresh signed URLs for all documents
       const documentsWithSignedUrls = await Promise.all(
