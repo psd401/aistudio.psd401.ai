@@ -21,6 +21,9 @@ export * from './meta-prompting-schema';
 // Political wording schemas
 export * from './political-wording-schema';
 
+// Document schemas
+export * from './documents-schema';
+
 // Additional schemas
 export * from './navigation-schema';
 export * from './jobs-schema'; 

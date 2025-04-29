@@ -76,6 +76,13 @@ export function ConversationsList() {
       })
       if (!response.ok) throw new Error("Failed to delete conversation")
       setConversations(prev => prev.filter(c => c.id !== id))
+      
+      // If we're deleting the current conversation, redirect to /chat
+      const currentConversationId = pathname.match(/\/chat\?conversation=(\d+)/)?.[1]
+      if (currentConversationId && parseInt(currentConversationId) === id) {
+        router.push("/chat")
+      }
+
       toast({
         title: "Success",
         description: "Conversation deleted"
@@ -125,7 +132,7 @@ export function ConversationsList() {
                     role="button"
                     tabIndex={0}
                     className={cn(
-                      "group w-full flex items-center justify-start gap-3 px-3 py-2 text-sm rounded-md border border-transparent cursor-pointer transition-colors",
+                      "group relative w-full flex items-start gap-3 px-3 py-2 text-sm rounded-md border border-transparent cursor-pointer transition-colors",
                       pathname === `/chat/${conversation.id}`
                         ? "bg-primary/10 text-primary font-medium border-primary/20"
                         : "text-foreground hover:bg-accent hover:text-accent-foreground"
@@ -138,12 +145,14 @@ export function ConversationsList() {
                       }
                     }}
                   >
-                    <IconMessage className="h-4 w-4 shrink-0" />
-
-                    <span className="truncate flex-1 text-left">
-                      {conversation.title}
-                    </span>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-auto">
+                    <div className="flex items-start gap-3 w-[calc(100%-60px)]">
+                      <IconMessage className="h-4 w-4 shrink-0 mt-0.5" />
+                      <span className="break-words">
+                        {conversation.title}
+                      </span>
+                    </div>
+                    
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-inherit">
                       <Button
                         variant="ghost"
                         size="icon"

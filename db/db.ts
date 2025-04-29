@@ -53,6 +53,9 @@ import {
   // Navigation
   navigationItemsTable,
   jobsTable,
+  // Documents
+  documentsTable,
+  documentChunksTable,
 
   // -- RELATIONS (Import only those confirmed defined) --
   aiModelsRelations,
@@ -139,6 +142,9 @@ const schema = {
   // Navigation
   navigationItems: navigationItemsTable,
   jobs: jobsTable,
+  // Documents
+  documents: documentsTable,
+  documentChunks: documentChunksTable,
   
   // --- RELATIONS --- 
   // Include relations only if they were successfully imported above

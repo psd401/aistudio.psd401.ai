@@ -4,15 +4,26 @@ import { useEffect, useRef, useState } from "react"
 import { Message } from "./message"
 import { ChatInput } from "./chat-input"
 import { ModelSelector } from "./model-selector"
+import { DocumentUpload } from "./document-upload"
+import { DocumentList } from "./document-list"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/components/ui/use-toast"
 import { Button } from "@/components/ui/button"
 import { IconPlayerStop } from "@tabler/icons-react"
+import { FileTextIcon } from "lucide-react"
 import type { SelectAiModel } from "@/types"
+
+interface Document {
+  id: string
+  name: string
+  type: string
+  url: string
+  size?: number
+  createdAt?: string
+}
 
 interface ChatProps {
   conversationId?: number
-  title: string
   initialMessages?: Array<{
     id: string
     content: string
@@ -20,19 +31,157 @@ interface ChatProps {
   }>
 }
 
-export function Chat({ conversationId, title, initialMessages = [] }: ChatProps) {
+export function Chat({ conversationId: initialConversationId, initialMessages = [] }: ChatProps) {
   const [messages, setMessages] = useState(initialMessages)
+  const [currentConversationId, setCurrentConversationId] = useState<number | undefined>(initialConversationId)
   const [models, setModels] = useState<SelectAiModel[]>([])
   const [selectedModel, setSelectedModel] = useState<SelectAiModel | null>(null)
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [documents, setDocuments] = useState<Document[]>([])
+  const [showDocuments, setShowDocuments] = useState(false)
+  const [pendingDocument, setPendingDocument] = useState<Document | null>(null)
+  const [processingDocumentId, setProcessingDocumentId] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
+  const hiddenFileInputRef = useRef<HTMLInputElement>(null)
+  
+  // Track if we have a new conversation that needs document upload
+  const needsDocumentUploadRef = useRef<boolean>(false)
 
   useEffect(() => {
     console.log("[Chat] initialMessages prop changed, updating state:", initialMessages);
     setMessages(initialMessages);
   }, [initialMessages]);
+
+  // Add a new effect to track changes to initialConversationId
+  useEffect(() => {
+    console.log("[Chat] initialConversationId changed:", initialConversationId);
+    setCurrentConversationId(initialConversationId);
+    // Clear document state when switching conversations
+    setDocuments([]);
+    setPendingDocument(null);
+    setProcessingDocumentId(null);
+    // Reset document upload ref
+    needsDocumentUploadRef.current = false;
+  }, [initialConversationId]);
+
+  useEffect(() => {
+    // Fetch documents if we have a conversation ID
+    if (currentConversationId) {
+      fetchDocuments()
+      
+      // If we have a pending document and a conversation ID, we should upload it
+      if (pendingDocument) {
+        console.log("[Chat] Conversation ID received and pending document exists, triggering upload");
+        toast({
+          title: "Uploading document",
+          description: `Uploading ${pendingDocument.name} to conversation`,
+          variant: "default"
+        });
+        // We'll handle this via the DocumentUpload component's useEffect
+        needsDocumentUploadRef.current = true;
+      }
+    }
+  }, [currentConversationId, pendingDocument])
+
+  const fetchDocuments = async () => {
+    if (!currentConversationId) return
+
+    try {
+      const response = await fetch(`/api/documents?conversationId=${currentConversationId}`)
+      if (!response.ok) throw new Error("Failed to fetch documents")
+      
+      const data = await response.json()
+      if (data.success && data.documents) {
+        setDocuments(data.documents)
+        // Only auto-show documents panel if there are documents
+        if (data.documents.length > 0) {
+          setShowDocuments(true)
+        } else {
+          // If there are no documents, we might want to hide the panel
+          // But only if we're not actively uploading a document
+          if (!pendingDocument) {
+            setShowDocuments(false);
+          }
+        }
+      } else {
+        // If the fetch didn't succeed or returned no documents, ensure the state is empty
+        setDocuments([]);
+        if (!pendingDocument) { 
+          setShowDocuments(false);
+        }
+      }
+    } catch (error) {
+      console.error('[fetchDocuments] Error:', error)
+      // Ensure documents are cleared on error too
+      setDocuments([]);
+      if (!pendingDocument) { 
+        setShowDocuments(false);
+      }
+    }
+  }
+
+  const handleDocumentUpload = (documentInfo: Document) => {
+    console.log("[handleDocumentUpload] Document uploaded:", documentInfo);
+    
+    // Save the document to our state
+    setDocuments(prev => {
+      // Check if it's already in the list to avoid duplicates
+      const exists = prev.some(doc => doc.id === documentInfo.id);
+      if (exists) return prev;
+      return [...prev, documentInfo];
+    });
+    
+    // Clear the pending document since it's been uploaded
+    setProcessingDocumentId(documentInfo.id);
+    setPendingDocument(null);
+    
+    // Show the documents panel
+    setShowDocuments(true);
+    
+    // If we have a conversation ID, refetch documents to ensure we have the latest state
+    if (currentConversationId) {
+      fetchDocuments();
+    }
+    
+    toast({
+      title: "Document uploaded",
+      description: `${documentInfo.name} has been uploaded successfully`,
+      variant: "default"
+    });
+  }
+  
+  const handleDocumentSelected = (documentInfo: Partial<Document>) => {
+    console.log("[handleDocumentSelected] Document selected:", documentInfo);
+    
+    // We just need to know the file details to show pending state
+    setPendingDocument(documentInfo as Document); // Store details for UI
+    // Upload is now triggered directly from DocumentUpload component
+  }
+
+  const handleDocumentDelete = async (documentId: string) => {
+    try {
+      const response = await fetch(`/api/documents?id=${documentId}`, {
+        method: "DELETE"
+      })
+      
+      if (!response.ok) throw new Error("Failed to delete document")
+      
+      // Remove from local state
+      setDocuments(prev => prev.filter(doc => doc.id !== documentId));
+      
+      return true
+    } catch (error) {
+      console.error('[handleDocumentDelete] Error:', error)
+      toast({
+        title: "Error",
+        description: "Failed to delete document",
+        variant: "destructive"
+      })
+      throw error
+    }
+  }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value)
@@ -64,24 +213,30 @@ export function Chat({ conversationId, title, initialMessages = [] }: ChatProps)
       role: "user" as const,
       content: input
     }
-    setMessages(prev => [...prev, userMessage])
+    // Add user message immediately
+    setMessages(prev => [...prev, userMessage]) 
+    const currentInput = input; // Store input before clearing
     setInput("")
 
     try {
       console.log('[handleSubmit] Sending request:', {
         messages: [...messages, userMessage],
-        conversationId,
-        modelConfig: selectedModel 
+        conversationId: currentConversationId,
+        modelConfig: selectedModel,
+        includeDocumentContext: true, // Enable document context in chat
+        documentId: currentConversationId === undefined && processingDocumentId ? processingDocumentId : undefined
       })
       
-      const currentConversationId = conversationId;
+      const currentId = currentConversationId;
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [...messages, userMessage],
-          conversationId: currentConversationId,
-          modelConfig: selectedModel 
+          conversationId: currentId,
+          modelConfig: selectedModel,
+          includeDocumentContext: true, // Enable document context in chat
+          documentId: currentId === undefined && processingDocumentId ? processingDocumentId : undefined
         })
       })
 
@@ -100,15 +255,34 @@ export function Chat({ conversationId, title, initialMessages = [] }: ChatProps)
         throw new Error(errorMessage)
       }
 
-      const text = await response.text()
-      console.log('[handleSubmit] Received response text:', text)
+      let assistantText = "";
+      let newConversationId: number | undefined = currentConversationId;
+      const respType = contentType || "";
 
-      const assistantMessage = {
-        id: crypto.randomUUID(),
-        role: "assistant" as const,
-        content: text
+      if (respType.includes("application/json")) {
+        const data = await response.json();
+        assistantText = data.text;
+        if (!currentConversationId && data.conversationId) {
+          newConversationId = data.conversationId;
+          // Update state *before* URL change
+          setCurrentConversationId(newConversationId); 
+          if(processingDocumentId) setProcessingDocumentId(null); 
+          // Update the URL *after* state is likely processed
+          window.history.pushState({}, '', `/chat?conversation=${newConversationId}`);
+        }
+      } else {
+        assistantText = await response.text();
       }
-      setMessages(prev => [...prev, assistantMessage])
+
+      // Add the final assistant message directly
+      const assistantMessage = {
+        id: crypto.randomUUID(), // Generate ID here
+        role: "assistant" as const,
+        content: assistantText
+      };
+      
+      setMessages(prev => [...prev, assistantMessage]);
+
     } catch (error) {
       console.error('[handleSubmit] Error:', error)
       toast({
@@ -116,11 +290,12 @@ export function Chat({ conversationId, title, initialMessages = [] }: ChatProps)
         description: error instanceof Error ? error.message : "Failed to send message",
         variant: "destructive"
       })
-      // Remove the user message if the request failed
-      setMessages(prev => prev.filter(msg => msg.id !== userMessage.id))
-      setInput(userMessage.content) // Restore the input
+      // Restore user message and input on error
+      setMessages(prev => prev.filter(msg => msg.id !== userMessage.id)); 
+      setInput(currentInput) 
     } finally {
       setIsLoading(false)
+      // Scroll logic remains the same
       if (scrollRef.current) {
         scrollRef.current.scrollTo({
           top: scrollRef.current.scrollHeight,
@@ -165,21 +340,86 @@ export function Chat({ conversationId, title, initialMessages = [] }: ChatProps)
     }
   }, [messages])
 
+  const handleAttachClick = () => {
+    if (!currentConversationId && messages.length === 0) {
+      toast({
+        title: "Info",
+        description: "The document will be uploaded when you start a conversation",
+        variant: "default"
+      })
+    }
+    setShowDocuments(true)
+    // Only trigger file dialog if there's no pending document
+    if (!pendingDocument) {
+      hiddenFileInputRef.current?.click()
+    }
+  }
+
+  const onPaperclipClick = () => {
+    handleAttachClick();
+  }
+
+  // Add effect to refetch documents when conversation ID changes
+  useEffect(() => {
+    if (currentConversationId) {
+      fetchDocuments();
+    }
+  }, [currentConversationId]);
+
   return (
     <div className="flex flex-col h-full bg-background border border-border rounded-lg shadow-sm overflow-hidden">
-      <div className="flex items-center justify-start p-3 border-b border-border">
+      <div className="flex items-center justify-between p-3 border-b border-border">
         <ModelSelector
           models={models}
           selectedModel={selectedModel}
           onModelSelect={setSelectedModel}
         />
+        
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowDocuments(!showDocuments)}
+            className="flex items-center gap-2"
+          >
+            <FileTextIcon className="h-4 w-4" />
+            {showDocuments ? "Hide Documents" : "Documents"}
+            {(documents.length > 0 || pendingDocument) && (
+              <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-medium rounded-full bg-primary text-primary-foreground">
+                {pendingDocument ? documents.length + 1 : documents.length}
+              </span>
+            )}
+          </Button>
+        </div>
       </div>
 
-      <ScrollArea ref={scrollRef} className="flex-1 p-4">
-        {messages.map((message) => (
-          <Message key={message.id} message={message} />
-        ))}
-      </ScrollArea>
+      <div className="flex flex-1 overflow-hidden">
+        <ScrollArea ref={scrollRef} className="flex-1 p-4">
+          {messages.map((message) => (
+            <Message key={message.id} message={message} />
+          ))}
+        </ScrollArea>
+
+        {showDocuments && (
+          <div className="w-64 border-l border-border p-3 overflow-y-auto">
+            <div className="flex flex-col gap-4">
+              <DocumentUpload 
+                conversationId={currentConversationId} 
+                onUploadComplete={handleDocumentUpload}
+                onFileSelected={handleDocumentSelected}
+                externalInputRef={hiddenFileInputRef}
+                pendingDocument={pendingDocument}
+              />
+              
+              <DocumentList 
+                conversationId={currentConversationId}
+                documents={documents}
+                onDeleteDocument={handleDocumentDelete}
+              />
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="p-4 border-t border-border">
         <div className="flex items-end gap-2">
@@ -189,6 +429,8 @@ export function Chat({ conversationId, title, initialMessages = [] }: ChatProps)
             handleSubmit={handleSubmit}
             isLoading={isLoading}
             disabled={!selectedModel}
+            onAttachClick={onPaperclipClick}
+            showAttachButton={true}
           />
           {isLoading && (
             <Button

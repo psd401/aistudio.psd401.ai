@@ -4,6 +4,7 @@ import { useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { IconSend } from "@tabler/icons-react"
+import { PaperclipIcon } from "lucide-react"
 import type { FormEvent } from "react"
 
 interface ChatInputProps {
@@ -12,6 +13,8 @@ interface ChatInputProps {
   handleSubmit: (e: FormEvent<HTMLFormElement>) => void
   isLoading: boolean
   disabled?: boolean
+  onAttachClick?: () => void
+  showAttachButton?: boolean
 }
 
 export function ChatInput({
@@ -19,7 +22,9 @@ export function ChatInput({
   handleInputChange,
   handleSubmit,
   isLoading,
-  disabled
+  disabled,
+  onAttachClick,
+  showAttachButton = false
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -61,10 +66,24 @@ export function ChatInput({
         onKeyDown={onKeyDown}
         placeholder="Message..."
         spellCheck={false}
-        className="min-h-[48px] w-full resize-none bg-background pl-4 pr-14 py-3 border border-border rounded-xl shadow-sm focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-offset-0 focus-visible:border-primary"
+        className={`min-h-[48px] w-full resize-none bg-background py-3 border border-border rounded-xl shadow-sm focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-offset-0 focus-visible:border-primary ${showAttachButton ? 'pl-12 pr-14' : 'pl-4 pr-14'}`}
         disabled={disabled || isLoading}
         style={{ maxHeight: "200px", overflowY: "auto" }}
       />
+      
+      {showAttachButton && (
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          onClick={onAttachClick}
+          className="absolute bottom-2.5 left-3 h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+          aria-label="Attach document"
+        >
+          <PaperclipIcon className="h-4 w-4" />
+        </Button>
+      )}
+      
       <Button
         type="submit"
         size="icon"
