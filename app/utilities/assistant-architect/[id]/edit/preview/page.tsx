@@ -8,14 +8,13 @@ import { redirect, notFound } from "next/navigation"
 import { hasToolAccess } from "@/utils/roles"
 
 interface PreviewPageProps {
-  params: {
-    id: string
-  }
+  params: { id: string }
 }
 
 export default async function PreviewPage({ params }: PreviewPageProps) {
-  // Extract id first to avoid the params.id error
-  const id = params.id
+  // Properly await params
+  const resolvedParams = await Promise.resolve(params)
+  const id = resolvedParams.id
   
   const { userId } = await auth()
   if (!userId) {

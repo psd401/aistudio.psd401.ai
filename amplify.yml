@@ -18,6 +18,10 @@ applications:
             - echo "NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}" >> .env 
             - echo "SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}" >> .env
             - echo "SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}" >> .env
+            - echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> .env
+            - echo "GOOGLE_VERTEX_PROJECT_ID=${GOOGLE_VERTEX_PROJECT_ID}" >> .env
+            - echo "GOOGLE_VERTEX_LOCATION=${GOOGLE_VERTEX_LOCATION}" >> .env
+            - echo "GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS}" >> .env
             - npm ci --legacy-peer-deps
         build:
           commands:

@@ -22,11 +22,12 @@ import { executeAssistantArchitectAction } from "@/actions/db/assistant-architec
 import { getJobAction } from "@/actions/db/jobs-actions"
 import { SelectJob } from "@/db/schema"
 import { ExecutionResultDetails, JobOutput, JobPromptResult } from "@/types/assistant-architect-types"
-import { Loader2, Bot, User, Terminal } from "lucide-react"
+import { Loader2, Bot, User, Terminal, AlertCircle } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import ErrorBoundary from "@/components/utilities/error-boundary"
 import type { SelectPromptResult } from "@/db/schema"
 import type { AssistantArchitectWithRelations } from "@/types/assistant-architect-types"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 interface AssistantArchitectExecutionProps {
   tool: AssistantArchitectWithRelations
@@ -38,6 +39,7 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
   const [isPolling, setIsPolling] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [results, setResults] = useState<ExecutionResultDetails | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   // Create form schema based on tool input fields
   const formSchema = z.object(
@@ -50,7 +52,7 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
       }
 
       if (field.isRequired) {
-        fieldSchema = fieldSchema.min(1, `${field.label} is required.`)
+        fieldSchema = fieldSchema.min(1, `${field.name} is required.`)
       }
 
       acc[field.name] = fieldSchema
@@ -69,6 +71,7 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     setIsLoading(true)
     setResults(null)
+    setError(null)
     
     try {
       const result = await executeAssistantArchitectAction({
@@ -81,18 +84,22 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
         setIsPolling(true)
         toast({ title: "Execution Started", description: "The tool is now running" })
       } else {
+        const errorMessage = result.message || "Failed to start execution"
+        setError(errorMessage)
         toast({ 
           title: "Execution Failed", 
-          description: result.message,
+          description: errorMessage,
           variant: "destructive"
         })
         setIsLoading(false)
       }
     } catch (error) {
       console.error("Error executing tool:", error)
+      const errorMessage = error instanceof Error ? error.message : "Failed to start execution"
+      setError(errorMessage)
       toast({ 
         title: "Execution Error", 
-        description: "Failed to start execution",
+        description: errorMessage,
         variant: "destructive"
       })
       setIsLoading(false)
@@ -119,6 +126,10 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
           if (job.status === "completed" || job.status === "failed") {
             setIsLoading(false)
             setIsPolling(false)
+            
+            if (job.status === "failed") {
+              setError(job.error || "Execution failed without a specific error message")
+            }
             
             if (job.output) {
               const outputData = JSON.parse(job.output) as JobOutput
@@ -156,6 +167,8 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
         }
       } catch (error) {
         console.error("Error polling job:", error)
+        const errorMessage = error instanceof Error ? error.message : "Error polling job status"
+        setError(errorMessage)
         retryCount++
       }
 
@@ -163,11 +176,13 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
       if (retryCount >= MAX_RETRIES) {
         setIsLoading(false)
         setIsPolling(false)
-          toast({ 
+        const timeoutError = "The execution took too long to complete"
+        setError(timeoutError)
+        toast({ 
           title: "Execution Timeout", 
-          description: "The execution took too long to complete",
-            variant: "destructive"
-          })
+          description: timeoutError,
+          variant: "destructive"
+        })
         if (intervalId) {
           clearInterval(intervalId)
         }
@@ -229,6 +244,16 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
 
   return (
     <div className="space-y-6">
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Execution Error</AlertTitle>
+          <AlertDescription className="mt-2 text-sm">
+            {error}
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="space-y-4">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -239,18 +264,18 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
                   name={field.name}
                   render={({ field: formField }) => (
                     <FormItem>
-                      <FormLabel>{field.label}{field.isRequired && " *"}</FormLabel>
+                      <FormLabel>{field.name}{field.isRequired && " *"}</FormLabel>
                       <FormControl>
-                        {field.type === "textarea" ? (
+                        {field.fieldType === "long_text" ? (
                         <Textarea 
-                          placeholder={`Enter ${field.label}...`} 
+                          placeholder={`Enter ${field.name}...`} 
                           {...formField} 
                           className="bg-muted"
                         />
-                        ) : field.type === "select" ? (
+                        ) : field.fieldType === "select" || field.fieldType === "multi_select" ? (
                           <Select onValueChange={formField.onChange} defaultValue={formField.value}>
                           <SelectTrigger className="bg-muted">
-                              <SelectValue placeholder={`Select ${field.label}...`} />
+                              <SelectValue placeholder={`Select ${field.name}...`} />
                             </SelectTrigger>
                             <SelectContent>
                               {(field.options || "").split(",").map((option: string) => (
@@ -262,7 +287,7 @@ export function AssistantArchitectExecution({ tool }: AssistantArchitectExecutio
                           </Select>
                         ) : (
                         <Input 
-                          placeholder={`Enter ${field.label}...`} 
+                          placeholder={`Enter ${field.name}...`} 
                           {...formField} 
                           className="bg-muted"
                         />

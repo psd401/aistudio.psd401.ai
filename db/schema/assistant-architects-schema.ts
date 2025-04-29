@@ -16,7 +16,12 @@ import { relations } from "drizzle-orm"
 import { users } from "@clerk/nextjs/api" // Assuming users table for creator
 
 // Enums
-export const fieldTypeEnum = pgEnum("field_type", ["text", "textarea", "select"])
+export const fieldTypeEnum = pgEnum("field_type", [
+  "short_text",
+  "long_text",
+  "select",
+  "multi_select"
+])
 
 export const executionStatusEnum = pgEnum("execution_status", [
   "pending",

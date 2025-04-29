@@ -886,14 +886,17 @@ export async function executeAssistantArchitectAction({
     const { userId } = await auth()
     if (!userId) throw new Error("Unauthorized");
 
-    // First get the tool to check if it's approved
+    // First get the tool to check if it exists and user has access
     const toolResult = await getAssistantArchitectByIdAction(toolId)
     if (!toolResult.isSuccess || !toolResult.data) throw new Error("Tool not found");
     const tool = toolResult.data;
     
-    // Check if the tool is approved - only approved tools can be executed
-    if (tool.status !== "approved") {
-      throw new Error("Cannot execute a tool that is not approved");
+    // Check if user has permission to execute this tool
+    // Allow execution if:
+    // 1. Tool is approved (for all users with access)
+    // 2. Tool is in development and user is the creator (for testing)
+    if (tool.status !== "approved" && tool.creatorId !== userId) {
+      throw new Error("You don't have permission to execute this tool");
     }
 
     // Create a job to track this execution

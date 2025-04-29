@@ -60,60 +60,38 @@ export function InputFieldList({ assistantId, inputFields, onEdit }: InputFieldL
   }
 
   return (
-    <div className="rounded-md border">
-      <div className="relative w-full overflow-auto">
-        <table className="w-full caption-bottom text-sm">
-          <thead>
-            <tr className="border-b bg-muted/50">
-              <th className="h-12 px-6 text-left align-middle font-medium text-muted-foreground w-1/3">Name</th>
-              <th className="h-12 px-6 text-left align-middle font-medium text-muted-foreground w-1/3">Type</th>
-              <th className="h-12 px-6 text-left align-middle font-medium text-muted-foreground">Position</th>
-              <th className="h-12 px-6 text-right align-middle font-medium text-muted-foreground">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {inputFields.map((field, index) => (
-              <tr
-                key={field.id}
-                className={cn(
-                  "border-b transition-colors",
-                  index % 2 === 0 ? "bg-white" : "bg-muted/10",
-                  "hover:bg-muted/20"
-                )}
-              >
-                <td className="p-6 align-middle font-medium">{field.name || "-"}</td>
-                <td className="p-6 align-middle">
-                  {field.fieldType ? getDisplayType(field.fieldType) : "-"}
-                </td>
-                <td className="p-6 align-middle">{field.position ?? "-"}</td>
-                <td className="p-6 align-middle text-right">
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onEdit(field)}
-                      className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                    >
-                      <Pencil className="h-4 w-4 mr-1" />
-                      Edit
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleDelete(field)}
-                      disabled={isDeleting === field.id}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <Trash2 className="h-4 w-4 mr-1" />
-                      {isDeleting === field.id ? "Deleting..." : "Delete"}
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <div className="space-y-4">
+      {inputFields.map((field) => (
+        <div
+          key={field.id}
+          className="flex items-center justify-between p-4 border rounded-lg bg-card"
+        >
+          <div className="space-y-1">
+            <div className="font-medium">{field.name}</div>
+            <div className="text-sm text-muted-foreground">
+              Type: {getDisplayType(field.fieldType)}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onEdit(field)}
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleDelete(field)}
+              disabled={isDeleting === field.id}
+            >
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+          </div>
+        </div>
+      ))}
     </div>
   )
 } 
