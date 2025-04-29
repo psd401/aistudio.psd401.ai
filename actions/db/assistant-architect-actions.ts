@@ -985,16 +985,26 @@ async function executeAssistantArchitectJob(
           }
 
           // Execute the prompt
+          const messages = [
+            {
+              role: 'system',
+              content: prompt.systemContext || 'You are a helpful AI assistant.'
+            },
+            {
+              role: 'user',
+              content: prompt.content.replace(/\${(\w+)}/g, (_match: string, key: string) => {
+                const value = promptInputData[key]
+                return value !== undefined ? String(value) : `[Missing value for ${key}]`
+              }).trim() || "Please provide input for this prompt."
+            }
+          ];
+
           const output = await generateCompletion(
             {
               provider: model.provider,
               modelId: model.modelId
             },
-            prompt.systemContext,
-            prompt.content.replace(/\${(\w+)}/g, (_match: string, key: string) => {
-              const value = promptInputData[key]
-              return value !== undefined ? String(value) : `[Missing value for ${key}]`
-            }).trim() || "Please provide input for this prompt."
+            messages
           );
 
           const endTime = new Date();
