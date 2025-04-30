@@ -57,6 +57,7 @@ export const assistantArchitectsTable = pgTable("assistant_architects", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
+  imagePath: text("image_path"),
   creatorId: text("creator_id").notNull(),
   status: toolStatusEnum("status").default("draft").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),

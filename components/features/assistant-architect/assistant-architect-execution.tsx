@@ -28,6 +28,7 @@ import type { AssistantArchitectWithRelations } from "@/types/assistant-architec
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AssistantArchitectChat } from "./assistant-architect-chat"
 import type { SelectPromptResult } from "@/db/schema"
+import Image from "next/image"
 
 interface AssistantArchitectExecutionProps {
   tool: AssistantArchitectWithRelations
@@ -43,6 +44,14 @@ export function AssistantArchitectExecution({ tool, isPreview = false }: Assista
   const [error, setError] = useState<string | null>(null)
   const [expandedPrompts, setExpandedPrompts] = useState<Record<string, boolean>>({})
   const [expandedInputs, setExpandedInputs] = useState<Record<string, boolean>>({})
+  const [jobStatus, setJobStatus] = useState<string | null>(null)
+  const [jobOutput, setJobOutput] = useState<JobOutput | null>(null)
+  const [jobError, setJobError] = useState<string | null>(null)
+  const [showChat, setShowChat] = useState(false)
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null)
+  const [input, setInput] = useState("")
+  const [actualModelId, setActualModelId] = useState<number | null>(null)
+  const [messages, setMessages] = useState<Array<{ id: string; content: string; role: "user" | "assistant" }>>([])
 
   // Define base types for fields first
   const stringSchema = z.string();
@@ -326,6 +335,28 @@ export function AssistantArchitectExecution({ tool, isPreview = false }: Assista
 
   return (
     <div className="space-y-6">
+      <div>
+        <div className="flex items-start gap-4">
+          {tool.imagePath && (
+            <div className="relative w-32 h-32 rounded-xl overflow-hidden flex-shrink-0 bg-muted/20 p-1">
+              <div className="relative w-full h-full rounded-lg overflow-hidden ring-1 ring-black/10">
+                <Image
+                  src={`/assistant_logos/${tool.imagePath}`}
+                  alt={tool.name}
+                  fill
+                  className="object-cover"
+                />
+              </div>
+            </div>
+          )}
+          <div>
+            <h2 className="text-2xl font-bold">{tool.name}</h2>
+            <p className="text-muted-foreground">{tool.description}</p>
+          </div>
+        </div>
+        <div className="h-px bg-border mt-6" />
+      </div>
+
       {error && !results?.errorMessage && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
@@ -394,9 +425,9 @@ export function AssistantArchitectExecution({ tool, isPreview = false }: Assista
               ))}
               <Button type="submit" disabled={isLoading}>
                 {isLoading ? (
-                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...</>
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Running...</>
                 ) : (
-                "Generate"
+                "Start"
                 )}
               </Button>
           </form>

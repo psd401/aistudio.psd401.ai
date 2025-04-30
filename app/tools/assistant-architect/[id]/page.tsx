@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation"
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { AssistantArchitectExecution } from "@/components/features/assistant-architect/assistant-architect-execution"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Terminal } from "lucide-react"
 import { auth } from "@clerk/nextjs/server"
@@ -64,19 +64,9 @@ export default async function AssistantArchitectToolPage({
   const tool = result.data as AssistantArchitectWithRelations
 
   return (
-    <div className="container py-8 space-y-8">
+    <div className="container py-8">
       <Card>
-        <CardHeader>
-          <CardTitle>{tool.name}</CardTitle>
-          {tool.description && <CardDescription className="pt-2">{tool.description}</CardDescription>}
-        </CardHeader>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Execute Tool</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="pt-1.5">
           <AssistantArchitectExecution tool={tool} />
         </CardContent>
       </Card>
