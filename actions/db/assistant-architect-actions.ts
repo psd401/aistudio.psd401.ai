@@ -982,7 +982,14 @@ async function executeAssistantArchitectJob(
                 const inputFieldDef = tool.inputFields?.find(
                   (f: SelectToolInputField) => f.id === fieldId || f.name === fieldId
                 );
-                promptInputData[key] = inputFieldDef ? inputs[inputFieldDef.name] : `[Mapping error: Input field '${fieldId}' not found]`;
+                if (inputFieldDef) {
+                  // Only map if we haven't already mapped this input field
+                  if (!promptInputData[key]) {
+                    promptInputData[key] = inputs[inputFieldDef.name];
+                  }
+                } else {
+                  promptInputData[key] = `[Mapping error: Input field '${fieldId}' not found]`;
+                }
               } else {
                 const previousResult = results.find((r: PromptExecutionResult) => r.promptId === value);
                 promptInputData[key] = previousResult?.output ?? `[Mapping error: Result from prompt '${value}' not found]`;
