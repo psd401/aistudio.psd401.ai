@@ -1,4 +1,4 @@
-import { pgTable, varchar, timestamp, text, integer, boolean, serial } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, timestamp, text, integer, boolean, serial, uuid, jsonb } from 'drizzle-orm/pg-core';
 import { relations } from "drizzle-orm";
 
 export const usersTable = pgTable('users', {
@@ -85,7 +85,10 @@ export const conversationsTable = pgTable("conversations", {
     .defaultNow()
     .notNull()
     .$onUpdate(() => new Date()),
-  modelId: integer("model_id").notNull().references(() => aiModelsTable.id)
+  modelId: integer("model_id").notNull().references(() => aiModelsTable.id),
+  source: text("source").default("chat"),
+  executionId: uuid("execution_id"),
+  context: jsonb("context")
 });
 
 export const conversationsRelations = relations(conversationsTable, ({ one, many }) => ({
