@@ -44,6 +44,7 @@
     "@radix-ui/react-tooltip": "^1.1.8",
     "@supabase/supabase-js": "^2.39.8",
     "@tabler/icons-react": "^3.28.1",
+    "@tanstack/react-table": "^8.21.3",
     "@types/uuid": "^10.0.0",
     "@vercel/blob": "^1.0.0",
     "@vercel/postgres": "^0.10.0",

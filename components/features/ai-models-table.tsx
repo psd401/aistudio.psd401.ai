@@ -8,12 +8,21 @@ import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { IconPlus, IconEdit, IconTrash } from '@tabler/icons-react';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { AiModel } from '~/lib/schema';
 import type { SelectAiModel } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
 import { Pencil, Trash2 } from 'lucide-react';
 import { ModelForm } from './model-form';
+import {
+  ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  SortingState,
+  useReactTable,
+} from '@tanstack/react-table';
+import { IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-react';
 
 interface ModelFormProps {
   modelData: ModelFormData;
@@ -142,6 +151,182 @@ export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingModel, setEditingModel] = useState<SelectAiModel | null>(null);
   const [modelData, setModelData] = useState<ModelFormData>(emptyModel);
+  const [sorting, setSorting] = useState<SortingState>([]);
+
+  const columns = useMemo<ColumnDef<SelectAiModel>[]>(
+    () => [
+      {
+        accessorKey: 'name',
+        header: ({ column }) => {
+          return (
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+              className="hover:bg-transparent px-0"
+            >
+              Name
+              {column.getIsSorted() === "asc" ? (
+                <IconChevronUp className="ml-2 h-4 w-4" />
+              ) : column.getIsSorted() === "desc" ? (
+                <IconChevronDown className="ml-2 h-4 w-4" />
+              ) : (
+                <IconSelector className="ml-2 h-4 w-4" />
+              )}
+            </Button>
+          )
+        },
+      },
+      {
+        accessorKey: 'provider',
+        header: ({ column }) => {
+          return (
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+              className="hover:bg-transparent px-0"
+            >
+              Provider
+              {column.getIsSorted() === "asc" ? (
+                <IconChevronUp className="ml-2 h-4 w-4" />
+              ) : column.getIsSorted() === "desc" ? (
+                <IconChevronDown className="ml-2 h-4 w-4" />
+              ) : (
+                <IconSelector className="ml-2 h-4 w-4" />
+              )}
+            </Button>
+          )
+        },
+      },
+      {
+        accessorKey: 'modelId',
+        header: ({ column }) => {
+          return (
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+              className="hover:bg-transparent px-0"
+            >
+              Model ID
+              {column.getIsSorted() === "asc" ? (
+                <IconChevronUp className="ml-2 h-4 w-4" />
+              ) : column.getIsSorted() === "desc" ? (
+                <IconChevronDown className="ml-2 h-4 w-4" />
+              ) : (
+                <IconSelector className="ml-2 h-4 w-4" />
+              )}
+            </Button>
+          )
+        },
+      },
+      {
+        accessorKey: 'description',
+        header: ({ column }) => {
+          return (
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+              className="hover:bg-transparent px-0"
+            >
+              Description
+              {column.getIsSorted() === "asc" ? (
+                <IconChevronUp className="ml-2 h-4 w-4" />
+              ) : column.getIsSorted() === "desc" ? (
+                <IconChevronDown className="ml-2 h-4 w-4" />
+              ) : (
+                <IconSelector className="ml-2 h-4 w-4" />
+              )}
+            </Button>
+          )
+        },
+      },
+      {
+        accessorKey: 'maxTokens',
+        header: ({ column }) => {
+          return (
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+              className="hover:bg-transparent text-right w-full px-0"
+            >
+              Max Tokens
+              {column.getIsSorted() === "asc" ? (
+                <IconChevronUp className="ml-2 h-4 w-4" />
+              ) : column.getIsSorted() === "desc" ? (
+                <IconChevronDown className="ml-2 h-4 w-4" />
+              ) : (
+                <IconSelector className="ml-2 h-4 w-4" />
+              )}
+            </Button>
+          )
+        },
+        cell: ({ row }) => {
+          const value = row.getValue('maxTokens') as number;
+          return <div className="text-right font-mono">{value?.toLocaleString()}</div>;
+        },
+      },
+      {
+        accessorKey: 'active',
+        header: 'Active',
+        cell: ({ row }) => (
+          <div className="text-center">
+            <Switch
+              checked={row.getValue('active')}
+              onCheckedChange={(checked) => onUpdateModel(row.original.id, { active: checked })}
+            />
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'chatEnabled',
+        header: 'Chat',
+        cell: ({ row }) => (
+          <div className="text-center">
+            <Switch
+              checked={row.getValue('chatEnabled')}
+              onCheckedChange={(checked) => onUpdateModel(row.original.id, { chatEnabled: checked })}
+            />
+          </div>
+        ),
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => (
+          <div className="flex justify-center space-x-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleEdit(row.original)}
+              className="text-blue-500 hover:text-blue-600"
+            >
+              <IconEdit size={16} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onDeleteModel(row.original.id)}
+              className="text-destructive hover:text-destructive/90"
+            >
+              <IconTrash size={16} />
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [onUpdateModel, onDeleteModel]
+  );
+
+  const table = useReactTable({
+    data: models,
+    columns,
+    state: {
+      sorting,
+    },
+    enableMultiSort: true,
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
 
   const handleSubmit = () => {
     if (editingModel) {
@@ -176,7 +361,23 @@ export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-end">
+      <div className="flex justify-between items-center">
+        <div className="flex items-center space-x-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSorting([])}
+            className="text-xs"
+            disabled={sorting.length === 0}
+          >
+            Reset Sort
+          </Button>
+          {sorting.length > 0 && (
+            <span className="text-sm text-muted-foreground">
+              Hold Shift to sort by multiple columns
+            </span>
+          )}
+        </div>
         <Button
           onClick={() => setShowAddForm(true)}
           className="flex items-center space-x-2"
@@ -201,63 +402,48 @@ export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel
         </DialogContent>
       </Dialog>
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-[15%]">Name</TableHead>
-            <TableHead className="w-[12%]">Provider</TableHead>
-            <TableHead className="w-[15%]">Model ID</TableHead>
-            <TableHead className="w-[20%]">Description</TableHead>
-            <TableHead className="w-[10%] text-right">Max Tokens</TableHead>
-            <TableHead className="w-[8%] text-center">Active</TableHead>
-            <TableHead className="w-[8%] text-center">Chat</TableHead>
-            <TableHead className="w-[12%] text-center">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {models.map((model) => (
-            <TableRow key={String(model.id)}>
-              <TableCell className="font-medium">{model.name}</TableCell>
-              <TableCell>{model.provider}</TableCell>
-              <TableCell className="font-mono text-sm">{model.modelId}</TableCell>
-              <TableCell className="text-muted-foreground">{model.description}</TableCell>
-              <TableCell className="text-right font-mono">{model.maxTokens?.toLocaleString()}</TableCell>
-              <TableCell className="text-center">
-                <Switch
-                  checked={model.active}
-                  onCheckedChange={(checked) => onUpdateModel(model.id, { active: checked })}
-                />
-              </TableCell>
-              <TableCell className="text-center">
-                <Switch
-                  checked={model.chatEnabled}
-                  onCheckedChange={(checked) => onUpdateModel(model.id, { chatEnabled: checked })}
-                />
-              </TableCell>
-              <TableCell>
-                <div className="flex justify-center space-x-2">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleEdit(model)}
-                    className="text-blue-500 hover:text-blue-600"
-                  >
-                    <IconEdit size={16} />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => onDeleteModel(model.id)}
-                    className="text-destructive hover:text-destructive/90"
-                  >
-                    <IconTrash size={16} />
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id} className="bg-muted hover:bg-muted">
+                {headerGroup.headers.map((header) => (
+                  <TableHead key={header.id} className="h-10">
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {table.getRowModel().rows?.length ? (
+              table.getRowModel().rows.map((row, index) => (
+                <TableRow 
+                  key={row.id}
+                  className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={columns.length} className="h-24 text-center">
+                  No models found.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 } 
