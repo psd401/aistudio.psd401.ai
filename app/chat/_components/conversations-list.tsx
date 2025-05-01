@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
-import { IconMessage, IconPlus, IconTrash, IconEdit } from "@tabler/icons-react"
+import { IconMessage, IconPlus, IconTrash, IconEdit, IconCheck, IconX } from "@tabler/icons-react"
 import { useToast } from "@/components/ui/use-toast"
 import type { SelectConversation } from "@/types"
 import { format, isToday, isYesterday, parseISO } from "date-fns"
@@ -25,6 +25,7 @@ function formatDateLabel(dateStr: string): string {
 export function ConversationsList() {
   const [conversations, setConversations] = useState<SelectConversation[]>([])
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [editingTitle, setEditingTitle] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
   const pathname = usePathname()
@@ -100,6 +101,56 @@ export function ConversationsList() {
     router.push("/chat")
   }
 
+  async function handleEdit(id: number, e: React.MouseEvent) {
+    e.stopPropagation()
+    const conversation = conversations.find(c => c.id === id)
+    if (conversation) {
+      setEditingId(id)
+      setEditingTitle(conversation.title)
+    }
+  }
+
+  async function handleSaveEdit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editingId) return
+
+    try {
+      const response = await fetch(`/api/conversations/${editingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: editingTitle })
+      })
+
+      if (!response.ok) throw new Error("Failed to update conversation")
+
+      // Update local state
+      setConversations(prev => prev.map(conv => 
+        conv.id === editingId ? { ...conv, title: editingTitle } : conv
+      ))
+
+      // Reset editing state
+      setEditingId(null)
+      setEditingTitle("")
+
+      toast({
+        title: "Success",
+        description: "Conversation renamed"
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to rename conversation",
+        variant: "destructive"
+      })
+    }
+  }
+
+  async function handleCancelEdit(e: React.MouseEvent) {
+    e.stopPropagation()
+    setEditingId(null)
+    setEditingTitle("")
+  }
+
   return (
     <div className="flex flex-col h-full p-4 bg-muted/20 border-r border-border">
       <Button
@@ -145,37 +196,74 @@ export function ConversationsList() {
                       }
                     }}
                   >
-                    <div className="flex items-start gap-3 w-[calc(100%-60px)]">
-                      <IconMessage className="h-4 w-4 shrink-0 mt-0.5" />
-                      <span className="break-words">
-                        {conversation.title}
-                      </span>
-                    </div>
-                    
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-inherit">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 hover:bg-muted"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingId(conversation.id);
-                          toast({ title: "Edit clicked (not implemented)", description: `ID: ${conversation.id}` });
-                        }}
-                        aria-label="Edit conversation title"
+                    {editingId === conversation.id ? (
+                      <form 
+                        className="flex items-center gap-2 w-full"
+                        onSubmit={handleSaveEdit}
+                        onClick={e => e.stopPropagation()}
                       >
-                        <IconEdit className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 hover:bg-destructive/10 text-destructive"
-                        onClick={(e) => handleDelete(conversation.id, e)}
-                        aria-label="Delete conversation"
-                      >
-                        <IconTrash className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
+                        <input
+                          type="text"
+                          value={editingTitle}
+                          onChange={(e) => setEditingTitle(e.target.value)}
+                          onKeyDown={e => {
+                            e.stopPropagation();
+                            if (e.key === 'Escape') {
+                              handleCancelEdit(e as any);
+                            }
+                          }}
+                          className="flex-1 bg-background text-sm rounded border border-input px-2 py-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          autoFocus
+                        />
+                        <Button
+                          type="submit"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 hover:bg-muted"
+                        >
+                          <IconCheck className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 hover:bg-destructive/10 text-destructive"
+                          onClick={handleCancelEdit}
+                        >
+                          <IconX className="h-3.5 w-3.5" />
+                        </Button>
+                      </form>
+                    ) : (
+                      <>
+                        <div className="flex items-start gap-3 w-[calc(100%-60px)]">
+                          <IconMessage className="h-4 w-4 shrink-0 mt-0.5" />
+                          <span className="break-words">
+                            {conversation.title}
+                          </span>
+                        </div>
+                        
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-inherit">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 hover:bg-muted"
+                            onClick={(e) => handleEdit(conversation.id, e)}
+                            aria-label="Edit conversation title"
+                          >
+                            <IconEdit className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 hover:bg-destructive/10 text-destructive"
+                            onClick={(e) => handleDelete(conversation.id, e)}
+                            aria-label="Delete conversation"
+                          >
+                            <IconTrash className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>

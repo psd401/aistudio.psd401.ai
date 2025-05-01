@@ -244,8 +244,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       console.log('[handleSubmit] Sending request:', {
         messages: [...messages, userMessage],
         conversationId: currentConversationId,
-        modelConfig: selectedModel,
-        includeDocumentContext: true, // Enable document context in chat
+        modelId: selectedModel.modelId,
+        includeDocumentContext: true,
         documentId: currentConversationId === undefined && processingDocumentId ? processingDocumentId : undefined
       })
       
@@ -256,8 +256,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         body: JSON.stringify({
           messages: [...messages, userMessage],
           conversationId: currentId,
-          modelConfig: selectedModel,
-          includeDocumentContext: true, // Enable document context in chat
+          modelId: selectedModel.modelId,
+          includeDocumentContext: true,
           documentId: currentId === undefined && processingDocumentId ? processingDocumentId : undefined
         })
       })
