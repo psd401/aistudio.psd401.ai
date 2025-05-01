@@ -5,6 +5,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu"
 import { IconChevronDown, IconRobot } from "@tabler/icons-react"
@@ -21,6 +22,23 @@ export function ModelSelector({
   selectedModel,
   onModelSelect
 }: ModelSelectorProps) {
+  // Group models by provider and sort alphabetically within each group
+  const groupedModels = models.reduce<Record<string, SelectAiModel[]>>((acc, model) => {
+    if (!acc[model.provider]) {
+      acc[model.provider] = [];
+    }
+    acc[model.provider].push(model);
+    return acc;
+  }, {});
+
+  // Sort providers alphabetically
+  const sortedProviders = Object.keys(groupedModels).sort();
+
+  // Sort models within each provider group
+  sortedProviders.forEach(provider => {
+    groupedModels[provider].sort((a, b) => a.name.localeCompare(b.name));
+  });
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -39,22 +57,28 @@ export function ModelSelector({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[220px]">
-        {models.map((model) => (
-          <DropdownMenuItem
-            key={model.id}
-            onClick={() => onModelSelect(model)}
-            className="flex items-center justify-between"
-          >
-            <span className="truncate">{model.name}</span>
-            {model.id === selectedModel?.id && (
-              <span className="ml-2 h-2 w-2 rounded-full bg-primary" />
-            )}
-          </DropdownMenuItem>
-        ))}
-        {models.length === 0 && (
+        {models.length === 0 ? (
           <DropdownMenuItem disabled>
             No models available
           </DropdownMenuItem>
+        ) : (
+          sortedProviders.map((provider, index) => (
+            <div key={provider}>
+              {index > 0 && <DropdownMenuSeparator />}
+              {groupedModels[provider].map((model) => (
+                <DropdownMenuItem
+                  key={model.id}
+                  onClick={() => onModelSelect(model)}
+                  className="flex items-center justify-between"
+                >
+                  <span className="truncate">{model.name}</span>
+                  {model.id === selectedModel?.id && (
+                    <span className="ml-2 h-2 w-2 rounded-full bg-primary" />
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </div>
+          ))
         )}
       </DropdownMenuContent>
     </DropdownMenu>
