@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { auth, clerkClient } from '@clerk/nextjs/server';
-import { db } from '@/lib/db';
-import { users } from '@/lib/schema';
+import { db } from '@/db/db';
+import { usersTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
+import { withErrorHandling, unauthorized, forbidden, notFound, badRequest } from '@/lib/api-utils';
 
 export async function DELETE(
   _request: Request,
@@ -11,46 +12,43 @@ export async function DELETE(
   const { userId: adminId } = auth();
   
   if (!adminId) {
-    return new NextResponse('Unauthorized', { status: 401 });
+    return unauthorized('User not authenticated');
   }
 
   // Check if user is admin
   const [adminUser] = await db
     .select()
-    .from(users)
-    .where(eq(users.clerkId, adminId));
+    .from(usersTable)
+    .where(eq(usersTable.clerkId, adminId));
 
   if (!adminUser || adminUser.role !== 'Admin') {
-    return new NextResponse('Forbidden', { status: 403 });
+    return forbidden('Only administrators can delete users');
   }
 
-  try {
+  return withErrorHandling(async () => {
     // Await the params object before using it
     const params = await context.params;
     const targetUserId = parseInt(params.userId);
     if (isNaN(targetUserId)) {
-      return new NextResponse('Invalid user ID', { status: 400 });
+      throw new Error('Invalid user ID');
     }
 
     // Get user from our database
     const [targetUser] = await db
       .select()
-      .from(users)
-      .where(eq(users.id, targetUserId));
+      .from(usersTable)
+      .where(eq(usersTable.id, targetUserId));
 
     if (!targetUser) {
-      return new NextResponse('User not found', { status: 404 });
+      return notFound('User not found');
     }
 
     // Delete from Clerk first
     await clerkClient.users.deleteUser(targetUser.clerkId);
 
     // Then delete from our database
-    await db.delete(users).where(eq(users.id, targetUserId));
+    await db.delete(usersTable).where(eq(usersTable.id, targetUserId));
 
-    return new NextResponse(null, { status: 204 });
-  } catch (error) {
-    console.error('Error deleting user:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
-  }
+    return null;
+  });
 } 

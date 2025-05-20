@@ -1,8 +1,11 @@
+import { getAuth } from '@clerk/nextjs/server';
+import { eq } from 'drizzle-orm';
+import { NextRequest } from 'next/server';
+
+import { withErrorHandling, unauthorized } from '@/lib/api-utils';
+import { createError } from '@/lib/error-utils';
 import { db } from '@/db/db';
 import { aiModelsTable } from '@/db/schema';
-import { getAuth } from '@clerk/nextjs/server';
-import { NextRequest } from 'next/server';
-import { eq } from 'drizzle-orm';
 
 export async function GET(req: NextRequest) {
   console.log('[GET /api/models] Starting request');
@@ -12,10 +15,10 @@ export async function GET(req: NextRequest) {
   
   if (!userId) {
     console.log('[GET /api/models] Unauthorized - no userId');
-    return new Response('Unauthorized', { status: 401 });
+    return unauthorized('User not authenticated');
   }
 
-  try {
+  return withErrorHandling(async () => {
     console.log('[GET /api/models] Fetching models from database...');
     const models = await db
       .select()
@@ -25,9 +28,6 @@ export async function GET(req: NextRequest) {
       .where(eq(aiModelsTable.chatEnabled, true));
     
     console.log('[GET /api/models] Found chat-enabled models:', models);
-    return Response.json(models);
-  } catch (error) {
-    console.error('[GET /api/models] Error fetching models:', error);
-    return new Response('Failed to fetch models', { status: 500 });
-  }
-} 
+    return models;
+  });
+}

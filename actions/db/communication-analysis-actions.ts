@@ -155,7 +155,7 @@ interface UpsertPromptParams {
 
 export async function upsertPromptAction(
   params: UpsertPromptParams
-): Promise<ActionState<any>> {
+): Promise<ActionState<typeof analysisPromptsTable.$inferSelect & { model?: typeof aiModelsTable.$inferSelect }>> {
   try {
     const { audienceId, prompt, isMetaAnalysis, modelId } = params
 
@@ -253,7 +253,7 @@ export async function upsertPromptAction(
 export async function getPromptsAction(params?: {
   isMetaAnalysis?: boolean
   audienceId?: string
-}): Promise<ActionState<any[]>> {
+}): Promise<ActionState<Array<typeof analysisPromptsTable.$inferSelect & { model?: typeof aiModelsTable.$inferSelect }>>> {
   try {
     const { isMetaAnalysis, audienceId } = params || {}
 

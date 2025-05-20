@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback, memo } from 'react';
 import { AiModelsTable } from './ai-models-table';
 import type { SelectAiModel } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
@@ -9,11 +9,11 @@ interface AiModelsClientProps {
   initialModels: SelectAiModel[];
 }
 
-export function AiModelsClient({ initialModels }: AiModelsClientProps) {
+export const AiModelsClient = memo(function AiModelsClient({ initialModels }: AiModelsClientProps) {
   const [models, setModels] = useState(initialModels);
   const { toast } = useToast();
 
-  const handleAddModel = async (model: Omit<SelectAiModel, 'id' | 'createdAt' | 'updatedAt'>) => {
+  const handleAddModel = useCallback(async (model: Omit<SelectAiModel, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
       console.log('Sending model data to API:', model);
       const response = await fetch('/api/admin/models', {
@@ -44,9 +44,9 @@ export function AiModelsClient({ initialModels }: AiModelsClientProps) {
         variant: 'destructive',
       });
     }
-  };
+  }, [models, toast]);
 
-  const handleUpdateModel = async (modelId: number, updates: Partial<SelectAiModel>) => {
+  const handleUpdateModel = useCallback(async (modelId: number, updates: Partial<SelectAiModel>) => {
     try {
       console.log('Sending update data to API:', { id: modelId, ...updates });
       const response = await fetch('/api/admin/models', {
@@ -79,9 +79,9 @@ export function AiModelsClient({ initialModels }: AiModelsClientProps) {
         variant: 'destructive',
       });
     }
-  };
+  }, [models, toast]);
 
-  const handleDeleteModel = async (modelId: number) => {
+  const handleDeleteModel = useCallback(async (modelId: number) => {
     try {
       console.log('Sending delete request for model:', modelId);
       const response = await fetch(`/api/admin/models?id=${modelId}`, {
@@ -109,7 +109,7 @@ export function AiModelsClient({ initialModels }: AiModelsClientProps) {
         variant: 'destructive',
       });
     }
-  };
+  }, [models, toast]);
 
   return (
     <AiModelsTable
@@ -119,4 +119,4 @@ export function AiModelsClient({ initialModels }: AiModelsClientProps) {
       onUpdateModel={handleUpdateModel}
     />
   );
-} 
+}); 

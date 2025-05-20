@@ -32,68 +32,214 @@ export function ConversationsList() {
   const { toast } = useToast()
 
   useEffect(() => {
-    loadConversations()
+    // Direct function call to ensure it runs immediately
+    loadConversations();
+    
+    // No cleanup needed - the function handles its own cleanup internally
   }, [])
 
   // Group conversations by date
   const groupedConversations = useMemo(() => {
     const groups: { [key: string]: SelectConversation[] } = {};
-    conversations
-      .sort((a, b) => parseISO(b.createdAt).getTime() - parseISO(a.createdAt).getTime()) // Sort newest first
-      .forEach(conv => {
-        // Ensure createdAt is a string before parsing
-        const createdAtStr = typeof conv.createdAt === 'string' ? conv.createdAt : conv.createdAt.toISOString();
-        const dateLabel = formatDateLabel(createdAtStr);
-        if (!groups[dateLabel]) {
-          groups[dateLabel] = [];
-        }
-        groups[dateLabel].push(conv);
-      });
+    
+    // Defensive check to prevent errors
+    if (!conversations || !Array.isArray(conversations) || conversations.length === 0) {
+      console.log('[ConversationsList] No conversations to display');
+      return {}; // Return empty groups object
+    }
+    
+    try {
+      // Create a sorted copy with safe operations
+      [...conversations]
+        .sort((a, b) => {
+          // Extra safety to ensure we have valid objects
+          if (!a || typeof a !== 'object') return 1;
+          if (!b || typeof b !== 'object') return -1;
+          
+          // Handle edge cases for missing createdAt
+          const hasCreatedAtA = a.createdAt !== undefined && a.createdAt !== null;
+          const hasCreatedAtB = b.createdAt !== undefined && b.createdAt !== null;
+          
+          if (!hasCreatedAtA && !hasCreatedAtB) return 0;
+          if (!hasCreatedAtA) return 1;
+          if (!hasCreatedAtB) return -1;
+          
+          try {
+            // Parse dates safely
+            let dateA, dateB;
+            
+            try {
+              dateA = typeof a.createdAt === 'string' 
+                ? parseISO(a.createdAt) 
+                : new Date(a.createdAt);
+            } catch (e) {
+              dateA = new Date(0); // Default to epoch start if invalid
+            }
+            
+            try {
+              dateB = typeof b.createdAt === 'string' 
+                ? parseISO(b.createdAt) 
+                : new Date(b.createdAt);
+            } catch (e) {
+              dateB = new Date(0); // Default to epoch start if invalid
+            }
+            
+            // Ensure we have valid dates
+            if (isNaN(dateA.getTime())) dateA = new Date(0);
+            if (isNaN(dateB.getTime())) dateB = new Date(0);
+            
+            return dateB.getTime() - dateA.getTime(); // Sort newest first
+          } catch (error) {
+            console.error('[ConversationsList] Error comparing dates:', error);
+            return 0; // Keep original order if comparison fails
+          }
+        })
+        .forEach(conv => {
+          try {
+            // Skip invalid conversations
+            if (!conv || typeof conv !== 'object' || !conv.id) {
+              return;
+            }
+            
+            // Default createdAt to current time if missing
+            let dateStr = new Date().toISOString();
+            
+            // Try to get a valid date string
+            if (conv.createdAt) {
+              try {
+                if (typeof conv.createdAt === 'string') {
+                  dateStr = conv.createdAt;
+                } else if (conv.createdAt instanceof Date) {
+                  dateStr = conv.createdAt.toISOString();
+                } else {
+                  dateStr = new Date(conv.createdAt).toISOString();
+                }
+              } catch (e) {
+                console.warn('[ConversationsList] Invalid date, using current time:', e);
+              }
+            }
+            
+            // Get label and ensure it's valid
+            const dateLabel = formatDateLabel(dateStr);
+            
+            // Create group if it doesn't exist
+            if (!groups[dateLabel]) {
+              groups[dateLabel] = [];
+            }
+            
+            // Add conversation to group
+            groups[dateLabel].push(conv);
+          } catch (error) {
+            console.error('[ConversationsList] Error processing conversation:', error, conv);
+          }
+        });
+    } catch (error) {
+      console.error('[ConversationsList] Error grouping conversations:', error);
+      return {}; // Return empty groups in case of error
+    }
+    
+    // Return the populated groups
     return groups;
   }, [conversations]);
 
   async function loadConversations() {
+    console.log('[loadConversations] Fetching conversations from API');
+    setIsLoading(true);
+    
     try {
-      const response = await fetch("/api/conversations")
-      if (!response.ok) throw new Error("Failed to load conversations")
-      const data = await response.json()
-      setConversations(data)
+      const response = await fetch("/api/conversations");
+      
+      if (!response.ok) {
+        console.error(`[loadConversations] Error: ${response.status} ${response.statusText}`);
+        setConversations([]);
+        setIsLoading(false);
+        return;
+      }
+      
+      const result = await response.json();
+      
+      // Check if the result contains the data property (standard API response format)
+      const conversationsData = result.data || result;
+      
+      console.log('[loadConversations] Conversations loaded:', conversationsData);
+      
+      if (Array.isArray(conversationsData)) {
+        setConversations(conversationsData);
+      } else {
+        console.warn('[loadConversations] Invalid conversations data format');
+        setConversations([]);
+      }
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to load conversations",
-        variant: "destructive"
-      })
+      console.error('[loadConversations] Error:', error);
+      setConversations([]);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }
 
   async function handleDelete(id: number, e: React.MouseEvent) {
-    e.stopPropagation()
+    e.stopPropagation();
+    
+    // Create abort controller for timeout and cleanup
+    const abortController = new AbortController();
+    let timeoutId: NodeJS.Timeout | null = null;
+    
     try {
+      // Set timeout to prevent hanging delete request
+      timeoutId = setTimeout(() => {
+        abortController.abort();
+        console.warn(`[handleDelete] Delete request for conversation ${id} timed out`);
+      }, 8000); // 8 second timeout
+      
       const response = await fetch(`/api/conversations/${id}`, {
-        method: "DELETE"
-      })
-      if (!response.ok) throw new Error("Failed to delete conversation")
-      setConversations(prev => prev.filter(c => c.id !== id))
+        method: "DELETE",
+        signal: abortController.signal,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      // Clear timeout since request completed
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      
+      // Handle non-200 responses with detailed error info
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "Unknown error");
+        console.error(`[handleDelete] HTTP error ${response.status} deleting conversation ${id}: ${errorText}`);
+        throw new Error(`Failed to delete conversation: ${response.status} ${response.statusText}`);
+      }
+      
+      // Update local state to remove the deleted conversation
+      setConversations(prev => prev.filter(c => c.id !== id));
       
       // If we're deleting the current conversation, redirect to /chat
-      const currentConversationId = pathname.match(/\/chat\?conversation=(\d+)/)?.[1]
+      const currentConversationId = pathname.match(/\/chat\?conversation=(\d+)/)?.[1];
       if (currentConversationId && parseInt(currentConversationId) === id) {
-        router.push("/chat")
+        router.push("/chat");
       }
 
       toast({
         title: "Success",
         description: "Conversation deleted"
-      })
+      });
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to delete conversation",
-        variant: "destructive"
-      })
+      // Only show error toast if it wasn't an abort
+      if (error.name !== 'AbortError') {
+        console.error(`[handleDelete] Error deleting conversation ${id}:`, error);
+        toast({
+          title: "Error",
+          description: "Failed to delete conversation",
+          variant: "destructive"
+        });
+      }
+    } finally {
+      // Final cleanup of any remaining timeout
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     }
   }
 
@@ -111,37 +257,92 @@ export function ConversationsList() {
   }
 
   async function handleSaveEdit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!editingId) return
+    e.preventDefault();
+    if (!editingId) return;
+    
+    // Don't save empty titles
+    if (!editingTitle.trim()) {
+      toast({
+        title: "Error",
+        description: "Conversation title cannot be empty",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Create abort controller for timeout and cleanup
+    const abortController = new AbortController();
+    let timeoutId: NodeJS.Timeout | null = null;
 
     try {
+      // Set timeout to prevent hanging save request
+      timeoutId = setTimeout(() => {
+        abortController.abort();
+        console.warn(`[handleSaveEdit] Edit request for conversation ${editingId} timed out`);
+      }, 8000); // 8 second timeout
+      
       const response = await fetch(`/api/conversations/${editingId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: editingTitle })
-      })
+        headers: { 
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ title: editingTitle.trim() }),
+        signal: abortController.signal
+      });
+      
+      // Clear timeout since request completed
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
 
-      if (!response.ok) throw new Error("Failed to update conversation")
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "Unknown error");
+        console.error(`[handleSaveEdit] HTTP error ${response.status} updating conversation ${editingId}: ${errorText}`);
+        throw new Error(`Failed to update conversation: ${response.status} ${response.statusText}`);
+      }
+
+      // Try to parse response just to validate it
+      try {
+        await response.json();
+      } catch (parseError) {
+        console.warn('[handleSaveEdit] Could not parse response JSON, but continuing anyway:', parseError);
+      }
 
       // Update local state
       setConversations(prev => prev.map(conv => 
-        conv.id === editingId ? { ...conv, title: editingTitle } : conv
-      ))
+        conv.id === editingId ? { ...conv, title: editingTitle.trim() } : conv
+      ));
 
       // Reset editing state
-      setEditingId(null)
-      setEditingTitle("")
+      setEditingId(null);
+      setEditingTitle("");
 
       toast({
         title: "Success",
         description: "Conversation renamed"
-      })
+      });
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to rename conversation",
-        variant: "destructive"
-      })
+      // Only show error toast if it wasn't an abort
+      if (error.name !== 'AbortError') {
+        console.error(`[handleSaveEdit] Error updating conversation ${editingId}:`, error);
+        toast({
+          title: "Error",
+          description: "Failed to rename conversation",
+          variant: "destructive"
+        });
+      }
+    } finally {
+      // Final cleanup of any remaining timeout
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      
+      // If this was an abort, we need to reset the editing state
+      if (abortController.signal.aborted) {
+        setEditingId(null);
+        setEditingTitle("");
+      }
     }
   }
 

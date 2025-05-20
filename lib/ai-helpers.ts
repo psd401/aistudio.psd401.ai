@@ -17,8 +17,7 @@ export async function generateCompletion(
   switch (modelConfig.provider) {
     case 'amazon-bedrock': {
       const region = process.env.BEDROCK_REGION || 'unknown-region';
-      const accessKeyId = process.env.BEDROCK_ACCESS_KEY_ID?.substring(0, 4) + '...' || 'not-set';
-      console.log(`[generateCompletion] Bedrock: Using region '${region}', access key starting with '${accessKeyId}', model ID '${modelConfig.modelId}'`);
+      console.log(`[generateCompletion] Using Amazon Bedrock with region '${region}' and model ID '${modelConfig.modelId}'`);
       
       const bedrock = createAmazonBedrock({
         region: process.env.BEDROCK_REGION || '',
@@ -57,17 +56,48 @@ export async function generateCompletion(
     }
 
     case 'google': {
-      process.env.GOOGLE_GENERATIVE_AI_API_KEY = process.env.GOOGLE_API_KEY
-      const result = await generateText({
-        model: google(modelConfig.modelId),
-        messages
-      })
-
-      if (!result.text) {
-        throw new Error('No content returned from Google')
+      // Get API key from environment variables
+      const googleApiKey = process.env.GOOGLE_API_KEY || '';
+      
+      console.log(`[generateCompletion] Using Google AI with model ID '${modelConfig.modelId}'`);
+      console.log(`[generateCompletion] GOOGLE_API_KEY set: ${!!process.env.GOOGLE_API_KEY}`);
+      console.log(`[generateCompletion] GOOGLE_GENERATIVE_AI_API_KEY set: ${!!process.env.GOOGLE_GENERATIVE_AI_API_KEY}`);
+      
+      if (!googleApiKey) {
+        console.error('[generateCompletion] Google API key is missing from environment variables');
+        throw new Error('Google API key is not configured. Please set GOOGLE_API_KEY in environment variables.');
       }
+      
+      // Manually set the environment variable that the Google AI SDK is looking for
+      // This ensures the SDK finds the key regardless of which env var name we use
+      process.env.GOOGLE_GENERATIVE_AI_API_KEY = googleApiKey;
+      
+      try {
+        const googleClient = google(modelConfig.modelId, {
+          apiKey: googleApiKey
+        });
+      
+        const result = await generateText({
+          model: googleClient,
+          messages
+        });
 
-      return result.text
+        if (!result.text) {
+          throw new Error('No content returned from Google');
+        }
+
+        return result.text;
+      } catch (error) {
+        console.error('[generateCompletion] Google AI error:', error);
+        
+        // Check if it's an API key error
+        if (error.message && error.message.includes('API key')) {
+          throw new Error(`Google API key issue: ${error.message}. Please check your GOOGLE_API_KEY environment variable.`);
+        }
+        
+        // Rethrow any other errors
+        throw error;
+      }
     }
 
     default:

@@ -70,7 +70,15 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     // Instead of setting documents to empty, trigger a fetch if we have an ID
     if (initialConversationId) {
       console.log("[Chat] Fetching documents for initial conversation ID:", initialConversationId);
-      fetchDocuments(initialConversationId);
+      
+      // Add proper cleanup for fetch operations
+      const abortController = new AbortController();
+      fetchDocuments(initialConversationId, abortController.signal);
+      
+      return () => {
+        // Cancel any in-flight fetch requests when component unmounts or ID changes
+        abortController.abort();
+      };
     } else {
       // Only clear documents if we don't have a conversation ID
       setDocuments([]);
@@ -101,7 +109,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     }
   }, [documents]);
 
-  const fetchDocuments = async (convId?: number) => {
+  const fetchDocuments = async (convId?: number, signal?: AbortSignal) => {
     const idToUse = convId || currentConversationId;
     if (!idToUse) return;
 
@@ -110,7 +118,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       const response = await fetch(`/api/documents?conversationId=${idToUse}`, {
         // Add cache buster to ensure we get fresh data
         headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
-        cache: 'no-store'
+        cache: 'no-store',
+        signal: signal // Add AbortSignal to allow cancellation
       });
       
       if (!response.ok) throw new Error("Failed to fetch documents");
@@ -283,7 +292,50 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
 
       if (respType.includes("application/json")) {
         const data = await response.json();
-        assistantText = data.text;
+        console.log('[handleSubmit] JSON Response data:', data);
+        
+        // The API returns a response with data.data.text structure based on the withErrorHandling wrapper
+        if (data && data.data && data.data.text) {
+          console.log('[handleSubmit] Found text in data.data.text');
+          assistantText = data.data.text;
+        } else if (data && data.success === true && data.data) {
+          // Explore the data structure if it matches the standard API response format
+          console.log('[handleSubmit] Exploring data structure in standard response format');
+          
+          if (typeof data.data === 'string') {
+            // If data.data is directly a string
+            assistantText = data.data;
+          } else if (data.data && typeof data.data === 'object') {
+            // Look for text in common properties
+            assistantText = data.data.text || data.data.content || data.data.message || "";
+            
+            // Try to find the first string property that might be the response
+            if (!assistantText) {
+              for (const key in data.data) {
+                if (typeof data.data[key] === 'string' && data.data[key].length > 20) {
+                  console.log(`[handleSubmit] Using string property: ${key}`);
+                  assistantText = data.data[key];
+                  break;
+                }
+              }
+            }
+          }
+        } else {
+          // Fallbacks for non-standard response structures
+          assistantText = data.text || 
+                          data.content || 
+                          (data.message && data.message.content) ||
+                          "";
+        }
+        
+        console.log('[handleSubmit] Final extracted assistant text:', assistantText);
+        
+        // If we still don't have text, use a fallback message
+        if (!assistantText) {
+          console.warn('[handleSubmit] Could not find response text in data structure');
+          assistantText = "Sorry, there was an issue displaying the response.";
+        }
+        
         if (!currentConversationId && data.conversationId) {
           newConversationId = data.conversationId;
           // Update state *before* URL change
@@ -291,9 +343,18 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
           if(processingDocumentId) setProcessingDocumentId(null); 
           // Update the URL *after* state is likely processed
           window.history.pushState({}, '', `/chat?conversation=${newConversationId}`);
+        } else if (!currentConversationId && data.data && data.data.conversationId) {
+          // Try alternate location for conversationId
+          newConversationId = data.data.conversationId;
+          setCurrentConversationId(newConversationId);
+          if(processingDocumentId) setProcessingDocumentId(null);
+          window.history.pushState({}, '', `/chat?conversation=${newConversationId}`);
         }
       } else {
-        assistantText = await response.text();
+        // For non-JSON responses
+        const responseText = await response.text();
+        console.log('[handleSubmit] Text response:', responseText);
+        assistantText = responseText;
       }
 
       // Add the final assistant message directly
@@ -330,27 +391,48 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   useEffect(() => {
     async function loadModels() {
       try {
-        console.log('[loadModels] Fetching models...')
-        const response = await fetch("/api/models")
-        if (!response.ok) throw new Error("Failed to load models")
-        const data = await response.json()
-        console.log('[loadModels] Received models:', data)
-        const chatModels = data.filter((m: SelectAiModel) => m.chatEnabled)
-        console.log('[loadModels] Chat-enabled models:', chatModels)
-        setModels(chatModels)
+        console.log('[loadModels] Fetching models from API');
+        const response = await fetch("/api/models");
+        
+        if (!response.ok) {
+          console.error(`[loadModels] Error: ${response.status} ${response.statusText}`);
+          return;
+        }
+        
+        const result = await response.json();
+        
+        // Check if the result contains the data property (standard API response format)
+        const modelsData = result.data || result;
+        
+        console.log('[loadModels] Models loaded:', modelsData);
+        
+        if (!Array.isArray(modelsData) || modelsData.length === 0) {
+          console.warn('[loadModels] No models returned from API or invalid format');
+          return;
+        }
+        
+        // Filter models with chatEnabled set to true
+        const chatModels = modelsData.filter(model => model.chatEnabled === true);
+        
+        console.log('[loadModels] Chat-enabled models:', chatModels);
+        
         if (chatModels.length > 0) {
-          setSelectedModel(chatModels[0])
+          setModels(chatModels);
+          setSelectedModel(chatModels[0]);
+        } else {
+          console.warn('[loadModels] No chat-enabled models found');
         }
       } catch (error) {
-        console.error('[loadModels] Error:', error)
+        console.error('[loadModels] Error:', error);
         toast({
           title: "Error",
           description: "Failed to load models",
           variant: "destructive"
-        })
+        });
       }
     }
-    loadModels()
+    
+    loadModels();
   }, [toast])
 
   useEffect(() => {
@@ -381,6 +463,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     handleAttachClick();
   }
 
+  // No need for fallbacks - if models aren't loaded yet, we'll show an empty state
+  
   return (
     <div className="flex flex-col h-full bg-background border border-border rounded-lg shadow-sm overflow-hidden">
       <div className="flex items-center justify-between p-3 border-b border-border">
@@ -421,9 +505,15 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
 
       <div className="flex flex-1 overflow-hidden">
         <ScrollArea ref={scrollRef} className="flex-1 p-4">
-          {messages.map((message) => (
-            <Message key={message.id} message={message} />
-          ))}
+          <div role="list" aria-label="Chat messages">
+            {messages.map((message) => (
+              <Message 
+                key={message.id} 
+                message={message} 
+                messageId={`message-${message.id}`}
+              />
+            ))}
+          </div>
         </ScrollArea>
 
         {showDocuments && (
@@ -458,6 +548,10 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
             disabled={!selectedModel}
             onAttachClick={onPaperclipClick}
             showAttachButton={true}
+            ariaLabel="Type your message"
+            inputId="chat-input-field"
+            sendButtonAriaLabel="Send message"
+            attachButtonAriaLabel="Attach document"
           />
           {isLoading && (
             <Button
@@ -465,8 +559,10 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
               size="icon"
               onClick={() => setIsLoading(false)}
               aria-label="Stop generation"
+              aria-disabled={!isLoading}
             >
-              <IconPlayerStop className="h-4 w-4" />
+              <IconPlayerStop className="h-4 w-4" aria-hidden="true" />
+              <span className="sr-only">Stop message generation</span>
             </Button>
           )}
         </div>

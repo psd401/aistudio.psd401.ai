@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback, memo } from "react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/components/ui/use-toast"
@@ -15,7 +15,7 @@ interface AssistantArchitectChatProps {
   isPreview?: boolean
 }
 
-export function AssistantArchitectChat({ execution, isPreview = false }: AssistantArchitectChatProps) {
+export const AssistantArchitectChat = memo(function AssistantArchitectChat({ execution, isPreview = false }: AssistantArchitectChatProps) {
   const [messages, setMessages] = useState<Array<{ id: string; content: string; role: "user" | "assistant" }>>([])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -57,11 +57,11 @@ export function AssistantArchitectChat({ execution, isPreview = false }: Assista
     fetchModelId();
   }, [execution]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value)
-  }
+  }, [])
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
     if (!input.trim() || isLoading || !actualModelId) return
 
@@ -137,7 +137,26 @@ export function AssistantArchitectChat({ execution, isPreview = false }: Assista
         })
       }
     }
-  }
+  }, [actualModelId, currentConversationId, input, isLoading, messages, execution, isPreview, toast])
+
+  const handleStopGeneration = useCallback(() => {
+    setIsLoading(false);
+  }, []);
+
+  const MessageList = memo(function MessageList({ messages }: { messages: Array<{ id: string; content: string; role: "user" | "assistant" }> }) {
+    return (
+      <div className="space-y-4">
+        {messages.map((message) => (
+          <Message key={message.id} message={message} />
+        ))}
+        {messages.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center">
+            What else would you like to know?
+          </p>
+        )}
+      </div>
+    );
+  });
 
   return (
     <div className="flex flex-col h-[400px] border rounded-lg overflow-hidden">
@@ -146,16 +165,7 @@ export function AssistantArchitectChat({ execution, isPreview = false }: Assista
       </div>
 
       <ScrollArea ref={scrollRef} className="flex-1 p-4">
-        <div className="space-y-4">
-          {messages.map((message) => (
-            <Message key={message.id} message={message} />
-          ))}
-          {messages.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center">
-              What else would you like to know?
-            </p>
-          )}
-        </div>
+        <MessageList messages={messages} />
       </ScrollArea>
 
       <div className="p-4 border-t">
@@ -172,7 +182,7 @@ export function AssistantArchitectChat({ execution, isPreview = false }: Assista
             <Button
               variant="outline"
               size="icon"
-              onClick={() => setIsLoading(false)}
+              onClick={handleStopGeneration}
               aria-label="Stop generation"
             >
               <IconPlayerStop className="h-4 w-4" />
@@ -182,4 +192,4 @@ export function AssistantArchitectChat({ execution, isPreview = false }: Assista
       </div>
     </div>
   )
-} 
+}); 

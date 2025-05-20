@@ -7,22 +7,32 @@ import { conversationsTable, messagesTable, aiModelsTable } from "@/db/schema"
 import { eq } from "drizzle-orm"
 import { generateCompletion } from "@/lib/ai-helpers"
 import { CoreMessage } from "ai"
+import { withErrorHandling, unauthorized, badRequest } from "@/lib/api-utils"
+import { createError } from "@/lib/error-utils"
 
 export async function POST(req: NextRequest) {
   const { userId } = getAuth(req)
   if (!userId) {
-    return new NextResponse("Unauthorized", { status: 401 })
+    return unauthorized('User not authenticated')
   }
 
-  try {
+  return withErrorHandling(async () => {
     // Destructure conversationId from body
     const { messages, modelId: textModelId, source, executionId, context, conversationId: existingConversationId } = await req.json()
 
     if (!textModelId) {
-      throw new Error("Model ID is required");
+      throw createError('Model ID is required', {
+        code: 'VALIDATION',
+        level: 'warn',
+        details: { field: 'modelId' }
+      });
     }
     if (!messages || messages.length === 0) {
-      throw new Error("Messages are required");
+      throw createError('Messages are required', {
+        code: 'VALIDATION',
+        level: 'warn',
+        details: { field: 'messages' }
+      });
     }
 
     // Find the AI model record using the text modelId to get the provider
@@ -32,7 +42,11 @@ export async function POST(req: NextRequest) {
       .where(eq(aiModelsTable.modelId, textModelId))
 
     if (!aiModel) {
-      throw new Error(`AI Model with identifier '${textModelId}' not found`);
+      throw createError(`AI Model with identifier '${textModelId}' not found`, {
+        code: 'NOT_FOUND',
+        level: 'error',
+        details: { modelId: textModelId }
+      });
     }
 
     let conversationIdToUse: number;
@@ -46,7 +60,11 @@ export async function POST(req: NextRequest) {
         .where(eq(conversationsTable.id, existingConversationId))
       
       if (!existingConversation || existingConversation.clerkId !== userId) {
-        throw new Error("Conversation not found or access denied");
+        throw createError("Conversation not found or access denied", {
+          code: 'FORBIDDEN',
+          level: 'warn',
+          details: { conversationId: existingConversationId }
+        });
       }
       
       conversationIdToUse = existingConversationId;
@@ -116,18 +134,12 @@ export async function POST(req: NextRequest) {
       conversationId: conversationIdToUse,
       role: "assistant",
       content: aiResponseContent
-    })
+    });
 
-    // Return only the text content and conversation ID
-    return NextResponse.json({
+    // Return data that will be wrapped in the standard response format
+    return {
       text: aiResponseContent,
       conversationId: conversationIdToUse
-    })
-  } catch (error) {
-    console.error("Error in chat API:", error)
-    return new NextResponse(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Failed to process chat message" }),
-      { status: 500 }
-    )
-  }
+    };
+  });
 } 

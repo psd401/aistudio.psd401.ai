@@ -33,8 +33,12 @@ export function withErrorHandling<T>(
       
       // Determine status code based on error
       let statusCode = 500;
-      if (error instanceof AppError) {
-        switch (error.code) {
+      
+      // Check for error code property to determine status, regardless of error instance type
+      // This avoids issues with instanceof across modules
+      if (error && typeof error === 'object' && 'code' in error) {
+        const errorCode = (error as { code?: string }).code;
+        switch (errorCode) {
           case 'UNAUTHORIZED':
             statusCode = 401;
             break;

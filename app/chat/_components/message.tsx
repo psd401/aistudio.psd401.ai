@@ -11,29 +11,44 @@ import { useToast } from "@/components/ui/use-toast"
 
 interface MessageProps {
   message: MessageType
+  /** Unique ID for the message for accessibility purposes */
+  messageId?: string
 }
 
 // Simple avatar component (can be expanded later)
 function Avatar({ role }: { role: "user" | "assistant" }) {
   return (
-    <div className={cn(
-      "flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full",
-      role === "assistant" 
-        ? "bg-primary/10 text-primary" 
-        : "bg-blue-500/20 text-blue-700" // Example user avatar style
-    )}>
+    <div 
+      className={cn(
+        "flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full",
+        role === "assistant" 
+          ? "bg-primary/10 text-primary" 
+          : "bg-blue-500/20 text-blue-700" // Example user avatar style
+      )}
+      role="img"
+      aria-label={role === "user" ? "User avatar" : "Assistant avatar"}
+    >
       {role === "user" ? (
-        <IconUser className="h-5 w-5" />
+        <IconUser className="h-5 w-5" aria-hidden="true" />
       ) : (
-        <IconRobot className="h-5 w-5" />
+        <IconRobot className="h-5 w-5" aria-hidden="true" />
       )}
     </div>
   )
 }
 
-export function Message({ message }: MessageProps) {
+export function Message({ message, messageId }: MessageProps) {
   const { toast } = useToast()
   const isAssistant = message.role === "assistant"
+  const uniqueId = messageId || `message-${message.id}`
+  
+  // Log what's being rendered
+  console.log(`[Message] Rendering message:`, {
+    id: message.id,
+    role: message.role,
+    contentLength: message.content ? message.content.length : 0,
+    contentPreview: message.content ? message.content.substring(0, 50) : 'empty'
+  });
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
@@ -47,26 +62,36 @@ export function Message({ message }: MessageProps) {
   };
 
   return (
-    <div className={cn("group flex w-full items-start gap-3 relative mb-4", {
-      "justify-end": !isAssistant,
-    })}>
+    <div 
+      className={cn("group flex w-full items-start gap-3 relative mb-4", {
+        "justify-end": !isAssistant,
+      })}
+      aria-labelledby={`${uniqueId}-author`}
+      role="listitem"
+    >
       {/* Avatar */}
       {isAssistant && <Avatar role="assistant" />}
 
       {/* Message Bubble & Content */}
-      <div className={cn(
+      <div 
+        className={cn(
           "flex flex-col w-fit rounded-lg shadow-sm", 
           isAssistant
             ? "bg-card border border-border/50 max-w-[85%]"
             : "bg-primary text-primary-foreground max-w-[75%]"
         )}
+        aria-live={isAssistant ? "polite" : "off"}
       >
         <div className="px-3 py-2">
-          <span className="text-xs font-semibold mb-1 block">
+          <span 
+            id={`${uniqueId}-author`} 
+            className="text-xs font-semibold mb-1 block"
+          >
             {isAssistant ? "Assistant" : "You"}
           </span>
           <ReactMarkdown
             className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0"
+            id={`${uniqueId}-content`}
             components={{
               p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
               // Use default pre/code handling from prose for consistency?
@@ -89,7 +114,10 @@ export function Message({ message }: MessageProps) {
                 return (
                   <div className="relative mb-4 mt-2 last:mb-0">
                     <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground/80">
+                      <span 
+                        className="text-xs text-muted-foreground/80"
+                        aria-label={`Code language: ${language}`}
+                      >
                         {language}
                       </span>
                     </div>
@@ -105,6 +133,7 @@ export function Message({ message }: MessageProps) {
                         padding: "1rem",
                         borderRadius: "0.375rem"
                       }}
+                      aria-label={`Code snippet in ${language || "unknown"} language`}
                       {...props}
                     >
                       {String(children).replace(/\n$/, "")}
@@ -120,17 +149,44 @@ export function Message({ message }: MessageProps) {
 
         {/* Action Buttons (Show on Hover, ONLY for Assistant) */}
         {isAssistant && (
-          <div className={cn(
-            "flex items-center justify-end gap-1 px-2 pt-0 pb-1 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground"
-          )}>
-            <Button variant="ghost" size="icon" className="h-6 w-6 hover:bg-muted/50" onClick={() => handleFeedback('like')} aria-label="Like response">
-              <IconThumbUp className="h-4 w-4" />
+          <div 
+            className={cn(
+              "flex items-center justify-end gap-1 px-2 pt-0 pb-1 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground"
+            )}
+            aria-label="Message actions"
+          >
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-6 w-6 hover:bg-muted/50" 
+              onClick={() => handleFeedback('like')} 
+              aria-label="Like response"
+              aria-describedby={`${uniqueId}-content`}
+            >
+              <IconThumbUp className="h-4 w-4" aria-hidden="true" />
+              <span className="sr-only">Like this response</span>
             </Button>
-            <Button variant="ghost" size="icon" className="h-6 w-6 hover:bg-muted/50" onClick={() => handleFeedback('dislike')} aria-label="Dislike response">
-              <IconThumbDown className="h-4 w-4" />
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-6 w-6 hover:bg-muted/50" 
+              onClick={() => handleFeedback('dislike')} 
+              aria-label="Dislike response"
+              aria-describedby={`${uniqueId}-content`}
+            >
+              <IconThumbDown className="h-4 w-4" aria-hidden="true" />
+              <span className="sr-only">Dislike this response</span>
             </Button>
-            <Button variant="ghost" size="icon" className="h-6 w-6 hover:bg-muted/50" onClick={handleCopy} aria-label="Copy message">
-              <IconCopy className="h-4 w-4" />
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-6 w-6 hover:bg-muted/50" 
+              onClick={handleCopy} 
+              aria-label="Copy message"
+              aria-describedby={`${uniqueId}-content`}
+            >
+              <IconCopy className="h-4 w-4" aria-hidden="true" />
+              <span className="sr-only">Copy this message</span>
             </Button>
             {/* Regenerate button placeholder */}
           </div>

@@ -1,5 +1,6 @@
 'use client';
 
+import React, { useState, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -8,12 +9,9 @@ import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { IconPlus, IconEdit, IconTrash } from '@tabler/icons-react';
-import { useState, useMemo } from 'react';
 import type { AiModel } from '~/lib/schema';
 import type { SelectAiModel } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
-import { Pencil, Trash2 } from 'lucide-react';
-import { ModelForm } from './model-form';
 import {
   ColumnDef,
   flexRender,
@@ -32,7 +30,38 @@ interface ModelFormProps {
   isEditing: boolean;
 }
 
-function ModelForm({ modelData, setModelData, onSubmit, onCancel, isEditing }: ModelFormProps) {
+const ModelForm = React.memo(function ModelForm({ 
+  modelData, 
+  setModelData, 
+  onSubmit, 
+  onCancel, 
+  isEditing 
+}: ModelFormProps) {
+  
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => 
+    setModelData({ ...modelData, name: e.target.value });
+    
+  const handleProviderChange = (value: string) => 
+    setModelData({ ...modelData, provider: value });
+    
+  const handleModelIdChange = (e: React.ChangeEvent<HTMLInputElement>) => 
+    setModelData({ ...modelData, modelId: e.target.value });
+    
+  const handleDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => 
+    setModelData({ ...modelData, description: e.target.value });
+    
+  const handleCapabilitiesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => 
+    setModelData({ ...modelData, capabilities: e.target.value });
+    
+  const handleMaxTokensChange = (e: React.ChangeEvent<HTMLInputElement>) => 
+    setModelData({ ...modelData, maxTokens: parseInt(e.target.value) || 4096 });
+    
+  const handleActiveChange = (checked: boolean) => 
+    setModelData({ ...modelData, active: checked });
+    
+  const handleChatEnabledChange = (checked: boolean) => 
+    setModelData({ ...modelData, chatEnabled: checked });
+    
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
@@ -40,7 +69,7 @@ function ModelForm({ modelData, setModelData, onSubmit, onCancel, isEditing }: M
           <label className="text-sm font-medium">Name</label>
           <Input
             value={modelData.name}
-            onChange={(e) => setModelData({ ...modelData, name: e.target.value })}
+            onChange={handleNameChange}
             required
           />
         </div>
@@ -49,7 +78,7 @@ function ModelForm({ modelData, setModelData, onSubmit, onCancel, isEditing }: M
           <label className="text-sm font-medium">Provider</label>
           <Select
             value={modelData.provider}
-            onValueChange={(value) => setModelData({ ...modelData, provider: value })}
+            onValueChange={handleProviderChange}
           >
             <SelectTrigger>
               <SelectValue placeholder="Select a provider" />
@@ -67,7 +96,7 @@ function ModelForm({ modelData, setModelData, onSubmit, onCancel, isEditing }: M
         <label className="text-sm font-medium">Model ID</label>
         <Input
           value={modelData.modelId}
-          onChange={(e) => setModelData({ ...modelData, modelId: e.target.value })}
+          onChange={handleModelIdChange}
           required
         />
       </div>
@@ -76,7 +105,7 @@ function ModelForm({ modelData, setModelData, onSubmit, onCancel, isEditing }: M
         <label className="text-sm font-medium">Description</label>
         <Textarea
           value={modelData.description || ''}
-          onChange={(e) => setModelData({ ...modelData, description: e.target.value })}
+          onChange={handleDescriptionChange}
         />
       </div>
 
@@ -84,7 +113,7 @@ function ModelForm({ modelData, setModelData, onSubmit, onCancel, isEditing }: M
         <label className="text-sm font-medium">Capabilities (JSON)</label>
         <Textarea
           value={modelData.capabilities || ''}
-          onChange={(e) => setModelData({ ...modelData, capabilities: e.target.value })}
+          onChange={handleCapabilitiesChange}
           className="font-mono"
           rows={4}
           placeholder='{"tasks": ["chat"], "context_window": 128000}'
@@ -97,7 +126,7 @@ function ModelForm({ modelData, setModelData, onSubmit, onCancel, isEditing }: M
           <Input
             type="number"
             value={modelData.maxTokens}
-            onChange={(e) => setModelData({ ...modelData, maxTokens: parseInt(e.target.value) || 4096 })}
+            onChange={handleMaxTokensChange}
           />
         </div>
       </div>
@@ -106,14 +135,14 @@ function ModelForm({ modelData, setModelData, onSubmit, onCancel, isEditing }: M
         <div className="flex items-center space-x-2">
           <Switch
             checked={modelData.active}
-            onCheckedChange={(checked) => setModelData({ ...modelData, active: checked })}
+            onCheckedChange={handleActiveChange}
           />
           <label className="text-sm font-medium">Active</label>
         </div>
         <div className="flex items-center space-x-2">
           <Switch
             checked={modelData.chatEnabled}
-            onCheckedChange={(checked) => setModelData({ ...modelData, chatEnabled: checked })}
+            onCheckedChange={handleChatEnabledChange}
           />
           <label className="text-sm font-medium">Chat Enabled</label>
         </div>
@@ -125,7 +154,7 @@ function ModelForm({ modelData, setModelData, onSubmit, onCancel, isEditing }: M
       </div>
     </div>
   );
-}
+});
 
 interface AiModelsTableProps {
   models: SelectAiModel[];
@@ -147,118 +176,96 @@ const emptyModel: ModelFormData = {
   chatEnabled: false,
 };
 
-export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel }: AiModelsTableProps) {
+export const AiModelsTable = React.memo(function AiModelsTable({ 
+  models, 
+  onAddModel, 
+  onDeleteModel, 
+  onUpdateModel 
+}: AiModelsTableProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingModel, setEditingModel] = useState<SelectAiModel | null>(null);
   const [modelData, setModelData] = useState<ModelFormData>(emptyModel);
   const [sorting, setSorting] = useState<SortingState>([]);
+  
+  // Memoized column header component to prevent recreation on each render
+  const SortableColumnHeader = useCallback(({
+    column,
+    title,
+    className = ""
+  }: {
+    column: any;
+    title: string;
+    className?: string;
+  }) => (
+    <Button
+      variant="ghost"
+      onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+      className={`hover:bg-transparent px-0 ${className}`}
+    >
+      {title}
+      {column.getIsSorted() === "asc" ? (
+        <IconChevronUp className="ml-2 h-4 w-4" />
+      ) : column.getIsSorted() === "desc" ? (
+        <IconChevronDown className="ml-2 h-4 w-4" />
+      ) : (
+        <IconSelector className="ml-2 h-4 w-4" />
+      )}
+    </Button>
+  ), []);
+
+  // Event handler for toggling active status
+  const handleActiveToggle = useCallback((id: number, checked: boolean) => {
+    onUpdateModel(id, { active: checked });
+  }, [onUpdateModel]);
+
+  // Event handler for toggling chat enabled status
+  const handleChatEnabledToggle = useCallback((id: number, checked: boolean) => {
+    onUpdateModel(id, { chatEnabled: checked });
+  }, [onUpdateModel]);
+
+  // Event handler for edit button
+  const handleEditClick = useCallback((model: SelectAiModel) => {
+    setEditingModel(model);
+    setModelData({
+      name: model.name,
+      provider: model.provider,
+      modelId: model.modelId,
+      description: model.description || '',
+      capabilities: model.capabilities || '',
+      maxTokens: model.maxTokens || 4096,
+      active: model.active,
+      chatEnabled: model.chatEnabled,
+    });
+  }, []);
+
+  // Event handler for delete button
+  const handleDeleteClick = useCallback((id: number) => {
+    onDeleteModel(id);
+  }, [onDeleteModel]);
 
   const columns = useMemo<ColumnDef<SelectAiModel>[]>(
     () => [
       {
         accessorKey: 'name',
-        header: ({ column }) => {
-          return (
-            <Button
-              variant="ghost"
-              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-              className="hover:bg-transparent px-0"
-            >
-              Name
-              {column.getIsSorted() === "asc" ? (
-                <IconChevronUp className="ml-2 h-4 w-4" />
-              ) : column.getIsSorted() === "desc" ? (
-                <IconChevronDown className="ml-2 h-4 w-4" />
-              ) : (
-                <IconSelector className="ml-2 h-4 w-4" />
-              )}
-            </Button>
-          )
-        },
+        header: ({ column }) => <SortableColumnHeader column={column} title="Name" />,
       },
       {
         accessorKey: 'provider',
-        header: ({ column }) => {
-          return (
-            <Button
-              variant="ghost"
-              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-              className="hover:bg-transparent px-0"
-            >
-              Provider
-              {column.getIsSorted() === "asc" ? (
-                <IconChevronUp className="ml-2 h-4 w-4" />
-              ) : column.getIsSorted() === "desc" ? (
-                <IconChevronDown className="ml-2 h-4 w-4" />
-              ) : (
-                <IconSelector className="ml-2 h-4 w-4" />
-              )}
-            </Button>
-          )
-        },
+        header: ({ column }) => <SortableColumnHeader column={column} title="Provider" />,
       },
       {
         accessorKey: 'modelId',
-        header: ({ column }) => {
-          return (
-            <Button
-              variant="ghost"
-              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-              className="hover:bg-transparent px-0"
-            >
-              Model ID
-              {column.getIsSorted() === "asc" ? (
-                <IconChevronUp className="ml-2 h-4 w-4" />
-              ) : column.getIsSorted() === "desc" ? (
-                <IconChevronDown className="ml-2 h-4 w-4" />
-              ) : (
-                <IconSelector className="ml-2 h-4 w-4" />
-              )}
-            </Button>
-          )
-        },
+        header: ({ column }) => <SortableColumnHeader column={column} title="Model ID" />,
       },
       {
         accessorKey: 'description',
-        header: ({ column }) => {
-          return (
-            <Button
-              variant="ghost"
-              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-              className="hover:bg-transparent px-0"
-            >
-              Description
-              {column.getIsSorted() === "asc" ? (
-                <IconChevronUp className="ml-2 h-4 w-4" />
-              ) : column.getIsSorted() === "desc" ? (
-                <IconChevronDown className="ml-2 h-4 w-4" />
-              ) : (
-                <IconSelector className="ml-2 h-4 w-4" />
-              )}
-            </Button>
-          )
-        },
+        header: ({ column }) => <SortableColumnHeader column={column} title="Description" />,
       },
       {
         accessorKey: 'maxTokens',
-        header: ({ column }) => {
-          return (
-            <Button
-              variant="ghost"
-              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-              className="hover:bg-transparent text-right w-full px-0"
-            >
-              Max Tokens
-              {column.getIsSorted() === "asc" ? (
-                <IconChevronUp className="ml-2 h-4 w-4" />
-              ) : column.getIsSorted() === "desc" ? (
-                <IconChevronDown className="ml-2 h-4 w-4" />
-              ) : (
-                <IconSelector className="ml-2 h-4 w-4" />
-              )}
-            </Button>
-          )
-        },
+        header: ({ column }) => (
+          <SortableColumnHeader column={column} title="Max Tokens" className="text-right w-full" />
+        ),
         cell: ({ row }) => {
           const value = row.getValue('maxTokens') as number;
           return <div className="text-right font-mono">{value?.toLocaleString()}</div>;
@@ -271,7 +278,7 @@ export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel
           <div className="text-center">
             <Switch
               checked={row.getValue('active')}
-              onCheckedChange={(checked) => onUpdateModel(row.original.id, { active: checked })}
+              onCheckedChange={(checked) => handleActiveToggle(row.original.id, checked)}
             />
           </div>
         ),
@@ -283,7 +290,7 @@ export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel
           <div className="text-center">
             <Switch
               checked={row.getValue('chatEnabled')}
-              onCheckedChange={(checked) => onUpdateModel(row.original.id, { chatEnabled: checked })}
+              onCheckedChange={(checked) => handleChatEnabledToggle(row.original.id, checked)}
             />
           </div>
         ),
@@ -296,7 +303,7 @@ export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => handleEdit(row.original)}
+              onClick={() => handleEditClick(row.original)}
               className="text-blue-500 hover:text-blue-600"
             >
               <IconEdit size={16} />
@@ -304,7 +311,7 @@ export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => onDeleteModel(row.original.id)}
+              onClick={() => handleDeleteClick(row.original.id)}
               className="text-destructive hover:text-destructive/90"
             >
               <IconTrash size={16} />
@@ -313,7 +320,7 @@ export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel
         ),
       },
     ],
-    [onUpdateModel, onDeleteModel]
+    [SortableColumnHeader, handleActiveToggle, handleChatEnabledToggle, handleEditClick, handleDeleteClick]
   );
 
   const table = useReactTable({
@@ -328,7 +335,7 @@ export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel
     getSortedRowModel: getSortedRowModel(),
   });
 
-  const handleSubmit = () => {
+  const handleSubmit = useCallback(() => {
     if (editingModel) {
       onUpdateModel(editingModel.id, modelData);
       setEditingModel(null);
@@ -337,27 +344,13 @@ export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel
       setShowAddForm(false);
     }
     setModelData(emptyModel);
-  };
+  }, [editingModel, modelData, onUpdateModel, onAddModel]);
 
-  const handleEdit = (model: SelectAiModel) => {
-    setEditingModel(model);
-    setModelData({
-      name: model.name,
-      provider: model.provider,
-      modelId: model.modelId,
-      description: model.description || '',
-      capabilities: model.capabilities || '',
-      maxTokens: model.maxTokens || 4096,
-      active: model.active,
-      chatEnabled: model.chatEnabled,
-    });
-  };
-
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
     setShowAddForm(false);
     setEditingModel(null);
     setModelData(emptyModel);
-  };
+  }, []);
 
   return (
     <div className="space-y-8">
@@ -446,4 +439,4 @@ export function AiModelsTable({ models, onAddModel, onDeleteModel, onUpdateModel
       </div>
     </div>
   );
-} 
+}); 

@@ -14,11 +14,30 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 // Supported file types
 const ALLOWED_FILE_EXTENSIONS = ['.pdf', '.docx', '.txt'];
+const ALLOWED_MIME_TYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain'
+];
 
+// Enhanced file validation schema
 const FileSchema = z.object({
   file: z.instanceof(Blob)
     .refine((file) => file.size <= MAX_FILE_SIZE, {
       message: `File size must be less than ${MAX_FILE_SIZE / (1024 * 1024)}MB`,
+    })
+    .refine((file) => {
+      const fileName = (file as File).name || '';
+      const fileExtension = `.${fileName.split('.').pop()?.toLowerCase()}`;
+      return ALLOWED_FILE_EXTENSIONS.includes(fileExtension);
+    }, {
+      message: `Unsupported file extension. Allowed file types are: ${ALLOWED_FILE_EXTENSIONS.join(', ')}`,
+    })
+    .refine((file) => {
+      const mimeType = (file as File).type;
+      return ALLOWED_MIME_TYPES.includes(mimeType);
+    }, {
+      message: `Unsupported file type. Allowed MIME types are: ${ALLOWED_MIME_TYPES.join(', ')}`,
     })
 });
 
@@ -39,8 +58,8 @@ async function ensureDocumentsBucket() {
     if (!documentsBucketExists) {
       console.log('Documents bucket does not exist, creating it...');
       const { error: createError } = await supabaseAdmin.storage.createBucket('documents', {
-        public: true, // This should make the bucket public by default
-        allowedMimeTypes: ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'],
+        public: false, // Make the bucket private for security
+        allowedMimeTypes: ALLOWED_MIME_TYPES,
         fileSizeLimit: MAX_FILE_SIZE
       });
       
@@ -139,13 +158,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'No file uploaded' }, { status: 400 });
     }
     
-    // Validate file type
+    // Validate file type with a comprehensive approach
+    // 1. Check file extension
     const fileExtension = `.${file.name.split('.').pop()?.toLowerCase()}`;
     if (!ALLOWED_FILE_EXTENSIONS.includes(fileExtension)) {
-      console.log('Unsupported file type:', fileExtension);
+      console.log('Unsupported file extension:', fileExtension);
       return NextResponse.json({ 
         success: false,
-        error: `Unsupported file type. Allowed file types are: ${ALLOWED_FILE_EXTENSIONS.join(', ')}` 
+        error: `Unsupported file extension. Allowed file types are: ${ALLOWED_FILE_EXTENSIONS.join(', ')}` 
+      }, { status: 400 });
+    }
+    
+    // 2. Check MIME type for additional security
+    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+      console.log('Unsupported MIME type:', file.type);
+      return NextResponse.json({ 
+        success: false,
+        error: `Unsupported MIME type. Allowed MIME types are: ${ALLOWED_MIME_TYPES.join(', ')}` 
       }, { status: 400 });
     }
 
@@ -176,8 +205,11 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // Create a unique file path
-    const filePath = `${userId}/${Date.now()}-${file.name}`;
+    // Sanitize file name to prevent path traversal
+    const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9_.-]/g, '_');
+    
+    // Create a safe, unique file path
+    const filePath = `${userId}/${Date.now()}-${sanitizedFileName}`;
     console.log('File path for storage:', filePath);
     
     // Upload file to Supabase Storage
@@ -199,22 +231,22 @@ export async function POST(request: NextRequest) {
 
     console.log('File uploaded successfully to Supabase Storage:', uploadData);
 
-    // Get public URL for the uploaded file
-    let publicUrl: string;
-    const { data: urlData } = supabaseAdmin.storage
+    // Get signed URL for the uploaded file (valid for 1 hour)
+    let fileUrl: string;
+    const { data: urlData, error: urlError } = await supabaseAdmin.storage
       .from('documents')
-      .getPublicUrl(filePath);
+      .createSignedUrl(filePath, 3600); // 1 hour expiration
 
-    if (!urlData || !urlData.publicUrl) {
-      console.error('[Upload API] Step failed: Getting Public URL');
+    if (urlError || !urlData || !urlData.signedUrl) {
+      console.error('[Upload API] Step failed: Getting Signed URL', urlError);
       return NextResponse.json({ 
         success: false,
-        error: 'Failed to get public URL for file' 
+        error: 'Failed to get access URL for file' 
       }, { status: 500 });
     }
 
-    publicUrl = urlData.publicUrl;
-    console.log('Public URL:', publicUrl);
+    fileUrl = urlData.signedUrl;
+    console.log('Signed URL:', fileUrl);
 
     // Process document content for text extraction
     console.log('Extracting text from document...');
@@ -250,10 +282,10 @@ export async function POST(request: NextRequest) {
       document = await saveDocument({
         userId,
         conversationId: null, // Save with null conversationId initially
-        name: file.name,
+        name: sanitizedFileName, // Use the sanitized name
         type: fileType,
         size: file.size,
-        url: publicUrl,
+        url: fileUrl, // Use the signed URL
         // Ensure metadata is stringified if needed by DB schema (jsonb should handle objects)
         metadata: metadata, 
         createdAt: new Date(),

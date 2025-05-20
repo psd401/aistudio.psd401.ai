@@ -1,7 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
-import { db } from '@/lib/db';
-import { conversations, messages } from '@/lib/schema';
+import { db } from '@/db/db';
+import { conversationsTable, messagesTable } from '@/db/schema';
 import { and, eq, asc } from 'drizzle-orm';
 import { Chat } from '../components/Chat';
 import { hasToolAccess } from '@/utils/roles';
@@ -32,11 +32,11 @@ export default async function ConversationPage({ params }: ConversationPageProps
   // First get the conversation
   const [conversation] = await db
     .select()
-    .from(conversations)
+    .from(conversationsTable)
     .where(
       and(
-        eq(conversations.id, conversationId),
-        eq(conversations.clerkId, userId)
+        eq(conversationsTable.id, conversationId),
+        eq(conversationsTable.clerkId, userId)
       )
     );
 
@@ -47,9 +47,9 @@ export default async function ConversationPage({ params }: ConversationPageProps
   // Then get the messages
   const conversationMessages = await db
     .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(messages.createdAt));
+    .from(messagesTable)
+    .where(eq(messagesTable.conversationId, conversationId))
+    .orderBy(asc(messagesTable.createdAt));
 
   return (
     <Chat

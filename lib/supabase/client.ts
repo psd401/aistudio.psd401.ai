@@ -1,9 +1,23 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Create a single supabase client for interacting with your database
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY as string;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string;
+// Validate required environment variables
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+if (!supabaseUrl) {
+  console.error('NEXT_PUBLIC_SUPABASE_URL environment variable is not set');
+  throw new Error('Supabase URL is required');
+}
+
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+if (!supabaseAnonKey) {
+  console.error('SUPABASE_ANON_KEY environment variable is not set');
+  throw new Error('Supabase anonymous key is required');
+}
+
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!supabaseServiceKey) {
+  console.error('SUPABASE_SERVICE_ROLE_KEY environment variable is not set');
+  throw new Error('Supabase service role key is required');
+}
 
 // Client with anonymous key for client-side usage
 export const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);

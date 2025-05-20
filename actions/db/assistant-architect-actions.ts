@@ -26,15 +26,17 @@ import {
   type SelectAiModel,
   jobStatusEnum
 } from "@/db/schema"
-import { ActionState } from "@/types"
-import { eq, and, asc, inArray } from "drizzle-orm"
-import { auth } from "@clerk/nextjs/server"
-import { hasRole, getUserTools } from "@/utils/roles"
-import { generateCompletion } from "@/lib/ai-helpers"
-import { generateToolIdentifier } from "@/lib/utils"
-import { v4 as uuidv4 } from "uuid"
-import { ExecutionResultDetails } from "@/types/assistant-architect-types"
-import { createJobAction, updateJobAction } from "@/actions/db/jobs-actions"
+import { auth } from "@clerk/nextjs/server";
+import { eq, and, asc, inArray } from "drizzle-orm";
+import { v4 as uuidv4 } from "uuid";
+
+import { createJobAction, updateJobAction } from "@/actions/db/jobs-actions";
+import { generateCompletion } from "@/lib/ai-helpers";
+import { createError, handleError, createSuccess } from "@/lib/error-utils";
+import { generateToolIdentifier } from "@/lib/utils";
+import { ActionState, ErrorLevel } from "@/types";
+import { ExecutionResultDetails } from "@/types/assistant-architect-types";
+import { hasRole, getUserTools } from "@/utils/roles";
 
 // Use inline type for architect with relations
 type ArchitectWithRelations = SelectAssistantArchitect & {
@@ -58,7 +60,10 @@ export async function createAssistantArchitectAction(
   try {
     const { userId } = await auth()
     if (!userId) {
-      return { isSuccess: false, message: "Unauthorized" }
+      throw createError("Unauthorized", {
+        code: "UNAUTHORIZED",
+        level: ErrorLevel.WARN
+      });
     }
 
     const [architect] = await db
@@ -69,14 +74,11 @@ export async function createAssistantArchitectAction(
       })
       .returning()
 
-    return {
-      isSuccess: true,
-      message: "Assistant architect created successfully",
-      data: architect
-    }
+    return createSuccess(architect, "Assistant architect created successfully");
   } catch (error) {
-    console.error("Error creating assistant architect:", error)
-    return { isSuccess: false, message: "Failed to create assistant architect" }
+    return handleError(error, "Failed to create assistant architect", {
+      context: "createAssistantArchitectAction"
+    });
   }
 }
 
@@ -94,17 +96,11 @@ export async function getAssistantArchitectsAction(): Promise<
       }
     })
 
-    return {
-      isSuccess: true,
-      message: "Assistant architects retrieved successfully",
-      data: architects
-    }
+    return createSuccess(architects, "Assistant architects retrieved successfully");
   } catch (error) {
-    console.error("Error getting assistant architects:", error)
-    return {
-      isSuccess: false,
-      message: "Failed to get assistant architects"
-    }
+    return handleError(error, "Failed to get assistant architects", {
+      context: "getAssistantArchitectsAction"
+    });
   }
 }
 
@@ -121,20 +117,18 @@ export async function getAssistantArchitectByIdAction(
     })
 
     if (!architect) {
-      return {
-        isSuccess: false,
-        message: "Assistant architect not found"
-      }
+      throw createError("Assistant architect not found", {
+        code: "NOT_FOUND",
+        level: ErrorLevel.WARN,
+        details: { id }
+      });
     }
 
-    return {
-      isSuccess: true,
-      message: "Assistant architect retrieved successfully",
-      data: architect
-    }
+    return createSuccess(architect, "Assistant architect retrieved successfully");
   } catch (error) {
-    console.error("Error getting assistant architect:", error)
-    return { isSuccess: false, message: "Failed to get assistant architect" }
+    return handleError(error, "Failed to get assistant architect", {
+      context: "getAssistantArchitectByIdAction"
+    });
   }
 }
 
@@ -162,17 +156,20 @@ export async function getPendingAssistantArchitectsAction(): Promise<
     // Then, for each tool, get its input fields and prompts
     const toolsWithRelations = await Promise.all(
       pendingTools.map(async (tool) => {
-        const inputFields = await db
-          .select()
-          .from(toolInputFieldsTable)
-          .where(eq(toolInputFieldsTable.toolId, tool.id))
-          .orderBy(asc(toolInputFieldsTable.position));
-
-        const prompts = await db
-          .select()
-          .from(chainPromptsTable)
-          .where(eq(chainPromptsTable.toolId, tool.id))
-          .orderBy(asc(chainPromptsTable.position));
+        // Run input fields and prompts queries in parallel
+        const [inputFields, prompts] = await Promise.all([
+          db
+            .select()
+            .from(toolInputFieldsTable)
+            .where(eq(toolInputFieldsTable.toolId, tool.id))
+            .orderBy(asc(toolInputFieldsTable.position)),
+            
+          db
+            .select()
+            .from(chainPromptsTable)
+            .where(eq(chainPromptsTable.toolId, tool.id))
+            .orderBy(asc(chainPromptsTable.position))
+        ]);
 
         return {
           ...tool,
@@ -884,11 +881,22 @@ export async function executeAssistantArchitectAction({
   
   try {
     const { userId } = await auth()
-    if (!userId) throw new Error("Unauthorized");
+    if (!userId) {
+      throw createError("Unauthorized", {
+        code: "UNAUTHORIZED",
+        level: ErrorLevel.WARN
+      });
+    }
 
     // First get the tool to check if it exists and user has access
     const toolResult = await getAssistantArchitectByIdAction(toolId)
-    if (!toolResult.isSuccess || !toolResult.data) throw new Error("Tool not found");
+    if (!toolResult.isSuccess || !toolResult.data) {
+      throw createError("Tool not found", {
+        code: "NOT_FOUND",
+        level: ErrorLevel.ERROR,
+        details: { toolId }
+      });
+    }
     const tool = toolResult.data;
     
     // Check if user has permission to execute this tool
@@ -896,7 +904,11 @@ export async function executeAssistantArchitectAction({
     // 1. Tool is approved (for all users with access)
     // 2. Tool is in development and user is the creator (for testing)
     if (tool.status !== "approved" && tool.creatorId !== userId) {
-      throw new Error("You don't have permission to execute this tool");
+      throw createError("You don't have permission to execute this tool", {
+        code: "FORBIDDEN",
+        level: ErrorLevel.WARN,
+        details: { toolId, userId, status: tool.status }
+      });
     }
 
     // Create a job to track this execution
@@ -908,7 +920,11 @@ export async function executeAssistantArchitectAction({
     });
 
     if (!jobResult.isSuccess) {
-      throw new Error("Failed to create job");
+      throw createError("Failed to create execution job", {
+        code: "INTERNAL_ERROR",
+        level: ErrorLevel.ERROR,
+        details: { toolId }
+      });
     }
 
     // Start the execution in the background
@@ -916,15 +932,11 @@ export async function executeAssistantArchitectAction({
       console.error(`[EXEC:${jobResult.data.id}] Background execution failed:`, error);
     });
 
-    return {
-      isSuccess: true,
-      message: "Execution started",
-      data: { jobId: jobResult.data.id }
-    };
+    return createSuccess({ jobId: jobResult.data.id }, "Execution started");
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : "Unknown error";
-    console.error(`[EXEC] Failed to start execution:`, errorMsg);
-    return { isSuccess: false, message: errorMsg };
+    return handleError(error, "Failed to execute assistant architect", {
+      context: "executeAssistantArchitectAction"
+    });
   }
 }
 
@@ -1254,10 +1266,15 @@ export async function submitAssistantArchitectForApprovalAction(
 export async function getExecutionResultsAction(
   executionId: string
 ): Promise<ActionState<ExecutionResultDetails>> {
-  const { userId } = await auth()
-  if (!userId) return { isSuccess: false, message: "Unauthorized" }
-  
   try {
+    const { userId } = await auth()
+    if (!userId) {
+      throw createError("Unauthorized", {
+        code: "UNAUTHORIZED",
+        level: ErrorLevel.WARN
+      });
+    }
+    
     const execution = await db.query.toolExecutions.findFirst({
       where: and(eq(toolExecutionsTable.id, executionId), eq(toolExecutionsTable.userId, userId)),
       with: {
@@ -1266,8 +1283,11 @@ export async function getExecutionResultsAction(
     });
     
     if (!execution) {
-      console.log(`[RESULTS] Execution ${executionId} not found or access denied.`);
-      return { isSuccess: false, message: "Execution not found or access denied" }
+      throw createError("Execution not found or access denied", {
+        code: "NOT_FOUND",
+        level: ErrorLevel.WARN,
+        details: { executionId }
+      });
     }
 
     // Map prompt results to ensure consistency
@@ -1290,14 +1310,11 @@ export async function getExecutionResultsAction(
         promptResults: mappedResults as SelectPromptResult[]
     };
 
-    return {
-      isSuccess: true,
-      message: "Execution status retrieved",
-      data: returnData
-    }
+    return createSuccess(returnData, "Execution status retrieved");
   } catch (error) {
-     console.error(`[RESULTS] Error getting results for ${executionId}: ${error}`)
-    return { isSuccess: false, message: "Failed to get execution results" }
+    return handleError(error, "Failed to get execution results", {
+      context: "getExecutionResultsAction"
+    });
   }
 }
 
@@ -1414,17 +1431,20 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
     // Get related data for each tool
     const toolsWithRelations = await Promise.all(
       approvedTools.map(async (tool) => {
-        const inputFields = await db
-          .select()
-          .from(toolInputFieldsTable)
-          .where(eq(toolInputFieldsTable.toolId, tool.id))
-          .orderBy(asc(toolInputFieldsTable.position));
-
-        const prompts = await db
-          .select()
-          .from(chainPromptsTable)
-          .where(eq(chainPromptsTable.toolId, tool.id))
-          .orderBy(asc(chainPromptsTable.position));
+        // Run input fields and prompts queries in parallel
+        const [inputFields, prompts] = await Promise.all([
+          db
+            .select()
+            .from(toolInputFieldsTable)
+            .where(eq(toolInputFieldsTable.toolId, tool.id))
+            .orderBy(asc(toolInputFieldsTable.position)),
+            
+          db
+            .select()
+            .from(chainPromptsTable)
+            .where(eq(chainPromptsTable.toolId, tool.id))
+            .orderBy(asc(chainPromptsTable.position))
+        ]);
 
         return {
           ...tool,

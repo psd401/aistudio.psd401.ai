@@ -1,6 +1,7 @@
 "use client"
 
 import ReactMarkdown from 'react-markdown'
+import rehypeSanitize from 'rehype-sanitize'
 import { cn } from '@/lib/utils'
 
 interface MarkdownProps {
@@ -12,6 +13,7 @@ export function Markdown({ content, className }: MarkdownProps) {
   return (
     <div className={cn("prose prose-slate dark:prose-invert max-w-none break-words whitespace-pre-wrap", className)}>
       <ReactMarkdown
+        rehypePlugins={[rehypeSanitize]} // Add sanitization to prevent XSS attacks
         components={{
           h1: ({ children }) => <h1 className="text-2xl font-bold mb-4 break-words">{children}</h1>,
           h2: ({ children }) => <h2 className="text-xl font-bold mb-3 break-words">{children}</h2>,
@@ -34,6 +36,17 @@ export function Markdown({ content, className }: MarkdownProps) {
             <pre className="bg-slate-100 dark:bg-slate-800 rounded p-4 overflow-x-auto mb-2 whitespace-pre-wrap break-words">
               {children}
             </pre>
+          ),
+          // Ensure links open in new tabs and have security attributes
+          a: ({ children, ...props }) => (
+            <a 
+              {...props} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              {children}
+            </a>
           )
         }}
       >

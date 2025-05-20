@@ -12,6 +12,12 @@ interface ChatInputProps {
   isLoading: boolean
   disabled?: boolean
   placeholder?: string
+  /** Accessibility label for the input field */
+  ariaLabel?: string
+  /** ID for the textarea element */
+  inputId?: string
+  /** Accessibility label for the send button */
+  sendButtonAriaLabel?: string
 }
 
 export function ChatInput({
@@ -20,7 +26,10 @@ export function ChatInput({
   handleSubmit,
   isLoading,
   disabled = false,
-  placeholder = "Type a message..."
+  placeholder = "Type a message...",
+  ariaLabel = "Message input",
+  inputId = "chat-message-input",
+  sendButtonAriaLabel = "Send message"
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -43,6 +52,8 @@ export function ChatInput({
     <form onSubmit={handleSubmit} className="relative flex-1">
       <Textarea
         ref={textareaRef}
+        id={inputId}
+        name="message"
         value={input}
         onChange={handleInputChange}
         onKeyDown={handleKeyDown}
@@ -50,15 +61,21 @@ export function ChatInput({
         disabled={disabled || isLoading}
         className="min-h-[44px] w-full resize-none bg-background px-4 py-2.5 pr-12"
         rows={1}
+        aria-label={ariaLabel}
+        aria-disabled={disabled || isLoading}
+        aria-multiline="true"
+        aria-required="true"
       />
       <Button
         type="submit"
         size="icon"
         disabled={disabled || isLoading || !input.trim()}
         className="absolute right-2 top-1.5 h-8 w-8"
+        aria-label={sendButtonAriaLabel}
+        aria-disabled={disabled || isLoading || !input.trim()}
       >
         <Send className="h-4 w-4" />
-        <span className="sr-only">Send message</span>
+        <span className="sr-only">{sendButtonAriaLabel}</span>
       </Button>
     </form>
   )

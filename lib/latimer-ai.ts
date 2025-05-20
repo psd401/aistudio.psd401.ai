@@ -12,20 +12,10 @@ export async function generateLatimierCompletion(
   systemPrompt: string,
   userPrompt: string
 ): Promise<LatimierAIResponse> {
-  console.log("Latimer config:", { 
-    hasKey: !!config.apiKey,
-    keyLength: config.apiKey?.length,
-    keyType: typeof config.apiKey,
-    keyFirstChar: config.apiKey?.[0],
-    keyLastChar: config.apiKey?.[config.apiKey.length - 1]
-  })
+  console.log("Initializing Latimer AI client")
 
   if (!config.apiKey || typeof config.apiKey !== 'string' || config.apiKey.trim() === '') {
-    console.error("API key validation failed:", {
-      exists: !!config.apiKey,
-      type: typeof config.apiKey,
-      isEmpty: config.apiKey?.trim() === ''
-    })
+    console.error("Latimer API key validation failed")
     throw new Error("API key is required for execution")
   }
 
@@ -46,10 +36,7 @@ export async function generateLatimierCompletion(
       status: response.status,
       statusText: response.statusText,
       responseText: text,
-      requestBody: {
-        apiKey: "***" + config.apiKey.slice(-4),
-        messageLength: `${systemPrompt}\n\nUser Input: ${userPrompt}`.length
-      },
+      messageLength: `${systemPrompt}\n\nUser Input: ${userPrompt}`.length,
       headers: Object.fromEntries(response.headers.entries())
     })
 

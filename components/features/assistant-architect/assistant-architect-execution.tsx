@@ -15,7 +15,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, memo } from "react"
 import { useToast } from "@/components/ui/use-toast"
 import { executeAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { getJobAction } from "@/actions/db/jobs-actions"
@@ -35,7 +35,7 @@ interface AssistantArchitectExecutionProps {
   isPreview?: boolean
 }
 
-export function AssistantArchitectExecution({ tool, isPreview = false }: AssistantArchitectExecutionProps) {
+export const AssistantArchitectExecution = memo(function AssistantArchitectExecution({ tool, isPreview = false }: AssistantArchitectExecutionProps) {
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
   const [isPolling, setIsPolling] = useState(false)
@@ -87,7 +87,7 @@ export function AssistantArchitectExecution({ tool, isPreview = false }: Assista
     }, {})
   })
 
-  const onSubmit = async (values: z.infer<typeof formSchema>) => {
+  const onSubmit = useCallback(async (values: z.infer<typeof formSchema>) => {
     setIsLoading(true)
     setResults(null)
     setError(null)
@@ -123,10 +123,10 @@ export function AssistantArchitectExecution({ tool, isPreview = false }: Assista
       })
       setIsLoading(false)
     }
-  }
+  }, [setIsLoading, setResults, setError, tool.id, toast])
 
   // Update the form values type
-  function safeJsonParse(jsonString: string | null | undefined): Record<string, unknown> | null {
+  const safeJsonParse = useCallback((jsonString: string | null | undefined): Record<string, unknown> | null => {
     if (!jsonString) return null;
     try {
       return JSON.parse(jsonString) as Record<string, unknown>;
@@ -137,7 +137,7 @@ export function AssistantArchitectExecution({ tool, isPreview = false }: Assista
       console.error("Failed to parse JSON:", e);
       return null;
     }
-  }
+  }, [])
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout | null = null
@@ -145,12 +145,15 @@ export function AssistantArchitectExecution({ tool, isPreview = false }: Assista
     const MAX_RETRIES = 120
     const BACKOFF_THRESHOLD = 20
     let currentInterval = 3000
+    let isMounted = true // Flag to track if the component is still mounted
 
     async function pollJob() {
-      if (!jobId) return
+      if (!jobId || !isMounted) return
       
       try {
         const result = await getJobAction(jobId)
+        // Check if component is still mounted before updating state
+        if (!isMounted) return
         retryCount++
 
         if (result.isSuccess && result.data) {
@@ -293,27 +296,28 @@ export function AssistantArchitectExecution({ tool, isPreview = false }: Assista
     }
 
     return () => {
+      isMounted = false; // Mark as unmounted
       if (intervalId) {
-        clearInterval(intervalId)
+        clearInterval(intervalId);
       }
     }
   }, [isPolling, jobId, tool.id, toast, form])
 
-  const togglePromptExpand = (promptResultId: string) => {
+  const togglePromptExpand = useCallback((promptResultId: string) => {
     setExpandedPrompts(prev => ({
       ...prev,
       [promptResultId]: !prev[promptResultId]
     }))
-  }
+  }, [])
 
-  const toggleInputExpand = (promptResultId: string) => {
+  const toggleInputExpand = useCallback((promptResultId: string) => {
     setExpandedInputs(prev => ({
       ...prev,
       [promptResultId]: !prev[promptResultId]
     }))
-  }
+  }, [])
 
-  const copyToClipboard = async (text: string | null | undefined) => {
+  const copyToClipboard = useCallback(async (text: string | null | undefined) => {
     if (!text) {
        toast({ description: "Nothing to copy", duration: 1500 });
        return;
@@ -331,51 +335,64 @@ export function AssistantArchitectExecution({ tool, isPreview = false }: Assista
         variant: "destructive"
       })
     }
-  }
+  }, [toast])
+
+  // Memoized components for better performance
+  const ToolHeader = memo(({ tool }: { tool: AssistantArchitectWithRelations }) => (
+    <div>
+      <div className="flex items-start gap-4">
+        {tool.imagePath && (
+          <div className="relative w-32 h-32 rounded-xl overflow-hidden flex-shrink-0 bg-muted/20 p-1">
+            <div className="relative w-full h-full rounded-lg overflow-hidden ring-1 ring-black/10">
+              <Image
+                src={`/assistant_logos/${tool.imagePath}`}
+                alt={tool.name}
+                fill
+                className="object-cover"
+              />
+            </div>
+          </div>
+        )}
+        <div>
+          <h2 className="text-2xl font-bold">{tool.name}</h2>
+          <p className="text-muted-foreground">{tool.description}</p>
+        </div>
+      </div>
+      <div className="h-px bg-border mt-6" />
+    </div>
+  ));
+
+  const ErrorAlert = memo(({ errorMessage }: { errorMessage: string }) => (
+    <Alert variant="destructive">
+      <AlertCircle className="h-4 w-4" />
+      <AlertTitle>Execution Error</AlertTitle>
+      <AlertDescription className="mt-2 text-sm">
+        {errorMessage}
+      </AlertDescription>
+    </Alert>
+  ));
+
+  const ResultsErrorAlert = memo(({ status, errorMessage }: { status: string, errorMessage: string }) => (
+    <Alert variant={status === 'failed' ? "destructive" : "warning"}>
+      <AlertCircle className="h-4 w-4" />
+      <AlertTitle>{status === 'failed' ? 'Execution Failed' : 'Execution Warning'}</AlertTitle>
+      <AlertDescription className="mt-2 text-sm">
+        {errorMessage}
+      </AlertDescription>
+    </Alert>
+  ));
 
   return (
     <div className="space-y-6">
-      <div>
-        <div className="flex items-start gap-4">
-          {tool.imagePath && (
-            <div className="relative w-32 h-32 rounded-xl overflow-hidden flex-shrink-0 bg-muted/20 p-1">
-              <div className="relative w-full h-full rounded-lg overflow-hidden ring-1 ring-black/10">
-                <Image
-                  src={`/assistant_logos/${tool.imagePath}`}
-                  alt={tool.name}
-                  fill
-                  className="object-cover"
-                />
-              </div>
-            </div>
-          )}
-          <div>
-            <h2 className="text-2xl font-bold">{tool.name}</h2>
-            <p className="text-muted-foreground">{tool.description}</p>
-          </div>
-        </div>
-        <div className="h-px bg-border mt-6" />
-      </div>
+      <ToolHeader tool={tool} />
 
       {error && !results?.errorMessage && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Execution Error</AlertTitle>
-          <AlertDescription className="mt-2 text-sm">
-            {error}
-          </AlertDescription>
-        </Alert>
+        <ErrorAlert errorMessage={error} />
       )}
       
       {results?.errorMessage && (
-         <Alert variant={results.status === 'failed' ? "destructive" : "warning"}>
-           <AlertCircle className="h-4 w-4" />
-           <AlertTitle>{results.status === 'failed' ? 'Execution Failed' : 'Execution Warning'}</AlertTitle>
-           <AlertDescription className="mt-2 text-sm">
-             {results.errorMessage}
-           </AlertDescription>
-         </Alert>
-       )}
+        <ResultsErrorAlert status={results.status} errorMessage={results.errorMessage} />
+      )}
 
       <div className="space-y-4">
         <Form {...form}>
@@ -674,4 +691,4 @@ export function AssistantArchitectExecution({ tool, isPreview = false }: Assista
       )}
     </div>
   )
-} 
+});

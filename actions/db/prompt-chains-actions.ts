@@ -926,13 +926,32 @@ export async function rejectPromptChainToolAction(
   }
 }
 
+type PromptExecutionResult = {
+  promptId: string;
+  status: "completed" | "failed";
+  input: Record<string, unknown>;
+  output?: string;
+  error?: string;
+  startTime: Date;
+  endTime: Date;
+  executionTimeMs?: number;
+}
+
+type ExecutionResultData = {
+  id: string;
+  status: "completed" | "failed";
+  results: PromptExecutionResult[];
+  startTime: Date;
+  endTime: Date;
+}
+
 export async function executePromptChainAction({
   toolId,
   inputs
 }: {
   toolId: string
   inputs: Record<string, string | string[]>
-}): Promise<ActionState<any>> {
+}): Promise<ActionState<ExecutionResultData>> {
   try {
     const { userId } = await auth()
     if (!userId) {
@@ -1069,12 +1088,14 @@ export async function executePromptChainAction({
       })
       .where(eq(toolExecutionsTable.id, execution.id))
 
+    const executionStatus = results.some(r => r.status === "failed") ? "failed" : "completed" as const;
+    
     return {
       isSuccess: true,
       message: "Tool executed successfully",
       data: {
         id: execution.id,
-        status: results.some(r => r.status === "failed") ? "failed" : "completed",
+        status: executionStatus,
         results,
         startTime: execution.startedAt,
         endTime: completedAt
