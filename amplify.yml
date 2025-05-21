@@ -22,6 +22,7 @@ applications:
             - echo "GOOGLE_VERTEX_PROJECT_ID=${GOOGLE_VERTEX_PROJECT_ID}" >> .env
             - echo "GOOGLE_VERTEX_LOCATION=${GOOGLE_VERTEX_LOCATION}" >> .env
             - echo "GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS}" >> .env
+            - echo "GITHUB_ISSUE_TOKEN=${GITHUB_ISSUE_TOKEN}" >> .env
             - npm ci --legacy-peer-deps
         build:
           commands:
