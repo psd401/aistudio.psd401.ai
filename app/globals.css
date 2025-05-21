@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@import '@mdxeditor/editor/style.css';
+
 @layer base {
   :root {
     --background: 43 27% 91%; /* Sea Foam */

@@ -44,6 +44,32 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import type { SelectAiModel, SelectChainPrompt, SelectToolInputField } from "@/types"
 import React from "react"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter
+} from "@/components/ui/sheet"
+import dynamic from "next/dynamic"
+import {
+  toolbarPlugin,
+  markdownShortcutPlugin,
+  listsPlugin,
+  headingsPlugin,
+  quotePlugin,
+  thematicBreakPlugin,
+  linkPlugin,
+  linkDialogPlugin,
+  UndoRedo,
+  BoldItalicUnderlineToggles,
+  BlockTypeSelect,
+  ListsToggle,
+  Separator,
+  CreateLink
+} from "@mdxeditor/editor"
+const MDXEditor = dynamic(() => import("@mdxeditor/editor").then(mod => mod.MDXEditor), { ssr: false })
 
 interface InputMapping {
   variableName: string
@@ -72,18 +98,19 @@ function StartNode() {
 // Custom Node Component
 function PromptNode({ data, id }: NodeProps) {
   const handleEdit = () => {
-    data.onEdit(data.prompt)
+    (data.onEdit as any)(data.prompt)
   }
 
   const handleDelete = () => {
-    data.onDelete(id)
+    (data.onDelete as any)(id)
   }
 
+  const d = data as any
   return (
     <div className="min-w-[200px] shadow-lg rounded-lg bg-background border">
       <div className="p-3">
         <div className="flex items-center justify-between mb-2">
-          <div className="font-semibold text-base">{data.name}</div>
+          <div className="font-semibold text-base">{d.name as string}</div>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
@@ -105,7 +132,7 @@ function PromptNode({ data, id }: NodeProps) {
         </div>
 
         <Badge variant="secondary" className="text-xs">
-          {data.modelName}
+          {d.modelName as string}
         </Badge>
       </div>
 
@@ -134,8 +161,8 @@ const Flow = React.forwardRef(({
   onEdit: (prompt: SelectChainPrompt) => void
   onDelete: (id: string) => void
 }, ref: React.Ref<any>) => {
-  const [nodes, setNodes, onNodesChange] = useNodesState([])
-  const [edges, setEdges, _onEdgesChange] = useEdgesState([])
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
+  const [edges, setEdges, _onEdgesChange] = useEdgesState<Edge>([])
   const [isSaving, setIsSaving] = useState(false)
   const reactFlowInstance = useReactFlow()
   const isInitialRender = useRef(true)
@@ -437,21 +464,26 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
     setIsLoading(true)
 
     try {
+      if (!modelId) {
+        toast.error("You must select a model for the prompt.");
+        setIsLoading(false);
+        return;
+      }
       // Create the new prompt
       const result = await addChainPromptAction(
         assistantId,
         {
           name: promptName,
           content: promptContent,
-          systemContext: systemContext || null,
-          modelId: modelId ? parseInt(modelId) : null,
-          position: prompts.length,
+          systemContext: systemContext || undefined,
+          modelId: parseInt(modelId),
+          position: typeof prompts.length === 'number' ? prompts.length : 0,
           inputMapping: inputMappings.length > 0 ? Object.fromEntries(
             inputMappings.map(mapping => [
               mapping.variableName,
               `${mapping.source}.${mapping.sourceId}`
             ])
-          ) : null
+          ) : undefined
         }
       )
 
@@ -468,11 +500,11 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         const updatedResult = await getAssistantArchitectByIdAction(assistantId);
         if (updatedResult.isSuccess && updatedResult.data?.prompts) {
           // Update our local state with the new prompts
-          setPrompts(updatedResult.data.prompts);
+          setPrompts(updatedResult.data.prompts as SelectChainPrompt[]);
           
           // Reset the initialPositionsSet flag to force a re-render of the graph
-          if (initialPositionsSet && initialPositionsSet.current) {
-            initialPositionsSet.current = false;
+          if (reactFlowInstanceRef.current && reactFlowInstanceRef.current.initialPositionsSet) {
+            reactFlowInstanceRef.current.initialPositionsSet = false;
           }
         }
       } else {
@@ -515,17 +547,22 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
     setIsLoading(true)
 
     try {
+      if (!modelId) {
+        toast.error("You must select a model for the prompt.");
+        setIsLoading(false);
+        return;
+      }
       const result = await updatePromptAction(editingPrompt.id, {
         name: promptName,
         content: promptContent,
-        systemContext: systemContext || null,
-        modelId: modelId ? parseInt(modelId) : null,
+        systemContext: systemContext || undefined,
+        modelId: parseInt(modelId),
         inputMapping: inputMappings.length > 0 ? Object.fromEntries(
           inputMappings.map(mapping => [
             mapping.variableName,
             `${mapping.source}.${mapping.sourceId}`
           ])
-        ) : null
+        ) : undefined
       })
 
       if (result.isSuccess) {
@@ -534,9 +571,9 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         setEditingPrompt(null)
         
         // Update the prompts in our local state
-        setPrompts(currentPrompts => 
-          currentPrompts.map(p => 
-            p.id === editingPrompt.id ? result.data : p
+        setPrompts(currentPrompts =>
+          currentPrompts.map(p =>
+            p.id === editingPrompt.id && result.data ? (result.data as SelectChainPrompt) : p
           )
         )
       } else {
@@ -684,22 +721,33 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         </ReactFlowProvider>
       </div>
 
-      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogTrigger asChild>
-          <Button>
-            <PlusIcon className="h-4 w-4 mr-2" />
-            Add Prompt
-          </Button>
-        </DialogTrigger>
-        <DialogContent className="max-w-[900px]">
-          <form onSubmit={handleAddPrompt}>
-            <DialogHeader>
-              <DialogTitle>Add Prompt</DialogTitle>
-              <DialogDescription>
+      <Button onClick={() => {
+        setPromptName("");
+        setPromptContent("");
+        setSystemContext("");
+        setModelId("");
+        setInputMappings([]);
+        setIsAddDialogOpen(true);
+      }}>
+        <PlusIcon className="h-4 w-4 mr-2" />
+        Add Prompt
+      </Button>
+      <Sheet open={isAddDialogOpen} onOpenChange={open => { if (!open) setIsAddDialogOpen(false) }}>
+        <SheetContent
+          position="right"
+          size="content"
+          className="w-[60vw] max-w-none h-screen p-0 flex flex-col"
+          onInteractOutside={e => e.preventDefault()} // Prevent closing by clicking outside
+          onEscapeKeyDown={e => e.preventDefault()} // Prevent closing by escape
+        >
+          <form onSubmit={handleAddPrompt} className="flex flex-col h-full">
+            <SheetHeader className="p-6 pb-0">
+              <SheetTitle>Add Prompt</SheetTitle>
+              <SheetDescription>
                 Create a new prompt for your Assistant Architect.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
+              </SheetDescription>
+            </SheetHeader>
+            <div className="flex-1 overflow-y-auto p-6 pt-2 space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Prompt Name</Label>
                 <Input
@@ -714,7 +762,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
               <div className="space-y-2">
                 <Label htmlFor="model">AI Model</Label>
                 <Select
-                  value={modelId || ""}
+                  value={modelId ?? ""}
                   onValueChange={(value) => setModelId(value)}
                   required
                 >
@@ -799,29 +847,78 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
               </div>
               <div className="space-y-2">
                 <Label htmlFor="content">Prompt Content</Label>
-                <Textarea
-                  id="content"
-                  value={promptContent}
-                  onChange={(e) => setPromptContent(e.target.value)}
-                  placeholder="Enter your prompt content. Use ${variableName} for dynamic values."
-                  rows={5}
-                  required
-                  className="bg-muted"
-                />
+                <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
+                  <MDXEditor
+                    markdown={promptContent}
+                    onChange={v => setPromptContent(v ?? "")}
+                    className="min-h-full bg-[#e5e1d6]"
+                    contentEditableClassName="prose"
+                    placeholder="Enter your prompt content. Use ${variableName} for dynamic values."
+                    plugins={[
+                      toolbarPlugin({
+                        toolbarContents: () => (
+                          <>
+                            <UndoRedo />
+                            <Separator />
+                            <BoldItalicUnderlineToggles />
+                            <Separator />
+                            <BlockTypeSelect />
+                            <Separator />
+                            <ListsToggle />
+                            <Separator />
+                            <CreateLink />
+                          </>
+                        )
+                      }),
+                      markdownShortcutPlugin(),
+                      listsPlugin(),
+                      headingsPlugin(),
+                      quotePlugin(),
+                      thematicBreakPlugin(),
+                      linkPlugin(),
+                      linkDialogPlugin()
+                    ]}
+                  />
+                </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="systemContext">System Context (Optional)</Label>
-                <Textarea
-                  id="systemContext"
-                  value={systemContext}
-                  onChange={(e) => setSystemContext(e.target.value)}
-                  placeholder="Enter system instructions for the AI model."
-                  rows={3}
-                  className="bg-muted"
-                />
+                <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
+                  <MDXEditor
+                    markdown={systemContext}
+                    onChange={v => setSystemContext(v ?? "")}
+                    className="min-h-full bg-[#e5e1d6]"
+                    contentEditableClassName="prose"
+                    placeholder="Enter system instructions for the AI model."
+                    plugins={[
+                      toolbarPlugin({
+                        toolbarContents: () => (
+                          <>
+                            <UndoRedo />
+                            <Separator />
+                            <BoldItalicUnderlineToggles />
+                            <Separator />
+                            <BlockTypeSelect />
+                            <Separator />
+                            <ListsToggle />
+                            <Separator />
+                            <CreateLink />
+                          </>
+                        )
+                      }),
+                      markdownShortcutPlugin(),
+                      listsPlugin(),
+                      headingsPlugin(),
+                      quotePlugin(),
+                      thematicBreakPlugin(),
+                      linkPlugin(),
+                      linkDialogPlugin()
+                    ]}
+                  />
+                </div>
               </div>
             </div>
-            <DialogFooter>
+            <SheetFooter className="p-6 pt-4 bg-[#f6f5ee] border-t flex gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -833,22 +930,26 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
               <Button type="submit" disabled={isLoading}>
                 {isLoading ? "Adding..." : "Add Prompt"}
               </Button>
-            </DialogFooter>
+            </SheetFooter>
           </form>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
 
       {editingPrompt && (
-        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-          <DialogContent className="max-w-[900px]">
-            <form onSubmit={handleEditPrompt}>
-              <DialogHeader>
-                <DialogTitle>Edit Prompt</DialogTitle>
-                <DialogDescription>
-                  Update the prompt configuration.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
+        <Sheet open={isEditDialogOpen} onOpenChange={open => { if (!open) setIsEditDialogOpen(false) }}>
+          <SheetContent
+            position="right"
+            size="content"
+            className="w-[60vw] max-w-none h-screen p-0 flex flex-col"
+            onInteractOutside={e => e.preventDefault()} // Prevent closing by clicking outside
+            onEscapeKeyDown={e => e.preventDefault()} // Prevent closing by escape
+          >
+            <form onSubmit={handleEditPrompt} className="flex flex-col h-full">
+              <SheetHeader className="p-6 pb-0">
+                <SheetTitle>Edit Prompt</SheetTitle>
+                <SheetDescription>Update the prompt configuration.</SheetDescription>
+              </SheetHeader>
+              <div className="flex-1 overflow-y-auto p-6 pt-2 space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="edit-name">Prompt Name</Label>
                   <Input
@@ -863,7 +964,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                 <div className="space-y-2">
                   <Label htmlFor="edit-model">AI Model</Label>
                   <Select
-                    value={modelId || ""}
+                    value={modelId ?? ""}
                     onValueChange={(value) => setModelId(value)}
                     required
                   >
@@ -929,7 +1030,6 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                                   </SelectItem>
                                 ))
                               ) : (
-                                // Only show prompts that come before this one in the execution flow
                                 prompts
                                   .filter(p => p.position < (editingPrompt?.position || 0))
                                   .map(prompt => (
@@ -960,29 +1060,78 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="edit-content">Prompt Content</Label>
-                  <Textarea
-                    id="edit-content"
-                    value={promptContent}
-                    onChange={(e) => setPromptContent(e.target.value)}
-                    placeholder="Enter your prompt content. Use ${variableName} for dynamic values."
-                    rows={5}
-                    required
-                    className="bg-muted"
-                  />
+                  <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
+                    <MDXEditor
+                      markdown={promptContent}
+                      onChange={v => setPromptContent(v ?? "")}
+                      className="min-h-full bg-[#e5e1d6]"
+                      contentEditableClassName="prose"
+                      placeholder="Enter your prompt content. Use ${variableName} for dynamic values."
+                      plugins={[
+                        toolbarPlugin({
+                          toolbarContents: () => (
+                            <>
+                              <UndoRedo />
+                              <Separator />
+                              <BoldItalicUnderlineToggles />
+                              <Separator />
+                              <BlockTypeSelect />
+                              <Separator />
+                              <ListsToggle />
+                              <Separator />
+                              <CreateLink />
+                            </>
+                          )
+                        }),
+                        markdownShortcutPlugin(),
+                        listsPlugin(),
+                        headingsPlugin(),
+                        quotePlugin(),
+                        thematicBreakPlugin(),
+                        linkPlugin(),
+                        linkDialogPlugin()
+                      ]}
+                    />
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="edit-systemContext">System Context (Optional)</Label>
-                  <Textarea
-                    id="edit-systemContext"
-                    value={systemContext}
-                    onChange={(e) => setSystemContext(e.target.value)}
-                    placeholder="Enter system instructions for the AI model."
-                    rows={3}
-                    className="bg-muted"
-                  />
+                  <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
+                    <MDXEditor
+                      markdown={systemContext}
+                      onChange={v => setSystemContext(v ?? "")}
+                      className="min-h-full bg-[#e5e1d6]"
+                      contentEditableClassName="prose"
+                      placeholder="Enter system instructions for the AI model."
+                      plugins={[
+                        toolbarPlugin({
+                          toolbarContents: () => (
+                            <>
+                              <UndoRedo />
+                              <Separator />
+                              <BoldItalicUnderlineToggles />
+                              <Separator />
+                              <BlockTypeSelect />
+                              <Separator />
+                              <ListsToggle />
+                              <Separator />
+                              <CreateLink />
+                            </>
+                          )
+                        }),
+                        markdownShortcutPlugin(),
+                        listsPlugin(),
+                        headingsPlugin(),
+                        quotePlugin(),
+                        thematicBreakPlugin(),
+                        linkPlugin(),
+                        linkDialogPlugin()
+                      ]}
+                    />
+                  </div>
                 </div>
               </div>
-              <DialogFooter>
+              <SheetFooter className="p-6 pt-4 bg-[#f6f5ee] border-t flex gap-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -991,13 +1140,13 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={isLoading}>
+                <Button type="submit" disabled={isLoading} onClick={() => {}}>
                   {isLoading ? "Saving..." : "Save Changes"}
                 </Button>
-              </DialogFooter>
+              </SheetFooter>
             </form>
-          </DialogContent>
-        </Dialog>
+          </SheetContent>
+        </Sheet>
       )}
     </div>
   )
