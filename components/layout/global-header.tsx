@@ -10,8 +10,15 @@ import {
   Sun,
   Globe,
   Bell,
-  Mail
+  Mail,
+  Bug,
+  Check
 } from "lucide-react"
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
+import { Textarea } from "@/components/ui/textarea"
+import { useAuth } from "@clerk/nextjs"
+import { useState } from "react"
+import { createGithubIssueAction } from "@/actions/create-github-issue-action"
 // ... rest of imports ...
 
 export function GlobalHeader() {
@@ -54,15 +61,99 @@ export function GlobalHeader() {
           <Button variant="ghost" size="icon" aria-label="Select Language">
             <Globe className="h-5 w-5" />
           </Button>
-           <Button variant="ghost" size="icon" aria-label="Messages">
+          <Button variant="ghost" size="icon" aria-label="Messages">
             <Mail className="h-5 w-5" />
           </Button>
           <Button variant="ghost" size="icon" aria-label="Notifications">
             <Bell className="h-5 w-5" />
           </Button>
+          {/* Bug Report Dropdown - Only show if authenticated */}
+          {(() => {
+            const { isLoaded, userId } = useAuth();
+            if (!isLoaded || !userId) return null;
+            return <BugReportPopover />
+          })()}
           <UserButton />
         </div>
       </div>
     </header>
+  )
+}
+
+function BugReportPopover() {
+  const [open, setOpen] = useState(false)
+  const [title, setTitle] = useState("")
+  const [description, setDescription] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [success, setSuccess] = useState<{ url: string } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+    setSuccess(null)
+    const res = await createGithubIssueAction({ title, description })
+    setLoading(false)
+    if (res.isSuccess) {
+      setSuccess({ url: res.data.html_url })
+      setTitle("")
+      setDescription("")
+    } else {
+      setError(res.message || "Failed to submit issue.")
+    }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label="Submit Issue">
+          <Bug className="h-5 w-5" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80">
+        {success ? (
+          <div className="flex flex-col items-center space-y-2">
+            <Check className="h-8 w-8 text-green-500" />
+            <div className="text-green-700 font-semibold">Issue submitted!</div>
+            <a
+              href={success.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 underline"
+            >
+              View on GitHub
+            </a>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Title</label>
+              <Input
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                required
+                placeholder="Short summary"
+                disabled={loading}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Description</label>
+              <Textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                required
+                placeholder="Describe the issue or suggestion"
+                disabled={loading}
+              />
+            </div>
+            {error && <div className="text-red-600 text-sm">{error}</div>}
+            <Button type="submit" disabled={loading || !title || !description}>
+              {loading ? "Submitting..." : "Submit"}
+            </Button>
+          </form>
+        )}
+      </PopoverContent>
+    </Popover>
   )
 }
