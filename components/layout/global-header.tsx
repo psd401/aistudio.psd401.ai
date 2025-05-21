@@ -87,13 +87,31 @@ function BugReportPopover() {
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState<{ url: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const { userId } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
     setSuccess(null)
-    const res = await createGithubIssueAction({ title, description })
+
+    // Gather metadata
+    const metadata = [
+      '---',
+      '**Debug Info**',
+      `- Page: ${typeof window !== 'undefined' ? window.location.href : ''}`,
+      `- User ID: ${userId || ''}`,
+      `- User Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : ''}`,
+      `- Platform: ${typeof navigator !== 'undefined' ? navigator.platform : ''}`,
+      `- Screen: ${typeof window !== 'undefined' ? `${window.screen.width}x${window.screen.height}` : ''}`,
+      `- Timestamp: ${new Date().toISOString()}`,
+      `- Locale: ${typeof navigator !== 'undefined' ? (navigator.language || (navigator.languages && navigator.languages[0]) || '') : ''}`,
+      `- Referrer: ${typeof document !== 'undefined' ? document.referrer : ''}`
+    ].join('\n')
+
+    const fullDescription = `${description}\n\n${metadata}`
+
+    const res = await createGithubIssueAction({ title, description: fullDescription })
     setLoading(false)
     if (res.isSuccess) {
       setSuccess({ url: res.data.html_url })
