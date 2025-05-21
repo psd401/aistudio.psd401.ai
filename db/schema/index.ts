@@ -18,9 +18,6 @@ export * from './communication-analysis-schema';
 // Meta prompting schemas
 export * from './meta-prompting-schema';
 
-// Political wording schemas
-export * from './political-wording-schema';
-
 // Document schemas
 export * from './documents-schema';
 

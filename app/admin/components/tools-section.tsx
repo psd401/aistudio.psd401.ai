@@ -10,8 +10,6 @@ import { AccessControlManagerClientWrapper } from "@/components/features/communi
 import { ModelsManagerClientWrapper } from "@/components/features/communication-analysis/models-manager-client-wrapper"
 import { TechniquesManagerClientWrapper } from "@/components/features/meta-prompting/techniques-manager-client-wrapper"
 import { TemplatesManagerClientWrapper } from "@/components/features/meta-prompting/templates-manager-client-wrapper"
-import { PromptManagerClientWrapper } from "@/components/features/political-wording/prompt-manager-client-wrapper"
-import { ContextManagerClientWrapper } from "@/components/features/political-wording/context-manager-client-wrapper"
 
 interface ToolSection {
   id: string
@@ -63,23 +61,6 @@ const tools: Tool[] = [
         id: "templates",
         name: "Templates",
         component: () => <TemplatesManagerClientWrapper />
-      }
-    ]
-  },
-  {
-    id: "political-wording",
-    name: "Political Wording",
-    description: "Configure prompts and contexts for political wording analysis",
-    sections: [
-      {
-        id: "prompts",
-        name: "Prompts",
-        component: () => <PromptManagerClientWrapper />
-      },
-      {
-        id: "contexts",
-        name: "Contexts",
-        component: () => <ContextManagerClientWrapper />
       }
     ]
   }
