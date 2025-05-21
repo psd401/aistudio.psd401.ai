@@ -26,7 +26,7 @@ const faqItems = [
   },
   {
     question: "Where can I get help if I'm having issues?",
-    answer: "For technical support, contact the IT Help Desk through Teams or email support@psd401.net. For questions about using the AI tools in your classroom, reach out to your building's Digital Learning Coach."
+    answer: "For technical support, contact the IT Help Desk through Teams or email servicecentral@psd401.net. For questions about using the AI tools in your classroom, reach out to your building's Digital Learning Coach."
   }
 ];
 
