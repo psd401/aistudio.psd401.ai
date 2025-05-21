@@ -22,7 +22,7 @@ const faqItems = [
   },
   {
     question: "Can I request a new AI tool for my classroom?",
-    answer: "Absolutely! We welcome suggestions from our educators. Use the 'Request Feature' form in your dashboard to submit ideas for new AI tools that could benefit your teaching practice."
+    answer: "Absolutely! We welcome suggestions from our educators. Use the 'Ideas' tool in the navigation on the left to submit ideas for new AI tools that could benefit your teaching practice."
   },
   {
     question: "Where can I get help if I'm having issues?",
