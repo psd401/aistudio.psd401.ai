@@ -1253,17 +1253,21 @@ export async function submitAssistantArchitectForApprovalAction(
       return { isSuccess: false, message: "Assistant not found" }
     }
 
-    if (tool.userId !== userId) {
+    if (tool.creatorId !== userId) {
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    if (!tool.name || !tool.description || !tool.instructions || !tool.tools.length) {
+    // Fetch input fields and prompts for this tool
+    const inputFields = await db.select().from(toolInputFieldsTable).where(eq(toolInputFieldsTable.toolId, id));
+    const prompts = await db.select().from(chainPromptsTable).where(eq(chainPromptsTable.toolId, id));
+
+    if (!tool.name || !tool.description || inputFields.length === 0 || prompts.length === 0) {
       return { isSuccess: false, message: "Assistant is incomplete" }
     }
 
     await db
       .update(assistantArchitectsTable)
-      .set({ status: "pending" })
+      .set({ status: "pending_approval" })
       .where(eq(assistantArchitectsTable.id, id))
 
     return {

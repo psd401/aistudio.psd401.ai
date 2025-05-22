@@ -25,7 +25,7 @@ export function SubmitForm({ id, tool }: Props) {
       
       if (result.isSuccess) {
         toast.success("Assistant submitted for approval")
-        router.push(`/utilities/assistant-architect/${id}`)
+        router.push(`/utilities/assistant-architect`)
       } else {
         toast.error(result.message)
       }

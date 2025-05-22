@@ -110,54 +110,56 @@ export function AssistantArchitectList({ tools }: AssistantArchitectListProps) {
             </div>
           </CardContent>
 
-          <CardFooter className="flex justify-between mt-auto">
-            <div className="flex gap-2">
-              {tool.status === "approved" ? (
-                <>
-                  <Button variant="outline" size="sm" asChild>
-                    <Link href={`/utilities/assistant-architect/${tool.id}/edit`}>
-                      <Edit className="h-4 w-4 mr-1" />
-                      Edit
-                    </Link>
-                  </Button>
-                  <Button variant="outline" size="sm" asChild>
-                    <Link href={`/tools/assistant-architect/${tool.id}`}>
-                      <Play className="h-4 w-4 mr-1" />
-                      Execute
-                    </Link>
-                  </Button>
-                </>
-              ) : (
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={`/utilities/assistant-architect/${tool.id}/edit`}>
-                    {tool.status === "draft" || tool.status === "rejected" ? (
-                      <>
+          <div className="mt-4">
+            <CardFooter className="flex justify-between mt-auto">
+              <div className="flex gap-2">
+                {tool.status === "approved" ? (
+                  <>
+                    <Button variant="outline" size="sm" asChild>
+                      <Link href={`/utilities/assistant-architect/${tool.id}/edit`}>
                         <Edit className="h-4 w-4 mr-1" />
                         Edit
-                      </>
-                    ) : (
-                      <>
-                        <Eye className="h-4 w-4 mr-1" />
-                        View
-                      </>
-                    )}
-                  </Link>
+                      </Link>
+                    </Button>
+                    <Button variant="outline" size="sm" asChild>
+                      <Link href={`/tools/assistant-architect/${tool.id}`}>
+                        <Play className="h-4 w-4 mr-1" />
+                        Execute
+                      </Link>
+                    </Button>
+                  </>
+                ) : (
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/utilities/assistant-architect/${tool.id}/edit`}>
+                      {tool.status === "draft" || tool.status === "rejected" ? (
+                        <>
+                          <Edit className="h-4 w-4 mr-1" />
+                          Edit
+                        </>
+                      ) : (
+                        <>
+                          <Eye className="h-4 w-4 mr-1" />
+                          View
+                        </>
+                      )}
+                    </Link>
+                  </Button>
+                )}
+              </div>
+
+              {(tool.status === "draft" || tool.status === "rejected") && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => handleDelete(tool.id)}
+                  disabled={isDeleting === tool.id}
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  {isDeleting === tool.id ? "Deleting..." : "Delete"}
                 </Button>
               )}
-            </div>
-
-            {(tool.status === "draft" || tool.status === "rejected") && (
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => handleDelete(tool.id)}
-                disabled={isDeleting === tool.id}
-              >
-                <Trash2 className="h-4 w-4 mr-1" />
-                {isDeleting === tool.id ? "Deleting..." : "Delete"}
-              </Button>
-            )}
-          </CardFooter>
+            </CardFooter>
+          </div>
         </Card>
       ))}
     </div>
