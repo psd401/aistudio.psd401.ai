@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import { addChainPromptAction, deletePromptAction, updatePromptAction, updatePromptPositionAction, getAssistantArchitectByIdAction, setPromptPositionsAction } from "@/actions/db/assistant-architect-actions"
-import { PlusIcon, ArrowUp, ArrowDown, Pencil, Trash2, Plus, X, Play } from "lucide-react"
+import { PlusIcon, ArrowUp, ArrowDown, Pencil, Trash2, Plus, X, Play, Loader2, FileUp } from "lucide-react"
 import {
   ReactFlow,
   MiniMap,
@@ -27,20 +27,11 @@ import {
   Panel
 } from '@xyflow/react'
 import "@xyflow/react/dist/style.css"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger
-} from "@/components/ui/dialog"
+// Dialog components removed - using Sheet instead
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Textarea } from "@/components/ui/textarea"
+
 import { Badge } from "@/components/ui/badge"
 import type { SelectAiModel, SelectChainPrompt, SelectToolInputField } from "@/types"
 import React from "react"
@@ -69,7 +60,10 @@ import {
   Separator,
   CreateLink
 } from "@mdxeditor/editor"
+import PdfUploadButton from "@/components/ui/pdf-upload-button"
 const MDXEditor = dynamic(() => import("@mdxeditor/editor").then(mod => mod.MDXEditor), { ssr: false })
+
+
 
 interface InputMapping {
   variableName: string
@@ -461,6 +455,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
   const reactFlowInstanceRef = useRef<any>(null);
   const [contextTokens, setContextTokens] = useState(0)
   const [promptTokens, setPromptTokens] = useState(0)
+  const [flowKey, setFlowKey] = useState(0)
 
   // When initialPrompts changes (from server), update our local state
   useEffect(() => {
@@ -515,13 +510,8 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         // Get the updated prompts
         const updatedResult = await getAssistantArchitectByIdAction(assistantId);
         if (updatedResult.isSuccess && updatedResult.data?.prompts) {
-          // Update our local state with the new prompts
           setPrompts(updatedResult.data.prompts as SelectChainPrompt[]);
-          
-          // Reset the initialPositionsSet flag to force a re-render of the graph
-          if (reactFlowInstanceRef.current && reactFlowInstanceRef.current.initialPositionsSet) {
-            reactFlowInstanceRef.current.initialPositionsSet = false;
-          }
+          setFlowKey(k => k + 1); // Force Flow remount
         }
       } else {
         toast.error(result.message)
@@ -592,6 +582,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
             p.id === editingPrompt.id && result.data ? (result.data as SelectChainPrompt) : p
           )
         )
+        setFlowKey(k => k + 1); // Force Flow remount
       } else {
         toast.error(result.message)
       }
@@ -653,7 +644,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
       const result = await getAssistantArchitectByIdAction(assistantId)
       let latestPrompt = prompt
       if (result.isSuccess && result.data?.prompts) {
-        const found = result.data.prompts.find((p: SelectChainPrompt) => p.id === prompt.id)
+        const found = result.data.prompts.find((p: any) => p.id === prompt.id) as SelectChainPrompt | undefined
         if (found) latestPrompt = found
       }
       setEditingPrompt(latestPrompt)
@@ -741,6 +732,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
       <div className="h-[600px] border rounded-lg">
         <ReactFlowProvider>
           <Flow
+            key={flowKey}
             assistantId={assistantId}
             prompts={prompts}
             models={models}
@@ -885,38 +877,21 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="systemContext">System Context & Knowledge (Optional)</Label>
+                <div className="flex items-center justify-between mb-1">
+                  <Label htmlFor="systemContext">System Context & Knowledge (Optional)</Label>
+                  <PdfUploadButton onMarkdown={doc => {
+                    setSystemContext(prev => {
+                      const merged = (!prev || prev.trim() === "") ? doc : prev + "\n\n" + doc
+                      return merged
+                    })
+                  }} />
+                </div>
                 <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
-                  <MDXEditor
-                    markdown={systemContext}
-                    onChange={v => setSystemContext(v ?? "")}
-                    className="min-h-full bg-[#e5e1d6]"
-                    contentEditableClassName="prose"
+                  <textarea
+                    value={systemContext}
+                    onChange={(e) => setSystemContext(e.target.value)}
                     placeholder="Enter system instructions, persona, or background knowledge for the AI model."
-                    plugins={[
-                      toolbarPlugin({
-                        toolbarContents: () => (
-                          <>
-                            <UndoRedo />
-                            <Separator />
-                            <BoldItalicUnderlineToggles />
-                            <Separator />
-                            <BlockTypeSelect />
-                            <Separator />
-                            <ListsToggle />
-                            <Separator />
-                            <CreateLink />
-                          </>
-                        )
-                      }),
-                      markdownShortcutPlugin(),
-                      listsPlugin(),
-                      headingsPlugin(),
-                      quotePlugin(),
-                      thematicBreakPlugin(),
-                      linkPlugin(),
-                      linkDialogPlugin()
-                    ]}
+                    className="w-full h-full p-4 bg-[#e5e1d6] resize-none border-none outline-none font-mono text-sm"
                   />
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">
@@ -1107,38 +1082,21 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-systemContext">System Context & Knowledge (Optional)</Label>
+                  <div className="flex items-center justify-between mb-1">
+                    <Label htmlFor="edit-systemContext">System Context & Knowledge (Optional)</Label>
+                    <PdfUploadButton onMarkdown={doc => {
+                      setSystemContext(prev => {
+                        const merged = (!prev || prev.trim() === "") ? doc : prev + "\n\n" + doc
+                        return merged
+                      })
+                    }} />
+                  </div>
                   <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
-                    <MDXEditor
-                      markdown={systemContext}
-                      onChange={v => setSystemContext(v ?? "")}
-                      className="min-h-full bg-[#e5e1d6]"
-                      contentEditableClassName="prose"
+                    <textarea
+                      value={systemContext}
+                      onChange={(e) => setSystemContext(e.target.value)}
                       placeholder="Enter system instructions, persona, or background knowledge for the AI model."
-                      plugins={[
-                        toolbarPlugin({
-                          toolbarContents: () => (
-                            <>
-                              <UndoRedo />
-                              <Separator />
-                              <BoldItalicUnderlineToggles />
-                              <Separator />
-                              <BlockTypeSelect />
-                              <Separator />
-                              <ListsToggle />
-                              <Separator />
-                              <CreateLink />
-                            </>
-                          )
-                        }),
-                        markdownShortcutPlugin(),
-                        listsPlugin(),
-                        headingsPlugin(),
-                        quotePlugin(),
-                        thematicBreakPlugin(),
-                        linkPlugin(),
-                        linkDialogPlugin()
-                      ]}
+                      className="w-full h-full p-4 bg-[#e5e1d6] resize-none border-none outline-none font-mono text-sm"
                     />
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
