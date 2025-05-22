@@ -7,6 +7,7 @@ import { getAiModelsAction } from "@/actions/db/ai-models-actions"
 import { hasToolAccess } from "@/utils/roles"
 import { CreateLayout } from "../../../create/_components/create-layout"
 import { PromptsPageClient } from "./_components/prompts-page-client"
+import Link from "next/link"
 
 export default async function PromptsPage({
   params
@@ -75,6 +76,17 @@ export default async function PromptsPage({
           models={models}
           inputFields={sortedInputFields}
         />
+      </div>
+
+      <div className="flex justify-end mt-8">
+        <Link href={`/utilities/assistant-architect/${id}/edit/preview`}>
+          <button
+            type="button"
+            className="inline-flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-md shadow-sm hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors"
+          >
+            Continue
+          </button>
+        </Link>
       </div>
     </CreateLayout>
   )

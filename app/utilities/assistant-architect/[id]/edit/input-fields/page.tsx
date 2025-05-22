@@ -6,6 +6,7 @@ import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-ac
 import { hasToolAccess } from "@/utils/roles"
 import { CreateLayout } from "../../../create/_components/create-layout"
 import { InputFieldsPageClient } from "./_components/input-fields-page-client"
+import Link from "next/link"
 
 export default async function InputFieldsPage({
   params: { id }
@@ -58,6 +59,17 @@ export default async function InputFieldsPage({
         </p>
 
         <InputFieldsPageClient assistantId={id} inputFields={sortedInputFields} />
+      </div>
+
+      <div className="flex justify-end mt-8">
+        <Link href={`/utilities/assistant-architect/${id}/edit/prompts`}>
+          <button
+            type="button"
+            className="inline-flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-md shadow-sm hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors"
+          >
+            Continue
+          </button>
+        </Link>
       </div>
     </CreateLayout>
   )

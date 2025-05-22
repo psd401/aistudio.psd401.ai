@@ -781,6 +781,15 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <Label>Variable Mappings</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAddInputMapping}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Mapping
+                  </Button>
                 </div>
                 {inputMappings.map((mapping, index) => (
                   <div key={index} className="flex gap-2 items-start">
@@ -794,7 +803,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                       <div className="flex gap-2">
                         <Select
                           value={mapping.source}
-                          onValueChange={(value) => handleUpdateMapping(index, "source", value)}
+                          onValueChange={(value) => handleUpdateMapping(index, "source", value as "input" | "prompt")}
                         >
                           <SelectTrigger className="bg-muted flex-1">
                             <SelectValue placeholder="Select source" />
@@ -819,7 +828,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                                 </SelectItem>
                               ))
                             ) : (
-                              prompts.slice(0, editingPrompt ? prompts.findIndex(p => p.id === editingPrompt.id) : prompts.length).map(prompt => (
+                              prompts.map(prompt => (
                                 <SelectItem key={prompt.id} value={prompt.id}>
                                   {prompt.name}
                                 </SelectItem>
@@ -846,14 +855,14 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="content">Prompt Content</Label>
+                <Label htmlFor="systemContext">System Context & Knowledge (Optional)</Label>
                 <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
                   <MDXEditor
-                    markdown={promptContent}
-                    onChange={v => setPromptContent(v ?? "")}
+                    markdown={systemContext}
+                    onChange={v => setSystemContext(v ?? "")}
                     className="min-h-full bg-[#e5e1d6]"
                     contentEditableClassName="prose"
-                    placeholder="Enter your prompt content. Use ${variableName} for dynamic values."
+                    placeholder="Enter system instructions, persona, or background knowledge for the AI model."
                     plugins={[
                       toolbarPlugin({
                         toolbarContents: () => (
@@ -880,16 +889,19 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                     ]}
                   />
                 </div>
+                <div className="text-xs text-muted-foreground mt-2">
+                  You can reference the system context in your prompt content by saying things like “Given the above context” or “Knowing the persona of this community…”
+                </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="systemContext">System Context (Optional)</Label>
+                <Label htmlFor="content">Prompt Content</Label>
                 <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
                   <MDXEditor
-                    markdown={systemContext}
-                    onChange={v => setSystemContext(v ?? "")}
+                    markdown={promptContent}
+                    onChange={v => setPromptContent(v ?? "")}
                     className="min-h-full bg-[#e5e1d6]"
                     contentEditableClassName="prose"
-                    placeholder="Enter system instructions for the AI model."
+                    placeholder="Enter your prompt content. Use ${variableName} for dynamic values."
                     plugins={[
                       toolbarPlugin({
                         toolbarContents: () => (
@@ -1059,14 +1071,14 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-content">Prompt Content</Label>
+                  <Label htmlFor="edit-systemContext">System Context & Knowledge (Optional)</Label>
                   <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
                     <MDXEditor
-                      markdown={promptContent}
-                      onChange={v => setPromptContent(v ?? "")}
+                      markdown={systemContext}
+                      onChange={v => setSystemContext(v ?? "")}
                       className="min-h-full bg-[#e5e1d6]"
                       contentEditableClassName="prose"
-                      placeholder="Enter your prompt content. Use ${variableName} for dynamic values."
+                      placeholder="Enter system instructions, persona, or background knowledge for the AI model."
                       plugins={[
                         toolbarPlugin({
                           toolbarContents: () => (
@@ -1093,16 +1105,19 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                       ]}
                     />
                   </div>
+                  <div className="text-xs text-muted-foreground mt-2">
+                    You can reference the system context in your prompt content by saying things like “Given the above context” or “Knowing the persona of this community…”
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-systemContext">System Context (Optional)</Label>
+                  <Label htmlFor="edit-content">Prompt Content</Label>
                   <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
                     <MDXEditor
-                      markdown={systemContext}
-                      onChange={v => setSystemContext(v ?? "")}
+                      markdown={promptContent}
+                      onChange={v => setPromptContent(v ?? "")}
                       className="min-h-full bg-[#e5e1d6]"
                       contentEditableClassName="prose"
-                      placeholder="Enter system instructions for the AI model."
+                      placeholder="Enter your prompt content. Use ${variableName} for dynamic values."
                       plugins={[
                         toolbarPlugin({
                           toolbarContents: () => (
