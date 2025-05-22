@@ -647,25 +647,39 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
     }
   }
 
-  const openEditDialog = (prompt: SelectChainPrompt) => {
-    setEditingPrompt(prompt)
-    setPromptName(prompt.name)
-    setPromptContent(prompt.content)
-    setSystemContext(prompt.systemContext || "")
-    setModelId(prompt.modelId ? prompt.modelId.toString() : null)
-    setInputMappings(
-      prompt.inputMapping
-        ? Object.entries(prompt.inputMapping).map(([variableName, mapping]) => {
-            const [source, sourceId] = mapping.split('.')
-            return {
-              variableName,
-              source: source as "input" | "prompt",
-              sourceId
-            }
-          })
-        : []
-    )
-    setIsEditDialogOpen(true)
+  const openEditDialog = async (prompt: SelectChainPrompt) => {
+    setIsLoading(true)
+    try {
+      const result = await getAssistantArchitectByIdAction(assistantId)
+      let latestPrompt = prompt
+      if (result.isSuccess && result.data?.prompts) {
+        const found = result.data.prompts.find((p: SelectChainPrompt) => p.id === prompt.id)
+        if (found) latestPrompt = found
+      }
+      setEditingPrompt(latestPrompt)
+      setPromptName(latestPrompt.name)
+      setPromptContent(latestPrompt.content)
+      setSystemContext(latestPrompt.systemContext || "")
+      setModelId(latestPrompt.modelId ? latestPrompt.modelId.toString() : null)
+      setInputMappings(
+        latestPrompt.inputMapping
+          ? Object.entries(latestPrompt.inputMapping).map(([variableName, mapping]) => {
+              const [source, sourceId] = mapping.split('.')
+              return {
+                variableName,
+                source: source as "input" | "prompt",
+                sourceId
+              }
+            })
+          : []
+      )
+      setIsEditDialogOpen(true)
+    } catch (error) {
+      toast.error("Failed to fetch latest prompt data")
+      setIsEditDialogOpen(true)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleUpdatePositions = async (order: string[]) => {
