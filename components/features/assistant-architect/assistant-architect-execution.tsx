@@ -445,11 +445,19 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                               <SelectValue placeholder={`Select ${field.name}...`} />
                             </SelectTrigger>
                             <SelectContent>
-                              {typeof field.options === "string" ? field.options.split(",").map((option: string) => (
-                                <SelectItem key={option.trim()} value={option.trim()}>
-                                  {option.trim()}
-                                </SelectItem>
-                              )) : null}
+                              {Array.isArray(field.options)
+                                ? field.options.map((option: any) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                      {option.label}
+                                    </SelectItem>
+                                  ))
+                                : typeof field.options === "string"
+                                  ? field.options.split(",").map((option: string) => (
+                                      <SelectItem key={option.trim()} value={option.trim()}>
+                                        {option.trim()}
+                                      </SelectItem>
+                                    ))
+                                  : null}
                             </SelectContent>
                           </Select>
                         ) : (
