@@ -10,14 +10,16 @@ interface Params {
   params: { id: string }
 }
 
-export async function GET(req: NextRequest, { params }: Params) {
+export async function GET(req: NextRequest, context: Params) {
   const { userId } = getAuth(req)
   if (!userId) {
     return new NextResponse("Unauthorized", { status: 401 })
   }
 
   try {
-    const promptId = params.id
+    // Await context.params for Next.js dynamic API routes
+    const resolvedParams = await Promise.resolve(context.params)
+    const promptId = resolvedParams.id
 
     // Find the prompt by ID
     const [prompt] = await db

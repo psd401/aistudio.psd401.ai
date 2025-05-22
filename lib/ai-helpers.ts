@@ -12,6 +12,9 @@ export async function generateCompletion(
   modelConfig: ModelConfig,
   messages: CoreMessage[]
 ) {
+  // Log the full prompt for debugging
+  console.log('[generateCompletion] SENDING TO LLM:', messages.map(m => `\n[${m.role}]\n${m.content}`).join('\n---\n'));
+
   console.log('[generateCompletion] Received messages:', JSON.stringify(messages, null, 2));
 
   switch (modelConfig.provider) {

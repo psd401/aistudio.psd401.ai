@@ -870,6 +870,21 @@ interface PromptExecutionResult {
   executionTimeMs?: number;
 }
 
+// Add a function to decode HTML entities and remove escapes for variable placeholders
+function decodePromptVariables(content: string): string {
+  // Replace HTML entity for $ with $
+  let decoded = content.replace(/&#x24;|&\#36;/g, '$');
+  // Remove backslash escapes before $
+  decoded = decoded.replace(/\\\$/g, '$');
+  // Remove backslash escapes before {
+  decoded = decoded.replace(/\\\{/g, '{');
+  // Remove backslash escapes before }
+  decoded = decoded.replace(/\\\}/g, '}');
+  // Remove backslash escapes before _
+  decoded = decoded.replace(/\\_/g, '_');
+  return decoded;
+}
+
 export async function executeAssistantArchitectAction({
   toolId,
   inputs
@@ -1017,7 +1032,7 @@ async function executeAssistantArchitectJob(
             },
             {
               role: 'user',
-              content: prompt.content.replace(/\${(\w+)}/g, (_match: string, key: string) => {
+              content: decodePromptVariables(prompt.content).replace(/\${(\w+)}/g, (_match: string, key: string) => {
                 const value = promptInputData[key]
                 return value !== undefined ? String(value) : `[Missing value for ${key}]`
               }).trim() || "Please provide input for this prompt."

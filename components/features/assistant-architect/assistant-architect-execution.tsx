@@ -21,7 +21,7 @@ import { executeAssistantArchitectAction } from "@/actions/db/assistant-architec
 import { getJobAction } from "@/actions/db/jobs-actions"
 import { SelectJob, SelectToolInputField } from "@/db/schema"
 import { ExecutionResultDetails, JobOutput, JobPromptResult } from "@/types/assistant-architect-types"
-import { Loader2, Bot, User, Terminal, AlertCircle, ChevronDown, ChevronRight, Copy, ThumbsUp, ThumbsDown } from "lucide-react"
+import { Loader2, Bot, User, Terminal, AlertCircle, ChevronDown, ChevronRight, Copy, ThumbsUp, ThumbsDown, Sparkles } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import ErrorBoundary from "@/components/utilities/error-boundary"
 import type { AssistantArchitectWithRelations } from "@/types/assistant-architect-types"
@@ -44,14 +44,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   const [error, setError] = useState<string | null>(null)
   const [expandedPrompts, setExpandedPrompts] = useState<Record<string, boolean>>({})
   const [expandedInputs, setExpandedInputs] = useState<Record<string, boolean>>({})
-  const [jobStatus, setJobStatus] = useState<string | null>(null)
-  const [jobOutput, setJobOutput] = useState<JobOutput | null>(null)
-  const [jobError, setJobError] = useState<string | null>(null)
-  const [showChat, setShowChat] = useState(false)
-  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null)
-  const [input, setInput] = useState("")
-  const [actualModelId, setActualModelId] = useState<number | null>(null)
-  const [messages, setMessages] = useState<Array<{ id: string; content: string; role: "user" | "assistant" }>>([])
 
   // Define base types for fields first
   const stringSchema = z.string();
@@ -382,6 +374,40 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     </Alert>
   ));
 
+  // 1. Add a utility to reconstruct the processed prompt
+  function getPromptTemplateAndContext(promptId: string) {
+    const prompt = tool.prompts?.find(p => p.id === promptId)
+    return prompt ? { template: prompt.content, context: prompt.systemContext } : { template: '', context: '' }
+  }
+
+  // Add a function to decode HTML entities and remove escapes for variable placeholders
+  function decodePromptVariables(content: string): string {
+    // Replace HTML entity for $ with $
+    let decoded = content.replace(/&#x24;|&\#36;/g, '$');
+    // Remove backslash escapes before $
+    decoded = decoded.replace(/\\\$/g, '$');
+    // Remove backslash escapes before {
+    decoded = decoded.replace(/\\\{/g, '{');
+    // Remove backslash escapes before }
+    decoded = decoded.replace(/\\\}/g, '}');
+    // Remove backslash escapes before _
+    decoded = decoded.replace(/\\_/g, '_');
+    return decoded;
+  }
+
+  function substitutePromptVariables(template: string, inputData: Record<string, any>) {
+    const decodedTemplate = decodePromptVariables(template);
+    return decodedTemplate.replace(/\${(\w+)}/g, (_match, key) => {
+      const value = inputData[key]
+      return value !== undefined ? String(value) : `[Missing value for ${key}]`
+    })
+  }
+
+  // Add display names to memoized components
+  ToolHeader.displayName = "ToolHeader"
+  ErrorAlert.displayName = "ErrorAlert"
+  ResultsErrorAlert.displayName = "ResultsErrorAlert"
+
   return (
     <div className="space-y-6">
       <ToolHeader tool={tool} />
@@ -444,7 +470,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                 {isLoading ? (
                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Running...</>
                 ) : (
-                "Start"
+                <><Sparkles className="mr-2 h-4 w-4" /> Generate</>
                 )}
               </Button>
           </form>
@@ -521,10 +547,31 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                 )}
                               </button>
                               {expandedInputs[promptResult.id] && (
-                                <div className="p-3 bg-muted/20">
-                                  <pre className="text-xs whitespace-pre-wrap break-all font-mono text-muted-foreground">
-                                    {JSON.stringify(promptResult.inputData, null, 2)}
-                                  </pre>
+                                <div className="p-3 bg-muted/20 space-y-4">
+                                  <div>
+                                    <div className="font-semibold text-xs mb-1">Input Data</div>
+                                    <pre className="text-xs whitespace-pre-wrap break-all font-mono text-muted-foreground">
+                                      {JSON.stringify(promptResult.inputData, null, 2)}
+                                    </pre>
+                                  </div>
+                                  <div>
+                                    <div className="font-semibold text-xs mb-1">Processed Prompt</div>
+                                    <pre className="text-xs whitespace-pre-wrap break-all font-mono text-muted-foreground">
+                                      {(() => {
+                                        const { template } = getPromptTemplateAndContext(promptResult.promptId)
+                                        return substitutePromptVariables(template, promptResult.inputData || {})
+                                      })()}
+                                    </pre>
+                                  </div>
+                                  <div>
+                                    <div className="font-semibold text-xs mb-1">System Context</div>
+                                    <pre className="text-xs whitespace-pre-wrap break-all font-mono text-muted-foreground">
+                                      {(() => {
+                                        const { context } = getPromptTemplateAndContext(promptResult.promptId)
+                                        return context || ''
+                                      })()}
+                                    </pre>
+                                  </div>
                                 </div>
                               )}
                             </div>
