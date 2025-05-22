@@ -77,16 +77,22 @@ export function InputFieldsForm({
   // Set form values when editing a field
   useEffect(() => {
     if (editingField) {
+      let parsedOptions: { label: string; value: string }[] = [];
+      if (Array.isArray(editingField.options)) {
+        parsedOptions = editingField.options;
+      } else if (typeof editingField.options === "string") {
+        parsedOptions = editingField.options.split(",").map((opt: string) => ({
+          label: opt.trim(),
+          value: opt.trim(),
+        }));
+      }
       form.reset({
         name: editingField.name,
-        fieldType: editingField.type as any,
+        fieldType: editingField.fieldType as any,
         position: editingField.position,
-        options: editingField.options || []
-      })
-      
-      if (editingField.options?.length) {
-        setOptions(editingField.options)
-      }
+        options: parsedOptions,
+      });
+      setOptions(parsedOptions);
     }
   }, [editingField, form])
 
