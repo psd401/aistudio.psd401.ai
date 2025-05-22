@@ -1017,7 +1017,13 @@ async function executeAssistantArchitectJob(
                 } else {
                   promptInputData[key] = `[Mapping error: Input field '${fieldId}' not found]`;
                 }
+              } else if (value.startsWith('prompt.')) {
+                // New: handle prompt.<id> mapping to previous prompt output
+                const promptId = value.replace('prompt.', '');
+                const previousResult = results.find((r: PromptExecutionResult) => r.promptId === promptId);
+                promptInputData[key] = previousResult?.output ?? `[Mapping error: Result from prompt '${promptId}' not found]`;
               } else {
+                // Legacy: treat as direct prompt id (for backward compatibility)
                 const previousResult = results.find((r: PromptExecutionResult) => r.promptId === value);
                 promptInputData[key] = previousResult?.output ?? `[Mapping error: Result from prompt '${value}' not found]`;
               }
