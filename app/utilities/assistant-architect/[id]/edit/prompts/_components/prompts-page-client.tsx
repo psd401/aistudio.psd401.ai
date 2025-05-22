@@ -439,6 +439,12 @@ const Flow = React.forwardRef(({
   )
 });
 
+// Simple heuristic: 1 token ~ 4 characters (OpenAI guideline)
+function estimateTokens(text: string): number {
+  if (!text) return 0
+  return Math.ceil(text.length / 4)
+}
+
 export function PromptsPageClient({ assistantId, prompts: initialPrompts, models, inputFields }: PromptsPageClientProps) {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -453,11 +459,21 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
   const [prompts, setPrompts] = useState<SelectChainPrompt[]>(initialPrompts)
   const router = useRouter()
   const reactFlowInstanceRef = useRef<any>(null);
+  const [contextTokens, setContextTokens] = useState(0)
+  const [promptTokens, setPromptTokens] = useState(0)
 
   // When initialPrompts changes (from server), update our local state
   useEffect(() => {
     setPrompts(initialPrompts);
   }, [initialPrompts]);
+
+  useEffect(() => {
+    setContextTokens(estimateTokens(systemContext))
+  }, [systemContext])
+
+  useEffect(() => {
+    setPromptTokens(estimateTokens(promptContent))
+  }, [promptContent])
 
   const handleAddPrompt = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -889,8 +905,11 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                     ]}
                   />
                 </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {contextTokens} tokens
+                </div>
                 <div className="text-xs text-muted-foreground mt-2">
-                  You can reference the system context in your prompt content by saying things like “Given the above context” or “Knowing the persona of this community…”
+                  You can reference the system context in your prompt content by saying things like "Given the above context" or "Knowing the persona of this community..."
                 </div>
               </div>
               <div className="space-y-2">
@@ -927,6 +946,9 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                       linkDialogPlugin()
                     ]}
                   />
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {promptTokens} tokens
                 </div>
               </div>
             </div>
@@ -1105,8 +1127,11 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                       ]}
                     />
                   </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {contextTokens} tokens
+                  </div>
                   <div className="text-xs text-muted-foreground mt-2">
-                    You can reference the system context in your prompt content by saying things like “Given the above context” or “Knowing the persona of this community…”
+                    You can reference the system context in your prompt content by saying things like "Given the above context" or "Knowing the persona of this community..."
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -1143,6 +1168,9 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                         linkDialogPlugin()
                       ]}
                     />
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {promptTokens} tokens
                   </div>
                 </div>
               </div>
