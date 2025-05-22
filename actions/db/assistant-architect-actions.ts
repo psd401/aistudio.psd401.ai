@@ -29,6 +29,7 @@ import {
 import { auth } from "@clerk/nextjs/server";
 import { eq, and, asc, inArray } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
+import { CoreMessage } from "ai"
 
 import { createJobAction, updateJobAction } from "@/actions/db/jobs-actions";
 import { generateCompletion } from "@/lib/ai-helpers";
@@ -803,14 +804,17 @@ export async function approveAssistantArchitectAction(
         .where(inArray(rolesTable.name, ["staff", "administrator"]));
       
       if (roles.length > 0) {
-        // Assign the tool to each role
-        const roleToolEntries = roles.map(role => ({
-          roleId: role.id,
-          toolId: finalToolId
-        }));
-        
-        // Insert role-tool assignments
-        await tx.insert(roleToolsTable).values(roleToolEntries);
+        for (const role of roles) {
+          const exists = await tx.query.roleTools.findFirst({
+            where: and(
+              eq(roleToolsTable.roleId, role.id),
+              eq(roleToolsTable.toolId, finalToolId)
+            )
+          });
+          if (!exists) {
+            await tx.insert(roleToolsTable).values({ roleId: role.id, toolId: finalToolId });
+          }
+        }
       }
       
       return {
@@ -914,18 +918,6 @@ export async function executeAssistantArchitectAction({
     }
     const tool = toolResult.data;
     
-    // Check if user has permission to execute this tool
-    // Allow execution if:
-    // 1. Tool is approved (for all users with access)
-    // 2. Tool is in development and user is the creator (for testing)
-    if (tool.status !== "approved" && tool.creatorId !== userId) {
-      throw createError("You don't have permission to execute this tool", {
-        code: "FORBIDDEN",
-        level: ErrorLevel.WARN,
-        details: { toolId, userId, status: tool.status }
-      });
-    }
-
     // Create a job to track this execution
     const jobResult = await createJobAction({
       type: "assistant_architect_execution",
@@ -1031,7 +1023,7 @@ async function executeAssistantArchitectJob(
           }
 
           // Execute the prompt
-          const messages = [
+          const messages: CoreMessage[] = [
             {
               role: 'system',
               content: prompt.systemContext || 'You are a helpful AI assistant.'
@@ -1099,11 +1091,6 @@ async function executeAssistantArchitectJob(
             startTime: promptStartTime,
             endTime: new Date()
           });
-
-          if (!tool.isParallel) {
-            console.log(`[EXEC:${jobId}] Stopping sequential execution due to failure`);
-            throw error;
-          }
         }
       }
 

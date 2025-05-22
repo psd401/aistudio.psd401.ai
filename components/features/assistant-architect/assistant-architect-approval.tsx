@@ -20,6 +20,9 @@ import { Check, X, Edit } from "lucide-react"
 import { SelectAssistantArchitect } from "@/db/schema"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { PreviewPageClient } from "@/app/utilities/assistant-architect/[id]/edit/preview/_components/preview-page-client"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 
 interface AssistantArchitectApprovalProps {
   request: SelectAssistantArchitect & {
@@ -36,6 +39,7 @@ export function AssistantArchitectApproval({
   const [isProcessing, setIsProcessing] = useState(false)
   const [rejectionReason, setRejectionReason] = useState("")
   const [showRejectionForm, setShowRejectionForm] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
   const { toast } = useToast()
   const router = useRouter()
 
@@ -147,6 +151,56 @@ export function AssistantArchitectApproval({
           </Button>
         ) : (
           <>
+            <Dialog open={showDetails} onOpenChange={setShowDetails}>
+              <DialogTrigger asChild>
+                <Button variant="outline" onClick={() => setShowDetails(true)}>
+                  View Details
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-3xl w-full">
+                <DialogHeader>
+                  <DialogTitle>Assistant Preview: {request.name}</DialogTitle>
+                </DialogHeader>
+                <div className="max-h-[70vh] overflow-y-auto">
+                  <Tabs defaultValue="preview">
+                    <TabsList className="mb-4">
+                      <TabsTrigger value="preview">Preview</TabsTrigger>
+                      <TabsTrigger value="prompts">Prompts & Context</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="preview">
+                      <PreviewPageClient assistantId={request.id} tool={request} />
+                    </TabsContent>
+                    <TabsContent value="prompts">
+                      <div className="space-y-6">
+                        {request.prompts.length === 0 ? (
+                          <div className="text-muted-foreground">No prompts defined.</div>
+                        ) : (
+                          request.prompts.map((prompt: any) => (
+                            <div key={prompt.id} className="border rounded-md p-4 bg-muted/10">
+                              <div className="font-semibold text-lg mb-1">{prompt.name}</div>
+                              <div className="mb-2">
+                                <span className="font-medium">Content:</span>
+                                <pre className="whitespace-pre-wrap break-words bg-background p-2 rounded mt-1 text-sm border">
+                                  {prompt.content}
+                                </pre>
+                              </div>
+                              {prompt.systemContext && (
+                                <div className="mt-2">
+                                  <span className="font-medium">System Context:</span>
+                                  <pre className="whitespace-pre-wrap break-words bg-background p-2 rounded mt-1 text-xs border">
+                                    {prompt.systemContext}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </TabsContent>
+                  </Tabs>
+                </div>
+              </DialogContent>
+            </Dialog>
             {showRejectionForm ? (
               <div className="space-y-4 w-full">
                 <Textarea
