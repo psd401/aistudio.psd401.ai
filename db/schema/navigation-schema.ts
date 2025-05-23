@@ -34,5 +34,12 @@ export const navigationItemsRelations = relations(navigationItemsTable, ({ one, 
   })
 }))
 
+// Parent/Child Rules:
+// - Section: can parent links/tools and pages (not other sections)
+// - Page: can parent links/tools (not other pages or sections)
+// - Link/tool: can be child of section or page
+// - Only links/tools that are children of sections or top-level are shown in sidebar
+// - Links/tools that are children of a page are only shown on the page route
+
 export type InsertNavigationItem = typeof navigationItemsTable.$inferInsert
 export type SelectNavigationItem = typeof navigationItemsTable.$inferSelect 

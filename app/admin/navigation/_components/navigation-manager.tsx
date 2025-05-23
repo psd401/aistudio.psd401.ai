@@ -184,15 +184,9 @@ export function NavigationManager() {
     return <div>Loading...</div>
   }
 
-  // Organize items hierarchically and filter based on collapsed state
+  // Organize items hierarchically for admin display (do not filter out any items)
   const organizedItems = organizeItems(items)
-  const flattenedItems = flattenOrganizedItems(organizedItems).filter(item => {
-    // Always show top-level items
-    if (!item.parentId) return true
-    // For child items, check if parent section is expanded
-    const parentSection = items.find(i => i.id === item.parentId)
-    return parentSection && !collapsedSections.has(parentSection.id)
-  })
+  const flattenedItems = flattenOrganizedItems(organizedItems)
 
   return (
     <div className="space-y-6">

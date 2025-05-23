@@ -150,7 +150,9 @@ function NavigationContent({ isExpanded }: { isExpanded: boolean }) {
       };
       
       // If section has a direct link, add it
-      if (section.link) {
+      if (section.type === 'page') {
+        processedSection.link = section.link || `/page/${section.id}`;
+      } else if (section.link) {
         processedSection.link = section.link;
       }
       
@@ -158,7 +160,7 @@ function NavigationContent({ isExpanded }: { isExpanded: boolean }) {
       if (children.length > 0) {
         processedSection.links = children.map(child => ({
           label: child.label,
-          link: child.link || '#',
+          link: child.type === 'page' ? (child.link || `/page/${child.id}`) : (child.link || '#'),
           description: child.description,
           icon: child.icon as IconName,
           color: child.color

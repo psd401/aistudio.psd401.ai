@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation"
 import { createNavigationItemAction, updateNavigationItemAction } from "@/actions/db/navigation-actions"
 import { toast } from "sonner"
 import React from "react"
+import { generateToolIdentifier } from "@/lib/utils"
 
 interface NavigationItemFormProps {
   open: boolean
@@ -39,12 +40,12 @@ const formSchema = z.object({
   position: z.number().optional(),
   isActive: z.boolean().optional()
 }).refine((data) => {
-  if (data.type === "section") {
+  if (data.type === "section" || data.type === "page") {
     return true;
   }
   return data.link && data.link.length > 0;
 }, {
-  message: "Link is required for non-section items",
+  message: "Link is required for links only",
   path: ["link"]
 });
 
@@ -85,9 +86,21 @@ export function NavigationItemForm({
       const navResponse = await fetch("/api/admin/navigation")
       const navData = await navResponse.json()
       if (navData.isSuccess) {
-        setParents(navData.data.filter((item: SelectNavigationItem) => 
-          item.type === "section" && item.id !== initialData?.id
-        ))
+        // Only allow valid parents based on type
+        if (form.getValues("type") === "link") {
+          // Links/tools can be children of section or page
+          setParents(navData.data.filter((item: SelectNavigationItem) => 
+            (item.type === "section" || item.type === "page") && item.id !== initialData?.id
+          ))
+        } else if (form.getValues("type") === "page") {
+          // Pages can only be children of sections
+          setParents(navData.data.filter((item: SelectNavigationItem) => 
+            item.type === "section" && item.id !== initialData?.id
+          ))
+        } else if (form.getValues("type") === "section") {
+          // Sections cannot have parents (top-level only)
+          setParents([])
+        }
       }
 
       // Fetch tools
@@ -108,59 +121,69 @@ export function NavigationItemForm({
     if (open) {
       fetchData()
     }
-  }, [open, initialData?.id])
+  }, [open, initialData?.id, form.getValues("type")])
 
   const onFormSubmit = async (values: FormValues) => {
-    console.log("Form values:", values);
     try {
-      // Generate an ID for new items based on the label
-      const id = initialData?.id || values.label.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      
+      let baseId = initialData?.id || generateToolIdentifier(values.label)
+      let id = baseId
+      let suffix = 2
+      // Ensure uniqueness among all navigation items
+      while (items.some(item => item.id === id && item.id !== initialData?.id)) {
+        id = `${baseId}-${suffix++}`
+      }
+      if (!id) {
+        toast.error("Navigation item ID cannot be empty. Please use a different label.")
+        return
+      }
+      // For pages, set the link to /page/[id]
+      let link = values.link
+      if (values.type === "page") {
+        link = `/page/${id}`
+      }
       // Format the data correctly
       const data = {
         ...values,
         id,
+        link,
         toolId: values.toolId || null,
         parentId: values.parentId || null,
         requiresRole: values.requiresRole || null,
         position: values.position || 0,
         isActive: values.isActive ?? true
-      };
-
+      }
       const response = await fetch('/api/admin/navigation', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(data),
-      });
-
-      const result = await response.json();
-
+      })
+      const result = await response.json()
       if (result.isSuccess) {
-        toast.success(result.message);
-        router.refresh();
-        onSubmit();
-        onOpenChange(false);
-        form.reset();
+        toast.success(result.message)
+        router.refresh()
+        onSubmit()
+        onOpenChange(false)
+        form.reset()
       } else {
-        toast.error(result.message);
+        toast.error(result.message)
       }
     } catch (error) {
-      toast.error("Something went wrong");
+      toast.error("Something went wrong")
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] p-0 sm:max-w-[700px]">
-        <DialogHeader className="sticky top-0 z-50 bg-background p-6 pb-4 border-b">
+      <DialogContent className="h-[90vh] max-h-[90vh] p-0 sm:max-w-[700px] flex flex-col">
+        <DialogHeader className="bg-background p-6 pb-4 border-b">
           <DialogTitle>
             {initialData ? "Edit Navigation Item" : "Add Navigation Item"}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="px-6 pb-6 overflow-y-auto max-h-[calc(90vh-100px)]">
+        <div className="flex-1 overflow-y-auto px-6 pb-6">
           <Form {...form}>
             <form id="navigation-form" onSubmit={form.handleSubmit(onFormSubmit)} className="space-y-4">
               <div className="grid gap-4 py-4">
@@ -395,7 +418,7 @@ export function NavigationItemForm({
           </Form>
         </div>
 
-        <div className="sticky bottom-0 z-50 bg-background p-6 pt-4 border-t">
+        <div className="bg-muted p-4 border-t">
           <div className="flex justify-end gap-2">
             <Button
               type="button"
