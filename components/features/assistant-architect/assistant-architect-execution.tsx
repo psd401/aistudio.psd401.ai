@@ -29,6 +29,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AssistantArchitectChat } from "./assistant-architect-chat"
 import type { SelectPromptResult } from "@/db/schema"
 import Image from "next/image"
+import PdfUploadButton from "@/components/ui/pdf-upload-button"
 
 interface AssistantArchitectExecutionProps {
   tool: AssistantArchitectWithRelations
@@ -57,6 +58,9 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         case "long_text":
         case "select":
         case "multi_select":
+          fieldSchema = stringSchema
+          break
+        case "file_upload":
           fieldSchema = stringSchema
           break
         default:
@@ -460,6 +464,13 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                   : null}
                             </SelectContent>
                           </Select>
+                        ) : field.fieldType === "file_upload" ? (
+                          <PdfUploadButton
+                            label="Upload PDF"
+                            onMarkdown={doc => formField.onChange(doc)}
+                            disabled={isLoading}
+                            className="w-full"
+                          />
                         ) : (
                         <Input
                           placeholder={`Enter ${field.name}...`}

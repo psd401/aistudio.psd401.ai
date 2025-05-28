@@ -20,7 +20,8 @@ export const fieldTypeEnum = pgEnum("field_type", [
   "short_text",
   "long_text",
   "select",
-  "multi_select"
+  "multi_select",
+  "file_upload"
 ])
 
 export const executionStatusEnum = pgEnum("execution_status", [

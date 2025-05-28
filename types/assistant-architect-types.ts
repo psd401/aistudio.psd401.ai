@@ -41,7 +41,7 @@ export interface CreatePromptChainToolForm {
 
 export interface CreateToolInputFieldForm {
   name: string
-  fieldType: "short_text" | "long_text" | "select" | "multi_select"
+  fieldType: "short_text" | "long_text" | "select" | "multi_select" | "file_upload"
   options?: InputFieldOption[]
   position: number
 }

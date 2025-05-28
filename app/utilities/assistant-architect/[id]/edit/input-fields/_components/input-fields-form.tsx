@@ -29,7 +29,7 @@ import type { SelectToolInputField } from "@/types"
 
 const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  fieldType: z.enum(["short_text", "long_text", "select", "multi_select"]),
+  fieldType: z.enum(["short_text", "long_text", "select", "multi_select", "file_upload"]),
   position: z.number().int().min(0),
   options: z.array(
     z.object({
@@ -240,6 +240,7 @@ export function InputFieldsForm({
                       <SelectItem value="long_text">Long Text</SelectItem>
                       <SelectItem value="select">Single Select</SelectItem>
                       <SelectItem value="multi_select">Multi Select</SelectItem>
+                      <SelectItem value="file_upload">File Upload (PDF)</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
