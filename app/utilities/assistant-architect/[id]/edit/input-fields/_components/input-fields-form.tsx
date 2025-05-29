@@ -27,8 +27,20 @@ import * as z from "zod"
 import { addToolInputFieldAction, updateInputFieldAction } from "@/actions/db/assistant-architect-actions"
 import type { SelectToolInputField } from "@/types"
 
-const formSchema = z.object({
-  name: z.string().min(1, "Name is required"),
+const formSchema = (inputFields: SelectToolInputField[], editingField?: SelectToolInputField | null) => z.object({
+  name: z
+    .string()
+    .min(1, "Name is required")
+    .max(24, "Name must be 24 characters or less")
+    .regex(/^[a-z0-9_]+$/, "Name must be a single word, lowercase, and only contain letters, numbers, or underscores (no spaces or special characters)")
+    .refine(
+      (val) => {
+        // Exclude the currently edited field from the duplicate check
+        return !inputFields.some(f => f.name === val && (!editingField || f.id !== editingField.id))
+      },
+      { message: "Name must be unique. Another field with this name already exists." }
+    ),
+  label: z.string().min(1, "Label is required"),
   fieldType: z.enum(["short_text", "long_text", "select", "multi_select", "file_upload"]),
   position: z.number().int().min(0),
   options: z.array(
@@ -63,9 +75,10 @@ export function InputFieldsForm({
   const isEditing = !!editingField
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema(inputFields, editingField)),
     defaultValues: {
       name: "",
+      label: "",
       fieldType: "short_text",
       position: inputFields.length,
       options: []
@@ -88,6 +101,7 @@ export function InputFieldsForm({
       }
       form.reset({
         name: editingField.name,
+        label: editingField.label ?? editingField.name,
         fieldType: editingField.fieldType as any,
         position: editingField.position,
         options: parsedOptions,
@@ -136,6 +150,7 @@ export function InputFieldsForm({
           editingField.id,
           {
             name: values.name,
+            label: values.label,
             fieldType: values.fieldType as any,
             position: values.position,
             options: optionsToSave
@@ -151,6 +166,7 @@ export function InputFieldsForm({
           assistantId,
           {
             name: values.name,
+            label: values.label,
             type: values.fieldType,
             position: values.position,
             options: optionsToSave
@@ -172,6 +188,7 @@ export function InputFieldsForm({
       // Reset form
       form.reset({
         name: "",
+        label: "",
         fieldType: "short_text",
         position: inputFields.length + (isEditing ? 0 : 1),
         options: []
@@ -200,11 +217,28 @@ export function InputFieldsForm({
               <FormItem>
                 <FormLabel>Name</FormLabel>
                 <FormControl>
-                  <Input {...field} placeholder="Enter field name..." />
+                  <Input {...field} placeholder="Enter field name..." onChange={e => field.onChange(e.target.value.toLowerCase())} />
                 </FormControl>
                 <FormMessage />
                 <FormDescription>
-                  Label for this input field
+                  <span className="font-semibold">Short, unique identifier</span> for this field. Use a single lowercase word (e.g. <code>goal</code>, <code>email</code>, <code>age</code>). This is used internally and for variable mapping in prompts. No spaces or special characters.
+                </FormDescription>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="label"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Label</FormLabel>
+                <FormControl>
+                  <Input {...field} placeholder="Enter field label..." />
+                </FormControl>
+                <FormMessage />
+                <FormDescription>
+                  <span className="font-semibold">User-facing label</span> for this field. This can be a longer description or instructions (e.g. <code>Describe your wellness goal in one sentence</code>). Shown to users in forms and variable mapping.
                 </FormDescription>
               </FormItem>
             )}

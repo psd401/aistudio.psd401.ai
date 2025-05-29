@@ -67,7 +67,7 @@ export function InputFieldList({ assistantId, inputFields, onEdit }: InputFieldL
           className="flex items-center justify-between p-4 border rounded-lg bg-card"
         >
           <div className="space-y-1">
-            <div className="font-medium">{field.name}</div>
+            <div className="font-medium">{field.label || field.name}</div>
             <div className="text-sm text-muted-foreground">
               Type: {getDisplayType(field.fieldType)}
             </div>

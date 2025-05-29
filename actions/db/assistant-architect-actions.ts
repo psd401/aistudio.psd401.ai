@@ -276,6 +276,7 @@ export async function addToolInputFieldAction(
     await db.insert(toolInputFieldsTable).values({
       toolId: architectId,
       name: data.name,
+      label: data.label ?? data.name,
       fieldType: data.type as typeof fieldTypeEnum.enumValues[number],
       position: data.position ?? 0,
       options: data.options
@@ -385,7 +386,7 @@ export async function updateInputFieldAction(
     // Update the field
     const [updatedField] = await db
       .update(toolInputFieldsTable)
-      .set(data)
+      .set({ ...data, label: data.label ?? data.name })
       .where(eq(toolInputFieldsTable.id, id))
       .returning()
 

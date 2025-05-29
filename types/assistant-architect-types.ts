@@ -155,4 +155,6 @@ export interface JobPromptResult {
 export interface JobOutput {
   executionId: string
   results: JobPromptResult[]
-} 
+}
+
+// Note: SelectToolInputField includes a 'label' property for user-facing display, in addition to 'name' for internal use. 

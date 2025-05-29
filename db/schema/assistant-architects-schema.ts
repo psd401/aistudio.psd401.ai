@@ -81,7 +81,8 @@ export const toolInputFieldsTable = pgTable("tool_input_fields", {
   updatedAt: timestamp("updated_at")
     .defaultNow()
     .notNull()
-    .$onUpdate(() => new Date())
+    .$onUpdate(() => new Date()),
+  label: text("label").notNull().default("")
 })
 
 export const chainPromptsTable = pgTable("chain_prompts", {

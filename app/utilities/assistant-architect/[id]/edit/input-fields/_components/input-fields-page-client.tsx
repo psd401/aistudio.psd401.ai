@@ -30,7 +30,7 @@ export function InputFieldsPageClient({ assistantId, inputFields }: InputFieldsP
       <div className="bg-white rounded-lg p-6 border">
         {editingField && (
           <div className="mb-4 pb-4 border-b flex justify-between items-center">
-            <h3 className="font-medium">Editing field: {editingField.name}</h3>
+            <h3 className="font-medium">Editing field: {editingField.label || editingField.name}</h3>
             <button 
               onClick={clearEditingField}
               className="text-sm text-blue-600 hover:text-blue-800"

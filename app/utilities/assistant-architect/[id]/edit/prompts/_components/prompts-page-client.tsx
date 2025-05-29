@@ -31,6 +31,7 @@ import "@xyflow/react/dist/style.css"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 import { Badge } from "@/components/ui/badge"
 import type { SelectAiModel, SelectChainPrompt, SelectToolInputField } from "@/types"
@@ -827,7 +828,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                           value={mapping.source}
                           onValueChange={(value) => handleUpdateMapping(index, "source", value as "input" | "prompt")}
                         >
-                          <SelectTrigger className="bg-muted flex-1">
+                          <SelectTrigger className="bg-muted flex-1 max-w-xs truncate">
                             <SelectValue placeholder="Select source" />
                           </SelectTrigger>
                           <SelectContent>
@@ -839,23 +840,15 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                           value={mapping.sourceId}
                           onValueChange={(value) => handleUpdateMapping(index, "sourceId", value)}
                         >
-                          <SelectTrigger className="bg-muted flex-1">
+                          <SelectTrigger className="bg-muted flex-1 max-w-xs truncate">
                             <SelectValue placeholder="Select source" />
                           </SelectTrigger>
                           <SelectContent>
-                            {mapping.source === "input" ? (
-                              inputFields.map(field => (
-                                <SelectItem key={field.id} value={field.id}>
-                                  {field.name}
-                                </SelectItem>
-                              ))
-                            ) : (
-                              prompts.map(prompt => (
-                                <SelectItem key={prompt.id} value={prompt.id}>
-                                  {prompt.name}
-                                </SelectItem>
-                              ))
-                            )}
+                            {inputFields.map(field => (
+                              <SelectItem value={field.id} className="truncate max-w-xs" title={field.label || field.name}>
+                                {field.label || field.name}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
@@ -1030,7 +1023,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                             value={mapping.source}
                             onValueChange={(value) => handleUpdateMapping(index, "source", value as "input" | "prompt")}
                           >
-                            <SelectTrigger className="bg-muted flex-1">
+                            <SelectTrigger className="bg-muted flex-1 max-w-xs truncate">
                               <SelectValue placeholder="Select source" />
                             </SelectTrigger>
                             <SelectContent>
@@ -1042,25 +1035,15 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                             value={mapping.sourceId}
                             onValueChange={(value) => handleUpdateMapping(index, "sourceId", value)}
                           >
-                            <SelectTrigger className="bg-muted flex-1">
+                            <SelectTrigger className="bg-muted flex-1 max-w-xs truncate">
                               <SelectValue placeholder="Select source" />
                             </SelectTrigger>
                             <SelectContent>
-                              {mapping.source === "input" ? (
-                                inputFields.map(field => (
-                                  <SelectItem key={field.id} value={field.id}>
-                                    {field.name}
-                                  </SelectItem>
-                                ))
-                              ) : (
-                                prompts
-                                  .filter(p => p.position < (editingPrompt?.position || 0))
-                                  .map(prompt => (
-                                    <SelectItem key={prompt.id} value={prompt.id}>
-                                      {prompt.name}
-                                    </SelectItem>
-                                  ))
-                              )}
+                              {inputFields.map(field => (
+                                <SelectItem value={field.id} className="truncate max-w-xs" title={field.label || field.name}>
+                                  {field.label || field.name}
+                                </SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                         </div>

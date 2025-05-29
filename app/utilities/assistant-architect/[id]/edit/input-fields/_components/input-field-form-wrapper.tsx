@@ -22,7 +22,7 @@ export function InputFieldFormWrapper({ assistantId, inputFields }: InputFieldFo
     <div>
       {isEditing && (
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-medium">Editing field: {editingField.name}</h3>
+          <h3 className="font-medium">Editing field: {editingField.label || editingField.name}</h3>
           <Button 
             variant="ghost" 
             size="sm" 
