@@ -845,7 +845,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                           </SelectTrigger>
                           <SelectContent>
                             {inputFields.map(field => (
-                              <SelectItem value={field.id} className="truncate max-w-xs" title={field.label || field.name}>
+                              <SelectItem key={field.id} value={field.id} className="truncate max-w-xs" title={field.label || field.name}>
                                 {field.label || field.name}
                               </SelectItem>
                             ))}
@@ -1040,7 +1040,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                             </SelectTrigger>
                             <SelectContent>
                               {inputFields.map(field => (
-                                <SelectItem value={field.id} className="truncate max-w-xs" title={field.label || field.name}>
+                                <SelectItem key={field.id} value={field.id} className="truncate max-w-xs" title={field.label || field.name}>
                                   {field.label || field.name}
                                 </SelectItem>
                               ))}
