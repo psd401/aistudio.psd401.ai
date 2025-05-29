@@ -3,9 +3,9 @@
 import { redirect, notFound } from "next/navigation"
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { auth } from "@clerk/nextjs/server"
-import { hasToolAccess } from "@/utils/roles"
+import { hasRole } from "@/utils/roles"
 import { CreateForm } from "../../create/_components/create-form"
-import { CreateLayout } from "../../create/_components/create-layout"
+import { CreateLayout } from "@/app/utilities/assistant-architect/create/_components/create-layout"
 
 interface Props {
   params: {
@@ -21,25 +21,17 @@ export default async function EditAssistantArchitectPage({ params }: Props) {
   if (!userId) {
     redirect("/sign-in")
   }
-  
-  // Check if user has access to the assistant-architect tool
-  const hasAccess = await hasToolAccess(userId, "assistant-architect")
-  if (!hasAccess) {
-    redirect("/dashboard")
-  }
-  
+
   const toolResult = await getAssistantArchitectAction(id)
   if (!toolResult.isSuccess) {
     notFound()
   }
   
   const tool = toolResult.data
-  
-  // Check if user can edit this tool
+  const isAdmin = await hasRole(userId, "administrator")
   const isCreator = userId === tool.creatorId
-  // Allow editing if user is creator and tool is draft, rejected, or approved
-  const canEdit = isCreator && (tool.status === "draft" || tool.status === "rejected" || tool.status === "approved")
-  
+  // Allow editing if user is admin or creator and tool is draft, pending_approval, rejected, or approved
+  const canEdit = isAdmin || (isCreator && (tool.status === "draft" || tool.status === "pending_approval" || tool.status === "rejected" || tool.status === "approved"))
   if (!canEdit) {
     redirect(`/utilities/assistant-architect/${id}`)
   }

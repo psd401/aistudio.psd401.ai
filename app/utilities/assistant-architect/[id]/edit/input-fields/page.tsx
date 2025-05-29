@@ -3,45 +3,28 @@
 import { auth } from "@clerk/nextjs/server"
 import { redirect, notFound } from "next/navigation"
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
-import { hasToolAccess } from "@/utils/roles"
-import { CreateLayout } from "../../../create/_components/create-layout"
+import { hasRole } from "@/utils/roles"
+import { CreateLayout } from "@/app/utilities/assistant-architect/create/_components/create-layout"
 import { InputFieldsPageClient } from "./_components/input-fields-page-client"
 import Link from "next/link"
 
-export default async function InputFieldsPage({
-  params: { id }
-}: {
-  params: { id: string }
-}) {
+export default async function InputFieldsPage({ params: { id } }: { params: { id: string } }) {
   const { userId } = await auth()
   if (!userId) {
     redirect("/sign-in")
   }
-
-  // Check if user has access to the assistant-architect tool
-  const hasAccess = await hasToolAccess(userId, "assistant-architect")
-  if (!hasAccess) {
-    redirect("/dashboard")
-  }
-
   const result = await getAssistantArchitectAction(id)
   if (!result.isSuccess) {
     notFound()
   }
-
   const tool = result.data
-
-  // Check if user can edit this tool
+  const isAdmin = await hasRole(userId, "administrator")
   const isCreator = userId === tool.creatorId
-  const canEdit = isCreator && (tool.status === "draft" || tool.status === "rejected" || tool.status === "approved")
-
+  const canEdit = isAdmin || (isCreator && (tool.status === "draft" || tool.status === "pending_approval" || tool.status === "rejected" || tool.status === "approved"))
   if (!canEdit) {
     redirect(`/utilities/assistant-architect/${id}`)
   }
-
-  // Sort input fields by position
   const sortedInputFields = tool.inputFields?.slice().sort((a, b) => a.position - b.position) || []
-
   return (
     <CreateLayout currentStep={2} assistantId={id} title="Add Input Fields">
       <div className="space-y-6">
@@ -57,10 +40,8 @@ export default async function InputFieldsPage({
         <p className="text-muted-foreground">
           Add and manage input fields that your assistant will use.
         </p>
-
         <InputFieldsPageClient assistantId={id} inputFields={sortedInputFields} />
       </div>
-
       <div className="flex justify-end mt-8">
         <Link href={`/utilities/assistant-architect/${id}/edit/prompts`}>
           <button

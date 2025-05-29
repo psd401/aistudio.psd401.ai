@@ -200,34 +200,28 @@ export async function updateAssistantArchitectAction(
     if (!userId) {
       return { isSuccess: false, message: "Unauthorized" }
     }
-
     // Get the current tool
     const [currentTool] = await db
       .select()
       .from(assistantArchitectsTable)
       .where(eq(assistantArchitectsTable.id, id))
       .limit(1)
-
     if (!currentTool) {
       return { isSuccess: false, message: "Assistant not found" }
     }
-
-    if (currentTool.creatorId !== userId) {
+    const isAdmin = await hasRole(userId, "administrator")
+    const isCreator = currentTool.creatorId === userId
+    if (!isAdmin && !isCreator) {
       return { isSuccess: false, message: "Unauthorized" }
     }
-
-    // If the tool was approved and is being edited, set status to pending_approval
-    // and deactivate it in the tools table
+    // If the tool was approved and is being edited, set status to pending_approval and deactivate it in the tools table
     if (currentTool.status === "approved") {
       data.status = "pending_approval"
-      
-      // Deactivate the tool in the tools table
       await db
         .update(toolsTable)
         .set({ isActive: false })
         .where(eq(toolsTable.assistantArchitectId, id))
     }
-
     // Update the tool
     const [updatedTool] = await db
       .update(assistantArchitectsTable)
@@ -237,7 +231,6 @@ export async function updateAssistantArchitectAction(
       })
       .where(eq(assistantArchitectsTable.id, id))
       .returning()
-
     return {
       isSuccess: true,
       message: "Assistant updated successfully",
@@ -337,14 +330,6 @@ export async function deleteInputFieldAction(
       return { isSuccess: false, message: "Forbidden" }
     }
 
-    // Check if tool is in a state that allows editing
-    if (tool.status !== "draft" && tool.status !== "rejected" && !isAdmin) {
-      return { 
-        isSuccess: false, 
-        message: "Cannot delete fields for tools that are not in draft or rejected status" 
-      }
-    }
-
     // Delete the field
     await db
       .delete(toolInputFieldsTable)
@@ -397,14 +382,6 @@ export async function updateInputFieldAction(
       return { isSuccess: false, message: "Forbidden" }
     }
 
-    // Check if tool is in a state that allows editing
-    if (tool.status !== "draft" && tool.status !== "rejected" && !isAdmin) {
-      return { 
-        isSuccess: false, 
-        message: "Cannot update fields for tools that are not in draft or rejected status" 
-      }
-    }
-
     // Update the field
     const [updatedField] = await db
       .update(toolInputFieldsTable)
@@ -447,14 +424,6 @@ export async function reorderInputFieldsAction(
     const isAdmin = await hasRole(userId, "administrator")
     if (!isAdmin && tool.creatorId !== userId) {
       return { isSuccess: false, message: "Forbidden" }
-    }
-
-    // Check if tool is in a state that allows editing
-    if (tool.status !== "draft" && tool.status !== "rejected" && !isAdmin) {
-      return { 
-        isSuccess: false, 
-        message: "Cannot reorder fields for tools that are not in draft or rejected status" 
-      }
     }
 
     // Update each field's position
@@ -1474,5 +1443,34 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
   } catch (error) {
     console.error("Error getting approved Assistant Architects:", error);
     return { isSuccess: false, message: "Failed to get approved Assistant Architects" };
+  }
+}
+
+export async function getAllAssistantArchitectsForAdminAction(): Promise<ActionState<ArchitectWithRelations[]>> {
+  try {
+    const { userId } = await auth()
+    if (!userId) {
+      return { isSuccess: false, message: "Unauthorized" }
+    }
+    const isAdmin = await hasRole(userId, "administrator")
+    if (!isAdmin) {
+      return { isSuccess: false, message: "Only administrators can view all assistants" }
+    }
+    // Get all assistants
+    const allAssistants = await db.select().from(assistantArchitectsTable)
+    // Get related data for each assistant
+    const assistantsWithRelations = await Promise.all(
+      allAssistants.map(async (tool) => {
+        const [inputFields, prompts] = await Promise.all([
+          db.select().from(toolInputFieldsTable).where(eq(toolInputFieldsTable.toolId, tool.id)).orderBy(asc(toolInputFieldsTable.position)),
+          db.select().from(chainPromptsTable).where(eq(chainPromptsTable.toolId, tool.id)).orderBy(asc(chainPromptsTable.position))
+        ])
+        return { ...tool, inputFields, prompts }
+      })
+    )
+    return { isSuccess: true, message: "All assistants retrieved successfully", data: assistantsWithRelations }
+  } catch (error) {
+    console.error("Error getting all assistants for admin:", error)
+    return { isSuccess: false, message: "Failed to get all assistants" }
   }
 }

@@ -2,9 +2,9 @@
 
 import { auth } from "@clerk/nextjs/server"
 import { redirect, notFound } from "next/navigation"
-import { hasToolAccess } from "@/utils/roles"
+import { hasRole } from "@/utils/roles"
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
-import { CreateLayout } from "../../../create/_components/create-layout"
+import { CreateLayout } from "@/app/utilities/assistant-architect/create/_components/create-layout"
 import { SubmitForm } from "./_components/submit-form"
 
 interface Props {
@@ -22,12 +22,6 @@ export default async function SubmitAssistantArchitectPage({ params }: Props) {
     redirect("/sign-in")
   }
   
-  // Check if user has access to the assistant-architect tool
-  const hasAccess = await hasToolAccess(userId, "assistant-architect")
-  if (!hasAccess) {
-    redirect("/dashboard")
-  }
-  
   const toolResult = await getAssistantArchitectAction(id)
   if (!toolResult.isSuccess) {
     notFound()
@@ -35,9 +29,9 @@ export default async function SubmitAssistantArchitectPage({ params }: Props) {
   
   const tool = toolResult.data
   
-  // Check if user can edit this tool
+  const isAdmin = await hasRole(userId, "administrator")
   const isCreator = userId === tool.creatorId
-  const canEdit = isCreator && (tool.status === "draft" || tool.status === "rejected" || tool.status === "approved")
+  const canEdit = isAdmin || (isCreator && (tool.status === "draft" || tool.status === "pending_approval" || tool.status === "rejected" || tool.status === "approved"))
   
   if (!canEdit) {
     redirect(`/utilities/assistant-architect/${id}`)
