@@ -24,7 +24,8 @@ import {
   rolesTable,
   roleToolsTable,
   type SelectAiModel,
-  jobStatusEnum
+  jobStatusEnum,
+  navigationItemsTable
 } from "@/db/schema"
 import { auth } from "@clerk/nextjs/server";
 import { eq, and, asc, inArray } from "drizzle-orm";
@@ -38,6 +39,7 @@ import { generateToolIdentifier } from "@/lib/utils";
 import { ActionState, ErrorLevel } from "@/types";
 import { ExecutionResultDetails } from "@/types/assistant-architect-types";
 import { hasRole, getUserTools } from "@/utils/roles";
+import { createNavigationItemAction } from "@/actions/db/navigation-actions"
 
 // Use inline type for architect with relations
 type ArchitectWithRelations = SelectAssistantArchitect & {
@@ -767,6 +769,33 @@ export async function approveAssistantArchitectAction(
         finalToolId = identifier;
       }
       
+      // Add to navigation under 'experiments' if not already present
+      const navLink = `/tools/assistant-architect/${id}`;
+      // Generate a unique id for the navigation item
+      let baseNavId = generateToolIdentifier(updatedTool.name);
+      let navId = baseNavId;
+      let navSuffix = 2;
+      // Check for uniqueness
+      while (await tx.select().from(navigationItemsTable).where(eq(navigationItemsTable.id, navId)).then(r => r.length > 0)) {
+        navId = `${baseNavId}-${navSuffix++}`;
+      }
+      const [existingNav] = await tx.select()
+        .from(navigationItemsTable)
+        .where(and(eq(navigationItemsTable.parentId, "experiments"), eq(navigationItemsTable.link, navLink)));
+      if (!existingNav) {
+        // Use IconWand for assistants, type 'link'
+        await tx.insert(navigationItemsTable).values({
+          id: navId,
+          label: updatedTool.name,
+          icon: "IconWand",
+          link: navLink,
+          type: "link",
+          parentId: "experiments",
+          toolId: finalToolId,
+          isActive: true
+        });
+      }
+      
       // Get all roles that should have access to this tool
       // For now, we'll give access to staff and administrator roles by default
       // This could be extended later to allow specifying roles during approval
@@ -1236,7 +1265,8 @@ export async function submitAssistantArchitectForApprovalAction(
       return { isSuccess: false, message: "Assistant not found" }
     }
 
-    if (tool.creatorId !== userId) {
+    const isAdmin = await hasRole(userId, "administrator")
+    if (tool.creatorId !== userId && !isAdmin) {
       return { isSuccess: false, message: "Unauthorized" }
     }
 

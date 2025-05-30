@@ -338,7 +338,7 @@ export function NavigationItemForm({
                               <SelectValue placeholder="Select parent" />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
+                          <SelectContent className="max-h-60 overflow-y-auto">
                             <SelectItem value="none">None</SelectItem>
                             {parents.map((parent) => (
                               <SelectItem key={parent.id} value={parent.id}>
