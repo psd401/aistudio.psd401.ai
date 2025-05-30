@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAuth } from '@clerk/nextjs/server';
 import { supabaseAdmin } from '@/lib/supabase/client';
-import { saveDocument, batchInsertDocumentChunks, getDocumentsByConversationId } from '@/lib/db/queries/documents';
+import { saveDocument, batchInsertDocumentChunks } from '@/lib/db/queries/documents';
 import { extractTextFromDocument, chunkText, getFileTypeFromFileName } from '@/lib/document-processing';
 // import * as fs from 'fs'; // No longer needed if text processing is out
 // import * as path from 'path'; // No longer needed if text processing is out
@@ -90,6 +90,11 @@ export const runtime = "nodejs";
 export async function POST(request: NextRequest) {
   console.log('[Upload API - Restore Step 1] Handler Entered');
   
+  // Set response headers early to ensure proper content type
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+  
   // Check authentication first
   console.log('[Upload API] Attempting getAuth...');
   const { userId } = getAuth(request);
@@ -97,7 +102,10 @@ export async function POST(request: NextRequest) {
 
   if (!userId) {
     console.log('Unauthorized - No userId');
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return new NextResponse(
+      JSON.stringify({ error: 'Unauthorized' }), 
+      { status: 401, headers }
+    );
   }
 
   // Add more checks before the main try block if needed
@@ -127,10 +135,13 @@ export async function POST(request: NextRequest) {
       await ensureDocumentsBucket(); // Assuming ensureDocumentsBucket is defined above
     } catch (bucketError) {
       console.error('[Upload API] Step failed: Ensuring Bucket', bucketError);
-      return NextResponse.json({ 
-        success: false,
-        error: `Failed to ensure storage is configured properly: ${bucketError instanceof Error ? bucketError.message : String(bucketError)}` 
-      }, { status: 500 });
+      return new NextResponse(
+        JSON.stringify({ 
+          success: false,
+          error: `Failed to ensure storage is configured properly: ${bucketError instanceof Error ? bucketError.message : String(bucketError)}` 
+        }), 
+        { status: 500, headers }
+      );
     }
     
     // Parse the form data
@@ -140,10 +151,13 @@ export async function POST(request: NextRequest) {
       console.log('[Upload API] Form data parsed');
     } catch (formError) {
       console.error('[Upload API] Step failed: Parsing Form Data', formError);
-      return NextResponse.json({ 
-        success: false,
-        error: 'Invalid form data' 
-      }, { status: 400 });
+      return new NextResponse(
+        JSON.stringify({ 
+          success: false,
+          error: 'Invalid form data' 
+        }), 
+        { status: 400, headers }
+      );
     }
     
     const file = formData.get('file') as File;
@@ -155,7 +169,10 @@ export async function POST(request: NextRequest) {
     
     if (!file) {
       console.log('No file uploaded in form data');
-      return NextResponse.json({ success: false, error: 'No file uploaded' }, { status: 400 });
+      return new NextResponse(
+        JSON.stringify({ success: false, error: 'No file uploaded' }), 
+        { status: 400, headers }
+      );
     }
     
     // Validate file type with a comprehensive approach
@@ -163,29 +180,38 @@ export async function POST(request: NextRequest) {
     const fileExtension = `.${file.name.split('.').pop()?.toLowerCase()}`;
     if (!ALLOWED_FILE_EXTENSIONS.includes(fileExtension)) {
       console.log('Unsupported file extension:', fileExtension);
-      return NextResponse.json({ 
-        success: false,
-        error: `Unsupported file extension. Allowed file types are: ${ALLOWED_FILE_EXTENSIONS.join(', ')}` 
-      }, { status: 400 });
+      return new NextResponse(
+        JSON.stringify({ 
+          success: false,
+          error: `Unsupported file extension. Allowed file types are: ${ALLOWED_FILE_EXTENSIONS.join(', ')}` 
+        }), 
+        { status: 400, headers }
+      );
     }
     
     // 2. Check MIME type for additional security
     if (!ALLOWED_MIME_TYPES.includes(file.type)) {
       console.log('Unsupported MIME type:', file.type);
-      return NextResponse.json({ 
-        success: false,
-        error: `Unsupported MIME type. Allowed MIME types are: ${ALLOWED_MIME_TYPES.join(', ')}` 
-      }, { status: 400 });
+      return new NextResponse(
+        JSON.stringify({ 
+          success: false,
+          error: `Unsupported MIME type. Allowed MIME types are: ${ALLOWED_MIME_TYPES.join(', ')}` 
+        }), 
+        { status: 400, headers }
+      );
     }
 
     const validatedFile = FileSchema.safeParse({ file });
     if (!validatedFile.success) {
       const errorMessage = validatedFile.error.errors.map((error) => error.message).join(', ');
       console.log('File validation error:', errorMessage);
-      return NextResponse.json({ 
-        success: false,
-        error: errorMessage 
-      }, { status: 400 });
+      return new NextResponse(
+        JSON.stringify({ 
+          success: false,
+          error: errorMessage 
+        }), 
+        { status: 400, headers }
+      );
     }
 
     // Extract file type from file name
@@ -199,10 +225,13 @@ export async function POST(request: NextRequest) {
       console.log('File converted to buffer, size:', fileBuffer.length);
     } catch (bufferError) {
       console.error('[Upload API] Step failed: Converting to Buffer', bufferError);
-      return NextResponse.json({ 
-        success: false,
-        error: 'Error processing file' 
-      }, { status: 500 });
+      return new NextResponse(
+        JSON.stringify({ 
+          success: false,
+          error: 'Error processing file' 
+        }), 
+        { status: 500, headers }
+      );
     }
 
     // Sanitize file name to prevent path traversal
@@ -223,29 +252,34 @@ export async function POST(request: NextRequest) {
 
     if (uploadError) {
       console.error('[Upload API] Step failed: Uploading to Storage', uploadError);
-      return NextResponse.json({ 
-        success: false,
-        error: `Failed to upload file to storage: ${uploadError.message}` 
-      }, { status: 500 });
+      return new NextResponse(
+        JSON.stringify({ 
+          success: false,
+          error: `Failed to upload file to storage: ${uploadError.message}` 
+        }), 
+        { status: 500, headers }
+      );
     }
 
     console.log('File uploaded successfully to Supabase Storage:', uploadData);
 
     // Get signed URL for the uploaded file (valid for 1 hour)
-    let fileUrl: string;
     const { data: urlData, error: urlError } = await supabaseAdmin.storage
       .from('documents')
       .createSignedUrl(filePath, 3600); // 1 hour expiration
 
     if (urlError || !urlData || !urlData.signedUrl) {
       console.error('[Upload API] Step failed: Getting Signed URL', urlError);
-      return NextResponse.json({ 
-        success: false,
-        error: 'Failed to get access URL for file' 
-      }, { status: 500 });
+      return new NextResponse(
+        JSON.stringify({ 
+          success: false,
+          error: 'Failed to get access URL for file' 
+        }), 
+        { status: 500, headers }
+      );
     }
 
-    fileUrl = urlData.signedUrl;
+    const fileUrl = urlData.signedUrl;
     console.log('Signed URL:', fileUrl);
 
     // Process document content for text extraction
@@ -260,19 +294,25 @@ export async function POST(request: NextRequest) {
     } catch (extractError) {
       console.error('[Upload API] Step failed: Text Extraction', extractError);
       console.error('Error extracting text from document:', extractError);
-      return NextResponse.json({ 
-        success: false,
-        error: `Failed to extract text from document: ${extractError instanceof Error ? extractError.message : String(extractError)}` 
-      }, { status: 500 });
+      return new NextResponse(
+        JSON.stringify({ 
+          success: false,
+          error: `Failed to extract text from document: ${extractError instanceof Error ? extractError.message : String(extractError)}` 
+        }), 
+        { status: 500, headers }
+      );
     }
 
     // Ensure text is not null or undefined before proceeding
     if (text === null || text === undefined) {
       console.error('[Upload API] Text extraction resulted in null or undefined text.');
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Failed to extract valid text content from the document.' 
-      }, { status: 500 });
+      return new NextResponse(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Failed to extract valid text content from the document.' 
+        }), 
+        { status: 500, headers }
+      );
     }
 
     // Save document metadata to database
@@ -295,10 +335,13 @@ export async function POST(request: NextRequest) {
     } catch (saveError) {
       console.error('[Upload API] Step failed: Saving Document Metadata', saveError);
       console.error('Error saving document to database:', saveError);
-      return NextResponse.json({ 
-        success: false,
-        error: `Failed to save document to database: ${saveError instanceof Error ? saveError.message : String(saveError)}` 
-      }, { status: 500 });
+      return new NextResponse(
+        JSON.stringify({ 
+          success: false,
+          error: `Failed to save document to database: ${saveError instanceof Error ? saveError.message : String(saveError)}` 
+        }), 
+        { status: 500, headers }
+      );
     }
 
     // Chunk text and save to database
@@ -330,36 +373,42 @@ export async function POST(request: NextRequest) {
       console.error('Error processing or saving chunks:', chunkError);
       // Attempt to clean up the document record if chunk saving fails?
       // await deleteDocumentById({ id: document.id }); // Optional cleanup
-      return NextResponse.json({ 
-        success: false,
-        error: `Failed to process or save document chunks: ${chunkError instanceof Error ? chunkError.message : String(chunkError)}` 
-      }, { status: 500 });
+      return new NextResponse(
+        JSON.stringify({ 
+          success: false,
+          error: `Failed to process or save document chunks: ${chunkError instanceof Error ? chunkError.message : String(chunkError)}` 
+        }), 
+        { status: 500, headers }
+      );
     }
 
     // Verification happens when linked via chat API
 
     // Return the correct, full response object
-    return NextResponse.json({
-      success: true,
-      document: {
-        id: document.id,
-        name: document.name,
-        type: document.type,
-        size: document.size,
-        url: document.url,
-        totalChunks: chunks?.length ?? 0,
-      }
-    });
+    return new NextResponse(
+      JSON.stringify({
+        success: true,
+        document: {
+          id: document.id,
+          name: document.name,
+          type: document.type,
+          size: document.size,
+          url: document.url,
+          totalChunks: chunks?.length ?? 0,
+        }
+      }), 
+      { status: 200, headers }
+    );
       
   } catch (error) {
     console.error('[Upload API] General Error in POST handler (Restore Step 1):', error);
     console.error('Detailed Error:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
-    return NextResponse.json(
-      { 
+    return new NextResponse(
+      JSON.stringify({ 
         success: false, 
         error: error instanceof Error ? error.message : 'Failed during restore step 1' 
-      },
-      { status: 500 }
+      }),
+      { status: 500, headers }
     );
   }
 }

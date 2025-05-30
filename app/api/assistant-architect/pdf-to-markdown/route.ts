@@ -10,18 +10,32 @@ const PDF_TO_MARKDOWN_MODEL_ID = 20
 export const runtime = 'nodejs'
 
 export async function POST(req: NextRequest) {
+  // Set response headers early to ensure proper content type
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+  
   try {
     // Parse multipart form data
     const formData = await req.formData()
     const file = formData.get('file') as File | null
     if (!file) {
-      return NextResponse.json({ error: 'No file uploaded.' }, { status: 400 })
+      return new NextResponse(
+        JSON.stringify({ error: 'No file uploaded.' }), 
+        { status: 400, headers }
+      );
     }
     if (file.type !== 'application/pdf') {
-      return NextResponse.json({ error: 'Only PDF files are supported.' }, { status: 400 })
+      return new NextResponse(
+        JSON.stringify({ error: 'Only PDF files are supported.' }), 
+        { status: 400, headers }
+      );
     }
     if (file.size > 10 * 1024 * 1024) {
-      return NextResponse.json({ error: 'File size exceeds 10MB limit.' }, { status: 400 })
+      return new NextResponse(
+        JSON.stringify({ error: 'File size exceeds 10MB limit.' }), 
+        { status: 400, headers }
+      );
     }
 
     // Get model config from DB
@@ -30,7 +44,10 @@ export async function POST(req: NextRequest) {
       .from(aiModelsTable)
       .where(eq(aiModelsTable.id, PDF_TO_MARKDOWN_MODEL_ID))
     if (!model) {
-      return NextResponse.json({ error: 'AI model not found.' }, { status: 500 })
+      return new NextResponse(
+        JSON.stringify({ error: 'AI model not found.' }), 
+        { status: 500, headers }
+      );
     }
 
     // Read file as Buffer
@@ -57,9 +74,15 @@ export async function POST(req: NextRequest) {
       messages
     )
 
-    return NextResponse.json({ markdown })
+    return new NextResponse(
+      JSON.stringify({ markdown }), 
+      { status: 200, headers }
+    );
   } catch (error: any) {
     console.error('PDF to markdown error:', error)
-    return NextResponse.json({ error: error.message || 'Unknown error' }, { status: 500 })
+    return new NextResponse(
+      JSON.stringify({ error: error.message || 'Unknown error' }), 
+      { status: 500, headers }
+    );
   }
 } 

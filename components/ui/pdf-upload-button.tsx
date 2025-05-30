@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Loader2, FileUp } from "lucide-react"
+import { Loader2, FileUp, CheckCircle } from "lucide-react"
 import { toast } from "sonner"
 
 interface PdfUploadButtonProps {
@@ -19,6 +19,7 @@ export default function PdfUploadButton({
   disabled = false
 }: PdfUploadButtonProps) {
   const [isLoading, setIsLoading] = useState(false)
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const handleButtonClick = () => {
@@ -38,6 +39,8 @@ export default function PdfUploadButton({
       return
     }
     setIsLoading(true)
+    setUploadedFileName(null) // Reset uploaded state when starting new upload
+    
     try {
       const formData = new FormData()
       formData.append("file", file)
@@ -45,18 +48,42 @@ export default function PdfUploadButton({
         method: "POST",
         body: formData
       })
-      const data = await res.json()
+      
+      let data;
+      try {
+        const contentType = res.headers.get('content-type')
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('Invalid response format: expected JSON')
+        }
+        data = await res.json()
+      } catch (parseError) {
+        console.error('Error parsing response:', parseError)
+        if (!res.ok) {
+          throw new Error(`Server error: ${res.status} ${res.statusText}`)
+        }
+        throw new Error('Invalid response format from server')
+      }
+      
       if (!res.ok) {
         throw new Error(data.error || "Failed to process PDF.")
       }
       const docTag = `<pdf-document title="${file.name}">\n${data.markdown}\n</pdf-document>`
       onMarkdown(docTag)
+      setUploadedFileName(file.name) // Store the uploaded file name
       toast.success("PDF content added to system context.")
     } catch (err: any) {
       toast.error(err.message || "Failed to process PDF.")
+      setUploadedFileName(null)
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // Determine button text based on state
+  const getButtonText = () => {
+    if (isLoading) return "Processing..."
+    if (uploadedFileName) return `✓ ${uploadedFileName.length > 20 ? uploadedFileName.substring(0, 20) + '...' : uploadedFileName}`
+    return label || "Upload PDF"
   }
 
   return (
@@ -71,19 +98,21 @@ export default function PdfUploadButton({
       />
       <Button
         type="button"
-        variant="outline"
+        variant={uploadedFileName ? "secondary" : "outline"}
         size="sm"
         onClick={handleButtonClick}
         disabled={isLoading || disabled}
-        className="flex items-center gap-2"
+        className={`flex items-center gap-2 ${uploadedFileName ? 'border-green-500/50 text-green-700 dark:text-green-400' : ''}`}
         aria-label={label}
       >
         {isLoading ? (
-          <Loader2 className="animate-spin h-4 w-4 mr-2" />
+          <Loader2 className="animate-spin h-4 w-4" />
+        ) : uploadedFileName ? (
+          <CheckCircle className="h-4 w-4 text-green-500" />
         ) : (
-          <FileUp className="h-4 w-4 mr-2" />
+          <FileUp className="h-4 w-4" />
         )}
-        {label}
+        {getButtonText()}
       </Button>
     </div>
   )

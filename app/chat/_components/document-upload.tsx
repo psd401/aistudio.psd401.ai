@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { PaperclipIcon, FileTextIcon, XIcon, UploadIcon } from "lucide-react"
+import { PaperclipIcon, FileTextIcon, XIcon, UploadIcon, CheckCircleIcon, Loader2 } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 
 interface Document {
@@ -32,6 +32,7 @@ export function DocumentUpload({
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [uploadCompleted, setUploadCompleted] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const internalRef = useRef<HTMLInputElement>(null)
   const fileInputRef = externalInputRef ?? internalRef
@@ -153,14 +154,36 @@ export function DocumentUpload({
       if (!response.ok) {
         let errMsg = `Server error (${response.status})`
         try {
-          const { error } = await response.json()
-          if (error) errMsg = error
-        } catch {/* response wasn't JSON */}
+          const contentType = response.headers.get('content-type')
+          if (contentType && contentType.includes('application/json')) {
+            const { error } = await response.json()
+            if (error) errMsg = error
+          } else {
+            // If response is not JSON, try to read as text
+            const text = await response.text()
+            console.error('Non-JSON error response:', text)
+            errMsg = `Server error: ${response.status} ${response.statusText}`
+          }
+        } catch (parseError) {
+          console.error('Error parsing error response:', parseError)
+          // Keep the default error message
+        }
         console.error('Upload response not OK:', response.status, errMsg)
         throw new Error(errMsg)
       }
       
-      const data = await response.json()
+      let data;
+      try {
+        const contentType = response.headers.get('content-type')
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('Invalid response format: expected JSON')
+        }
+        data = await response.json()
+      } catch (parseError) {
+        console.error('Error parsing success response:', parseError)
+        throw new Error('Invalid response format from server')
+      }
+      
       console.log('Upload successful, response data:', data)
       
       if (!data.success || !data.document) {
@@ -174,8 +197,9 @@ export function DocumentUpload({
         onUploadComplete(data.document); // data.document should include the ID
       }
       
-      setSelectedFile(null)
-      setUploadProgress(0)
+      // Mark upload as completed but keep the file info
+      setUploadCompleted(true)
+      setUploadProgress(100)
       hasAttemptedUpload.current = true;
       
     } catch (error) {
@@ -196,9 +220,19 @@ export function DocumentUpload({
 
   const cancelSelection = () => { // Renamed for clarity
     setSelectedFile(null)
+    setUploadCompleted(false)
     setPendingDocument(null) // Also clear pending state if user cancels
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
+    }
+  }
+
+  const uploadAnother = () => {
+    setUploadCompleted(false)
+    setSelectedFile(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+      fileInputRef.current.click()
     }
   }
 
@@ -248,9 +282,17 @@ export function DocumentUpload({
       )}
       
       {(selectedFile || pendingDocument) && (
-        <div className="flex flex-col gap-2 p-3 border rounded-md">
+        <div className={`flex flex-col gap-2 p-3 border rounded-md transition-all ${
+          uploadCompleted ? 'border-green-500/50 bg-green-50/10' : ''
+        }`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
+              {isUploading && !uploadCompleted && (
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              )}
+              {uploadCompleted && (
+                <CheckCircleIcon className="h-4 w-4 text-green-500" />
+              )}
               {getFileIcon(selectedFile?.name || pendingDocument?.name || '')}
               <span className="text-sm font-medium truncate max-w-[150px]">
                 {selectedFile?.name || pendingDocument?.name}
@@ -260,14 +302,14 @@ export function DocumentUpload({
               variant="ghost"
               size="sm"
               className="h-6 w-6 p-0"
-              onClick={cancelSelection}
-              disabled={isUploading}
+              onClick={uploadCompleted ? uploadAnother : cancelSelection}
+              disabled={isUploading && !uploadCompleted}
             >
               <XIcon className="h-4 w-4" />
             </Button>
           </div>
           
-          {isUploading && (
+          {isUploading && !uploadCompleted && (
             <div>
               <div className="w-full bg-secondary rounded-full h-1.5 dark:bg-secondary mb-1">
                 <div
@@ -275,16 +317,34 @@ export function DocumentUpload({
                   style={{ width: `${uploadProgress}%` }}
                 ></div>
               </div>
-              <p className="text-xs text-right text-muted-foreground">{uploadProgress}%</p>
+              <p className="text-xs text-center text-muted-foreground">
+                Processing document... {uploadProgress}%
+              </p>
             </div>
           )}
           
-          {!isUploading && pendingDocument?.id && !conversationId && (
+          {uploadCompleted && (
+            <div className="flex items-center justify-center gap-2">
+              <p className="text-xs text-green-600 dark:text-green-400">
+                Document processed successfully
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={uploadAnother}
+                className="text-xs h-6 px-2"
+              >
+                Upload Another
+              </Button>
+            </div>
+          )}
+          
+          {!isUploading && !uploadCompleted && pendingDocument?.id && !conversationId && (
             <p className="text-xs text-center text-muted-foreground my-1">
               Processed. Ready for chat.
             </p>
           )}
-          {!isUploading && !pendingDocument?.id && !conversationId && (
+          {!isUploading && !uploadCompleted && !pendingDocument?.id && !conversationId && (
             <p className="text-xs text-center text-muted-foreground my-1">
               The document will be uploaded when you start a conversation
             </p>
