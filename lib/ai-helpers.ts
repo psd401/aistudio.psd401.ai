@@ -76,9 +76,7 @@ export async function generateCompletion(
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = googleApiKey;
       
       try {
-        const googleClient = google(modelConfig.modelId, {
-          apiKey: googleApiKey
-        });
+        const googleClient = google(modelConfig.modelId);
       
         const result = await generateText({
           model: googleClient,
@@ -94,7 +92,7 @@ export async function generateCompletion(
         console.error('[generateCompletion] Google AI error:', error);
         
         // Check if it's an API key error
-        if (error.message && error.message.includes('API key')) {
+        if (error instanceof Error && error.message && error.message.includes('API key')) {
           throw new Error(`Google API key issue: ${error.message}. Please check your GOOGLE_API_KEY environment variable.`);
         }
         

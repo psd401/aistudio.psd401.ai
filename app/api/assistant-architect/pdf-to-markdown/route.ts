@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/db/db'
 import { aiModelsTable, SelectAiModel } from '@/db/schema/core-schema'
+import { jobsTable } from '@/db/schema/jobs-schema'
 import { eq } from 'drizzle-orm'
 import { generateCompletion } from '@/lib/ai-helpers'
+import { getAuth } from '@clerk/nextjs/server'
 
 // Easily change the model id here
 const PDF_TO_MARKDOWN_MODEL_ID = 20
@@ -10,79 +12,201 @@ const PDF_TO_MARKDOWN_MODEL_ID = 20
 export const runtime = 'nodejs'
 
 export async function POST(req: NextRequest) {
+  console.log('[PDF-to-Markdown] Request received');
+  
   // Set response headers early to ensure proper content type
   const headers = {
     'Content-Type': 'application/json',
   };
   
+  // Get user authentication
+  const { userId } = getAuth(req);
+  if (!userId) {
+    return new NextResponse(
+      JSON.stringify({ error: 'Unauthorized' }), 
+      { status: 401, headers }
+    );
+  }
+  
   try {
     // Parse multipart form data
+    console.log('[PDF-to-Markdown] Parsing form data...');
     const formData = await req.formData()
     const file = formData.get('file') as File | null
     if (!file) {
+      console.log('[PDF-to-Markdown] No file provided');
       return new NextResponse(
         JSON.stringify({ error: 'No file uploaded.' }), 
         { status: 400, headers }
       );
     }
+    
+    console.log(`[PDF-to-Markdown] File received: ${file.name}, size: ${file.size} bytes, type: ${file.type}`);
+    
     if (file.type !== 'application/pdf') {
+      console.log('[PDF-to-Markdown] Invalid file type:', file.type);
       return new NextResponse(
         JSON.stringify({ error: 'Only PDF files are supported.' }), 
         { status: 400, headers }
       );
     }
     if (file.size > 10 * 1024 * 1024) {
+      console.log('[PDF-to-Markdown] File too large:', file.size);
       return new NextResponse(
         JSON.stringify({ error: 'File size exceeds 10MB limit.' }), 
         { status: 400, headers }
       );
     }
 
-    // Get model config from DB
-    const [model]: SelectAiModel[] = await db
-      .select()
-      .from(aiModelsTable)
-      .where(eq(aiModelsTable.id, PDF_TO_MARKDOWN_MODEL_ID))
-    if (!model) {
-      return new NextResponse(
-        JSON.stringify({ error: 'AI model not found.' }), 
-        { status: 500, headers }
-      );
-    }
-
-    // Read file as Buffer
+    // Convert file to base64 for storage
+    console.log('[PDF-to-Markdown] Converting file to base64...');
     const arrayBuffer = await file.arrayBuffer()
-    const pdfBuffer = Buffer.from(arrayBuffer)
-
-    // System prompt for the LLM
-    const systemPrompt = `You are an expert document parser. Given a PDF file, extract ALL text and describe every image or graphic in context. Return a single, well-structured markdown document that preserves the logical order and hierarchy of the original. For images/graphics, insert a markdown image block with a description, e.g. ![Description of image]. Do not skip any content. Output only markdown.`
-
-    // Prepare messages for the LLM (multimodal)
-    const messages = [
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: systemPrompt },
-          { type: 'file', data: pdfBuffer, mimeType: 'application/pdf' }
-        ]
-      }
-    ]
-
-    // Call the LLM
-    const markdown = await generateCompletion(
-      { provider: model.provider, modelId: model.modelId },
-      messages
-    )
-
+    const base64Data = Buffer.from(arrayBuffer).toString('base64')
+    
+    // Create a job in the database
+    console.log('[PDF-to-Markdown] Creating job in database...');
+    const jobInput = {
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type,
+      fileData: base64Data,
+      modelId: PDF_TO_MARKDOWN_MODEL_ID
+    };
+    
+    const [job] = await db
+      .insert(jobsTable)
+      .values({
+        userId,
+        type: 'pdf-to-markdown',
+        status: 'pending',
+        input: JSON.stringify(jobInput)
+      })
+      .returning();
+    
+    console.log(`[PDF-to-Markdown] Job created with ID: ${job.id}`);
+    
+    // Start processing in the background (non-blocking)
+    processPdfInBackground(job.id, jobInput).catch(error => {
+      console.error('[PDF-to-Markdown] Background processing error:', error);
+    });
+    
+    // Small delay to ensure background process starts
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Return immediately with job ID
     return new NextResponse(
-      JSON.stringify({ markdown }), 
-      { status: 200, headers }
+      JSON.stringify({ 
+        jobId: job.id,
+        status: 'processing',
+        message: 'PDF processing started. Poll for status updates.'
+      }), 
+      { status: 202, headers }
     );
+    
   } catch (error: any) {
-    console.error('PDF to markdown error:', error)
+    console.error('[PDF-to-Markdown] General error:', error);
+    console.error('[PDF-to-Markdown] Error stack:', error.stack);
     return new NextResponse(
       JSON.stringify({ error: error.message || 'Unknown error' }), 
       { status: 500, headers }
     );
   }
-} 
+}
+
+// Background processing function
+async function processPdfInBackground(jobId: string, jobInput: any) {
+  try {
+    console.log(`[PDF-to-Markdown Background] Starting processing for job ${jobId}`);
+    
+    // Update job status to running
+    await db
+      .update(jobsTable)
+      .set({ status: 'running' })
+      .where(eq(jobsTable.id, jobId));
+    
+    // Get model config from DB
+    const [model]: SelectAiModel[] = await db
+      .select()
+      .from(aiModelsTable)
+      .where(eq(aiModelsTable.id, jobInput.modelId));
+    
+    if (!model) {
+      throw new Error('AI model not found');
+    }
+    
+    // Convert base64 back to buffer
+    const pdfBuffer = Buffer.from(jobInput.fileData, 'base64');
+    
+    // System prompt for the LLM
+    const systemPrompt = `You are an expert document parser. Given a PDF file, extract ALL text and describe every image or graphic in context. Return a single, well-structured markdown document that preserves the logical order and hierarchy of the original. For images/graphics, insert a markdown image block with a description, e.g. ![Description of image]. Do not skip any content. Output only markdown.`
+    
+    // Prepare messages for the LLM
+    const messages = [
+      {
+        role: 'user' as const,
+        content: [
+          { type: 'text' as const, text: systemPrompt },
+          { type: 'file' as const, data: pdfBuffer, mimeType: 'application/pdf' }
+        ]
+      }
+    ];
+    
+    console.log(`[PDF-to-Markdown Background] Prepared messages for job ${jobId}:`, {
+      role: messages[0].role,
+      contentTypes: messages[0].content.map(c => c.type),
+      textLength: messages[0].content[0].text.length,
+      fileSize: messages[0].content[1].data.length
+    });
+    
+    // Call the LLM
+    console.log(`[PDF-to-Markdown Background] Calling LLM for job ${jobId}...`);
+    const startTime = Date.now();
+    const markdown = await generateCompletion(
+      { provider: model.provider, modelId: model.modelId },
+      messages
+    );
+    
+    const processingTime = Date.now() - startTime;
+    console.log(`[PDF-to-Markdown Background] Job ${jobId} completed in ${processingTime}ms`);
+    console.log(`[PDF-to-Markdown Background] Markdown result length: ${markdown?.length || 0}`);
+    
+    if (!markdown) {
+      throw new Error('No markdown content generated');
+    }
+    
+    // Update job with result
+    const outputData = { 
+      markdown,
+      fileName: jobInput.fileName,
+      processingTime 
+    };
+    
+    console.log(`[PDF-to-Markdown Background] Saving result for job ${jobId}:`, {
+      markdownLength: markdown.length,
+      fileName: jobInput.fileName
+    });
+    
+    await db
+      .update(jobsTable)
+      .set({ 
+        status: 'completed',
+        output: JSON.stringify(outputData)
+      })
+      .where(eq(jobsTable.id, jobId));
+    
+    console.log(`[PDF-to-Markdown Background] Job ${jobId} successfully saved to database`);
+      
+  } catch (error: any) {
+    console.error(`[PDF-to-Markdown Background] Job ${jobId} failed:`, error);
+    console.error(`[PDF-to-Markdown Background] Error details:`, error.stack);
+    
+    // Update job with error
+    await db
+      .update(jobsTable)
+      .set({ 
+        status: 'failed',
+        error: error.message || 'Unknown error'
+      })
+      .where(eq(jobsTable.id, jobId));
+  }
+}
