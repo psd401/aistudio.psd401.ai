@@ -142,4 +142,35 @@ export async function POST(req: NextRequest) {
       conversationId: conversationIdToUse
     };
   });
+}
+
+export async function GET(req: NextRequest) {
+  const { userId } = getAuth(req)
+  if (!userId) {
+    return unauthorized('User not authenticated')
+  }
+
+  const { searchParams } = new URL(req.url)
+  const conversationId = searchParams.get('conversationId')
+  if (!conversationId) {
+    return badRequest('conversationId is required')
+  }
+
+  // Check that the conversation belongs to the user
+  const [conversation] = await db
+    .select()
+    .from(conversationsTable)
+    .where(eq(conversationsTable.id, conversationId))
+  if (!conversation || conversation.clerkId !== userId) {
+    return NextResponse.json({ error: 'Conversation not found or access denied' }, { status: 403 })
+  }
+
+  // Fetch all messages for the conversation, ordered by creation time
+  const messages = await db
+    .select({ id: messagesTable.id, role: messagesTable.role, content: messagesTable.content })
+    .from(messagesTable)
+    .where(eq(messagesTable.conversationId, conversationId))
+    .orderBy(messagesTable.createdAt)
+
+  return NextResponse.json({ messages })
 } 

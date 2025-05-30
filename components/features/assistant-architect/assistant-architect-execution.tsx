@@ -45,6 +45,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   const [error, setError] = useState<string | null>(null)
   const [expandedPrompts, setExpandedPrompts] = useState<Record<string, boolean>>({})
   const [expandedInputs, setExpandedInputs] = useState<Record<string, boolean>>({})
+  const [conversationId, setConversationId] = useState<number | null>(null)
 
   // Define base types for fields first
   const stringSchema = z.string();
@@ -744,7 +745,12 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                   ))}
                   {results.status === "completed" && (
                     <div className="mt-8">
-                      <AssistantArchitectChat execution={results} isPreview={isPreview} />
+                      <AssistantArchitectChat
+                        execution={results}
+                        conversationId={conversationId}
+                        onConversationCreated={setConversationId}
+                        isPreview={isPreview}
+                      />
                     </div>
                   )}
                 </div>
