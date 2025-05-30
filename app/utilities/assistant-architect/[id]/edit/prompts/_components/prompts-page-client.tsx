@@ -440,6 +440,39 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
+// Add slugify utility at the top
+function slugify(str: string): string {
+  return str
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '');
+}
+
+// Custom Variable Insert Dropdown for MDXEditor toolbar
+function VariableInsertDropdown({ variables, editorRef }: { variables: string[], editorRef: React.RefObject<any> }) {
+  return (
+    <select
+      className="border rounded px-2 py-1 text-xs bg-muted mr-2"
+      defaultValue=""
+      onChange={e => {
+        const value = e.target.value;
+        if (!value) return;
+        if (editorRef.current && typeof editorRef.current.insertMarkdown === 'function') {
+          editorRef.current.insertMarkdown(value);
+        }
+        e.target.value = "";
+      }}
+    >
+      <option value="" disabled>
+        Insert variable
+      </option>
+      {variables.map(v => (
+        <option key={v} value={`$\u007b${v}\u007d`}>{`$\u007b${v}\u007d`}</option>
+      ))}
+    </select>
+  );
+}
+
 export function PromptsPageClient({ assistantId, prompts: initialPrompts, models, inputFields }: PromptsPageClientProps) {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -457,6 +490,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
   const [contextTokens, setContextTokens] = useState(0)
   const [promptTokens, setPromptTokens] = useState(0)
   const [flowKey, setFlowKey] = useState(0)
+  const mdxEditorRef = useRef<any>(null);
 
   // When initialPrompts changes (from server), update our local state
   useEffect(() => {
@@ -490,12 +524,6 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
           systemContext: systemContext || undefined,
           modelId: parseInt(modelId),
           position: typeof prompts.length === 'number' ? prompts.length : 0,
-          inputMapping: inputMappings.length > 0 ? Object.fromEntries(
-            inputMappings.map(mapping => [
-              mapping.variableName,
-              `${mapping.source}.${mapping.sourceId}`
-            ])
-          ) : undefined
         }
       )
 
@@ -506,7 +534,6 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         setPromptContent("")
         setSystemContext("")
         setModelId(null)
-        setInputMappings([])
         
         // Get the updated prompts
         const updatedResult = await getAssistantArchitectByIdAction(assistantId);
@@ -525,28 +552,6 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
     }
   }
 
-  const handleAddInputMapping = useCallback(() => {
-    setInputMappings(prev => [
-      ...prev,
-      { variableName: "", source: "input", sourceId: "" }
-    ])
-  }, [])
-
-  const handleUpdateMapping = useCallback((index: number, field: keyof InputMapping, value: string) => {
-    setInputMappings(prev => {
-      const newMappings = [...prev]
-      newMappings[index] = {
-        ...newMappings[index],
-        [field]: value
-      }
-      return newMappings
-    })
-  }, [])
-
-  const handleRemoveMapping = useCallback((index: number) => {
-    setInputMappings(prev => prev.filter((_, i) => i !== index))
-  }, [])
-
   const handleEditPrompt = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingPrompt) return
@@ -564,12 +569,6 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         content: promptContent,
         systemContext: systemContext || undefined,
         modelId: parseInt(modelId),
-        inputMapping: inputMappings.length > 0 ? Object.fromEntries(
-          inputMappings.map(mapping => [
-            mapping.variableName,
-            `${mapping.source}.${mapping.sourceId}`
-          ])
-        ) : undefined
       })
 
       if (result.isSuccess) {
@@ -653,18 +652,6 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
       setPromptContent(latestPrompt.content)
       setSystemContext(latestPrompt.systemContext || "")
       setModelId(latestPrompt.modelId ? latestPrompt.modelId.toString() : null)
-      setInputMappings(
-        latestPrompt.inputMapping
-          ? Object.entries(latestPrompt.inputMapping).map(([variableName, mapping]) => {
-              const [source, sourceId] = mapping.split('.')
-              return {
-                variableName,
-                source: source as "input" | "prompt",
-                sourceId
-              }
-            })
-          : []
-      )
       setIsEditDialogOpen(true)
     } catch (error) {
       toast.error("Failed to fetch latest prompt data")
@@ -749,7 +736,6 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         setPromptContent("");
         setSystemContext("");
         setModelId("");
-        setInputMappings([]);
         setIsAddDialogOpen(true);
       }}>
         <PlusIcon className="h-4 w-4 mr-2" />
@@ -801,74 +787,6 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <Label>Variable Mappings</Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleAddInputMapping}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Mapping
-                  </Button>
-                </div>
-                {inputMappings.map((mapping, index) => (
-                  <div key={index} className="flex gap-2 items-start">
-                    <div className="flex-1">
-                      <Input
-                        placeholder="Variable name (e.g. userInput)"
-                        value={mapping.variableName}
-                        onChange={(e) => handleUpdateMapping(index, "variableName", e.target.value)}
-                        className="bg-muted mb-2"
-                      />
-                      <div className="flex gap-2">
-                        <Select
-                          value={mapping.source}
-                          onValueChange={(value) => handleUpdateMapping(index, "source", value as "input" | "prompt")}
-                        >
-                          <SelectTrigger className="bg-muted flex-1 max-w-xs truncate">
-                            <SelectValue placeholder="Select source" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="input">Input Field</SelectItem>
-                            <SelectItem value="prompt">Previous Prompt</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Select
-                          value={mapping.sourceId}
-                          onValueChange={(value) => handleUpdateMapping(index, "sourceId", value)}
-                        >
-                          <SelectTrigger className="bg-muted flex-1 max-w-xs truncate">
-                            <SelectValue placeholder="Select source" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {inputFields.map(field => (
-                              <SelectItem key={field.id} value={field.id} className="truncate max-w-xs" title={field.label || field.name}>
-                                {field.label || field.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleRemoveMapping(index)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-                {inputMappings.length > 0 && (
-                  <div className="text-sm text-muted-foreground mt-2">
-                    Use these variables in your prompt with ${"{"}variableName{"}"}
-                  </div>
-                )}
-              </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between mb-1">
                   <Label htmlFor="systemContext">System Context & Knowledge (Optional)</Label>
@@ -898,6 +816,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                 <Label htmlFor="content">Prompt Content</Label>
                 <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
                   <MDXEditor
+                    ref={mdxEditorRef}
                     markdown={promptContent}
                     onChange={v => setPromptContent(v ?? "")}
                     className="min-h-full bg-[#e5e1d6]"
@@ -907,6 +826,15 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                       toolbarPlugin({
                         toolbarContents: () => (
                           <>
+                            <VariableInsertDropdown
+                              variables={[
+                                ...inputFields.map(f => f.name),
+                                ...prompts
+                                  .filter((p, idx) => !editingPrompt ? true : prompts.findIndex(pp => pp.id === editingPrompt.id) > idx)
+                                  .map(prevPrompt => slugify(prevPrompt.name))
+                              ]}
+                              editorRef={mdxEditorRef}
+                            />
                             <UndoRedo />
                             <Separator />
                             <BoldItalicUnderlineToggles />
@@ -931,6 +859,27 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">
                   {promptTokens} tokens
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Available Variables</Label>
+                <div className="flex flex-wrap gap-2">
+                  {inputFields.map(field => (
+                    <span key={field.id} className="px-2 py-1 rounded bg-muted text-xs font-mono border">
+                      {field.name}
+                    </span>
+                  ))}
+                  {/* Show previous prompt names (slugified) */}
+                  {prompts
+                    .filter((p, idx) => !editingPrompt ? true : prompts.findIndex(pp => pp.id === editingPrompt.id) > idx)
+                    .map(prevPrompt => (
+                      <span key={prevPrompt.id} className="px-2 py-1 rounded bg-muted text-xs font-mono border">
+                        {slugify(prevPrompt.name)}
+                      </span>
+                    ))}
+                </div>
+                <div className="text-sm text-muted-foreground mt-2">
+                  Use these variables in your prompt with $&#123;variableName&#125;
                 </div>
               </div>
             </div>
@@ -996,74 +945,6 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <Label>Variable Mappings</Label>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleAddInputMapping}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Mapping
-                    </Button>
-                  </div>
-                  {inputMappings.map((mapping, index) => (
-                    <div key={index} className="flex gap-2 items-start">
-                      <div className="flex-1">
-                        <Input
-                          placeholder="Variable name (e.g. userInput)"
-                          value={mapping.variableName}
-                          onChange={(e) => handleUpdateMapping(index, "variableName", e.target.value)}
-                          className="bg-muted mb-2"
-                        />
-                        <div className="flex gap-2">
-                          <Select
-                            value={mapping.source}
-                            onValueChange={(value) => handleUpdateMapping(index, "source", value as "input" | "prompt")}
-                          >
-                            <SelectTrigger className="bg-muted flex-1 max-w-xs truncate">
-                              <SelectValue placeholder="Select source" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="input">Input Field</SelectItem>
-                              <SelectItem value="prompt">Previous Prompt</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <Select
-                            value={mapping.sourceId}
-                            onValueChange={(value) => handleUpdateMapping(index, "sourceId", value)}
-                          >
-                            <SelectTrigger className="bg-muted flex-1 max-w-xs truncate">
-                              <SelectValue placeholder="Select source" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {inputFields.map(field => (
-                                <SelectItem key={field.id} value={field.id} className="truncate max-w-xs" title={field.label || field.name}>
-                                  {field.label || field.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleRemoveMapping(index)}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
-                  {inputMappings.length > 0 && (
-                    <div className="text-sm text-muted-foreground mt-2">
-                      Use these variables in your prompt with ${"{"}variableName{"}"}
-                    </div>
-                  )}
-                </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between mb-1">
                     <Label htmlFor="edit-systemContext">System Context & Knowledge (Optional)</Label>
@@ -1093,6 +974,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                   <Label htmlFor="edit-content">Prompt Content</Label>
                   <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
                     <MDXEditor
+                      ref={mdxEditorRef}
                       markdown={promptContent}
                       onChange={v => setPromptContent(v ?? "")}
                       className="min-h-full bg-[#e5e1d6]"
@@ -1102,6 +984,15 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                         toolbarPlugin({
                           toolbarContents: () => (
                             <>
+                              <VariableInsertDropdown
+                                variables={[
+                                  ...inputFields.map(f => f.name),
+                                  ...prompts
+                                    .filter((p, idx) => !editingPrompt ? true : prompts.findIndex(pp => pp.id === editingPrompt.id) > idx)
+                                    .map(prevPrompt => slugify(prevPrompt.name))
+                                ]}
+                                editorRef={mdxEditorRef}
+                              />
                               <UndoRedo />
                               <Separator />
                               <BoldItalicUnderlineToggles />
@@ -1126,6 +1017,27 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
                     {promptTokens} tokens
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Available Variables</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {inputFields.map(field => (
+                      <span key={field.id} className="px-2 py-1 rounded bg-muted text-xs font-mono border">
+                        {field.name}
+                      </span>
+                    ))}
+                    {/* Show previous prompt names (slugified) */}
+                    {prompts
+                      .filter((p, idx) => !editingPrompt ? true : prompts.findIndex(pp => pp.id === editingPrompt.id) > idx)
+                      .map(prevPrompt => (
+                        <span key={prevPrompt.id} className="px-2 py-1 rounded bg-muted text-xs font-mono border">
+                          {slugify(prevPrompt.name)}
+                        </span>
+                      ))}
+                  </div>
+                  <div className="text-sm text-muted-foreground mt-2">
+                    Use these variables in your prompt with $&#123;variableName&#125;
                   </div>
                 </div>
               </div>

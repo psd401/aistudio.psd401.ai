@@ -521,9 +521,13 @@ export async function updatePromptAction(
     }
 
     // Update the prompt
+    const updateData = { ...data };
+    if (!('inputMapping' in data)) {
+      updateData.inputMapping = null;
+    }
     const [updatedPrompt] = await db
       .update(chainPromptsTable)
-      .set(data)
+      .set(updateData)
       .where(eq(chainPromptsTable.id, id))
       .returning()
 
@@ -859,6 +863,14 @@ function decodePromptVariables(content: string): string {
   return decoded;
 }
 
+// Add slugify utility at the top (before executeAssistantArchitectJob)
+function slugify(str: string): string {
+  return str
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '');
+}
+
 export async function executeAssistantArchitectAction({
   toolId,
   inputs
@@ -948,6 +960,14 @@ async function executeAssistantArchitectJob(
         let promptResultRecord: SelectPromptResult | null = null;
         const promptStartTime = new Date();
         const promptInputData: Record<string, unknown> = { ...inputs };
+        // Add previous prompt outputs as variables using slugified names
+        for (let prevIdx = 0; prevIdx < index; prevIdx++) {
+          const prevPrompt = prompts[prevIdx];
+          const prevResult = results.find(r => r.promptId === prevPrompt.id);
+          if (prevResult && prevResult.output !== undefined) {
+            promptInputData[slugify(prevPrompt.name)] = prevResult.output;
+          }
+        }
         console.log(`[EXEC:${jobId}] Processing prompt ${index+1}/${prompts.length}: ${prompt.name}`);
 
         try {
@@ -1000,7 +1020,7 @@ async function executeAssistantArchitectJob(
             },
             {
               role: 'user',
-              content: decodePromptVariables(prompt.content).replace(/\${(\w+)}/g, (_match: string, key: string) => {
+              content: decodePromptVariables(prompt.content).replace(/\${([\w-]+)}/g, (_match: string, key: string) => {
                 const value = promptInputData[key]
                 return value !== undefined ? String(value) : `[Missing value for ${key}]`
               }).trim() || "Please provide input for this prompt."
