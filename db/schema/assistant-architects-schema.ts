@@ -141,6 +141,7 @@ export const promptResultsTable = pgTable("prompt_results", {
   startedAt: timestamp("started_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),
   executionTimeMs: integer("execution_time_ms"),
+  userFeedback: text("user_feedback", { enum: ["like", "dislike"] })
 })
 
 // Relations
@@ -206,5 +207,5 @@ export type SelectToolEdit = typeof toolEditsTable.$inferSelect
 export type InsertToolExecution = typeof toolExecutionsTable.$inferInsert
 export type SelectToolExecution = typeof toolExecutionsTable.$inferSelect
 
-export type InsertPromptResult = typeof promptResultsTable.$inferInsert
-export type SelectPromptResult = typeof promptResultsTable.$inferSelect 
+export type InsertPromptResult = typeof promptResultsTable.$inferInsert & { userFeedback?: 'like' | 'dislike' }
+export type SelectPromptResult = typeof promptResultsTable.$inferSelect & { userFeedback?: 'like' | 'dislike' } 

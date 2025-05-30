@@ -30,6 +30,7 @@ import { AssistantArchitectChat } from "./assistant-architect-chat"
 import type { SelectPromptResult } from "@/db/schema"
 import Image from "next/image"
 import PdfUploadButton from "@/components/ui/pdf-upload-button"
+import { updatePromptResultAction } from "@/actions/db/assistant-architect-actions"
 
 interface AssistantArchitectExecutionProps {
   tool: AssistantArchitectWithRelations
@@ -334,6 +335,24 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     }
   }, [toast])
 
+  const handleFeedback = async (promptResult, feedback) => {
+    try {
+      await updatePromptResultAction(promptResult.executionId, promptResult.promptId, { userFeedback: feedback })
+      setResults(prev => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          promptResults: prev.promptResults.map(pr =>
+            pr.id === promptResult.id ? { ...pr, userFeedback: feedback } : pr
+          )
+        }
+      })
+      toast({ title: `Feedback submitted: ${feedback}` })
+    } catch (e) {
+      toast({ title: 'Failed to submit feedback', variant: 'destructive' })
+    }
+  }
+
   // Memoized components for better performance
   const ToolHeader = memo(({ tool }: { tool: AssistantArchitectWithRelations }) => (
     <div>
@@ -599,40 +618,10 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
 
                           {promptResult.outputData && (
                             <div className="mt-3 border border-border/50 rounded-md overflow-hidden">
-                               <div className="px-3 py-2 bg-muted/40 flex items-center justify-between">
+                              <div className="px-3 py-2 bg-muted/40 flex items-center justify-between">
                                 <div className="flex items-center text-xs font-medium text-foreground">
                                   <Bot className="h-3.5 w-3.5 mr-1.5 flex-shrink-0 text-green-500"/>
                                   Output
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7"
-                                    title="Copy output"
-                                    onClick={() => copyToClipboard(promptResult.outputData)}
-                                  >
-                                    <Copy className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground transition-colors" />
-                                    <span className="sr-only">Copy output</span>
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7"
-                                    title="Like output"
-                                  >
-                                    <ThumbsUp className="h-3.5 w-3.5 text-muted-foreground hover:text-green-500 transition-colors" />
-                                    <span className="sr-only">Like output</span>
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7"
-                                    title="Dislike output"
-                                  >
-                                    <ThumbsDown className="h-3.5 w-3.5 text-muted-foreground hover:text-red-500 transition-colors" />
-                                    <span className="sr-only">Dislike output</span>
-                                  </Button>
                                 </div>
                               </div>
                               <div className="p-4 bg-background">
@@ -735,6 +724,38 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                   >
                                     {promptResult.outputData || ""}
                                   </ReactMarkdown>
+                                </div>
+                                <div className="flex items-center gap-2 justify-end mt-4">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    title="Copy output"
+                                    onClick={() => copyToClipboard(promptResult.outputData)}
+                                  >
+                                    <Copy className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground transition-colors" />
+                                    <span className="sr-only">Copy output</span>
+                                  </Button>
+                                  <Button
+                                    variant={promptResult.userFeedback === 'like' ? 'success' : 'ghost'}
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    title="Like output"
+                                    onClick={async () => await handleFeedback(promptResult, 'like')}
+                                  >
+                                    <ThumbsUp className={`h-3.5 w-3.5 ${promptResult.userFeedback === 'like' ? 'text-green-500' : 'text-muted-foreground'} transition-colors`} />
+                                    <span className="sr-only">Like output</span>
+                                  </Button>
+                                  <Button
+                                    variant={promptResult.userFeedback === 'dislike' ? 'error' : 'ghost'}
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    title="Dislike output"
+                                    onClick={async () => await handleFeedback(promptResult, 'dislike')}
+                                  >
+                                    <ThumbsDown className={`h-3.5 w-3.5 ${promptResult.userFeedback === 'dislike' ? 'text-red-500' : 'text-muted-foreground'} transition-colors`} />
+                                    <span className="sr-only">Dislike output</span>
+                                  </Button>
                                 </div>
                               </div>
                             </div>

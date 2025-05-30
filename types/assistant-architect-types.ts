@@ -28,7 +28,7 @@ export interface CreateAssistantArchitectForm {
 
 // Interface for execution results
 export interface ExecutionResultDetails extends SelectToolExecution {
-  promptResults: SelectPromptResult[]
+  promptResults: (SelectPromptResult & { userFeedback?: 'like' | 'dislike' })[]
 }
 
 // Form types for creating/editing
@@ -147,6 +147,7 @@ export interface JobPromptResult {
   startTime: string
   endTime?: string
   executionTimeMs: number
+  userFeedback?: 'like' | 'dislike'
 }
 
 /**
