@@ -10,7 +10,11 @@ const isProd = process.env.NODE_ENV === "production"
 const logger: Logger = winston.createLogger({
   level: isProd ? "info" : "debug",
   format: isProd
-    ? winston.format.json()
+    ? winston.format.combine(
+        winston.format.timestamp(),
+        winston.format.errors({ stack: true }),
+        winston.format.json()
+      )
     : winston.format.combine(
         winston.format.colorize(),
         winston.format.timestamp(),

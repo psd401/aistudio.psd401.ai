@@ -10,6 +10,7 @@ export const config = {
 }
 
 console.log('[Upload API Module] Loading route.ts file...'); // Log module load
+logger.info('[Upload API Module] Winston logger test: route.ts file loaded');
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
