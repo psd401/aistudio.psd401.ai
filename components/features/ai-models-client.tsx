@@ -15,7 +15,7 @@ export const AiModelsClient = memo(function AiModelsClient({ initialModels }: Ai
 
   const handleAddModel = useCallback(async (model: Omit<SelectAiModel, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
-      console.log('Sending model data to API:', model);
+      console.info('Sending model data to API:', model);
       const response = await fetch('/api/admin/models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -29,7 +29,7 @@ export const AiModelsClient = memo(function AiModelsClient({ initialModels }: Ai
       }
 
       const newModel = await response.json();
-      console.log('Received new model from API:', newModel);
+      console.info('Received new model from API:', newModel);
       setModels([...models, newModel.data]);
       toast({
         title: 'Success',
@@ -48,7 +48,7 @@ export const AiModelsClient = memo(function AiModelsClient({ initialModels }: Ai
 
   const handleUpdateModel = useCallback(async (modelId: number, updates: Partial<SelectAiModel>) => {
     try {
-      console.log('Sending update data to API:', { id: modelId, ...updates });
+      console.info('Sending update data to API:', { id: modelId, ...updates });
       const response = await fetch('/api/admin/models', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -62,7 +62,7 @@ export const AiModelsClient = memo(function AiModelsClient({ initialModels }: Ai
       }
 
       const updatedModel = await response.json();
-      console.log('Received updated model from API:', updatedModel);
+      console.info('Received updated model from API:', updatedModel);
       setModels(models.map(model => 
         model.id === modelId ? updatedModel.data : model
       ));
@@ -83,7 +83,7 @@ export const AiModelsClient = memo(function AiModelsClient({ initialModels }: Ai
 
   const handleDeleteModel = useCallback(async (modelId: number) => {
     try {
-      console.log('Sending delete request for model:', modelId);
+      console.info('Sending delete request for model:', modelId);
       const response = await fetch(`/api/admin/models?id=${modelId}`, {
         method: 'DELETE',
       });
@@ -94,7 +94,7 @@ export const AiModelsClient = memo(function AiModelsClient({ initialModels }: Ai
         throw new Error(errorText || 'Failed to delete model');
       }
 
-      console.log('Model deleted successfully');
+      console.info('Model deleted successfully');
       setModels(models.filter(model => model.id !== modelId));
       toast({
         title: 'Success',

@@ -1,3 +1,5 @@
+import logger from "@/lib/logger"
+
 interface LatimierAIConfig {
   apiKey: string
 }
@@ -12,10 +14,10 @@ export async function generateLatimierCompletion(
   systemPrompt: string,
   userPrompt: string
 ): Promise<LatimierAIResponse> {
-  console.log("Initializing Latimer AI client")
+  logger.info("Initializing Latimer AI client")
 
   if (!config.apiKey || typeof config.apiKey !== 'string' || config.apiKey.trim() === '') {
-    console.error("Latimer API key validation failed")
+    logger.error("Latimer API key validation failed")
     throw new Error("API key is required for execution")
   }
 
@@ -32,7 +34,7 @@ export async function generateLatimierCompletion(
 
   if (!response.ok) {
     const text = await response.text()
-    console.error("Latimer API Error Details:", {
+    logger.error("Latimer API Error Details", {
       status: response.status,
       statusText: response.statusText,
       responseText: text,

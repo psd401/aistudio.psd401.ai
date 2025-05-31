@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ErrorLevel } from '@/types/actions-types';
 import { handleError } from './error-utils';
+import logger from "@/lib/logger"
 
 // Define AppError interface to match the one in actions-types
 interface AppError extends Error {

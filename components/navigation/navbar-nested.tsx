@@ -112,11 +112,11 @@ function NavigationContent({ isExpanded }: { isExpanded: boolean }) {
         if (navData.isSuccess && Array.isArray(navData.data)) {
           setNavItems(navData.data);
         } else {
-          console.error('Failed to fetch navigation:', navData.message);
+          console.error('Failed to fetch navigation', navData.message);
           setNavItems([]);
         }
       } catch (error) {
-        console.error('Failed to fetch navigation data:', error);
+        console.error('Failed to fetch navigation data', error);
         setNavItems([]);
       } finally {
         setIsLoading(false);

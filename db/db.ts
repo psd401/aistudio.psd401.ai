@@ -172,7 +172,8 @@ const schema = {
   // politicalWordingContextsRelations,
 }
 
+// Query logging is controlled by DB_LOG_QUERIES env variable. Set DB_LOG_QUERIES=true in .env.local to enable query logs in dev.
 export const db = drizzle(conn, {
   schema: schema,
-  logger: process.env.NODE_ENV === 'development'
+  logger: process.env.DB_LOG_QUERIES === 'true'
 }) 

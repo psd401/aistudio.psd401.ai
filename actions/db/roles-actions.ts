@@ -7,6 +7,7 @@ import { eq, and } from "drizzle-orm"
 import { auth } from "@clerk/nextjs/server"
 import { hasRole } from "@/utils/roles"
 import type { InsertRole, SelectRole } from "@/db/schema"
+import logger from "@/lib/logger"
 
 export async function createRoleAction(
   role: InsertRole
@@ -30,7 +31,7 @@ export async function createRoleAction(
       data: newRole
     }
   } catch (error) {
-    console.error("Error creating role:", error)
+    logger.error("Error creating role:", error)
     return { isSuccess: false, message: "Failed to create role" }
   }
 }
@@ -44,7 +45,7 @@ export async function getRolesAction(): Promise<ActionState<SelectRole[]>> {
       data: roles
     }
   } catch (error) {
-    console.error("Error getting roles:", error)
+    logger.error("Error getting roles:", error)
     return { isSuccess: false, message: "Failed to get roles" }
   }
 }
@@ -66,7 +67,7 @@ export async function getRoleByIdAction(id: number): Promise<ActionState<SelectR
       data: role
     }
   } catch (error) {
-    console.error("Error getting role:", error)
+    logger.error("Error getting role:", error)
     return { isSuccess: false, message: "Failed to get role" }
   }
 }
@@ -112,7 +113,7 @@ export async function updateRoleAction(
       data: updatedRole
     }
   } catch (error) {
-    console.error("Error updating role:", error)
+    logger.error("Error updating role:", error)
     return { isSuccess: false, message: "Failed to update role" }
   }
 }
@@ -161,7 +162,7 @@ export async function deleteRoleAction(id: number): Promise<ActionState<void>> {
       data: undefined
     }
   } catch (error) {
-    console.error("Error deleting role:", error)
+    logger.error("Error deleting role:", error)
     return { isSuccess: false, message: "Failed to delete role" }
   }
 } 

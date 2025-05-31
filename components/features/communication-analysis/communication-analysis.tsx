@@ -81,7 +81,7 @@ export function CommunicationAnalysis({ audiences, configs }: CommunicationAnaly
     } catch (error) {
       // Don't throw error for aborted requests
       if (error instanceof Error && error.name === 'AbortError') {
-        console.log(`Request for audience ${audienceId} was aborted`);
+        console.info(`Request for audience ${audienceId} was aborted`);
         return "";
       }
       throw error;

@@ -26,6 +26,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as glob from 'glob';
+import logger from "@/lib/logger"
 
 // Configuration
 const ROOT_DIR = path.resolve(__dirname, '..');
@@ -36,11 +37,11 @@ const MIGRATE_API = process.argv.includes('--api') || process.argv.includes('--a
 
 // Check if any mode is specified
 if (!SPECIFIC_FILE && !MIGRATE_ACTIONS && !MIGRATE_API) {
-  console.log('No migration target specified. Use --actions, --api, --all, or --file=path');
+  logger.info('No migration target specified. Use --actions, --api, --all, or --file=path');
   process.exit(1);
 }
 
-console.log(`
+logger.info(`
 ========================================
    Error Handling Migration Tool
 ========================================
@@ -60,7 +61,7 @@ if (SPECIFIC_FILE) {
   if (fs.existsSync(filePath)) {
     filesToProcess.push(filePath);
   } else {
-    console.error(`File not found: ${SPECIFIC_FILE}`);
+    logger.error(`File not found: ${SPECIFIC_FILE}`);
     process.exit(1);
   }
 }
@@ -68,13 +69,13 @@ if (SPECIFIC_FILE) {
 if (MIGRATE_ACTIONS) {
   const actionFiles = findFiles('actions/**/*.ts');
   filesToProcess.push(...actionFiles);
-  console.log(`Found ${actionFiles.length} server action files`);
+  logger.info(`Found ${actionFiles.length} server action files`);
 }
 
 if (MIGRATE_API) {
   const apiFiles = findFiles('app/api/**/*.ts');
   filesToProcess.push(...apiFiles);
-  console.log(`Found ${apiFiles.length} API route files`);
+  logger.info(`Found ${apiFiles.length} API route files`);
 }
 
 // Process files
@@ -148,7 +149,7 @@ for (const file of filesToProcess) {
     if (content.includes('import { createSuccess, handleError') || 
         content.includes('import { handleError, createSuccess') || 
         content.includes('import { withErrorHandling')) {
-      console.log(`⏭️  Skipping ${path.relative(ROOT_DIR, file)} (already migrated)`);
+      logger.info(`⏭️  Skipping ${path.relative(ROOT_DIR, file)} (already migrated)`);
       skippedCount++;
       continue;
     }
@@ -165,22 +166,22 @@ for (const file of filesToProcess) {
     // Write changes if not in dry run mode
     if (!DRY_RUN && newContent !== content) {
       fs.writeFileSync(file, newContent, 'utf8');
-      console.log(`✅ Updated ${path.relative(ROOT_DIR, file)}`);
+      logger.info(`✅ Updated ${path.relative(ROOT_DIR, file)}`);
       processedCount++;
     } else if (newContent !== content) {
-      console.log(`🔍 Would update ${path.relative(ROOT_DIR, file)}`);
+      logger.info(`🔍 Would update ${path.relative(ROOT_DIR, file)}`);
       processedCount++;
     } else {
-      console.log(`⏭️  No changes needed for ${path.relative(ROOT_DIR, file)}`);
+      logger.info(`⏭️  No changes needed for ${path.relative(ROOT_DIR, file)}`);
       skippedCount++;
     }
   } catch (error) {
-    console.error(`❌ Error processing ${file}:`, error);
+    logger.error(`❌ Error processing ${file}:`, error);
     errorCount++;
   }
 }
 
-console.log(`
+logger.info(`
 ========================================
    Migration Summary
 ========================================

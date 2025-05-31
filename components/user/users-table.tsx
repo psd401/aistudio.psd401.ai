@@ -13,8 +13,6 @@ interface UsersTableProps {
 }
 
 export function UsersTable({ users, currentUserId, onRoleChange, onDeleteUser }: UsersTableProps) {
-  console.log('UsersTable received users:', users);
-  
   return (
     <Table>
       <TableHeader>

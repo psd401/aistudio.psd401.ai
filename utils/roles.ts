@@ -81,26 +81,19 @@ export async function hasRole(userId: string, roleName: string): Promise<boolean
  */
 export async function hasToolAccess(userId: string, toolIdentifier: string): Promise<boolean> {
   try {
-    console.log(`[hasToolAccess] Started with userId: ${userId}, toolIdentifier: ${toolIdentifier}`)
-    
     // Get user's database ID
-    console.log(`[hasToolAccess] Fetching user with clerk ID: ${userId}`)
     const dbUsers = await db
       .select()
       .from(usersTable)
       .where(eq(usersTable.clerkId, userId))
     
-    console.log(`[hasToolAccess] dbUsers result:`, dbUsers)
     if (!dbUsers.length || !dbUsers[0]) {
-      console.log(`[hasToolAccess] No user found with clerk ID: ${userId}`)
       return false
     }
     
     const dbUser = dbUsers[0]
-    console.log(`[hasToolAccess] Found user: ${dbUser.id}`)
 
     // Check if tool exists and is active
-    console.log(`[hasToolAccess] Checking if tool '${toolIdentifier}' exists and is active`)
     const tools = await db
       .select()
       .from(toolsTable)
@@ -111,32 +104,24 @@ export async function hasToolAccess(userId: string, toolIdentifier: string): Pro
         )
       )
     
-    console.log(`[hasToolAccess] tools result:`, tools)
     if (!tools.length || !tools[0]) {
-      console.log(`[hasToolAccess] Tool '${toolIdentifier}' not found or not active`)
       return false
     }
     
     const tool = tools[0]
-    console.log(`[hasToolAccess] Found tool: ${tool.id}`)
 
     // Check if any of user's roles have access to the tool
-    console.log(`[hasToolAccess] Fetching roles for user: ${dbUser.id}`)
     const userRoles = await db
       .select()
       .from(userRolesTable)
       .where(eq(userRolesTable.userId, dbUser.id))
     
-    console.log(`[hasToolAccess] userRoles result:`, userRoles)
     if (!userRoles.length) {
-      console.log(`[hasToolAccess] User has no roles`)
       return false
     }
 
     const roleIds = userRoles.map(r => r.roleId)
-    console.log(`[hasToolAccess] User has role IDs:`, roleIds)
 
-    console.log(`[hasToolAccess] Checking if any roles have access to tool: ${tool.id}`)
     const roleTools = await db
       .select()
       .from(roleToolsTable)
@@ -147,13 +132,11 @@ export async function hasToolAccess(userId: string, toolIdentifier: string): Pro
         )
       )
     
-    console.log(`[hasToolAccess] roleTools result:`, roleTools)
     const hasAccess = roleTools.length > 0
-    console.log(`[hasToolAccess] Result: User has${hasAccess ? '' : ' no'} access to tool '${toolIdentifier}'`)
     
     return hasAccess
   } catch (error) {
-    console.error(`[hasToolAccess] Error checking tool access for ${userId} to ${toolIdentifier}:`, error)
+    console.error(`Error checking tool access for ${userId} to ${toolIdentifier}:`, error)
     return false
   }
 }
@@ -167,9 +150,6 @@ export async function getUserTools(userId: string): Promise<string[]> {
       return [];
     }
 
-    console.log("Getting tools for user:", userId);
-
-    // Since we're having issues with the users query, let's do this step by step
     // First, get the user by their Clerk ID
     const dbUsers = await db
       .select()
@@ -177,12 +157,10 @@ export async function getUserTools(userId: string): Promise<string[]> {
       .where(eq(usersTable.clerkId, userId));
     
     if (!dbUsers.length) {
-      console.error("No user found with clerk ID:", userId);
       return [];
     }
     
     const dbUser = dbUsers[0];
-    console.log("Found user:", dbUser.id);
 
     // Get user's roles from user_roles table
     const userRoles = await db
@@ -193,13 +171,11 @@ export async function getUserTools(userId: string): Promise<string[]> {
       .where(eq(userRolesTable.userId, dbUser.id));
 
     if (!userRoles.length) {
-      console.error("No roles found for user:", dbUser.id);
       return [];
     }
     
     // Extract role IDs
     const roleIds = userRoles.map(ur => ur.roleId);
-    console.log("Found role IDs:", roleIds);
     
     // Find all tools associated with any of the user's roles
     const roleTools = await db
@@ -215,7 +191,6 @@ export async function getUserTools(userId: string): Promise<string[]> {
     
     // Extract unique tool identifiers
     const tools = [...new Set(roleTools.map(rt => rt.toolIdentifier))];
-    console.log("Found tools:", tools);
     
     return tools;
   } catch (error) {

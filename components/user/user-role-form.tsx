@@ -25,12 +25,12 @@ export function UserRoleForm({ userId, initialRole, userName, userEmail, disable
       });
 
       if (!response.ok) {
-        console.error('Failed to update role:', await response.text());
+        console.error('Failed to update role', await response.text());
         alert('Failed to update role');
         setRole(initialRole); // Reset to initial role on failure
       }
     } catch (error) {
-      console.error('Error updating role:', error);
+      console.error('Error updating role', error);
       alert('Failed to update role');
       setRole(initialRole); // Reset to initial role on error
     } finally {

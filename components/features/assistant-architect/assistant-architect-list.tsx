@@ -38,7 +38,7 @@ export function AssistantArchitectList({ tools }: AssistantArchitectListProps) {
         })
       }
     } catch (error) {
-      console.error("Error deleting assistant:", error)
+      console.error("Error deleting assistant", error)
       toast({
         title: "Error",
         description: "Failed to delete assistant",

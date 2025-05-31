@@ -15,6 +15,7 @@ import { ActionState } from "@/types"
 import { eq, and } from "drizzle-orm"
 import { auth } from "@clerk/nextjs/server"
 import { hasRole } from "@/utils/roles"
+import logger from "@/lib/logger"
 
 // Audience Actions
 export async function createAudienceAction(
@@ -32,7 +33,7 @@ export async function createAudienceAction(
       data: newAudience
     }
   } catch (error) {
-    console.error("Error creating audience:", error)
+    logger.error("Error creating audience:", error)
     return { isSuccess: false, message: "Failed to create audience" }
   }
 }
@@ -46,7 +47,7 @@ export async function getAudiencesAction(): Promise<ActionState<SelectAudience[]
       data: audiences
     }
   } catch (error) {
-    console.error("Error getting audiences:", error)
+    logger.error("Error getting audiences:", error)
     return { isSuccess: false, message: "Failed to get audiences" }
   }
 }
@@ -68,7 +69,7 @@ export async function updateAudienceAction(
       data: updatedAudience
     }
   } catch (error) {
-    console.error("Error updating audience:", error)
+    logger.error("Error updating audience:", error)
     return { isSuccess: false, message: "Failed to update audience" }
   }
 }
@@ -84,7 +85,7 @@ export async function deleteAudienceAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error deleting audience:", error)
+    logger.error("Error deleting audience:", error)
     return { isSuccess: false, message: "Failed to delete audience" }
   }
 }
@@ -99,7 +100,7 @@ export async function getAccessControlsAction(): Promise<ActionState<SelectAcces
       data: accessControls
     }
   } catch (error) {
-    console.error("Error getting access controls:", error)
+    logger.error("Error getting access controls:", error)
     return { isSuccess: false, message: "Failed to get access controls" }
   }
 }
@@ -141,7 +142,7 @@ export async function updateAccessControlAction(
       }
     }
   } catch (error) {
-    console.error("Error updating access control:", error)
+    logger.error("Error updating access control:", error)
     return { isSuccess: false, message: "Failed to update access control" }
   }
 }

@@ -7,6 +7,7 @@ import { eq, and } from "drizzle-orm"
 import { auth } from "@clerk/nextjs/server"
 import { hasRole } from "@/utils/roles"
 import type { InsertUserRole, SelectUserRole, SelectRole, SelectUser } from "@/db/schema"
+import logger from "@/lib/logger"
 
 export async function assignRoleToUserAction(
   userId: number,
@@ -69,7 +70,7 @@ export async function assignRoleToUserAction(
       data: newAssignment
     }
   } catch (error) {
-    console.error("Error assigning role:", error)
+    logger.error("Error assigning role:", error)
     return { isSuccess: false, message: "Failed to assign role" }
   }
 }
@@ -119,7 +120,7 @@ export async function removeRoleFromUserAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error removing role:", error)
+    logger.error("Error removing role:", error)
     return { isSuccess: false, message: "Failed to remove role" }
   }
 }
@@ -147,7 +148,7 @@ export async function getUserRolesAction(
       data: roles
     }
   } catch (error) {
-    console.error("Error getting user roles:", error)
+    logger.error("Error getting user roles:", error)
     return { isSuccess: false, message: "Failed to get user roles" }
   }
 }
@@ -175,7 +176,7 @@ export async function getUsersByRoleAction(
       data: users
     }
   } catch (error) {
-    console.error("Error getting users by role:", error)
+    logger.error("Error getting users by role:", error)
     return { isSuccess: false, message: "Failed to get users" }
   }
 } 

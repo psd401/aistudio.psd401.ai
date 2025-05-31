@@ -11,6 +11,7 @@ import {
 } from "@/db/schema"
 import { ActionState } from "@/types"
 import { eq } from "drizzle-orm"
+import logger from "@/lib/logger"
 
 // Technique Actions
 export async function createTechniqueAction(
@@ -28,7 +29,7 @@ export async function createTechniqueAction(
       data: newTechnique
     }
   } catch (error) {
-    console.error("Error creating technique:", error)
+    logger.error("Error creating technique:", error)
     return { isSuccess: false, message: "Failed to create technique" }
   }
 }
@@ -42,7 +43,7 @@ export async function getTechniquesAction(): Promise<ActionState<SelectMetaPromp
       data: techniques
     }
   } catch (error) {
-    console.error("Error getting techniques:", error)
+    logger.error("Error getting techniques:", error)
     return { isSuccess: false, message: "Failed to get techniques" }
   }
 }
@@ -68,7 +69,7 @@ export async function updateTechniqueAction(
       data: updatedTechnique
     }
   } catch (error) {
-    console.error("Error updating technique:", error)
+    logger.error("Error updating technique:", error)
     return { isSuccess: false, message: "Failed to update technique" }
   }
 }
@@ -87,7 +88,7 @@ export async function deleteTechniqueAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error deleting technique:", error)
+    logger.error("Error deleting technique:", error)
     return { isSuccess: false, message: "Failed to delete technique" }
   }
 }
@@ -108,7 +109,7 @@ export async function createTemplateAction(
       data: newTemplate
     }
   } catch (error) {
-    console.error("Error creating template:", error)
+    logger.error("Error creating template:", error)
     return { isSuccess: false, message: "Failed to create template" }
   }
 }
@@ -122,7 +123,7 @@ export async function getTemplatesAction(): Promise<ActionState<SelectMetaPrompt
       data: templates
     }
   } catch (error) {
-    console.error("Error getting templates:", error)
+    logger.error("Error getting templates:", error)
     return { isSuccess: false, message: "Failed to get templates" }
   }
 }
@@ -144,7 +145,7 @@ export async function updateTemplateAction(
       data: updatedTemplate
     }
   } catch (error) {
-    console.error("Error updating template:", error)
+    logger.error("Error updating template:", error)
     return { isSuccess: false, message: "Failed to update template" }
   }
 }
@@ -161,7 +162,7 @@ export async function deleteTemplateAction(id: string): Promise<ActionState<void
       data: undefined
     }
   } catch (error) {
-    console.error("Error deleting template:", error)
+    logger.error("Error deleting template:", error)
     return { isSuccess: false, message: "Failed to delete template" }
   }
 } 

@@ -59,7 +59,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
           console.error("Failed to fetch prompt details");
         }
       } catch (error) {
-        console.error("Error fetching model ID:", error);
+        console.error("Error fetching model ID", error);
       }
     };
     fetchModelId();
@@ -84,7 +84,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
           console.error("Failed to fetch conversation history");
         }
       } catch (error) {
-        console.error("Error fetching conversation history:", error);
+        console.error("Error fetching conversation history", error);
       }
     };
     fetchConversationHistory();
@@ -150,7 +150,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
       }
       setMessages(prev => [...prev, assistantMessage])
     } catch (error) {
-      console.error("Error sending message:", error)
+      console.error("Error sending message", error)
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to send message",

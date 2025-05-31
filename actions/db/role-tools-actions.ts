@@ -7,6 +7,7 @@ import { eq, and } from "drizzle-orm"
 import { auth } from "@clerk/nextjs/server"
 import { hasRole } from "@/utils/roles"
 import type { InsertRoleTool, SelectRoleTool, SelectTool, SelectRole } from "@/db/schema"
+import logger from "@/lib/logger"
 
 export async function assignToolToRoleAction(
   roleId: string,
@@ -24,7 +25,7 @@ export async function assignToolToRoleAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error assigning tool to role:", error)
+    logger.error("Error assigning tool to role:", error)
     return { isSuccess: false, message: "Failed to assign tool to role" }
   }
 }
@@ -49,7 +50,7 @@ export async function removeToolFromRoleAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error removing tool from role:", error)
+    logger.error("Error removing tool from role:", error)
     return { isSuccess: false, message: "Failed to remove tool from role" }
   }
 }
@@ -73,7 +74,7 @@ export async function getToolsForRoleAction(roleId: string) {
       data: tools
     }
   } catch (error) {
-    console.error("Error getting tools for role:", error)
+    logger.error("Error getting tools for role:", error)
     return { isSuccess: false, message: "Failed to get tools for role" }
   }
 }
@@ -102,7 +103,7 @@ export async function getRoleToolsAction(
       data: tools
     }
   } catch (error) {
-    console.error("Error getting role tools:", error)
+    logger.error("Error getting role tools:", error)
     return { isSuccess: false, message: "Failed to get role tools" }
   }
 }
@@ -130,7 +131,7 @@ export async function getToolRolesAction(
       data: roles
     }
   } catch (error) {
-    console.error("Error getting tool roles:", error)
+    logger.error("Error getting tool roles:", error)
     return { isSuccess: false, message: "Failed to get tool roles" }
   }
 } 

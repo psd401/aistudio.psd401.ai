@@ -1,4 +1,5 @@
 import { AppError, ErrorLevel, ActionState } from "@/types/actions-types";
+import logger from "@/lib/logger"
 
 /**
  * Creates a structured AppError with standardized properties
@@ -46,16 +47,16 @@ export function handleError(
     // Log based on error level
     switch (appError.level) {
       case ErrorLevel.INFO:
-        console.log(`${logPrefix}${appError.message}`, appError.details || '');
+        logger.info(appError.message, { context: logPrefix, details: appError.details || undefined })
         break;
       case ErrorLevel.WARN:
-        console.warn(`${logPrefix}${appError.message}`, appError.details || '');
+        logger.warn(appError.message, { context: logPrefix, details: appError.details || undefined })
         break;
       case ErrorLevel.ERROR:
-        console.error(`${logPrefix}${appError.message}`, appError.details || '');
+        logger.error(appError.message, { context: logPrefix, details: appError.details || undefined })
         break;
       case ErrorLevel.FATAL:
-        console.error(`${logPrefix}FATAL: ${appError.message}`, appError.details || '');
+        logger.error(`FATAL: ${appError.message}`, { context: logPrefix, details: appError.details || undefined })
         break;
     }
     
@@ -69,7 +70,7 @@ export function handleError(
   
   // Handle standard Error objects
   if (error instanceof Error) {
-    console.error(`${logPrefix}${error.message}`, error);
+    logger.error(error.message, { context: logPrefix, error })
     return {
       isSuccess: false,
       message: userMessage,
@@ -78,7 +79,7 @@ export function handleError(
   }
   
   // Handle unknown error types
-  console.error(`${logPrefix}Unknown error:`, error);
+  logger.error(`Unknown error`, { context: logPrefix, error })
   return {
     isSuccess: false,
     message: userMessage,
