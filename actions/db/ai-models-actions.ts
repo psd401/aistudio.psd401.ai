@@ -4,6 +4,7 @@ import { db } from "@/db/query"
 import { aiModelsTable } from "@/db/schema"
 import { ActionState, SelectAiModel } from "@/types"
 import { asc } from "drizzle-orm"
+import logger from "@/lib/logger"
 
 export async function getAiModelsAction(): Promise<ActionState<SelectAiModel[]>> {
   try {
@@ -18,7 +19,7 @@ export async function getAiModelsAction(): Promise<ActionState<SelectAiModel[]>>
       data: models
     }
   } catch (error) {
-    console.error("Error getting models:", error)
+    logger.error("Error getting models", { error })
     return { isSuccess: false, message: "Failed to get models" }
   }
 } 

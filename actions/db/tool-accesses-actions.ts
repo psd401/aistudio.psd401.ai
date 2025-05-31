@@ -4,6 +4,7 @@ import { db } from "@/db/db"
 import { toolAccessesTable, toolsTable } from "@/db/schema"
 import { ActionState } from "@/types"
 import { eq, and } from "drizzle-orm"
+import logger from "@/lib/logger"
 
 export async function grantToolAccessToUserAction(
   userId: string,
@@ -57,7 +58,7 @@ export async function grantToolAccessToUserAction(
       data: undefined,
     }
   } catch (error) {
-    console.error("Error granting tool access:", error)
+    logger.error("Error granting tool access:", error)
     return { isSuccess: false, message: "Failed to grant tool access" }
   }
 }
@@ -82,7 +83,7 @@ export async function revokeToolAccessFromUserAction(
       data: undefined,
     }
   } catch (error) {
-    console.error("Error revoking tool access:", error)
+    logger.error("Error revoking tool access:", error)
     return { isSuccess: false, message: "Failed to revoke tool access" }
   }
 }
@@ -104,7 +105,7 @@ export async function getUserToolAccessesAction(
       data: toolAccesses.map(access => access.toolId),
     }
   } catch (error) {
-    console.error("Error retrieving user tool accesses:", error)
+    logger.error("Error retrieving user tool accesses:", error)
     return { isSuccess: false, message: "Failed to retrieve user tool accesses" }
   }
 }
@@ -126,7 +127,7 @@ export async function getToolUserAccessesAction(
       data: toolAccesses.map(access => access.userId),
     }
   } catch (error) {
-    console.error("Error retrieving tool user accesses:", error)
+    logger.error("Error retrieving tool user accesses:", error)
     return { isSuccess: false, message: "Failed to retrieve tool user accesses" }
   }
 }
@@ -149,7 +150,7 @@ export async function hasDirectToolAccessAction(
       data: !!access,
     }
   } catch (error) {
-    console.error("Error checking tool access:", error)
+    logger.error("Error checking tool access:", error)
     return { isSuccess: false, message: "Failed to check tool access" }
   }
 } 

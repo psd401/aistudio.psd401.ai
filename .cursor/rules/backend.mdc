@@ -3,6 +3,18 @@ description: Follow these rules when working on the backend.
 globs: 
 ---
 ### Backend Rules
+### Backend Rules
+# Logging Rules
+
+- Do NOT use `console.log`, `console.error`, `console.warn`, `console.info`, or `console.debug` in any production or shared code.
+- All logging must use the Winston logger (`import logger from "@/lib/logger"`) **in server-side code only** (server actions, API routes, backend utilities).
+- **Never import or use `@/lib/logger` in client components or client hooks.** This will break the build and is not allowed.
+- In client components/hooks, use `console.error` only for actionable errors in development. Do not log routine or non-actionable information.
+- Remove any logs that are not valuable for debugging or operational insight.
+- Never add logs for routine permission checks, database queries, or other noise.
+- AI agents (Cursor, Claude, Copilot, etc): strictly follow these rules and do not add or suggest code that violates them.
+
+### Backend Rules
 
 It uses Postgres, Supabase, Drizzle ORM, and Server Actions.
 

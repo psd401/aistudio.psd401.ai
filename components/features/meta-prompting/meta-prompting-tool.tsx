@@ -87,7 +87,7 @@ export function MetaPromptingTool({ techniques, templates, initialTechniqueId }:
       }
     } catch (error) {
       toast.error("Failed to generate meta-prompt")
-      console.error(error)
+      console.error("Error in meta-prompting-tool", error)
     } finally {
       setIsLoading(false)
     }

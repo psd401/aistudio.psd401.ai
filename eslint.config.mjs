@@ -11,6 +11,28 @@ const compat = new FlatCompat({
 
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
+  // Disallow all console.* calls by default (server/shared code)
+  {
+    rules: {
+      // All logging must use Winston logger in server code. No console.* allowed.
+      'no-console': 'error',
+    },
+  },
+  // Allow console.error in client components/hooks for actionable errors in development only
+  {
+    files: [
+      "components/**/*.tsx",
+      "components/**/*.ts",
+      "lib/hooks/**/*.ts",
+    ],
+    rules: {
+      // Allow console.error in client code for actionable errors only
+      'no-console': [
+        'error',
+        { allow: ['error'] },
+      ],
+    },
+  },
 ];
 
 export default eslintConfig;

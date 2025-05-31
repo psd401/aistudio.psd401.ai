@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm"
 import { auth } from "@clerk/nextjs/server"
 import { hasRole } from "@/utils/roles"
 import type { InsertTool, SelectTool } from "@/db/schema"
+import logger from "@/lib/logger"
 
 export async function createToolAction(
   tool: InsertTool
@@ -30,7 +31,7 @@ export async function createToolAction(
       data: newTool
     }
   } catch (error) {
-    console.error("Error creating tool:", error)
+    logger.error("Error creating tool:", error)
     return { isSuccess: false, message: "Failed to create tool" }
   }
 }
@@ -44,7 +45,7 @@ export async function getToolsAction(): Promise<ActionState<SelectTool[]>> {
       data: tools
     }
   } catch (error) {
-    console.error("Error getting tools:", error)
+    logger.error("Error getting tools:", error)
     return { isSuccess: false, message: "Failed to get tools" }
   }
 }
@@ -66,7 +67,7 @@ export async function getToolByIdAction(id: number): Promise<ActionState<SelectT
       data: tool
     }
   } catch (error) {
-    console.error("Error getting tool:", error)
+    logger.error("Error getting tool:", error)
     return { isSuccess: false, message: "Failed to get tool" }
   }
 }
@@ -98,7 +99,7 @@ export async function updateToolAction(
       data: updatedTool
     }
   } catch (error) {
-    console.error("Error updating tool:", error)
+    logger.error("Error updating tool:", error)
     return { isSuccess: false, message: "Failed to update tool" }
   }
 }
@@ -129,7 +130,7 @@ export async function deleteToolAction(id: number): Promise<ActionState<void>> {
       data: undefined
     }
   } catch (error) {
-    console.error("Error deleting tool:", error)
+    logger.error("Error deleting tool:", error)
     return { isSuccess: false, message: "Failed to delete tool" }
   }
 } 

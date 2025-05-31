@@ -56,7 +56,7 @@ export function UsersClient({ currentUser, initialUsers }: UsersClientProps) {
       try {
         result = text ? JSON.parse(text) : {}
       } catch (parseError) {
-        console.error("Failed to parse JSON response:", text)
+        console.error("Failed to parse JSON response", text)
         throw new Error("Invalid server response")
       }
       
@@ -70,7 +70,7 @@ export function UsersClient({ currentUser, initialUsers }: UsersClientProps) {
 
       toast.success("User role updated successfully")
     } catch (error) {
-      console.error("Error updating user role:", error)
+      console.error("Error updating user role", error)
       toast.error(error instanceof Error ? error.message : "Failed to update user role")
     } finally {
       setIsUpdating(false)
@@ -96,7 +96,7 @@ export function UsersClient({ currentUser, initialUsers }: UsersClientProps) {
       try {
         result = text ? JSON.parse(text) : {}
       } catch (parseError) {
-        console.error("Failed to parse JSON response:", text)
+        console.error("Failed to parse JSON response", text)
         throw new Error("Invalid server response")
       }
       
@@ -107,7 +107,7 @@ export function UsersClient({ currentUser, initialUsers }: UsersClientProps) {
       setUsers(users.filter(user => user.id !== userToDelete.id))
       toast.success("User deleted successfully")
     } catch (error) {
-      console.error("Error deleting user:", error)
+      console.error("Error deleting user", error)
       toast.error(error instanceof Error ? error.message : "Failed to delete user")
     } finally {
       setShowDeleteDialog(false)

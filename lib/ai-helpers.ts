@@ -2,6 +2,7 @@ import { generateText, CoreMessage } from 'ai'
 import { createAzure } from '@ai-sdk/azure'
 import { google } from '@ai-sdk/google'
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
+import logger from "@/lib/logger"
 
 interface ModelConfig {
   provider: string
@@ -13,14 +14,14 @@ export async function generateCompletion(
   messages: CoreMessage[]
 ) {
   // Log the full prompt for debugging
-  console.log('[generateCompletion] SENDING TO LLM:', messages.map(m => `\n[${m.role}]\n${m.content}`).join('\n---\n'));
+  logger.info('[generateCompletion] SENDING TO LLM:', messages.map(m => `\n[${m.role}]\n${m.content}`).join('\n---\n'));
 
-  console.log('[generateCompletion] Received messages:', JSON.stringify(messages, null, 2));
+  logger.info('[generateCompletion] Received messages:', JSON.stringify(messages, null, 2));
 
   switch (modelConfig.provider) {
     case 'amazon-bedrock': {
       const region = process.env.BEDROCK_REGION || 'unknown-region';
-      console.log(`[generateCompletion] Using Amazon Bedrock with region '${region}' and model ID '${modelConfig.modelId}'`);
+      logger.info(`[generateCompletion] Using Amazon Bedrock with region '${region}' and model ID '${modelConfig.modelId}'`);
       
       const bedrock = createAmazonBedrock({
         region: process.env.BEDROCK_REGION || '',
@@ -62,12 +63,12 @@ export async function generateCompletion(
       // Get API key from environment variables
       const googleApiKey = process.env.GOOGLE_API_KEY || '';
       
-      console.log(`[generateCompletion] Using Google AI with model ID '${modelConfig.modelId}'`);
-      console.log(`[generateCompletion] GOOGLE_API_KEY set: ${!!process.env.GOOGLE_API_KEY}`);
-      console.log(`[generateCompletion] GOOGLE_GENERATIVE_AI_API_KEY set: ${!!process.env.GOOGLE_GENERATIVE_AI_API_KEY}`);
+      logger.info(`[generateCompletion] Using Google AI with model ID '${modelConfig.modelId}'`);
+      logger.info(`[generateCompletion] GOOGLE_API_KEY set: ${!!process.env.GOOGLE_API_KEY}`);
+      logger.info(`[generateCompletion] GOOGLE_GENERATIVE_AI_API_KEY set: ${!!process.env.GOOGLE_GENERATIVE_AI_API_KEY}`);
       
       if (!googleApiKey) {
-        console.error('[generateCompletion] Google API key is missing from environment variables');
+        logger.error('[generateCompletion] Google API key is missing from environment variables');
         throw new Error('Google API key is not configured. Please set GOOGLE_API_KEY in environment variables.');
       }
       
@@ -89,7 +90,7 @@ export async function generateCompletion(
 
         return result.text;
       } catch (error) {
-        console.error('[generateCompletion] Google AI error:', error);
+        logger.error('[generateCompletion] Google AI error:', error);
         
         // Check if it's an API key error
         if (error instanceof Error && error.message && error.message.includes('API key')) {

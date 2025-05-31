@@ -13,9 +13,7 @@ export async function GET(request: Request) {
     }
 
     // Use the hasToolAccess utility directly
-    console.log(`[DEBUG] Checking access for user ${userId} to tool ${toolId}`)
     const hasAccess = await hasToolAccess(userId, toolId)
-    console.log(`[DEBUG] Access result: ${hasAccess}`)
 
     return NextResponse.json({
       userId,
@@ -23,7 +21,6 @@ export async function GET(request: Request) {
       hasAccess
     })
   } catch (error) {
-    console.error("Tool access check error:", error)
     return NextResponse.json({ 
       error: "Error checking tool access",
       details: error instanceof Error ? error.message : String(error)

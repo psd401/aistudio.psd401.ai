@@ -68,7 +68,7 @@ export function CommunicationAnalysisClientWrapper() {
         })
         setConfigs(allConfigs)
       } catch (error) {
-        console.error("Error loading data:", error)
+        console.error("Error loading data", error)
         toast.error(error instanceof Error ? error.message : "Failed to load configuration data")
       } finally {
         setIsLoading(false)

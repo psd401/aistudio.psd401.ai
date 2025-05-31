@@ -33,6 +33,7 @@ import { headers } from "next/headers"
 import { generateCompletion } from "@/lib/ai-helpers"
 import { generateToolIdentifier } from "@/lib/utils"
 import { v4 as uuidv4 } from "uuid"
+import logger from "@/lib/logger"
 
 // Tool Management Actions
 
@@ -40,16 +41,16 @@ export async function createPromptChainToolAction(
   data: InsertPromptChainTool
 ): Promise<ActionState<SelectPromptChainTool>> {
   try {
-    console.log("Starting createPromptChainToolAction")
+    logger.info("Starting createPromptChainToolAction")
     
     const authResult = await auth()
-    console.log("Auth result:", authResult)
+    logger.info("Auth result:", authResult)
     
     const { userId } = authResult
-    console.log("User ID from auth:", userId)
+    logger.info("User ID from auth:", userId)
     
     if (!userId) {
-      console.error("No userId found in auth result")
+      logger.error("No userId found in auth result")
       return { isSuccess: false, message: "Unauthorized" }
     }
 
@@ -59,11 +60,11 @@ export async function createPromptChainToolAction(
       creatorId: userId,
       status: "draft" as const 
     }
-    console.log("Inserting tool with data:", toolData)
+    logger.info("Inserting tool with data:", toolData)
 
     try {
       const [tool] = await db.insert(promptChainToolsTable).values(toolData).returning()
-      console.log("Tool created:", tool)
+      logger.info("Tool created:", tool)
 
       return {
         isSuccess: true,
@@ -71,11 +72,11 @@ export async function createPromptChainToolAction(
         data: tool
       }
     } catch (dbError) {
-      console.error("Database error:", dbError)
+      logger.error("Database error:", dbError)
       return { isSuccess: false, message: "Database error: " + (dbError instanceof Error ? dbError.message : String(dbError)) }
     }
   } catch (error) {
-    console.error("Error creating prompt chain tool:", error)
+    logger.error("Error creating prompt chain tool:", error)
     return { isSuccess: false, message: "Failed to create prompt chain tool: " + (error instanceof Error ? error.message : String(error)) }
   }
 }
@@ -84,11 +85,11 @@ export async function getPromptChainToolsAction(): Promise<
   ActionState<SelectPromptChainTool[]>
 > {
   try {
-    console.log("Fetching user's prompt chain tools")
+    logger.info("Fetching user's prompt chain tools")
     
     // Get the current user
     const { userId } = await auth()
-    console.log("Current user ID:", userId)
+    logger.info("Current user ID:", userId)
     
     if (!userId) {
       return { 
@@ -117,7 +118,7 @@ export async function getPromptChainToolsAction(): Promise<
       .leftJoin(chainPromptsTable, eq(chainPromptsTable.toolId, promptChainToolsTable.id))
       .where(eq(promptChainToolsTable.creatorId, userId));
 
-    console.log("Raw tools data:", tools)
+    logger.info("Raw tools data:", tools)
 
     // Transform the results to include relations
     const transformedTools = tools.reduce((acc, tool) => {
@@ -146,7 +147,7 @@ export async function getPromptChainToolsAction(): Promise<
       return acc;
     }, [] as (SelectPromptChainTool & { inputFields: SelectToolInputField[]; prompts: SelectChainPrompt[] })[]);
 
-    console.log("Transformed tools:", transformedTools)
+    logger.info("Transformed tools:", transformedTools)
 
     return {
       isSuccess: true,
@@ -154,7 +155,7 @@ export async function getPromptChainToolsAction(): Promise<
       data: transformedTools
     }
   } catch (error) {
-    console.error("Error getting prompt chain tools:", error)
+    logger.error("Error getting prompt chain tools:", error)
     return { isSuccess: false, message: "Failed to get tools" }
   }
 }
@@ -200,7 +201,7 @@ export async function getPromptChainToolAction(
       data: transformedTool
     }
   } catch (error) {
-    console.error("Error getting prompt chain tool:", error)
+    logger.error("Error getting prompt chain tool:", error)
     return { isSuccess: false, message: "Failed to get tool" }
   }
 }
@@ -244,7 +245,7 @@ export async function getPendingPromptChainToolsAction(): Promise<
       data: toolsWithRelations
     };
   } catch (error) {
-    console.error("Error getting pending prompt chain tools:", error);
+    logger.error("Error getting pending prompt chain tools:", error);
     return { isSuccess: false, message: "Failed to get pending tools" };
   }
 }
@@ -292,7 +293,7 @@ export async function updatePromptChainToolAction(
       }
     })
   } catch (error) {
-    console.error("Error updating tool:", error)
+    logger.error("Error updating tool:", error)
     return { isSuccess: false, message: "Failed to update tool" }
   }
 }
@@ -313,7 +314,7 @@ export async function deletePromptChainToolAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error deleting tool:", error)
+    logger.error("Error deleting tool:", error)
     return { isSuccess: false, message: "Failed to delete tool" }
   }
 }
@@ -352,7 +353,7 @@ export async function addInputFieldAction(
       data: field
     }
   } catch (error) {
-    console.error("Error adding input field:", error)
+    logger.error("Error adding input field:", error)
     return { isSuccess: false, message: "Failed to add input field" }
   }
 }
@@ -414,7 +415,7 @@ export async function deleteInputFieldAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error deleting input field:", error)
+    logger.error("Error deleting input field:", error)
     return { isSuccess: false, message: "Failed to delete input field" }
   }
 }
@@ -476,7 +477,7 @@ export async function updateInputFieldAction(
       data: updatedField
     }
   } catch (error) {
-    console.error("Error updating input field:", error)
+    logger.error("Error updating input field:", error)
     return { isSuccess: false, message: "Failed to update input field" }
   }
 }
@@ -532,7 +533,7 @@ export async function reorderInputFieldsAction(
       data: updatedFields.map(([field]) => field)
     }
   } catch (error) {
-    console.error("Error reordering input fields:", error)
+    logger.error("Error reordering input fields:", error)
     return { isSuccess: false, message: "Failed to reorder input fields" }
   }
 }
@@ -571,7 +572,7 @@ export async function addPromptAction(
       data: prompt
     }
   } catch (error) {
-    console.error("Error adding prompt:", error)
+    logger.error("Error adding prompt:", error)
     return { isSuccess: false, message: "Failed to add prompt" }
   }
 }
@@ -625,7 +626,7 @@ export async function updatePromptAction(
       data: updatedPrompt
     }
   } catch (error) {
-    console.error("Error updating prompt:", error)
+    logger.error("Error updating prompt:", error)
     return { isSuccess: false, message: "Failed to update prompt" }
   }
 }
@@ -676,7 +677,7 @@ export async function deletePromptAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error deleting prompt:", error)
+    logger.error("Error deleting prompt:", error)
     return { isSuccess: false, message: "Failed to delete prompt" }
   }
 }
@@ -760,7 +761,7 @@ export async function updatePromptPositionAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error updating prompt position:", error)
+    logger.error("Error updating prompt position:", error)
     return { isSuccess: false, message: "Failed to update prompt position" }
   }
 }
@@ -789,7 +790,7 @@ export async function createToolExecutionAction(
       data: newExecution.id
     }
   } catch (error) {
-    console.error("Error creating tool execution:", error)
+    logger.error("Error creating tool execution:", error)
     return { isSuccess: false, message: "Failed to create tool execution" }
   }
 }
@@ -821,7 +822,7 @@ export async function updatePromptResultAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error updating prompt result:", error)
+    logger.error("Error updating prompt result:", error)
     return { isSuccess: false, message: "Failed to update prompt result" }
   }
 }
@@ -893,7 +894,7 @@ export async function approvePromptChainToolAction(
       }
     })
   } catch (error) {
-    console.error("Error approving tool:", error)
+    logger.error("Error approving tool:", error)
     return { isSuccess: false, message: "Failed to approve tool" }
   }
 }
@@ -921,7 +922,7 @@ export async function rejectPromptChainToolAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error rejecting prompt chain tool:", error)
+    logger.error("Error rejecting prompt chain tool:", error)
     return { isSuccess: false, message: "Failed to reject tool" }
   }
 }
@@ -958,7 +959,7 @@ export async function executePromptChainAction({
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    console.log("Executing prompt chain action with inputs:", inputs)
+    logger.info("Executing prompt chain action with inputs:", inputs)
     
     // Get the tool with its prompts and input fields
     const toolResult = await getPromptChainToolAction(toolId)
@@ -1057,7 +1058,7 @@ export async function executePromptChainAction({
           executionTimeMs
         })
       } catch (error) {
-        console.error(`Error executing prompt ${prompt.id}:`, error)
+        logger.error(`Error executing prompt ${prompt.id}:`, error)
         
         // Update the prompt result with error
         await db.update(promptResultsTable)
@@ -1102,7 +1103,7 @@ export async function executePromptChainAction({
       }
     }
   } catch (error) {
-    console.error("Error executing prompt chain:", error)
+    logger.error("Error executing prompt chain:", error)
     return { isSuccess: false, message: "Failed to execute tool" }
   }
 }
@@ -1112,7 +1113,7 @@ export async function getApprovedPromptChainToolsAction(): Promise<
   ActionState<SelectPromptChainTool[]>
 > {
   try {
-    console.log("Fetching approved prompt chain tools")
+    logger.info("Fetching approved prompt chain tools")
     
     // Build the query - only get approved tools
     const tools = await db
@@ -1166,7 +1167,7 @@ export async function getApprovedPromptChainToolsAction(): Promise<
       data: transformedTools
     }
   } catch (error) {
-    console.error("Error getting approved prompt chain tools:", error)
+    logger.error("Error getting approved prompt chain tools:", error)
     return { isSuccess: false, message: "Failed to get approved tools" }
   }
 }
@@ -1206,7 +1207,7 @@ export async function submitPromptChainToolForApprovalAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error submitting tool for approval:", error)
+    logger.error("Error submitting tool for approval:", error)
     return { isSuccess: false, message: "Failed to submit tool for approval" }
   }
 } 

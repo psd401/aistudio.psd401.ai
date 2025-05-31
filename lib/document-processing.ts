@@ -7,6 +7,7 @@
 // Note: We keep the type imports (if they exist) purely for IDE support.
 import type pdfParseType from 'pdf-parse';
 import type mammothType from 'mammoth';
+import logger from "@/lib/logger"
 
 // @ts-ignore - Ignore type error for this specific import path if necessary
 // import * as pdfjsLib from 'pdfjs-dist/webpack.mjs'; // Replaced
@@ -39,7 +40,7 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<{ text: string
       }
     };
   } catch (error) {
-    console.error('Error extracting text from PDF with pdf-parse:', error);
+    logger.error('Error extracting text from PDF with pdf-parse', { error })
     throw new Error('Failed to extract text from PDF');
   }
 }
@@ -58,7 +59,7 @@ export async function extractTextFromDOCX(buffer: Buffer): Promise<{ text: strin
       }
     };
   } catch (error) {
-    console.error('Error extracting text from DOCX:', error);
+    logger.error('Error extracting text from DOCX', { error })
     throw new Error('Failed to extract text from DOCX');
   }
 }
@@ -76,7 +77,7 @@ export async function extractTextFromTXT(buffer: Buffer): Promise<{ text: string
       }
     };
   } catch (error) {
-    console.error('Error extracting text from TXT:', error);
+    logger.error('Error extracting text from TXT', { error })
     throw new Error('Failed to extract text from TXT');
   }
 }

@@ -32,7 +32,7 @@ export function WithRoleCheck({
         const access = await hasRole(user.id, role)
         setHasAccess(access)
       } catch (error) {
-        console.error("Error checking role access:", error)
+        console.error("Error checking role access", error)
         setHasAccess(false)
       } finally {
         setIsLoading(false)

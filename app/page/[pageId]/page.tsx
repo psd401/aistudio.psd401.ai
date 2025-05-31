@@ -13,7 +13,7 @@ interface PageProps {
 }
 
 export default async function PublicPage({ params }: PageProps) {
-  const pageId = params.pageId
+  const { pageId } = await params
   // Fetch the page navigation item
   const [pageItem] = await db
     .select()

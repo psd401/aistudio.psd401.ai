@@ -21,7 +21,7 @@ export function useToolAccess(toolIdentifier: string) {
         const access = await hasToolAccess(user.id, toolIdentifier)
         setHasAccess(access)
       } catch (error) {
-        console.error("Error checking tool access:", error)
+        console.error("Error checking tool access", error)
         setHasAccess(false)
       } finally {
         setIsLoading(false)

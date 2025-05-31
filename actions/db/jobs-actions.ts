@@ -5,6 +5,7 @@ import { InsertJob, SelectJob, jobsTable } from "@/db/schema"
 import { ActionState } from "@/types"
 import { eq } from "drizzle-orm"
 import { auth } from "@clerk/nextjs/server"
+import logger from "@/lib/logger"
 
 export async function createJobAction(
   job: Omit<InsertJob, "id" | "createdAt" | "updatedAt">
@@ -26,7 +27,7 @@ export async function createJobAction(
       data: newJob
     }
   } catch (error) {
-    console.error("Error creating job:", error)
+    logger.error("Error creating job", { error })
     return { isSuccess: false, message: "Failed to create job" }
   }
 }
@@ -47,7 +48,7 @@ export async function getJobAction(id: string): Promise<ActionState<SelectJob>> 
       data: job
     }
   } catch (error) {
-    console.error("Error getting job:", error)
+    logger.error("Error getting job", { error })
     return { isSuccess: false, message: "Failed to get job" }
   }
 }
@@ -64,7 +65,7 @@ export async function getUserJobsAction(userId: string): Promise<ActionState<Sel
       data: jobs
     }
   } catch (error) {
-    console.error("Error getting jobs:", error)
+    logger.error("Error getting jobs", { error })
     return { isSuccess: false, message: "Failed to get jobs" }
   }
 }
@@ -86,7 +87,7 @@ export async function updateJobAction(
       data: updatedJob
     }
   } catch (error) {
-    console.error("Error updating job:", error)
+    logger.error("Error updating job", { error })
     return { isSuccess: false, message: "Failed to update job" }
   }
 }
@@ -100,7 +101,7 @@ export async function deleteJobAction(id: string): Promise<ActionState<void>> {
       data: undefined
     }
   } catch (error) {
-    console.error("Error deleting job:", error)
+    logger.error("Error deleting job", { error })
     return { isSuccess: false, message: "Failed to delete job" }
   }
 } 

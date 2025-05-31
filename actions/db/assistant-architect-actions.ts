@@ -40,6 +40,7 @@ import { ActionState, ErrorLevel } from "@/types";
 import { ExecutionResultDetails } from "@/types/assistant-architect-types";
 import { hasRole, getUserTools } from "@/utils/roles";
 import { createNavigationItemAction } from "@/actions/db/navigation-actions"
+import logger from "@/lib/logger"
 
 // Use inline type for architect with relations
 type ArchitectWithRelations = SelectAssistantArchitect & {
@@ -188,7 +189,7 @@ export async function getPendingAssistantArchitectsAction(): Promise<
       data: toolsWithRelations
     };
   } catch (error) {
-    console.error("Error getting pending Assistant Architects:", error);
+    logger.error("Error getting pending Assistant Architects:", error);
     return { isSuccess: false, message: "Failed to get pending Assistant Architects" };
   }
 }
@@ -239,7 +240,7 @@ export async function updateAssistantArchitectAction(
       data: updatedTool
     }
   } catch (error) {
-    console.error("Error updating assistant:", error)
+    logger.error("Error updating assistant:", error)
     return { isSuccess: false, message: "Failed to update assistant" }
   }
 }
@@ -258,7 +259,7 @@ export async function deleteAssistantArchitectAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error deleting assistant architect:", error)
+    logger.error("Error deleting assistant architect:", error)
     return { isSuccess: false, message: "Failed to delete assistant architect" }
   }
 }
@@ -290,7 +291,7 @@ export async function addToolInputFieldAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error adding tool input field:", error)
+    logger.error("Error adding tool input field:", error)
     return { isSuccess: false, message: "Failed to add tool input field" }
   }
 }
@@ -344,7 +345,7 @@ export async function deleteInputFieldAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error deleting input field:", error)
+    logger.error("Error deleting input field:", error)
     return { isSuccess: false, message: "Failed to delete input field" }
   }
 }
@@ -398,7 +399,7 @@ export async function updateInputFieldAction(
       data: updatedField
     }
   } catch (error) {
-    console.error("Error updating input field:", error)
+    logger.error("Error updating input field:", error)
     return { isSuccess: false, message: "Failed to update input field" }
   }
 }
@@ -446,7 +447,7 @@ export async function reorderInputFieldsAction(
       data: updatedFields.map(([field]) => field)
     }
   } catch (error) {
-    console.error("Error reordering input fields:", error)
+    logger.error("Error reordering input fields:", error)
     return { isSuccess: false, message: "Failed to reorder input fields" }
   }
 }
@@ -481,7 +482,7 @@ export async function addChainPromptAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error adding chain prompt:", error)
+    logger.error("Error adding chain prompt:", error)
     return { isSuccess: false, message: "Failed to add chain prompt" }
   }
 }
@@ -539,7 +540,7 @@ export async function updatePromptAction(
       data: updatedPrompt
     }
   } catch (error) {
-    console.error("Error updating prompt:", error)
+    logger.error("Error updating prompt:", error)
     return { isSuccess: false, message: "Failed to update prompt" }
   }
 }
@@ -590,7 +591,7 @@ export async function deletePromptAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error deleting prompt:", error)
+    logger.error("Error deleting prompt:", error)
     return { isSuccess: false, message: "Failed to delete prompt" }
   }
 }
@@ -643,7 +644,7 @@ export async function updatePromptPositionAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error updating prompt position:", error)
+    logger.error("Error updating prompt position:", error)
     return { isSuccess: false, message: "Failed to update prompt position" }
   }
 }
@@ -672,7 +673,7 @@ export async function createToolExecutionAction(
       data: newExecution.id
     }
   } catch (error) {
-    console.error("Error creating tool execution:", error)
+    logger.error("Error creating tool execution:", error)
     return { isSuccess: false, message: "Failed to create tool execution" }
   }
 }
@@ -704,7 +705,7 @@ export async function updatePromptResultAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error updating prompt result:", error)
+    logger.error("Error updating prompt result:", error)
     return { isSuccess: false, message: "Failed to update prompt result" }
   }
 }
@@ -827,7 +828,7 @@ export async function approveAssistantArchitectAction(
       }
     })
   } catch (error) {
-    console.error("Error approving tool:", error)
+    logger.error("Error approving tool:", error)
     return { isSuccess: false, message: "Failed to approve tool" }
   }
 }
@@ -860,7 +861,7 @@ export async function rejectAssistantArchitectAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error rejecting Assistant Architect:", error)
+    logger.error("Error rejecting Assistant Architect:", error)
     return { isSuccess: false, message: "Failed to reject tool" }
   }
 }
@@ -907,7 +908,7 @@ export async function executeAssistantArchitectAction({
   toolId: string
   inputs: Record<string, unknown>
 }): Promise<ActionState<{ jobId: string }>> {
-  console.log(`[EXEC] Started for tool ${toolId}`);
+  logger.info(`[EXEC] Started for tool ${toolId}`);
   
   try {
     const { userId } = await auth()
@@ -947,7 +948,7 @@ export async function executeAssistantArchitectAction({
 
     // Start the execution in the background
     executeAssistantArchitectJob(jobResult.data.id, tool, inputs).catch(error => {
-      console.error(`[EXEC:${jobResult.data.id}] Background execution failed:`, error);
+      logger.error(`[EXEC:${jobResult.data.id}] Background execution failed:`, error);
     });
 
     return createSuccess({ jobId: jobResult.data.id }, "Execution started");
@@ -981,7 +982,7 @@ async function executeAssistantArchitectJob(
         startedAt: executionStartTime
       }).returning();
       execution = insertedExecution;
-      console.log(`[EXEC:${jobId}] Created execution ${execution.id}`);
+      logger.info(`[EXEC:${jobId}] Created execution ${execution.id}`);
 
       const prompts = tool.prompts?.sort((a: SelectChainPrompt, b: SelectChainPrompt) => (a.position ?? 0) - (b.position ?? 0)) || [];
 
@@ -997,7 +998,7 @@ async function executeAssistantArchitectJob(
             promptInputData[slugify(prevPrompt.name)] = prevResult.output;
           }
         }
-        console.log(`[EXEC:${jobId}] Processing prompt ${index+1}/${prompts.length}: ${prompt.name}`);
+        logger.info(`[EXEC:${jobId}] Processing prompt ${index+1}/${prompts.length}: ${prompt.name}`);
 
         try {
           const [insertedPromptResult] = await tx.insert(promptResultsTable).values({
@@ -1087,10 +1088,10 @@ async function executeAssistantArchitectJob(
             executionTimeMs
           });
 
-          console.log(`[EXEC:${jobId}] Completed prompt ${index+1}/${prompts.length}: ${prompt.name}`);
+          logger.info(`[EXEC:${jobId}] Completed prompt ${index+1}/${prompts.length}: ${prompt.name}`);
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : "Unknown error";
-          console.error(`[EXEC:${jobId}] Error processing prompt ${index+1}: ${errorMsg}`);
+          logger.error(`[EXEC:${jobId}] Error processing prompt ${index+1}: ${errorMsg}`);
           
           if (promptResultRecord) {
             await tx.update(promptResultsTable)
@@ -1142,7 +1143,7 @@ async function executeAssistantArchitectJob(
     });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : "Unknown error";
-    console.error(`[EXEC:${jobId}] Execution failed:`, errorMsg);
+    logger.error(`[EXEC:${jobId}] Execution failed:`, errorMsg);
 
     // Update execution status if it was created
     if (execution) {
@@ -1173,7 +1174,7 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
   ActionState<ArchitectWithRelations[]>
 > {
   try {
-    console.log("Fetching approved Assistant Architects")
+    logger.info("Fetching approved Assistant Architects")
     
     const { userId } = await auth()
     if (!userId) {
@@ -1241,7 +1242,7 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
       data: results
     }
   } catch (error) {
-    console.error("Error getting approved Assistant Architects:", error)
+    logger.error("Error getting approved Assistant Architects:", error)
     return { isSuccess: false, message: "Failed to get approved Assistant Architects" }
   }
 }
@@ -1289,7 +1290,7 @@ export async function submitAssistantArchitectForApprovalAction(
       data: undefined
     }
   } catch (error) {
-    console.error("Error submitting assistant for approval:", error)
+    logger.error("Error submitting assistant for approval:", error)
     return { isSuccess: false, message: "Failed to submit assistant" }
   }
 }
@@ -1366,7 +1367,7 @@ export async function migratePromptChainsToAssistantArchitectAction(): Promise<A
       data: undefined
     }
   } catch (error) {
-    console.error("Error migrating prompt chains to assistant architect:", error)
+    logger.error("Error migrating prompt chains to assistant architect:", error)
     return { 
       isSuccess: false, 
       message: "Failed to migrate prompt chains to assistant architect"
@@ -1383,7 +1384,7 @@ export async function getToolsAction(): Promise<ActionState<SelectTool[]>> {
       data: tools
     }
   } catch (error) {
-    console.error("Error getting tools:", error)
+    logger.error("Error getting tools:", error)
     return { isSuccess: false, message: "Failed to get tools" }
   }
 }
@@ -1397,7 +1398,7 @@ export async function getAiModelsAction(): Promise<ActionState<SelectAiModel[]>>
       data: aiModels
     }
   } catch (error) {
-    console.error("Error getting AI models:", error)
+    logger.error("Error getting AI models:", error)
     return { isSuccess: false, message: "Failed to get AI models" }
   }
 }
@@ -1434,7 +1435,7 @@ export async function setPromptPositionsAction(
 
     return { isSuccess: true, message: "Prompt positions updated", data: undefined }
   } catch (error) {
-    console.error("Error setting prompt positions:", error)
+    logger.error("Error setting prompt positions:", error)
     return { isSuccess: false, message: "Failed to set prompt positions" }
   }
 }
@@ -1492,7 +1493,7 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
       data: toolsWithRelations
     };
   } catch (error) {
-    console.error("Error getting approved Assistant Architects:", error);
+    logger.error("Error getting approved Assistant Architects:", error);
     return { isSuccess: false, message: "Failed to get approved Assistant Architects" };
   }
 }
@@ -1521,7 +1522,7 @@ export async function getAllAssistantArchitectsForAdminAction(): Promise<ActionS
     )
     return { isSuccess: true, message: "All assistants retrieved successfully", data: assistantsWithRelations }
   } catch (error) {
-    console.error("Error getting all assistants for admin:", error)
+    logger.error("Error getting all assistants for admin:", error)
     return { isSuccess: false, message: "Failed to get all assistants" }
   }
 }

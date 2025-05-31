@@ -14,7 +14,7 @@ export function AuthWrapper({ children }: { children: React.ReactNode }) {
             method: 'POST',
           });
         } catch (error) {
-          console.error('Error syncing user:', error);
+          console.error('Error syncing user', error);
         }
       }
     }

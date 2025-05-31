@@ -2,6 +2,7 @@ import { db } from "@/db/db";
 import { documentsTable, documentChunksTable } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { InsertDocument, SelectDocument, InsertDocumentChunk, SelectDocumentChunk } from "@/db/schema";
+import logger from "@/lib/logger"
 
 /**
  * Saves a document to the database
@@ -34,22 +35,21 @@ export async function getDocumentsByConversationId({
 }: { 
   conversationId: number 
 }): Promise<SelectDocument[]> {
-  console.log(`[getDocumentsByConversationId] Starting fetch for conversation ID: ${conversationId}`);
-  
+  // Only log if this is a valuable troubleshooting step
+  logger.info("Fetching documents by conversation ID", { conversationId });
   try {
     // Generate and log the SQL query
     const query = db.select()
       .from(documentsTable)
       .where(eq(documentsTable.conversationId, conversationId));
     
-    console.log(`[getDocumentsByConversationId] Executing query: ${query.toSQL().sql}`);
-    console.log(`[getDocumentsByConversationId] With params: ${conversationId}`);
+    // Remove noisy query logs unless needed for debugging
     
     const results = await query;
-    console.log(`[getDocumentsByConversationId] Query returned ${results.length} documents`);
+    logger.info("Documents query completed", { conversationId, resultCount: results.length });
     return results;
   } catch (error) {
-    console.error(`[getDocumentsByConversationId] Error fetching documents:`, error);
+    logger.error("Error fetching documents by conversation ID", { conversationId, error });
     return [];
   }
 }
@@ -116,7 +116,7 @@ export async function linkDocumentToConversation(
       .returning();
     return updatedDocument;
   } catch (error) {
-    console.error('Error linking document to conversation:', error);
+    logger.error('Error linking document to conversation', { documentId, conversationId, error });
     // Handle error appropriately, maybe return undefined or throw
     return undefined;
   }
