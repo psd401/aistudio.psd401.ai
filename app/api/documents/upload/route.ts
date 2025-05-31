@@ -1,3 +1,14 @@
+import logger from "@/lib/logger"
+
+// Limit request body size to 25MB for uploads
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "25mb"
+    }
+  }
+}
+
 console.log('[Upload API Module] Loading route.ts file...'); // Log module load
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -9,8 +20,8 @@ import { extractTextFromDocument, chunkText, getFileTypeFromFileName } from '@/l
 // import * as fs from 'fs'; // No longer needed if text processing is out
 // import * as path from 'path'; // No longer needed if text processing is out
 
-// File size limit: 10MB
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+// File size limit: 25MB
+const MAX_FILE_SIZE = 25 * 1024 * 1024;
 
 // Supported file types
 const ALLOWED_FILE_EXTENSIONS = ['.pdf', '.docx', '.txt'];
@@ -48,15 +59,15 @@ async function ensureDocumentsBucket() {
     const { data: buckets, error } = await supabaseAdmin.storage.listBuckets();
     
     if (error) {
-      console.error('Error listing buckets:', error);
+      logger.error('Error listing buckets:', error);
       throw new Error(`Failed to list storage buckets: ${error.message}`);
     }
     
     const documentsBucketExists = buckets.some(bucket => bucket.name === 'documents');
-    console.log('Checking for documents bucket:', documentsBucketExists ? 'exists' : 'does not exist');
+    logger.info('Checking for documents bucket:', documentsBucketExists ? 'exists' : 'does not exist');
     
     if (!documentsBucketExists) {
-      console.log('Documents bucket does not exist, creating it...');
+      logger.info('Documents bucket does not exist, creating it...');
       const { error: createError } = await supabaseAdmin.storage.createBucket('documents', {
         public: false, // Make the bucket private for security
         allowedMimeTypes: ALLOWED_MIME_TYPES,
@@ -64,18 +75,18 @@ async function ensureDocumentsBucket() {
       });
       
       if (createError) {
-        console.error('Error creating documents bucket:', createError);
+        logger.error('Error creating documents bucket:', createError);
         throw new Error(`Failed to create documents bucket: ${createError.message}`);
       }
       
-      console.log('Documents bucket created successfully');
+      logger.info('Documents bucket created successfully');
     } else {
-      console.log('Documents bucket already exists');
+      logger.info('Documents bucket already exists');
     }
     
     return true;
   } catch (error) {
-    console.error('Error in ensureDocumentsBucket:', error);
+    logger.error('Error in ensureDocumentsBucket:', error);
     throw error;
   }
 }
@@ -88,7 +99,7 @@ async function ensureDocumentsBucket() {
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  console.log('[Upload API - Restore Step 1] Handler Entered');
+  logger.info('[Upload API - Restore Step 1] Handler Entered');
   
   // Set response headers early to ensure proper content type
   const headers = {
@@ -96,12 +107,12 @@ export async function POST(request: NextRequest) {
   };
   
   // Check authentication first
-  console.log('[Upload API] Attempting getAuth...');
+  logger.info('[Upload API] Attempting getAuth...');
   const { userId } = getAuth(request);
-  console.log(`[Upload API] getAuth completed. userId: ${userId}`);
+  logger.info(`[Upload API] getAuth completed. userId: ${userId}`);
 
   if (!userId) {
-    console.log('Unauthorized - No userId');
+    logger.info('Unauthorized - No userId');
     return new NextResponse(
       JSON.stringify({ error: 'Unauthorized' }), 
       { status: 401, headers }
@@ -111,7 +122,7 @@ export async function POST(request: NextRequest) {
   // Add more checks before the main try block if needed
 
   try {
-    console.log('[Upload API] Inside main try block');
+    logger.info('[Upload API] Inside main try block');
     // --- Original logic commented out for now ---
     /*
     // Ensure documents bucket exists
@@ -134,7 +145,7 @@ export async function POST(request: NextRequest) {
     try {
       await ensureDocumentsBucket(); // Assuming ensureDocumentsBucket is defined above
     } catch (bucketError) {
-      console.error('[Upload API] Step failed: Ensuring Bucket', bucketError);
+      logger.error('[Upload API] Step failed: Ensuring Bucket', bucketError);
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -148,9 +159,9 @@ export async function POST(request: NextRequest) {
     let formData;
     try {
       formData = await request.formData();
-      console.log('[Upload API] Form data parsed');
+      logger.info('[Upload API] Form data parsed');
     } catch (formError) {
-      console.error('[Upload API] Step failed: Parsing Form Data', formError);
+      logger.error('[Upload API] Step failed: Parsing Form Data', formError);
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -162,13 +173,13 @@ export async function POST(request: NextRequest) {
     
     const file = formData.get('file') as File;
     
-    console.log('Form data received:', {
+    logger.info('Form data received:', {
       fileName: file?.name,
       fileSize: file?.size
     });
     
     if (!file) {
-      console.log('No file uploaded in form data');
+      logger.info('No file uploaded in form data');
       return new NextResponse(
         JSON.stringify({ success: false, error: 'No file uploaded' }), 
         { status: 400, headers }
@@ -179,7 +190,7 @@ export async function POST(request: NextRequest) {
     // 1. Check file extension
     const fileExtension = `.${file.name.split('.').pop()?.toLowerCase()}`;
     if (!ALLOWED_FILE_EXTENSIONS.includes(fileExtension)) {
-      console.log('Unsupported file extension:', fileExtension);
+      logger.info('Unsupported file extension:', fileExtension);
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -191,7 +202,7 @@ export async function POST(request: NextRequest) {
     
     // 2. Check MIME type for additional security
     if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-      console.log('Unsupported MIME type:', file.type);
+      logger.info('Unsupported MIME type:', file.type);
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -204,7 +215,7 @@ export async function POST(request: NextRequest) {
     const validatedFile = FileSchema.safeParse({ file });
     if (!validatedFile.success) {
       const errorMessage = validatedFile.error.errors.map((error) => error.message).join(', ');
-      console.log('File validation error:', errorMessage);
+      logger.info('File validation error:', errorMessage);
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -216,15 +227,15 @@ export async function POST(request: NextRequest) {
 
     // Extract file type from file name
     const fileType = getFileTypeFromFileName(file.name);
-    console.log('File type (using file name):', fileType);
+    logger.info('File type (using file name):', fileType);
     
     // Convert File to Buffer for processing (still needed for storage and non-PDF extraction)
     let fileBuffer: Buffer;
     try {
       fileBuffer = Buffer.from(await file.arrayBuffer());
-      console.log('File converted to buffer, size:', fileBuffer.length);
+      logger.info('File converted to buffer, size:', fileBuffer.length);
     } catch (bufferError) {
-      console.error('[Upload API] Step failed: Converting to Buffer', bufferError);
+      logger.error('[Upload API] Step failed: Converting to Buffer', bufferError);
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -239,10 +250,10 @@ export async function POST(request: NextRequest) {
     
     // Create a safe, unique file path
     const filePath = `${userId}/${Date.now()}-${sanitizedFileName}`;
-    console.log('File path for storage:', filePath);
+    logger.info('File path for storage:', filePath);
     
     // Upload file to Supabase Storage
-    console.log('Uploading to Supabase Storage...');
+    logger.info('Uploading to Supabase Storage...');
     const { error: uploadError, data: uploadData } = await supabaseAdmin.storage
       .from('documents')
       .upload(filePath, fileBuffer, {
@@ -251,7 +262,7 @@ export async function POST(request: NextRequest) {
       });
 
     if (uploadError) {
-      console.error('[Upload API] Step failed: Uploading to Storage', uploadError);
+      logger.error('[Upload API] Step failed: Uploading to Storage', uploadError);
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -261,7 +272,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('File uploaded successfully to Supabase Storage:', uploadData);
+    logger.info('File uploaded successfully to Supabase Storage:', uploadData);
 
     // Get signed URL for the uploaded file (valid for 1 hour)
     const { data: urlData, error: urlError } = await supabaseAdmin.storage
@@ -269,7 +280,7 @@ export async function POST(request: NextRequest) {
       .createSignedUrl(filePath, 3600); // 1 hour expiration
 
     if (urlError || !urlData || !urlData.signedUrl) {
-      console.error('[Upload API] Step failed: Getting Signed URL', urlError);
+      logger.error('[Upload API] Step failed: Getting Signed URL', urlError);
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -280,20 +291,20 @@ export async function POST(request: NextRequest) {
     }
 
     const fileUrl = urlData.signedUrl;
-    console.log('Signed URL:', fileUrl);
+    logger.info('Signed URL:', fileUrl);
 
     // Process document content for text extraction
-    console.log('Extracting text from document...');
+    logger.info('Extracting text from document...');
     let text, metadata;
     try {
       // Use server-side extraction for all supported types
       const extracted = await extractTextFromDocument(fileBuffer, fileType);
       text = extracted.text;
       metadata = extracted.metadata;
-      console.log('Text extracted, length:', text?.length ?? 0);
+      logger.info('Text extracted, length:', text?.length ?? 0);
     } catch (extractError) {
-      console.error('[Upload API] Step failed: Text Extraction', extractError);
-      console.error('Error extracting text from document:', extractError);
+      logger.error('[Upload API] Step failed: Text Extraction', extractError);
+      logger.error('Error extracting text from document:', extractError);
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -305,7 +316,7 @@ export async function POST(request: NextRequest) {
 
     // Ensure text is not null or undefined before proceeding
     if (text === null || text === undefined) {
-      console.error('[Upload API] Text extraction resulted in null or undefined text.');
+      logger.error('[Upload API] Text extraction resulted in null or undefined text.');
       return new NextResponse(
         JSON.stringify({ 
           success: false, 
@@ -316,7 +327,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Save document metadata to database
-    console.log('Saving document to database...');
+    logger.info('Saving document to database...');
     let document;
     try {
       document = await saveDocument({
@@ -331,10 +342,10 @@ export async function POST(request: NextRequest) {
         createdAt: new Date(),
         updatedAt: new Date(),
       });
-      console.log('Document saved to database:', document.id);
+      logger.info('Document saved to database:', document.id);
     } catch (saveError) {
-      console.error('[Upload API] Step failed: Saving Document Metadata', saveError);
-      console.error('Error saving document to database:', saveError);
+      logger.error('[Upload API] Step failed: Saving Document Metadata', saveError);
+      logger.error('Error saving document to database:', saveError);
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -345,14 +356,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Chunk text and save to database
-    console.log('Chunking text...');
+    logger.info('Chunking text...');
     let chunks;
     try {
       chunks = chunkText(text);
-      console.log('Created', chunks.length, 'chunks');
+      logger.info('Created', chunks.length, 'chunks');
       
       if (chunks.length === 0) {
-        console.warn('[Upload API] Chunking resulted in 0 chunks. Document might be empty or processing failed silently.');
+        logger.warn('[Upload API] Chunking resulted in 0 chunks. Document might be empty or processing failed silently.');
         // Proceed to save document metadata but skip saving chunks
       } else {
         const documentChunks = chunks.map((chunk, index) => ({
@@ -364,13 +375,13 @@ export async function POST(request: NextRequest) {
           updatedAt: new Date(),
         }));
 
-        console.log('Saving chunks to database...');
+        logger.info('Saving chunks to database...');
         const savedChunks = await batchInsertDocumentChunks(documentChunks);
-        console.log('Saved', savedChunks.length, 'chunks to database');
+        logger.info('Saved', savedChunks.length, 'chunks to database');
       }
     } catch (chunkError) {
-      console.error('[Upload API] Step failed: Chunking/Saving Chunks', chunkError);
-      console.error('Error processing or saving chunks:', chunkError);
+      logger.error('[Upload API] Step failed: Chunking/Saving Chunks', chunkError);
+      logger.error('Error processing or saving chunks:', chunkError);
       // Attempt to clean up the document record if chunk saving fails?
       // await deleteDocumentById({ id: document.id }); // Optional cleanup
       return new NextResponse(
@@ -401,8 +412,8 @@ export async function POST(request: NextRequest) {
     );
       
   } catch (error) {
-    console.error('[Upload API] General Error in POST handler (Restore Step 1):', error);
-    console.error('Detailed Error:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    logger.error('[Upload API] General Error in POST handler (Restore Step 1):', error);
+    logger.error('Detailed Error:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     return new NextResponse(
       JSON.stringify({ 
         success: false, 

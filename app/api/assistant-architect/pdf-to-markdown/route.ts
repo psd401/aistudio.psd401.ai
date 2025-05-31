@@ -5,14 +5,24 @@ import { jobsTable } from '@/db/schema/jobs-schema'
 import { eq } from 'drizzle-orm'
 import { generateCompletion } from '@/lib/ai-helpers'
 import { getAuth } from '@clerk/nextjs/server'
+import logger from "@/lib/logger"
 
 // Easily change the model id here
 const PDF_TO_MARKDOWN_MODEL_ID = 20
 
+// Limit request body size to 25MB for uploads
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "25mb"
+    }
+  }
+}
+
 export const runtime = 'nodejs'
 
 export async function POST(req: NextRequest) {
-  console.log('[PDF-to-Markdown] Request received');
+  logger.info('[PDF-to-Markdown] Request received');
   
   // Set response headers early to ensure proper content type
   const headers = {
@@ -30,41 +40,41 @@ export async function POST(req: NextRequest) {
   
   try {
     // Parse multipart form data
-    console.log('[PDF-to-Markdown] Parsing form data...');
+    logger.info('[PDF-to-Markdown] Parsing form data...');
     const formData = await req.formData()
     const file = formData.get('file') as File | null
     if (!file) {
-      console.log('[PDF-to-Markdown] No file provided');
+      logger.info('[PDF-to-Markdown] No file provided');
       return new NextResponse(
         JSON.stringify({ error: 'No file uploaded.' }), 
         { status: 400, headers }
       );
     }
     
-    console.log(`[PDF-to-Markdown] File received: ${file.name}, size: ${file.size} bytes, type: ${file.type}`);
+    logger.info(`[PDF-to-Markdown] File received: ${file.name}, size: ${file.size} bytes, type: ${file.type}`);
     
     if (file.type !== 'application/pdf') {
-      console.log('[PDF-to-Markdown] Invalid file type:', file.type);
+      logger.info('[PDF-to-Markdown] Invalid file type:', file.type);
       return new NextResponse(
         JSON.stringify({ error: 'Only PDF files are supported.' }), 
         { status: 400, headers }
       );
     }
-    if (file.size > 10 * 1024 * 1024) {
-      console.log('[PDF-to-Markdown] File too large:', file.size);
+    if (file.size > 25 * 1024 * 1024) {
+      logger.info('[PDF-to-Markdown] File too large:', file.size);
       return new NextResponse(
-        JSON.stringify({ error: 'File size exceeds 10MB limit.' }), 
+        JSON.stringify({ error: 'File size exceeds 25MB limit.' }), 
         { status: 400, headers }
       );
     }
 
     // Convert file to base64 for storage
-    console.log('[PDF-to-Markdown] Converting file to base64...');
+    logger.info('[PDF-to-Markdown] Converting file to base64...');
     const arrayBuffer = await file.arrayBuffer()
     const base64Data = Buffer.from(arrayBuffer).toString('base64')
     
     // Create a job in the database
-    console.log('[PDF-to-Markdown] Creating job in database...');
+    logger.info('[PDF-to-Markdown] Creating job in database...');
     const jobInput = {
       fileName: file.name,
       fileSize: file.size,
@@ -83,11 +93,32 @@ export async function POST(req: NextRequest) {
       })
       .returning();
     
-    console.log(`[PDF-to-Markdown] Job created with ID: ${job.id}`);
+    logger.info(`[PDF-to-Markdown] Job created with ID: ${job.id}`);
+    
+    // Ensure job is committed and visible before returning
+    let committedJob = null;
+    for (let i = 0; i < 5; i++) {
+      const [found] = await db
+        .select()
+        .from(jobsTable)
+        .where(eq(jobsTable.id, job.id));
+      if (found) {
+        committedJob = found;
+        break;
+      }
+      await new Promise(res => setTimeout(res, 100)); // wait 100ms
+    }
+    if (!committedJob) {
+      logger.error(`[PDF-to-Markdown] Job not visible after insert: ${job.id}`);
+      return new NextResponse(
+        JSON.stringify({ error: 'Job not committed to database. Please try again.' }),
+        { status: 500, headers }
+      );
+    }
     
     // Start processing in the background (non-blocking)
     processPdfInBackground(job.id, jobInput).catch(error => {
-      console.error('[PDF-to-Markdown] Background processing error:', error);
+      logger.error('[PDF-to-Markdown] Background processing error:', error);
     });
     
     // Small delay to ensure background process starts
@@ -104,8 +135,8 @@ export async function POST(req: NextRequest) {
     );
     
   } catch (error: any) {
-    console.error('[PDF-to-Markdown] General error:', error);
-    console.error('[PDF-to-Markdown] Error stack:', error.stack);
+    logger.error('[PDF-to-Markdown] General error:', error);
+    logger.error('[PDF-to-Markdown] Error stack:', error.stack);
     return new NextResponse(
       JSON.stringify({ error: error.message || 'Unknown error' }), 
       { status: 500, headers }
@@ -116,7 +147,7 @@ export async function POST(req: NextRequest) {
 // Background processing function
 async function processPdfInBackground(jobId: string, jobInput: any) {
   try {
-    console.log(`[PDF-to-Markdown Background] Starting processing for job ${jobId}`);
+    logger.info(`[PDF-to-Markdown Background] Starting processing for job ${jobId}`);
     
     // Update job status to running
     await db
@@ -151,7 +182,7 @@ async function processPdfInBackground(jobId: string, jobInput: any) {
       }
     ];
     
-    console.log(`[PDF-to-Markdown Background] Prepared messages for job ${jobId}:`, {
+    logger.info(`[PDF-to-Markdown Background] Prepared messages for job ${jobId}:`, {
       role: messages[0].role,
       contentTypes: messages[0].content.map(c => c.type),
       textLength: messages[0].content[0].text.length,
@@ -159,7 +190,7 @@ async function processPdfInBackground(jobId: string, jobInput: any) {
     });
     
     // Call the LLM
-    console.log(`[PDF-to-Markdown Background] Calling LLM for job ${jobId}...`);
+    logger.info(`[PDF-to-Markdown Background] Calling LLM for job ${jobId}...`);
     const startTime = Date.now();
     const markdown = await generateCompletion(
       { provider: model.provider, modelId: model.modelId },
@@ -167,8 +198,8 @@ async function processPdfInBackground(jobId: string, jobInput: any) {
     );
     
     const processingTime = Date.now() - startTime;
-    console.log(`[PDF-to-Markdown Background] Job ${jobId} completed in ${processingTime}ms`);
-    console.log(`[PDF-to-Markdown Background] Markdown result length: ${markdown?.length || 0}`);
+    logger.info(`[PDF-to-Markdown Background] Job ${jobId} completed in ${processingTime}ms`);
+    logger.info(`[PDF-to-Markdown Background] Markdown result length: ${markdown?.length || 0}`);
     
     if (!markdown) {
       throw new Error('No markdown content generated');
@@ -181,7 +212,7 @@ async function processPdfInBackground(jobId: string, jobInput: any) {
       processingTime 
     };
     
-    console.log(`[PDF-to-Markdown Background] Saving result for job ${jobId}:`, {
+    logger.info(`[PDF-to-Markdown Background] Saving result for job ${jobId}:`, {
       markdownLength: markdown.length,
       fileName: jobInput.fileName
     });
@@ -194,11 +225,11 @@ async function processPdfInBackground(jobId: string, jobInput: any) {
       })
       .where(eq(jobsTable.id, jobId));
     
-    console.log(`[PDF-to-Markdown Background] Job ${jobId} successfully saved to database`);
+    logger.info(`[PDF-to-Markdown Background] Job ${jobId} successfully saved to database`);
       
   } catch (error: any) {
-    console.error(`[PDF-to-Markdown Background] Job ${jobId} failed:`, error);
-    console.error(`[PDF-to-Markdown Background] Error details:`, error.stack);
+    logger.error(`[PDF-to-Markdown Background] Job ${jobId} failed:`, error);
+    logger.error(`[PDF-to-Markdown Background] Error details:`, error.stack);
     
     // Update job with error
     await db

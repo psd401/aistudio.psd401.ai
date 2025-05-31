@@ -790,12 +790,21 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
               <div className="space-y-2">
                 <div className="flex items-center justify-between mb-1">
                   <Label htmlFor="systemContext">System Context & Knowledge (Optional)</Label>
-                  <PdfUploadButton onMarkdown={doc => {
-                    setSystemContext(prev => {
-                      const merged = (!prev || prev.trim() === "") ? doc : prev + "\n\n" + doc
-                      return merged
-                    })
-                  }} />
+                  <PdfUploadButton 
+                    onMarkdown={doc => {
+                      setSystemContext(prev => {
+                        const merged = (!prev || prev.trim() === "") ? doc : prev + "\n\n" + doc
+                        return merged
+                      })
+                    }}
+                    onError={err => {
+                      if (err?.status === 413) {
+                        alert("File too large. Please upload a file smaller than 25MB.")
+                      } else {
+                        alert("Upload failed: " + (err?.message || "Unknown error"))
+                      }
+                    }}
+                  />
                 </div>
                 <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
                   <textarea
@@ -948,12 +957,21 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                 <div className="space-y-2">
                   <div className="flex items-center justify-between mb-1">
                     <Label htmlFor="edit-systemContext">System Context & Knowledge (Optional)</Label>
-                    <PdfUploadButton onMarkdown={doc => {
-                      setSystemContext(prev => {
-                        const merged = (!prev || prev.trim() === "") ? doc : prev + "\n\n" + doc
-                        return merged
-                      })
-                    }} />
+                    <PdfUploadButton 
+                      onMarkdown={doc => {
+                        setSystemContext(prev => {
+                          const merged = (!prev || prev.trim() === "") ? doc : prev + "\n\n" + doc
+                          return merged
+                        })
+                      }}
+                      onError={err => {
+                        if (err?.status === 413) {
+                          alert("File too large. Please upload a file smaller than 25MB.")
+                        } else {
+                          alert("Upload failed: " + (err?.message || "Unknown error"))
+                        }
+                      }}
+                    />
                   </div>
                   <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
                     <textarea

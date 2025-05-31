@@ -3,6 +3,7 @@ import { db } from '@/db/db'
 import { jobsTable } from '@/db/schema/jobs-schema'
 import { eq, and } from 'drizzle-orm'
 import { getAuth } from '@clerk/nextjs/server'
+import logger from "@/lib/logger"
 
 export async function GET(req: NextRequest) {
   const headers = {
@@ -11,16 +12,15 @@ export async function GET(req: NextRequest) {
   
   // Get user authentication
   const { userId } = getAuth(req);
+  const { searchParams } = new URL(req.url);
+  const jobId = searchParams.get('jobId');
+  logger.info('[PDF Status Check] userId:', userId, 'jobId:', jobId);
   if (!userId) {
     return new NextResponse(
       JSON.stringify({ error: 'Unauthorized' }), 
       { status: 401, headers }
     );
   }
-  
-  // Get job ID from query params
-  const { searchParams } = new URL(req.url);
-  const jobId = searchParams.get('jobId');
   
   if (!jobId) {
     return new NextResponse(
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
   }
   
   try {
-    // Fetch job from database
+    // Fetch job from database for this user
     const [job] = await db
       .select()
       .from(jobsTable)
@@ -38,8 +38,21 @@ export async function GET(req: NextRequest) {
         eq(jobsTable.id, jobId),
         eq(jobsTable.userId, userId)
       ));
-    
+    logger.info('[PDF Status Check] DB result for user:', job);
     if (!job) {
+      // Check if job exists for any user (race condition: job created but not yet committed to this user)
+      const [anyJob] = await db
+        .select()
+        .from(jobsTable)
+        .where(eq(jobsTable.id, jobId));
+      logger.info('[PDF Status Check] DB result for any user:', anyJob);
+      if (anyJob) {
+        // Job exists but not yet visible to this user (race condition)
+        return new NextResponse(
+          JSON.stringify({ jobId, status: anyJob.status || 'processing' }),
+          { status: 200, headers }
+        );
+      }
       return new NextResponse(
         JSON.stringify({ error: 'Job not found' }), 
         { status: 404, headers }
@@ -55,10 +68,10 @@ export async function GET(req: NextRequest) {
     };
     
     if (job.status === 'completed' && job.output) {
-      console.log('[PDF Status Check] Job completed, parsing output...');
+      logger.info('[PDF Status Check] Job completed, parsing output...');
       try {
         const output = JSON.parse(job.output);
-        console.log('[PDF Status Check] Parsed output:', { 
+        logger.info('[PDF Status Check] Parsed output:', { 
           hasMarkdown: !!output.markdown, 
           markdownLength: output.markdown?.length,
           fileName: output.fileName 
@@ -71,7 +84,7 @@ export async function GET(req: NextRequest) {
           processingTime: output.processingTime
         };
       } catch (parseError) {
-        console.error('[PDF Status Check] Failed to parse job output:', parseError);
+        logger.error('[PDF Status Check] Failed to parse job output:', parseError);
         return new NextResponse(
           JSON.stringify({ error: 'Failed to parse job result' }), 
           { status: 500, headers }
@@ -84,7 +97,7 @@ export async function GET(req: NextRequest) {
       };
     }
     
-    console.log('[PDF Status Check] Returning result:', { 
+    logger.info('[PDF Status Check] Returning result:', { 
       status: result.status, 
       hasMarkdown: !!result.markdown,
       markdownLength: result.markdown?.length 
@@ -96,7 +109,7 @@ export async function GET(req: NextRequest) {
     );
     
   } catch (error: any) {
-    console.error('[PDF Status Check] Error:', error);
+    logger.error('[PDF Status Check] Error:', error);
     return new NextResponse(
       JSON.stringify({ error: error.message || 'Failed to check job status' }), 
       { status: 500, headers }

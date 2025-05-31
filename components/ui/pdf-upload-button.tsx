@@ -10,13 +10,15 @@ interface PdfUploadButtonProps {
   label?: string
   className?: string
   disabled?: boolean
+  onError?: (err: { status?: number; message?: string }) => void
 }
 
 export default function PdfUploadButton({
   onMarkdown,
   label = "Add PDF Knowledge",
   className = "",
-  disabled = false
+  disabled = false,
+  onError
 }: PdfUploadButtonProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
@@ -42,11 +44,13 @@ export default function PdfUploadButton({
   const pollJobStatus = async (jobId: string, fileName: string) => {
     try {
       const res = await fetch(`/api/assistant-architect/pdf-to-markdown/status?jobId=${jobId}`)
-      
+      if (res.status === 404) {
+        setProcessingStatus("Processing PDF...")
+        return
+      }
       if (!res.ok) {
         throw new Error(`Failed to check status: ${res.status}`)
       }
-      
       const data = await res.json()
       console.log('[PdfUploadButton] Poll response:', data);
       
@@ -78,19 +82,23 @@ export default function PdfUploadButton({
         }
         
         throw new Error(data.error || 'PDF processing failed')
-      } else if (data.status === 'running' || data.status === 'pending') {
+      } else if (
+        data.status === 'pending' ||
+        data.status === 'processing' ||
+        data.status === 'running'
+      ) {
+        setProcessingStatus("Processing PDF...")
+        // Continue polling
+      } else {
+        // Unknown status, treat as still processing
         setProcessingStatus("Processing PDF...")
       }
-      // If status is 'pending' or 'running', continue polling
-      
     } catch (error: any) {
       console.error('[PdfUploadButton] Polling error:', error);
-      // Stop polling on error
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current)
         pollingIntervalRef.current = null
       }
-      
       toast.error(error.message || "Failed to process PDF.")
       setUploadedFileName(null)
       setIsLoading(false)
@@ -103,10 +111,12 @@ export default function PdfUploadButton({
     if (!file) return
     if (file.type !== "application/pdf") {
       toast.error("Only PDF files are supported.")
+      onError?.({ message: "Only PDF files are supported." })
       return
     }
     if (file.size > 25 * 1024 * 1024) {
       toast.error("File size exceeds 25MB limit.")
+      onError?.({ message: "File size exceeds 25MB limit." })
       return
     }
     setIsLoading(true)
@@ -131,12 +141,15 @@ export default function PdfUploadButton({
       } catch (parseError) {
         console.error('Error parsing response:', parseError)
         if (!res.ok) {
+          onError?.({ status: res.status, message: `Server error: ${res.status} ${res.statusText}` })
           throw new Error(`Server error: ${res.status} ${res.statusText}`)
         }
+        onError?.({ message: 'Invalid response format from server' })
         throw new Error('Invalid response format from server')
       }
       
       if (!res.ok) {
+        onError?.({ status: res.status, message: data.error || "Failed to process PDF." })
         throw new Error(data.error || "Failed to process PDF.")
       }
       
@@ -159,6 +172,7 @@ export default function PdfUploadButton({
         setIsLoading(false)
         setProcessingStatus("")
       } else {
+        onError?.({ message: 'Invalid response: unexpected status' })
         throw new Error('Invalid response: unexpected status')
       }
       
@@ -168,6 +182,7 @@ export default function PdfUploadButton({
       setUploadedFileName(null)
       setIsLoading(false)
       setProcessingStatus("")
+      onError?.({ message: err.message })
     }
   }
 
