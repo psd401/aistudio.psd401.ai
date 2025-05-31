@@ -136,7 +136,7 @@ export async function hasToolAccess(userId: string, toolIdentifier: string): Pro
     
     return hasAccess
   } catch (error) {
-    console.error(`Error checking tool access for ${userId} to ${toolIdentifier}:`, error)
+    console.error("Error checking tool access for %s to %s:", userId, toolIdentifier, error)
     return false
   }
 }
