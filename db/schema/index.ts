@@ -11,13 +11,6 @@ export * from './tools-schema';
 export * from './tool-accesses-schema';
 export * from './assistant-architects-schema';
 
-// Communication schemas
-export * from './communication-schema';
-export * from './communication-analysis-schema';
-
-// Meta prompting schemas
-export * from './meta-prompting-schema';
-
 // Document schemas
 export * from './documents-schema';
 

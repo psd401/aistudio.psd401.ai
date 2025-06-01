@@ -23,17 +23,6 @@ import {
   // toolEditsTable, // Assuming toolEdits doesn't exist or relations aren't defined
   // Tools
   toolsTable,
-  // Communication
-  communicationSettingsTable,
-  audiencesTable,
-  accessControlTable,
-  // Communication Analysis
-  analysisPromptsTable,
-  analysisResultsTable,
-  audienceConfigsTable,
-  // Meta Prompting
-  metaPromptingTechniquesTable,
-  metaPromptingTemplatesTable,
   // Navigation
   navigationItemsTable,
 
@@ -51,7 +40,6 @@ import {
   promptResultsRelations,
   // toolEditsRelations, // Removed
   toolsRelations,
-  audiencesRelations,
   navigationItemsRelations,
 } from "./schema";
 
@@ -85,17 +73,6 @@ const schema = {
   // toolEdits: toolEditsTable,
   // Tools
   tools: toolsTable,
-  // Communication
-  communicationSettings: communicationSettingsTable,
-  audiences: audiencesTable,
-  accessControl: accessControlTable,
-   // Communication Analysis
-  analysisPrompts: analysisPromptsTable,
-  analysisResults: analysisResultsTable,
-  audienceConfigs: audienceConfigsTable,
-  // Meta Prompting
-  metaPromptingTechniques: metaPromptingTechniquesTable,
-  metaPromptingTemplates: metaPromptingTemplatesTable,
   // Navigation
   navigationItems: navigationItemsTable,
   
@@ -113,7 +90,6 @@ const schema = {
   promptResultsRelations,
   // toolEditsRelations,
   toolsRelations,
-  audiencesRelations,
   navigationItemsRelations,
 };
 

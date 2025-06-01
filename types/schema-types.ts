@@ -5,12 +5,7 @@ import {
   ideaVotesTable,
   aiModelsTable,
   conversationsTable,
-  messagesTable,
-  audiencesTable,
-  analysisPromptsTable,
-  analysisResultsTable,
-  accessControlTable,
-  communicationSettingsTable
+  messagesTable
 } from "@/db/schema"
 
 export type Role = 'student' | 'staff' | 'administrator'
@@ -36,22 +31,6 @@ export type SelectConversation = typeof conversationsTable.$inferSelect
 
 export type InsertMessage = typeof messagesTable.$inferInsert
 export type SelectMessage = typeof messagesTable.$inferSelect
-
-// Communication Analysis Types
-export type InsertAudience = typeof audiencesTable.$inferInsert
-export type SelectAudience = typeof audiencesTable.$inferSelect
-
-export type InsertAnalysisPrompt = typeof analysisPromptsTable.$inferInsert
-export type SelectAnalysisPrompt = typeof analysisPromptsTable.$inferSelect
-
-export type InsertAnalysisResult = typeof analysisResultsTable.$inferInsert
-export type SelectAnalysisResult = typeof analysisResultsTable.$inferSelect
-
-export type InsertAccessControl = typeof accessControlTable.$inferInsert
-export type SelectAccessControl = typeof accessControlTable.$inferSelect
-
-export type InsertCommunicationSettings = typeof communicationSettingsTable.$inferInsert
-export type SelectCommunicationSettings = typeof communicationSettingsTable.$inferSelect
 
 // Re-export all types from db/schema
 export * from '@/db/schema';

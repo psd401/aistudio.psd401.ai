@@ -39,17 +39,6 @@ import {
   // Tools
   toolsTable,
   toolAccessesTable,
-  // Communication
-  communicationSettingsTable,
-  audiencesTable,
-  accessControlTable,
-  // Communication Analysis
-  analysisPromptsTable,
-  analysisResultsTable,
-  audienceConfigsTable,
-  // Meta Prompting
-  metaPromptingTechniquesTable,
-  metaPromptingTemplatesTable,
   // Navigation
   navigationItemsTable,
   jobsTable,
@@ -72,7 +61,6 @@ import {
   // toolEditsRelations, // Removed
   toolsRelations,
   toolAccessesRelations,
-  audiencesRelations,
   navigationItemsRelations,
   // communicationRelations, // Removed
   // audienceAnalysisRelations, // Removed
@@ -128,17 +116,6 @@ const schema = {
   // Tools
   tools: toolsTable,
   toolAccesses: toolAccessesTable,
-  // Communication
-  communicationSettings: communicationSettingsTable,
-  audiences: audiencesTable,
-  accessControl: accessControlTable,
-   // Communication Analysis
-  analysisPrompts: analysisPromptsTable,
-  analysisResults: analysisResultsTable,
-  audienceConfigs: audienceConfigsTable,
-  // Meta Prompting
-  metaPromptingTechniques: metaPromptingTechniquesTable,
-  metaPromptingTemplates: metaPromptingTemplatesTable,
   // Navigation
   navigationItems: navigationItemsTable,
   jobs: jobsTable,
@@ -162,7 +139,6 @@ const schema = {
   // toolEditsRelations,
   toolsRelations,
   toolAccessesRelations,
-  audiencesRelations,
   navigationItemsRelations,
   // communicationRelations,
   // audienceAnalysisRelations,
