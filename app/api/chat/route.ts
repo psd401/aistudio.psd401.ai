@@ -10,6 +10,7 @@ import { CoreMessage } from "ai"
 import { withErrorHandling, unauthorized, badRequest } from "@/lib/api-utils"
 import { createError } from "@/lib/error-utils"
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId } from "@/lib/db/queries/documents"
+import logger from "@/lib/logger"
 
 export async function POST(req: NextRequest) {
   const { userId } = getAuth(req)
@@ -156,7 +157,11 @@ export async function POST(req: NextRequest) {
         }
       }
     } catch (docError) {
-      console.error("Error fetching document context:", docError);
+      logger.error("Error fetching document context", { 
+        error: docError instanceof Error ? docError.message : String(docError),
+        conversationId: conversationIdToUse,
+        userId 
+      });
       // Continue without document context if there's an error
     }
       

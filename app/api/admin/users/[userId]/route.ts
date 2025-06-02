@@ -4,6 +4,13 @@ import { db } from '@/db/db';
 import { usersTable } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { withErrorHandling, unauthorized, forbidden, notFound, badRequest } from '@/lib/api-utils';
+import { z } from 'zod';
+import { createError } from '@/lib/error-utils';
+
+// Route parameter validation schema
+const ParamsSchema = z.object({
+  userId: z.string().regex(/^\d+$/, 'User ID must be a positive integer').transform(Number)
+});
 
 export async function DELETE(
   _request: Request,
@@ -26,12 +33,22 @@ export async function DELETE(
   }
 
   return withErrorHandling(async () => {
-    // Await the params object before using it
+    // Await and validate the params object
     const params = await context.params;
-    const targetUserId = parseInt(params.userId);
-    if (isNaN(targetUserId)) {
-      throw new Error('Invalid user ID');
+    const validationResult = ParamsSchema.safeParse(params);
+    
+    if (!validationResult.success) {
+      throw createError('Invalid user ID parameter', {
+        code: 'VALIDATION',
+        level: 'warn',
+        details: { 
+          userId: params.userId,
+          errors: validationResult.error.errors 
+        }
+      });
     }
+    
+    const targetUserId = validationResult.data.userId;
 
     // Get user from our database
     const [targetUser] = await db
