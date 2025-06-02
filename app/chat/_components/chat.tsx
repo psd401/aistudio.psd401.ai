@@ -25,6 +25,7 @@ interface Document {
 
 interface ChatProps {
   conversationId?: number
+  title?: string
   initialMessages?: Array<{
     id: string
     content: string
@@ -32,7 +33,7 @@ interface ChatProps {
   }>
 }
 
-export function Chat({ conversationId: initialConversationId, initialMessages = [] }: ChatProps) {
+export function Chat({ conversationId: initialConversationId, title, initialMessages = [] }: ChatProps) {
   const [messages, setMessages] = useState(initialMessages)
   const [currentConversationId, setCurrentConversationId] = useState<number | undefined>(initialConversationId)
   const [models, setModels] = useState<SelectAiModel[]>([])
