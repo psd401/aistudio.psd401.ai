@@ -33,22 +33,22 @@ export default clerkMiddleware(async (auth, req) => {
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
   response.headers.set('X-XSS-Protection', '1; mode=block')
   
-  // Content Security Policy
-  const csp = [
-    "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://clerk.com https://*.clerk.com",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com",
-    "img-src 'self' data: https: blob:",
-    "connect-src 'self' https://*.clerk.com https://*.supabase.co wss://*.clerk.com",
-    "frame-src 'self' https://*.clerk.com",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    "frame-ancestors 'none'"
-  ].join('; ')
-  
-  response.headers.set('Content-Security-Policy', csp)
+  // TODO: Add Content Security Policy after thorough testing
+  // CSP temporarily disabled to prevent UI breakage - will re-enable after proper testing
+  // const csp = [
+  //   "default-src 'self'",
+  //   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://clerk.com https://*.clerk.com",
+  //   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  //   "font-src 'self' https://fonts.gstatic.com",
+  //   "img-src 'self' data: https: blob:",
+  //   "connect-src 'self' https://*.clerk.com https://*.supabase.co wss://*.clerk.com",
+  //   "frame-src 'self' https://*.clerk.com",
+  //   "object-src 'none'",
+  //   "base-uri 'self'",
+  //   "form-action 'self'",
+  //   "frame-ancestors 'none'"
+  // ].join('; ')
+  // response.headers.set('Content-Security-Policy', csp)
 
   // Set longer timeout headers for long-running routes
   if (isLongRunningRoute(req)) {
