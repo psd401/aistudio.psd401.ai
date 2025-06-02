@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { db } from '@/db/db';
 import { conversationsTable, messagesTable } from '@/db/schema';
 import { and, eq, asc } from 'drizzle-orm';
-import { Chat } from '../components/Chat';
+import { Chat } from '../_components/chat';
 import { hasToolAccess } from '@/utils/roles';
 
 interface ConversationPageProps {
