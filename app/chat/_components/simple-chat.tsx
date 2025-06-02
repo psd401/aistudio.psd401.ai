@@ -3,24 +3,36 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useChat } from 'ai/react';
 import { IconReload, IconPlayerStop, IconPlus } from '@tabler/icons-react';
-import { Message } from './Message';
-import { ChatInput } from './ChatInput';
+import { Message } from './message';
+import { ChatInput } from './chat-input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/components/ui/use-toast';
 import type { FormEvent } from 'react';
 
-interface ChatProps {
+interface SimpleChatProps {
   conversationId?: number;
+  initialMessages?: Array<{
+    id: string;
+    content: string;
+    role: "user" | "assistant";
+    createdAt?: string;
+  }>;
 }
 
-export function Chat({ conversationId }: ChatProps) {
+export function SimpleChat({ conversationId, initialMessages = [] }: SimpleChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
+  
   const { messages, input, handleInputChange, handleSubmit: handleChatSubmit, isLoading, error, reload, stop } = useChat({
     api: '/api/chat',
     id: conversationId?.toString(),
+    initialMessages: initialMessages.map(msg => ({
+      id: msg.id,
+      content: msg.content,
+      role: msg.role as 'user' | 'assistant'
+    })),
     body: {
       conversationId,
     },
@@ -75,14 +87,10 @@ export function Chat({ conversationId }: ChatProps) {
     }
   }
 
-  const handleSubmit = useCallback(async (e: FormEvent<HTMLFormElement>, model: string) => {
+  const handleSubmit = useCallback(async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     try {
-      await handleChatSubmit(e, {
-        body: {
-          model
-        }
-      });
+      await handleChatSubmit(e);
     } catch (error) {
       toast({
         title: 'Error',
@@ -140,14 +148,6 @@ export function Chat({ conversationId }: ChatProps) {
         handleSubmit={handleSubmit}
         isLoading={isLoading}
       />
-
-      <Button
-        size="icon"
-        className="fixed bottom-24 right-6 h-12 w-12 rounded-full shadow-lg"
-        onClick={() => handleSubmit(new Event('click') as any, '')}
-      >
-        <IconPlus className="h-6 w-6" />
-      </Button>
     </div>
   );
-} 
+}

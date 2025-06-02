@@ -25,6 +25,7 @@ interface Document {
 
 interface ChatProps {
   conversationId?: number
+  title?: string
   initialMessages?: Array<{
     id: string
     content: string
@@ -32,7 +33,7 @@ interface ChatProps {
   }>
 }
 
-export function Chat({ conversationId: initialConversationId, initialMessages = [] }: ChatProps) {
+export function Chat({ conversationId: initialConversationId, title, initialMessages = [] }: ChatProps) {
   const [messages, setMessages] = useState(initialMessages)
   const [currentConversationId, setCurrentConversationId] = useState<number | undefined>(initialConversationId)
   const [models, setModels] = useState<SelectAiModel[]>([])
@@ -153,7 +154,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     }
   };
 
-  const handleDocumentUpload = (documentInfo: Document) => {
+  const handleDocumentUpload = async (documentInfo: Document) => {
     console.log("[handleDocumentUpload] Document uploaded:", documentInfo);
     
     // Save the document to our state
@@ -171,9 +172,38 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     // Show the documents panel
     setShowDocuments(true);
     
-    // If we have a conversation ID, refetch documents to ensure we have the latest state
+    // If we have a conversation ID, link the document to the conversation
     if (currentConversationId) {
-      fetchDocuments();
+      try {
+        console.log("[handleDocumentUpload] Linking document to conversation:", {
+          documentId: documentInfo.id,
+          conversationId: currentConversationId
+        });
+        
+        const response = await fetch('/api/documents/link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            documentId: documentInfo.id,
+            conversationId: currentConversationId
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to link document to conversation');
+        }
+        
+        console.log("[handleDocumentUpload] Document linked successfully");
+        // Refetch documents to ensure we have the latest state
+        fetchDocuments();
+      } catch (error) {
+        console.error("[handleDocumentUpload] Error linking document:", error);
+        toast({
+          title: "Warning",
+          description: "Document uploaded but not linked to conversation. It may not be accessible in chat.",
+          variant: "destructive"
+        });
+      }
     }
     
     toast({
@@ -189,6 +219,46 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     // We just need to know the file details to show pending state
     setPendingDocument(documentInfo as Document); // Store details for UI
     // Upload is now triggered directly from DocumentUpload component
+  }
+
+  const linkUnlinkedDocuments = async (conversationId: number) => {
+    console.log("[linkUnlinkedDocuments] Linking documents to conversation:", conversationId);
+    
+    // Find documents in our state that might not be linked to this conversation
+    const documentsToLink = documents.filter(doc => !doc.conversationId || doc.conversationId !== conversationId);
+    
+    if (documentsToLink.length === 0) {
+      console.log("[linkUnlinkedDocuments] No documents to link");
+      return;
+    }
+    
+    console.log(`[linkUnlinkedDocuments] Found ${documentsToLink.length} documents to link`);
+    
+    for (const doc of documentsToLink) {
+      try {
+        const response = await fetch('/api/documents/link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            documentId: doc.id,
+            conversationId: conversationId
+          })
+        });
+        
+        if (!response.ok) {
+          console.error(`[linkUnlinkedDocuments] Failed to link document ${doc.id}`);
+          continue;
+        }
+        
+        console.log(`[linkUnlinkedDocuments] Successfully linked document ${doc.id}`);
+      } catch (error) {
+        console.error(`[linkUnlinkedDocuments] Error linking document ${doc.id}:`, error);
+      }
+    }
+    
+    // Refetch documents to ensure we have the latest state
+    console.log("[linkUnlinkedDocuments] Refetching documents after linking");
+    fetchDocuments(conversationId);
   }
 
   const handleDocumentDelete = async (documentId: string) => {
@@ -343,12 +413,18 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
           if(processingDocumentId) setProcessingDocumentId(null); 
           // Update the URL *after* state is likely processed
           window.history.pushState({}, '', `/chat?conversation=${newConversationId}`);
+          
+          // Link any unlinked documents to the new conversation
+          linkUnlinkedDocuments(newConversationId);
         } else if (!currentConversationId && data.data && data.data.conversationId) {
           // Try alternate location for conversationId
           newConversationId = data.data.conversationId;
           setCurrentConversationId(newConversationId);
           if(processingDocumentId) setProcessingDocumentId(null);
           window.history.pushState({}, '', `/chat?conversation=${newConversationId}`);
+          
+          // Link any unlinked documents to the new conversation
+          linkUnlinkedDocuments(newConversationId);
         }
       } else {
         // For non-JSON responses

@@ -11,9 +11,20 @@ const nextConfig = {
         protocol: 'https',
         hostname: 'images.clerk.dev',
       },
+      // Add specific trusted domains instead of wildcard
       {
         protocol: 'https',
-        hostname: '**',
+        hostname: 'avatars.githubusercontent.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'lh3.googleusercontent.com',
+      },
+      // Supabase storage if used for images
+      {
+        protocol: 'https',
+        hostname: '*.supabase.co',
+        pathname: '/storage/v1/object/public/**',
       }
     ]
   },

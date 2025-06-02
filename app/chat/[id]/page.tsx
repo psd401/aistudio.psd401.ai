@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { db } from '@/db/db';
 import { conversationsTable, messagesTable } from '@/db/schema';
 import { and, eq, asc } from 'drizzle-orm';
-import { Chat } from '../components/Chat';
+import { SimpleChat } from '../_components/simple-chat';
 import { hasToolAccess } from '@/utils/roles';
 
 interface ConversationPageProps {
@@ -52,14 +52,14 @@ export default async function ConversationPage({ params }: ConversationPageProps
     .orderBy(asc(messagesTable.createdAt));
 
   return (
-    <Chat
+    <SimpleChat
+      conversationId={conversation.id}
       initialMessages={conversationMessages.map(msg => ({
         id: msg.id.toString(),
         content: msg.content,
         role: msg.role,
         createdAt: msg.createdAt.toISOString(),
       }))}
-      conversationId={conversation.id}
     />
   );
 } 
