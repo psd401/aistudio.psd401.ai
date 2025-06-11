@@ -33,7 +33,7 @@ export class FrontendStack extends cdk.Stack {
     });
 
     // Branches
-    const branchName = props.environment === 'prod' ? 'main' : 'develop';
+    const branchName = props.environment === 'prod' ? 'main' : 'dev';
     const branch = amplifyApp.addBranch(branchName);
 
     // Outputs
