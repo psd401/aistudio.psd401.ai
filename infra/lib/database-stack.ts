@@ -71,6 +71,7 @@ export class DatabaseStack extends cdk.Stack {
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       securityGroups: [dbSg],
+      enableDataApi: true,
     });
 
     // RDS Proxy
