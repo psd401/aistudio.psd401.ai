@@ -15,6 +15,38 @@ const standardTags = {
   Owner: 'TSD Engineering',
 };
 
+// Get baseDomain from context first
+const baseDomain = app.node.tryGetContext('baseDomain');
+
+// Helper to get callback/logout URLs for any environment
+function getCallbackAndLogoutUrls(environment: string, baseDomain?: string): { callbackUrls: string[], logoutUrls: string[] } {
+  if (environment === 'dev') {
+    return {
+      callbackUrls: [
+        'http://localhost:3000/',
+        'http://localhost:3001/',
+        baseDomain ? `https://dev.${baseDomain}/` : undefined,
+      ].filter(Boolean) as string[],
+      logoutUrls: [
+        'http://localhost:3000/',
+        'http://localhost:3001/',
+        baseDomain ? `https://dev.${baseDomain}/` : undefined,
+      ].filter(Boolean) as string[],
+    };
+  } else {
+    return {
+      callbackUrls: [
+        baseDomain ? `https://prod.${baseDomain}/` : undefined,
+        baseDomain ? `https://dev.${baseDomain}/` : undefined,
+      ].filter(Boolean) as string[],
+      logoutUrls: [
+        baseDomain ? `https://prod.${baseDomain}/` : undefined,
+        baseDomain ? `https://dev.${baseDomain}/` : undefined,
+      ].filter(Boolean) as string[],
+    };
+  }
+}
+
 // Dev environment
 const devDbStack = new DatabaseStack(app, 'AIStudio-DatabaseStack-Dev', {
   environment: 'dev',
@@ -23,9 +55,12 @@ const devDbStack = new DatabaseStack(app, 'AIStudio-DatabaseStack-Dev', {
 cdk.Tags.of(devDbStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devDbStack).add(key, value));
 
+const devUrls = getCallbackAndLogoutUrls('dev', baseDomain);
 const devAuthStack = new AuthStack(app, 'AIStudio-AuthStack-Dev', {
   environment: 'dev',
   googleClientSecret: SecretValue.secretsManager('aistudio-dev-google-oauth', { jsonField: 'clientSecret' }),
+  callbackUrls: devUrls.callbackUrls,
+  logoutUrls: devUrls.logoutUrls,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
 cdk.Tags.of(devAuthStack).add('Environment', 'Dev');
@@ -39,7 +74,6 @@ cdk.Tags.of(devStorageStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devStorageStack).add(key, value));
 
 // Remove the isSynthOrDeploy conditional and always instantiate FrontendStack(s) if baseDomain is present
-const baseDomain = app.node.tryGetContext('baseDomain');
 if (baseDomain) {
   const devFrontendStack = new FrontendStack(app, 'AIStudio-FrontendStack-Dev', {
     environment: 'dev',
@@ -72,9 +106,12 @@ const prodDbStack = new DatabaseStack(app, 'AIStudio-DatabaseStack-Prod', {
 cdk.Tags.of(prodDbStack).add('Environment', 'Prod');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodDbStack).add(key, value));
 
+const prodUrls = getCallbackAndLogoutUrls('prod', baseDomain);
 const prodAuthStack = new AuthStack(app, 'AIStudio-AuthStack-Prod', {
   environment: 'prod',
   googleClientSecret: SecretValue.secretsManager('aistudio-prod-google-oauth', { jsonField: 'clientSecret' }),
+  callbackUrls: prodUrls.callbackUrls,
+  logoutUrls: prodUrls.logoutUrls,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
 cdk.Tags.of(prodAuthStack).add('Environment', 'Prod');

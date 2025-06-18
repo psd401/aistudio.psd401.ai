@@ -36,7 +36,24 @@ export class DatabaseStack extends cdk.Stack {
       description: 'Allow inbound PostgreSQL',
       allowAllOutbound: true,
     });
-    dbSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(5432), 'Allow PostgreSQL access');
+    
+    // For development, allow PostgreSQL access from anywhere (you should restrict this to your IP)
+    if (props.environment === 'dev') {
+      dbSg.addIngressRule(
+        ec2.Peer.anyIpv4(), 
+        ec2.Port.tcp(5432), 
+        'Allow PostgreSQL access from anywhere (DEV ONLY)'
+      );
+      // Better practice: restrict to your IP
+      // dbSg.addIngressRule(ec2.Peer.ipv4('YOUR.IP.ADDRESS.HERE/32'), ec2.Port.tcp(5432), 'Allow PostgreSQL from my IP');
+    } else {
+      // Production: only allow from within VPC
+      dbSg.addIngressRule(
+        ec2.Peer.ipv4(vpc.vpcCidrBlock), 
+        ec2.Port.tcp(5432), 
+        'Allow PostgreSQL access from VPC'
+      );
+    }
 
     // Secrets Manager secret for DB credentials
     const dbSecret = new secretsmanager.Secret(this, 'DbSecret', {
@@ -55,6 +72,8 @@ export class DatabaseStack extends cdk.Stack {
       defaultDatabaseName: 'aistudio',
       writer: rds.ClusterInstance.serverlessV2('Writer', {
         scaleWithWriter: true,
+        // Note: publiclyAccessible requires the DB to be in public subnets
+        // We'll keep it in private subnets and use Data API instead
       }),
       readers: props.environment === 'prod'
         ? [rds.ClusterInstance.serverlessV2('Reader', {})]
@@ -90,6 +109,25 @@ export class DatabaseStack extends cdk.Stack {
       description: 'RDS Proxy endpoint',
       exportName: `${props.environment}-RdsProxyEndpoint`,
     });
+    
+    new cdk.CfnOutput(this, 'ClusterEndpoint', {
+      value: cluster.clusterEndpoint.hostname,
+      description: 'Aurora cluster writer endpoint',
+      exportName: `${props.environment}-ClusterEndpoint`,
+    });
+    
+    new cdk.CfnOutput(this, 'ClusterReaderEndpoint', {
+      value: cluster.clusterReadEndpoint.hostname,
+      description: 'Aurora cluster reader endpoint',
+      exportName: `${props.environment}-ClusterReaderEndpoint`,
+    });
+    
+    new cdk.CfnOutput(this, 'ClusterArn', {
+      value: cluster.clusterArn,
+      description: 'Aurora cluster ARN for Data API',
+      exportName: `${props.environment}-ClusterArn`,
+    });
+    
     new cdk.CfnOutput(this, 'DbSecretArn', {
       value: dbSecret.secretArn,
       description: 'Secrets Manager ARN for DB credentials',

@@ -1,9 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAuth } from '@clerk/nextjs';
-import { UsersTable } from '@/components/user/users-table';
-import { User } from '@/lib/types';
 import { useToast } from '@/components/ui/use-toast';
 import {
   AlertDialog,
@@ -15,13 +12,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { UsersTable } from '@/components/user/users-table';
+import { User } from '@/lib/types';
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [userToDelete, setUserToDelete] = useState<{ id: number; clerkId: string } | null>(null);
-  const { userId } = useAuth();
   const { toast } = useToast();
 
   const fetchUsers = async () => {
@@ -38,7 +36,6 @@ export default function AdminUsersPage() {
       }
       
       const result = await response.json();
-      console.log('API response:', result);
       
       if (!result.isSuccess) {
         throw new Error(result.message || 'Failed to fetch users');
@@ -134,7 +131,6 @@ export default function AdminUsersPage() {
     <div className="p-6">
       <UsersTable
         users={users}
-        currentUserId={userId}
         onRoleChange={handleRoleChange}
         onDeleteUser={handleDeleteUser}
       />

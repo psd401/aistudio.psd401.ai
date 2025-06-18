@@ -1,17 +1,21 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/db/db';
-import { aiModelsTable } from '@/db/schema';
-import { eq, asc } from 'drizzle-orm';
-import { getAuth } from '@clerk/nextjs/server';
-import { hasRole } from '~/utils/roles';
-import type { InsertAiModel } from '@/types';
+import { getAIModels, createAIModel, updateAIModel, deleteAIModel } from '@/lib/db/data-api-adapter';
+import { cookies } from 'next/headers';
 
 export async function GET() {
   try {
-    const models = await db
-      .select()
-      .from(aiModelsTable)
-      .orderBy(asc(aiModelsTable.name));
+    const modelsData = await getAIModels();
+    
+    // Transform snake_case to camelCase for consistency
+    const models = modelsData.map(model => ({
+      id: model.id,
+      name: model.name,
+      modelId: model.model_id,
+      description: model.description,
+      isActive: model.active,  // Changed from is_active to active
+      createdAt: model.created_at,
+      updatedAt: model.updated_at
+    }));
 
     return NextResponse.json({
       isSuccess: true,
@@ -29,23 +33,25 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const { userId } = getAuth(request);
-    if (!userId) {
+    // Check authorization - temporary solution
+    const cookieStore = await cookies()
+    const hasAuthCookie = cookieStore.has('CognitoIdentityServiceProvider.3409udcdkhvqbs5njab7do8fsr.LastAuthUser')
+    
+    if (!hasAuthCookie) {
       return new NextResponse('Unauthorized', { status: 401 });
     }
 
-    const isAdmin = await hasRole(userId, 'administrator');
-    if (!isAdmin) {
-      return new NextResponse('Forbidden', { status: 403 });
-    }
+    // TODO: Implement proper admin check with Amplify
 
     const body = await request.json();
-    const modelData: InsertAiModel = {
-      ...body,
-      capabilities: body.capabilities ? JSON.stringify(body.capabilities) : null,
+    const modelData = {
+      name: body.name,
+      modelId: body.modelId,
+      description: body.description,
+      isActive: body.isActive ?? true
     };
 
-    const [model] = await db.insert(aiModelsTable).values(modelData).returning();
+    const model = await createAIModel(modelData);
 
     return NextResponse.json({
       isSuccess: true,
@@ -63,28 +69,20 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const { userId } = getAuth(request);
-    if (!userId) {
+    // Check authorization - temporary solution
+    const cookieStore = await cookies()
+    const hasAuthCookie = cookieStore.has('CognitoIdentityServiceProvider.3409udcdkhvqbs5njab7do8fsr.LastAuthUser')
+    
+    if (!hasAuthCookie) {
       return new NextResponse('Unauthorized', { status: 401 });
     }
 
-    const isAdmin = await hasRole(userId, 'administrator');
-    if (!isAdmin) {
-      return new NextResponse('Forbidden', { status: 403 });
-    }
+    // TODO: Implement proper admin check with Amplify
 
     const body = await request.json();
     const { id, ...updates } = body;
 
-    if (updates.capabilities) {
-      updates.capabilities = JSON.stringify(updates.capabilities);
-    }
-
-    const [model] = await db
-      .update(aiModelsTable)
-      .set(updates)
-      .where(eq(aiModelsTable.id, id))
-      .returning();
+    const model = await updateAIModel(id, updates);
 
     return NextResponse.json({
       isSuccess: true,
@@ -102,15 +100,15 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const { userId } = getAuth(request);
-    if (!userId) {
+    // Check authorization - temporary solution
+    const cookieStore = await cookies()
+    const hasAuthCookie = cookieStore.has('CognitoIdentityServiceProvider.3409udcdkhvqbs5njab7do8fsr.LastAuthUser')
+    
+    if (!hasAuthCookie) {
       return new NextResponse('Unauthorized', { status: 401 });
     }
 
-    const isAdmin = await hasRole(userId, 'administrator');
-    if (!isAdmin) {
-      return new NextResponse('Forbidden', { status: 403 });
-    }
+    // TODO: Implement proper admin check with Amplify
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -122,10 +120,7 @@ export async function DELETE(request: Request) {
       );
     }
 
-    const [model] = await db
-      .delete(aiModelsTable)
-      .where(eq(aiModelsTable.id, parseInt(id)))
-      .returning();
+    const model = await deleteAIModel(parseInt(id));
 
     return NextResponse.json({
       isSuccess: true,

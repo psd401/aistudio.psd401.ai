@@ -1,18 +1,104 @@
 'use client';
 
-import { UserButton as ClerkUserButton, useAuth } from '@clerk/nextjs';
-import { useUser } from '@clerk/nextjs';
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useEffect, useState } from 'react';
+import { getCurrentUser, signInWithRedirect, signOut, fetchAuthSession } from 'aws-amplify/auth';
+import { Hub } from 'aws-amplify/utils';
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 
 export function UserButton() {
-  const { isLoaded, userId } = useAuth();
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [userInfo, setUserInfo] = useState<any>(null);
 
-  if (!isLoaded || !userId) {
-    // You can return a loading state or null
-    return null;
+  useEffect(() => {
+    const checkUser = async () => {
+      setLoading(true);
+      try {
+        const userData = await getCurrentUser();
+        
+        // Get the session to access the ID token
+        try {
+          const session = await fetchAuthSession();
+          const idToken = session.tokens?.idToken;
+          
+          if (idToken?.payload) {
+            setUserInfo({
+              email: idToken.payload.email,
+              given_name: idToken.payload.given_name,
+              family_name: idToken.payload.family_name,
+              name: idToken.payload.name,
+              picture: idToken.payload.picture
+            });
+          }
+        } catch (sessionError) {
+          console.error('UserButton - Error fetching session:', sessionError);
+        }
+        
+        setUser(userData);
+      } catch (error) {
+        console.error('UserButton - Error getting user:', error);
+        setUser(null);
+        setUserInfo(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkUser();
+
+    const hubListener = Hub.listen('auth', ({ payload }) => {
+      switch (payload.event) {
+        case 'signedIn':
+          checkUser();
+          break;
+        case 'signedOut':
+          setUser(null);
+          setUserInfo(null);
+          setLoading(false);
+          break;
+      }
+    });
+
+    return () => {
+      hubListener();
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <Button size="sm" variant="outline" disabled>
+        ...
+      </Button>
+    );
   }
 
-  // Render the Clerk UserButton when the user is loaded
-  return <ClerkUserButton afterSignOutUrl="/" />;
+  if (!user) {
+    return (
+      <Button size="sm" variant="outline" onClick={() => signInWithRedirect()}>
+        Sign in
+      </Button>
+    );
+  }
+
+  // Use user info from ID token, with fallbacks
+  const displayName =
+    userInfo?.given_name || 
+    userInfo?.name ||
+    userInfo?.email || 
+    user.username || 
+    user.userId || 
+    "User"
+
+  return (
+    <div className="flex items-center gap-2">
+      <Avatar>
+        <AvatarFallback>{displayName.charAt(0).toUpperCase()}</AvatarFallback>
+      </Avatar>
+      <span className="text-sm font-medium">{displayName}</span>
+      <Button size="sm" variant="outline" onClick={() => signOut()}>
+        Sign out
+      </Button>
+    </div>
+  );
 } 

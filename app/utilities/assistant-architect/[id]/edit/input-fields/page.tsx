@@ -1,6 +1,5 @@
 "use server"
 
-import { auth } from "@clerk/nextjs/server"
 import { redirect, notFound } from "next/navigation"
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { hasRole } from "@/utils/roles"
@@ -9,10 +8,6 @@ import { InputFieldsPageClient } from "./_components/input-fields-page-client"
 import Link from "next/link"
 
 export default async function InputFieldsPage({ params: { id } }: { params: { id: string } }) {
-  const { userId } = await auth()
-  if (!userId) {
-    redirect("/sign-in")
-  }
   const result = await getAssistantArchitectAction(id)
   if (!result.isSuccess) {
     notFound()

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useUser } from '@clerk/nextjs';
+import { getCurrentUser } from 'aws-amplify/auth';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { iconMap, IconName } from './icon-map';
@@ -73,13 +73,12 @@ export function NavbarNested() {
       variants={sidebarVariants}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       className={cn(
-        'hidden lg:flex flex-col h-[100dvh] border-r bg-background fixed top-0 left-0',
+        'hidden lg:flex flex-col h-[calc(100dvh-3.5rem)] border-r bg-background fixed top-14 left-0',
         'z-40'
       )}
       onMouseEnter={() => setIsExpanded(true)}
       onMouseLeave={() => setIsExpanded(false)}
     >
-      <div className="h-16" />
       <NavigationContent isExpanded={isExpanded} />
     </motion.nav>
   );
@@ -90,7 +89,6 @@ export function NavbarNested() {
  * Accepts isExpanded prop to adjust layout.
  */
 function NavigationContent({ isExpanded }: { isExpanded: boolean }) {
-  const { user } = useUser();
   const [navItems, setNavItems] = useState<NavigationItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [processedItems, setProcessedItems] = useState<ProcessedItem[]>([]);
@@ -98,17 +96,10 @@ function NavigationContent({ isExpanded }: { isExpanded: boolean }) {
   // Fetch navigation items from the API
   useEffect(() => {
     const fetchNavigation = async () => {
-      if (!user?.id) {
-        setIsLoading(false);
-        return;
-      }
-      
       try {
         setIsLoading(true);
-        
         const navResponse = await fetch('/api/navigation');
         const navData = await navResponse.json();
-        
         if (navData.isSuccess && Array.isArray(navData.data)) {
           setNavItems(navData.data);
         } else {
@@ -122,9 +113,8 @@ function NavigationContent({ isExpanded }: { isExpanded: boolean }) {
         setIsLoading(false);
       }
     };
-
     fetchNavigation();
-  }, [user?.id]);
+  }, []);
 
   // Process navigation items into proper structure for the UI
   useEffect(() => {

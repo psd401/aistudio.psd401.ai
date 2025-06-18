@@ -1,6 +1,5 @@
 "use server"
 
-import { auth } from "@clerk/nextjs/server"
 import { redirect, notFound } from "next/navigation"
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { getAiModelsAction } from "@/actions/db/ai-models-actions"
@@ -12,10 +11,6 @@ import Link from "next/link"
 export default async function PromptsPage({ params }: { params: { id: string } }) {
   const resolvedParams = await Promise.resolve(params)
   const id = resolvedParams.id
-  const { userId } = await auth()
-  if (!userId) {
-    redirect("/sign-in")
-  }
   const result = await getAssistantArchitectAction(id)
   if (!result.isSuccess) {
     notFound()

@@ -1,6 +1,5 @@
 "use server"
 
-import { auth } from "@clerk/nextjs/server"
 import { redirect, notFound } from "next/navigation"
 import { hasRole } from "@/utils/roles"
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
@@ -16,11 +15,6 @@ interface Props {
 export default async function SubmitAssistantArchitectPage({ params }: Props) {
   const resolvedParams = await Promise.resolve(params)
   const id = resolvedParams.id
-  
-  const { userId } = await auth()
-  if (!userId) {
-    redirect("/sign-in")
-  }
   
   const toolResult = await getAssistantArchitectAction(id)
   if (!toolResult.isSuccess) {

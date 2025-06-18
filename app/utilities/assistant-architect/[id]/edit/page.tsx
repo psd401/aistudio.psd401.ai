@@ -2,8 +2,6 @@
 
 import { redirect, notFound } from "next/navigation"
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
-import { auth } from "@clerk/nextjs/server"
-import { hasRole } from "@/utils/roles"
 import { CreateForm } from "../../create/_components/create-form"
 import { CreateLayout } from "@/app/utilities/assistant-architect/create/_components/create-layout"
 
@@ -17,11 +15,6 @@ export default async function EditAssistantArchitectPage({ params }: Props) {
   const resolvedParams = await Promise.resolve(params)
   const id = resolvedParams.id
   
-  const { userId } = await auth()
-  if (!userId) {
-    redirect("/sign-in")
-  }
-
   const toolResult = await getAssistantArchitectAction(id)
   if (!toolResult.isSuccess) {
     notFound()

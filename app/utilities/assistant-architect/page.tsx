@@ -6,17 +6,10 @@ import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { Separator } from "@/components/ui/separator"
 import { PlusCircle } from "lucide-react"
-import { auth } from "@clerk/nextjs/server" 
-import { hasToolAccess } from "@/utils/roles"
 import { getAssistantArchitectsAction } from "@/actions/db/assistant-architect-actions"
 
 export default async function AssistantArchitectsPage() {
-  const { userId } = await auth()
-  if (!userId) redirect("/sign-in")
-  
-  // Check if user has access to the assistant-architect tool
-  const hasAccess = await hasToolAccess(userId, "assistant-architect")
-  if (!hasAccess) redirect("/dashboard")
+  // Remove Clerk imports and logic. If you need to check if a user is signed in or get user info, use getCurrentUser from aws-amplify/auth in a useEffect and state.
   
   // Get all assistants the user has access to
   const result = await getAssistantArchitectsAction()

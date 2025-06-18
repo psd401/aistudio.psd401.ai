@@ -1,8 +1,7 @@
 "use client"
 
-import { useUser } from "@clerk/nextjs"
 import { useEffect, useState } from "react"
-import { hasRole } from "@/utils/roles"
+import { getCurrentUser } from "aws-amplify/auth"
 import { redirect } from "next/navigation"
 
 interface WithRoleCheckProps {
@@ -16,37 +15,21 @@ export function WithRoleCheck({
   role,
   redirectTo = "/"
 }: WithRoleCheckProps) {
-  const { user } = useUser()
-  const [hasAccess, setHasAccess] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
+  const [user, setUser] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    async function checkAccess() {
-      if (!user) {
-        setHasAccess(false)
-        setIsLoading(false)
-        return
-      }
+    getCurrentUser()
+      .then(setUser)
+      .catch(() => setUser(null))
+      .finally(() => setLoading(false))
+  }, [])
 
-      try {
-        const access = await hasRole(user.id, role)
-        setHasAccess(access)
-      } catch (error) {
-        console.error("Error checking role access", error)
-        setHasAccess(false)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    checkAccess()
-  }, [user, role])
-
-  if (isLoading) {
+  if (loading) {
     return <div>Loading...</div>
   }
 
-  if (!hasAccess) {
+  if (!user) {
     redirect(redirectTo)
   }
 

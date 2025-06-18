@@ -31,6 +31,12 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['mammoth', 'pdf-parse'], // Include pdf-parse for externalization
   },
+  env: {
+    NEXT_PUBLIC_COGNITO_USER_POOL_ID: process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID,
+    NEXT_PUBLIC_COGNITO_CLIENT_ID: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID,
+    NEXT_PUBLIC_COGNITO_DOMAIN: process.env.NEXT_PUBLIC_COGNITO_DOMAIN,
+    NEXT_PUBLIC_AWS_REGION: process.env.NEXT_PUBLIC_AWS_REGION,
+  },
   // webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
   //   // Add rule for wasm files
   //   config.resolve.extensions.push('.wasm');

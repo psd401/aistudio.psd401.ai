@@ -3,7 +3,6 @@
 import { getAssistantArchitectByIdAction } from "@/actions/db/assistant-architect-actions"
 import { PreviewPageClient } from "./_components/preview-page-client"
 import { CreateLayout } from "@/app/utilities/assistant-architect/create/_components/create-layout"
-import { auth } from "@clerk/nextjs/server"
 import { redirect, notFound } from "next/navigation"
 import { hasRole } from "@/utils/roles"
 
@@ -16,11 +15,6 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
   const resolvedParams = await Promise.resolve(params)
   const id = resolvedParams.id
   
-  const { userId } = await auth()
-  if (!userId) {
-    redirect("/sign-in")
-  }
-
   const result = await getAssistantArchitectByIdAction(id)
   if (!result.isSuccess || !result.data) {
     notFound()

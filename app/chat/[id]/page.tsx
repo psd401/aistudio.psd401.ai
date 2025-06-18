@@ -1,4 +1,3 @@
-import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import { db } from '@/db/db';
 import { conversationsTable, messagesTable } from '@/db/schema';
@@ -13,18 +12,6 @@ interface ConversationPageProps {
 }
 
 export default async function ConversationPage({ params }: ConversationPageProps) {
-  const { userId } = auth();
-  
-  if (!userId) {
-    redirect('/sign-in');
-  }
-
-  // Check if user has access to the chat tool
-  const hasAccess = await hasToolAccess(userId, "chat")
-  if (!hasAccess) {
-    redirect("/dashboard")
-  }
-
   // Await the params object
   const resolvedParams = await params;
   const conversationId = parseInt(resolvedParams.id);

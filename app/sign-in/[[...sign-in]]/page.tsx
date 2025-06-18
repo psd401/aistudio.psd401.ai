@@ -1,14 +1,10 @@
-import { SignIn } from '@clerk/nextjs';
+'use client';
+import { useEffect } from 'react';
+import { signInWithRedirect } from 'aws-amplify/auth';
 
-export default function Page() {
-  return (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      minHeight: '100vh'
-    }}>
-      <SignIn />
-    </div>
-  );
+export default function SignInPage() {
+  useEffect(() => {
+    signInWithRedirect();
+  }, []);
+  return <div>Redirecting to sign in...</div>;
 } 

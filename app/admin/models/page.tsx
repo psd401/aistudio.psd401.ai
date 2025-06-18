@@ -3,8 +3,7 @@
 import { Suspense } from "react"
 import { AiModelsClient } from "@/components/features/ai-models-client"
 import { WithRoleCheck } from "@/components/auth/with-role-check"
-import { db } from "@/db/db"
-import { aiModelsTable } from "@/db/schema"
+import { getAIModels } from "@/lib/db/data-api-adapter"
 
 export default async function ModelsPage() {
   return (
@@ -19,7 +18,18 @@ export default async function ModelsPage() {
 }
 
 async function ModelsContent() {
-  const models = await db.select().from(aiModelsTable)
+  const modelsData = await getAIModels()
+  
+  // Transform snake_case to camelCase for the client component
+  const models = modelsData.map(model => ({
+    id: model.id,
+    name: model.name,
+    modelId: model.model_id,
+    description: model.description,
+    isActive: model.active,
+    createdAt: model.created_at,
+    updatedAt: model.updated_at
+  }))
   
   return (
     <div>

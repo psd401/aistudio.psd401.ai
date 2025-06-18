@@ -1,6 +1,5 @@
 "use server"
 
-import { auth } from "@clerk/nextjs/server"
 import { redirect } from "next/navigation"
 import { Chat } from "./_components/chat"
 import { db } from "@/db/db"
@@ -14,25 +13,6 @@ interface ChatPageProps {
 
 export default async function ChatPage({ searchParams }: ChatPageProps) {
   console.log("[ChatPage] Starting auth check")
-  const { userId } = await auth()
-  console.log("[ChatPage] Auth check complete, userId:", userId)
-  
-  if (!userId) {
-    console.log("[ChatPage] No userId, redirecting to sign-in")
-    redirect("/sign-in")
-  }
-
-  // Check if user has access to the chat tool
-  console.log("[ChatPage] Checking tool access for userId:", userId)
-  const hasAccess = await hasToolAccess(userId, "chat")
-  console.log("[ChatPage] Tool access check result:", hasAccess)
-  
-  if (!hasAccess) {
-    console.log("[ChatPage] No tool access, redirecting to dashboard")
-    redirect("/dashboard")
-  }
-
-  console.log("[ChatPage] Access granted, continuing")
   
   let initialMessages = []
   const resolvedParams = await searchParams
@@ -42,7 +22,7 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
   let conversationTitle = "New Chat"; // Default title
 
   if (conversationId) {
-    console.log(`[ChatPage] Attempting to load conversation ID: ${conversationId} for user: ${userId}`);
+    console.log(`[ChatPage] Attempting to load conversation ID: ${conversationId}`);
     // Step 1: Verify conversation exists and belongs to the user
     const conversation = await db
       .select({

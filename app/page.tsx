@@ -2,25 +2,28 @@
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useAuth } from '@clerk/nextjs';
 import Link from 'next/link';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import { getCurrentUser } from 'aws-amplify/auth';
 
 export default function Home() {
-  const { isSignedIn, isLoaded } = useAuth();
   const router = useRouter();
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (isLoaded && isSignedIn) {
-      router.replace('/dashboard');
-    }
-  }, [isSignedIn, isLoaded, router]);
+    getCurrentUser()
+      .then(() => {
+        router.push('/dashboard');
+      })
+      .catch(() => {
+        setLoading(false);
+      });
+  }, [router]);
 
-  // Don't render anything while checking auth state
-  if (!isLoaded || isSignedIn) {
-    return null;
+  if (loading) {
+    return null; // Or a loading spinner
   }
 
   return (

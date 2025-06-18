@@ -30,12 +30,13 @@ To enable Google login in Cognito, you need OAuth credentials from Google:
 4. Click **Create Credentials > OAuth client ID**.
 5. Choose **Web application**.
 6. Set the following:
-   - **Authorized redirect URIs:**
-     - For dev: `http://localhost:3000/callback`
-     - For prod: `https://prod.<yourdomain>/callback`
    - **Authorized JavaScript origins:**
-     - For dev: `http://localhost:3000`
-     - For prod: `https://prod.<yourdomain>`
+     - `http://localhost:3000`
+     - `https://dev.<yourdomain>` (replace `<yourdomain>` with your domain)
+     - `https://prod.<yourdomain>` (replace `<yourdomain>` with your domain)
+   - **Authorized redirect URIs:**
+     - `https://<your-cognito-domain>/oauth2/idpresponse` 
+       - Replace `<your-cognito-domain>` with the domain of your Cognito User Pool (e.g., `aistudio-dev.auth.us-east-1.amazoncognito.com`). You can find this in your AWS Cognito User Pool settings after deployment.
 7. Save and copy the **Client ID** and **Client Secret**.
 8. In AWS Secrets Manager, create two secrets:
    - `aistudio-dev-google-oauth` (JSON: `{ "clientSecret": "..." }`)

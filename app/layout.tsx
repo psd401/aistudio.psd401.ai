@@ -1,36 +1,36 @@
 import '@/app/globals.css';
-import { ClerkProvider } from '@clerk/nextjs';
 import { Toaster } from 'sonner';
 import { GlobalHeader } from '@/components/layout/global-header';
-import AuthLayoutContent from '@/components/layout/auth-layout-content';
+import AmplifyProvider from "@/components/utilities/amplify-provider"
+import { fontSans } from "@/lib/fonts"
+import { cn } from "@/lib/utils"
 
 export const metadata = {
-  title: 'PSD AI Studio',
-  description: 'A creative space for building, exploring, and innovating with AI in education',
+  title: 'AI Studio',
+  description: 'Next-gen AI for education',
 };
 
 export default function RootLayout({
-  children,
+  children
 }: {
-  children: React.ReactNode;
+  children: React.ReactNode
 }) {
   return (
-    <ClerkProvider>
-      <html lang="en" suppressHydrationWarning>
-        <head>
-          <meta
-            httpEquiv="Content-Security-Policy"
-            content="script-src 'self' 'unsafe-inline' 'unsafe-eval' https://clerk.psd401.ai https://*.clerk.accounts.dev https://va.vercel-scripts.com; worker-src 'self' blob:;"
-          />
-        </head>
-        <body suppressHydrationWarning>
-          <Toaster />
+    <html lang="en" suppressHydrationWarning>
+      <head />
+      <body
+        className={cn(
+          "min-h-screen bg-background font-sans antialiased",
+          fontSans.variable
+        )}
+        suppressHydrationWarning
+      >
+        <AmplifyProvider>
           <GlobalHeader />
-          <AuthLayoutContent>
-            {children}
-          </AuthLayoutContent>
-        </body>
-      </html>
-    </ClerkProvider>
-  );
+          {children}
+          <Toaster />
+        </AmplifyProvider>
+      </body>
+    </html>
+  )
 }

@@ -1,17 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useUser, useAuth } from '@clerk/nextjs';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { IconThumbUp, IconNote, IconCheck, IconTrash, IconEdit } from '@tabler/icons-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 
 type Idea = {
   id: number;
@@ -38,8 +37,6 @@ type Note = {
 };
 
 export default function IdeasPage() {
-  const { user } = useUser();
-  const { getToken } = useAuth();
   const { toast } = useToast();
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [sortBy, setSortBy] = useState<'newest' | 'priority' | 'votes'>('newest');
@@ -60,9 +57,6 @@ export default function IdeasPage() {
     description: '',
     priorityLevel: '',
   });
-
-  const isAdmin = user?.publicMetadata?.role === 'administrator';
-  const isStaff = user?.publicMetadata?.role === 'staff';
 
   useEffect(() => {
     fetchIdeas();
@@ -91,12 +85,7 @@ export default function IdeasPage() {
 
   const fetchIdeas = async () => {
     try {
-      const token = await getToken();
-      const response = await fetch('/api/ideas', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await fetch('/api/ideas');
       if (!response.ok) {
         throw new Error('Failed to fetch ideas');
       }
@@ -115,12 +104,10 @@ export default function IdeasPage() {
   const handleSubmit = async () => {
     setLoading(true);
     try {
-      const token = await getToken();
       const response = await fetch('/api/ideas', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(formData),
       });
@@ -149,14 +136,10 @@ export default function IdeasPage() {
   const handleVote = async (ideaId: number) => {
     console.log('Attempting to vote for idea:', ideaId);
     try {
-      const token = await getToken();
       console.log('Got auth token');
       
       const response = await fetch(`/api/ideas/${ideaId}/vote`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
       });
       console.log('Vote response status:', response.status);
       
@@ -187,12 +170,10 @@ export default function IdeasPage() {
 
   const handleStatusChange = async (ideaId: number, status: string) => {
     try {
-      const token = await getToken();
       const response = await fetch(`/api/ideas/${ideaId}/status`, {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ status }),
       });
@@ -210,12 +191,7 @@ export default function IdeasPage() {
   const handleOpenNotes = async (idea: Idea) => {
     setSelectedIdea(idea);
     try {
-      const token = await getToken();
-      const response = await fetch(`/api/ideas/${idea.id}/notes`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await fetch(`/api/ideas/${idea.id}/notes`);
       if (!response.ok) throw new Error('Failed to fetch notes');
       const data = await response.json();
       setNotes(data);
@@ -233,12 +209,10 @@ export default function IdeasPage() {
     if (!selectedIdea || !newNote.trim()) return;
 
     try {
-      const token = await getToken();
       const response = await fetch(`/api/ideas/${selectedIdea.id}/notes`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ content: newNote }),
       });
@@ -266,12 +240,10 @@ export default function IdeasPage() {
     if (!selectedIdea) return;
     setLoading(true);
     try {
-      const token = await getToken();
       const response = await fetch(`/api/ideas/${selectedIdea.id}`, {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(editData),
       });
@@ -309,78 +281,78 @@ export default function IdeasPage() {
   };
 
   return (
-    <div className="container py-8">
-      <div className="flex items-center justify-between mb-8">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-bold">Ideas</h1>
-          <p className="text-muted-foreground">Share and discuss ideas for improving our tools.</p>
+    <div className="min-h-screen pt-14">
+      <div className="container py-8">
+        <div className="flex items-center justify-between mb-8">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-bold">Ideas</h1>
+            <p className="text-muted-foreground">Share and discuss ideas for improving our tools.</p>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest</SelectItem>
+                <SelectItem value="priority">Priority</SelectItem>
+                <SelectItem value="votes">Most Voted</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Button onClick={() => setShowAddDialog(true)}>Add Idea</Button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Sort by" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="newest">Newest</SelectItem>
-              <SelectItem value="priority">Priority</SelectItem>
-              <SelectItem value="votes">Most Voted</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Button onClick={() => setShowAddDialog(true)}>Add Idea</Button>
-        </div>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {sortIdeas(ideas).map((idea) => (
-          <Card key={idea.id}>
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div>
-                  <CardTitle>{idea.title}</CardTitle>
-                  <CardDescription>
-                    Created: {new Date(idea.createdAt).toLocaleDateString()}
-                    {idea.updatedAt && idea.updatedAt !== idea.createdAt && (
-                      <> · Updated: {new Date(idea.updatedAt).toLocaleDateString()}</>
-                    )}
-                  </CardDescription>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {sortIdeas(ideas).map((idea) => (
+            <Card key={idea.id}>
+              <CardHeader>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <CardTitle>{idea.title}</CardTitle>
+                    <CardDescription>
+                      Created: {new Date(idea.createdAt).toLocaleDateString()}
+                      {idea.updatedAt && idea.updatedAt !== idea.createdAt && (
+                        <> · Updated: {new Date(idea.updatedAt).toLocaleDateString()}</>
+                      )}
+                    </CardDescription>
+                  </div>
+                  <Badge variant={idea.status === 'completed' ? 'default' : 'secondary'}>
+                    {idea.status}
+                  </Badge>
                 </div>
-                <Badge variant={idea.status === 'completed' ? 'default' : 'secondary'}>
-                  {idea.status}
-                </Badge>
-              </div>
-            </CardHeader>
+              </CardHeader>
 
-            <CardContent>
-              <p className="text-sm text-muted-foreground">{idea.description}</p>
-              <div className="mt-4 flex items-center gap-2">
-                <Badge variant="outline">{idea.priorityLevel}</Badge>
-                <Badge variant="outline">{idea.votes} votes</Badge>
-                <Badge variant="outline">{idea.notes} notes</Badge>
-              </div>
-            </CardContent>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">{idea.description}</p>
+                <div className="mt-4 flex items-center gap-2">
+                  <Badge variant="outline">{idea.priorityLevel}</Badge>
+                  <Badge variant="outline">{idea.votes} votes</Badge>
+                  <Badge variant="outline">{idea.notes} notes</Badge>
+                </div>
+              </CardContent>
 
-            <CardFooter className="pt-0">
-              <div className="flex flex-wrap items-center w-full gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleVote(idea.id)}
-                  disabled={idea.hasVoted}
-                >
-                  <IconThumbUp className="h-4 w-4" />
-                  <span className="ml-1">Vote</span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleOpenNotes(idea)}
-                >
-                  <IconNote className="h-4 w-4" />
-                  <span className="ml-1">Notes</span>
-                </Button>
-                {(isAdmin || isStaff) && (
+              <CardFooter className="pt-0">
+                <div className="flex flex-wrap items-center w-full gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleVote(idea.id)}
+                    disabled={idea.hasVoted}
+                  >
+                    <IconThumbUp className="h-4 w-4" />
+                    <span className="ml-1">Vote</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleOpenNotes(idea)}
+                  >
+                    <IconNote className="h-4 w-4" />
+                    <span className="ml-1">Notes</span>
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -389,180 +361,180 @@ export default function IdeasPage() {
                     <IconEdit className="h-4 w-4" />
                     <span className="ml-1">Edit</span>
                   </Button>
-                )}
-                {isAdmin && idea.status !== 'completed' && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleStatusChange(idea.id, 'completed')}
-                  >
-                    <IconCheck className="h-4 w-4" />
-                    <span className="ml-1">Complete</span>
-                  </Button>
-                )}
+                  {idea.status !== 'completed' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleStatusChange(idea.id, 'completed')}
+                    >
+                      <IconCheck className="h-4 w-4" />
+                      <span className="ml-1">Complete</span>
+                    </Button>
+                  )}
+                </div>
+              </CardFooter>
+            </Card>
+          ))}
+        </div>
+
+        <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add New Idea</DialogTitle>
+              <DialogDescription>
+                Share your idea for improving our tools.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Title</label>
+                <Input
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  placeholder="Enter idea title"
+                />
               </div>
-            </CardFooter>
-          </Card>
-        ))}
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Description</label>
+                <Textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Describe your idea"
+                  rows={4}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Priority Level</label>
+                <Select
+                  value={formData.priorityLevel}
+                  onValueChange={(value) => setFormData({ ...formData, priorityLevel: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleSubmit} disabled={loading}>
+                {loading ? (
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                ) : (
+                  'Submit'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showNotesDialog} onOpenChange={setShowNotesDialog}>
+          <DialogContent className="sm:max-w-[600px]">
+            <DialogHeader>
+              <DialogTitle>Notes</DialogTitle>
+              <DialogDescription>
+                {selectedIdea?.title}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-4">
+              {notes.map((note) => (
+                <Card key={note.id}>
+                  <CardContent className="pt-6">
+                    <p className="text-sm break-words whitespace-pre-wrap">{note.content}</p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {new Date(note.createdAt).toLocaleString()} by {note.createdBy}
+                    </p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            <div className="flex gap-2 pt-4 border-t mt-4">
+              <Textarea
+                value={newNote}
+                onChange={(e) => setNewNote(e.target.value)}
+                placeholder="Add a note..."
+                className="flex-1"
+              />
+              <Button onClick={handleAddNote}>Add</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit Idea</DialogTitle>
+              <DialogDescription>
+                Update the details of this idea.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Title</label>
+                <Input
+                  value={editData.title}
+                  onChange={(e) => setEditData({ ...editData, title: e.target.value })}
+                  placeholder="Enter idea title"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Description</label>
+                <Textarea
+                  value={editData.description}
+                  onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                  placeholder="Describe your idea"
+                  rows={4}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Priority Level</label>
+                <Select
+                  value={editData.priorityLevel}
+                  onValueChange={(value) => setEditData({ ...editData, priorityLevel: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleEdit} disabled={loading}>
+                {loading ? (
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                ) : (
+                  'Save Changes'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
-
-      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add New Idea</DialogTitle>
-            <DialogDescription>
-              Share your idea for improving our tools.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Title</label>
-              <Input
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                placeholder="Enter idea title"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Description</label>
-              <Textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Describe your idea"
-                rows={4}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Priority Level</label>
-              <Select
-                value={formData.priorityLevel}
-                onValueChange={(value) => setFormData({ ...formData, priorityLevel: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select priority" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSubmit} disabled={loading}>
-              {loading ? (
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              ) : (
-                'Submit'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={showNotesDialog} onOpenChange={setShowNotesDialog}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Notes</DialogTitle>
-            <DialogDescription>
-              {selectedIdea?.title}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-4">
-            {notes.map((note) => (
-              <Card key={note.id}>
-                <CardContent className="pt-6">
-                  <p className="text-sm break-words whitespace-pre-wrap">{note.content}</p>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {new Date(note.createdAt).toLocaleString()} by {note.createdBy}
-                  </p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          <div className="flex gap-2 pt-4 border-t mt-4">
-            <Textarea
-              value={newNote}
-              onChange={(e) => setNewNote(e.target.value)}
-              placeholder="Add a note..."
-              className="flex-1"
-            />
-            <Button onClick={handleAddNote}>Add</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Idea</DialogTitle>
-            <DialogDescription>
-              Update the details of this idea.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Title</label>
-              <Input
-                value={editData.title}
-                onChange={(e) => setEditData({ ...editData, title: e.target.value })}
-                placeholder="Enter idea title"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Description</label>
-              <Textarea
-                value={editData.description}
-                onChange={(e) => setEditData({ ...editData, description: e.target.value })}
-                placeholder="Describe your idea"
-                rows={4}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Priority Level</label>
-              <Select
-                value={editData.priorityLevel}
-                onValueChange={(value) => setEditData({ ...editData, priorityLevel: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select priority" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleEdit} disabled={loading}>
-              {loading ? (
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              ) : (
-                'Save Changes'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 } 

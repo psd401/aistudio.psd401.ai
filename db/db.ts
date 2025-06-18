@@ -79,6 +79,11 @@ import {
  * - Navigation and role assignment tables
  * 
  * Note: When adding new tables, make sure to include them in the schema object below.
+ * 
+ * Connection Options:
+ * - RDS Proxy: Use for production, provides connection pooling and IAM auth
+ * - Cluster Endpoint: Direct connection to primary instance, good for development
+ * - Format: postgresql://username:password@host:port/database?sslmode=require
  */
 
 /**
@@ -88,8 +93,26 @@ const globalForDb = globalThis as unknown as {
   conn: postgres.Sql | undefined
 }
 
-const connectionString = process.env.DATABASE_URL!
-const conn = globalForDb.conn ?? postgres(connectionString)
+const connectionString = process.env.DATABASE_URL
+
+if (!connectionString) {
+  throw new Error(
+    'DATABASE_URL environment variable is not set. Please check your .env.local file.'
+  )
+}
+
+// Parse the connection string to check if we're using RDS
+const isRdsConnection = connectionString.includes('rds.amazonaws.com')
+
+const conn = globalForDb.conn ?? postgres(connectionString, {
+  connect_timeout: isRdsConnection ? 30 : 10,  // Longer timeout for RDS
+  idle_timeout: 20,
+  max_lifetime: 60 * 30,
+  max: 10,                  // Maximum number of connections
+  // SSL configuration for RDS
+  ssl: isRdsConnection ? { rejectUnauthorized: false } : false,
+  prepare: false,           // Disable prepared statements for better compatibility
+})
 if (process.env.NODE_ENV !== "production") globalForDb.conn = conn
 
 // Define the schema object ONLY with imported tables

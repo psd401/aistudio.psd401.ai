@@ -5,6 +5,8 @@ import * as cognito from 'aws-cdk-lib/aws-cognito';
 export interface AuthStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
   googleClientSecret: cdk.SecretValue; // From Secrets Manager
+  callbackUrls: string[];
+  logoutUrls: string[];
 }
 
 export class AuthStack extends cdk.Stack {
@@ -41,13 +43,14 @@ export class AuthStack extends cdk.Stack {
       userPool,
       scopes: [
         'openid',
-        'email',
         'profile',
+        'email',
       ],
       attributeMapping: {
         email: cognito.ProviderAttribute.GOOGLE_EMAIL,
         givenName: cognito.ProviderAttribute.GOOGLE_GIVEN_NAME,
         familyName: cognito.ProviderAttribute.GOOGLE_FAMILY_NAME,
+        profilePicture: cognito.ProviderAttribute.GOOGLE_PICTURE
       },
     });
     userPool.registerIdentityProvider(googleProvider);
@@ -70,11 +73,8 @@ export class AuthStack extends cdk.Stack {
           cognito.OAuthScope.EMAIL,
           cognito.OAuthScope.PROFILE,
         ],
-        callbackUrls: [
-          props.environment === 'prod'
-            ? 'https://aistudio.psd401.ai/callback'
-            : 'http://localhost:3000/callback',
-        ],
+        callbackUrls: props.callbackUrls,
+        logoutUrls: props.logoutUrls,
       },
       generateSecret: false,
       supportedIdentityProviders: [
