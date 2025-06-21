@@ -9,7 +9,9 @@ interface AiModelsClientProps {
   initialModels: SelectAiModel[];
 }
 
-export const AiModelsClient = memo(function AiModelsClient({ initialModels }: AiModelsClientProps) {
+export const AiModelsClient = memo(function AiModelsClient({ initialModels = [] }: AiModelsClientProps) {
+  console.log('AiModelsClient received initialModels:', initialModels.slice(0, 2));
+  
   const [models, setModels] = useState(initialModels);
   const { toast } = useToast();
 

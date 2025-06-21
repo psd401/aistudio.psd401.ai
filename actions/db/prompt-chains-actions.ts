@@ -6,7 +6,7 @@
 
 "use server"
 
-import { db } from "@/db/query"
+import { db } from "@/db/db"
 import {
   promptChainToolsTable,
   toolInputFieldsTable,
@@ -27,8 +27,6 @@ import {
 } from "@/db/schema"
 import { ActionState } from "@/types"
 import { eq, and, desc, or, asc } from "drizzle-orm"
-import { auth } from "@clerk/nextjs/server"
-import { hasRole } from "@/utils/roles"
 import { headers } from "next/headers"
 import { generateCompletion } from "@/lib/ai-helpers"
 import { generateToolIdentifier } from "@/lib/utils"
@@ -43,10 +41,7 @@ export async function createPromptChainToolAction(
   try {
     logger.info("Starting createPromptChainToolAction")
     
-    const authResult = await auth()
-    logger.info("Auth result:", authResult)
-    
-    const { userId } = authResult
+    const { userId } = await auth()
     logger.info("User ID from auth:", userId)
     
     if (!userId) {

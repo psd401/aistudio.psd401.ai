@@ -5,8 +5,10 @@ import { getCurrentUser, signInWithRedirect, signOut, fetchAuthSession } from 'a
 import { Hub } from 'aws-amplify/utils';
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
 
 export function UserButton() {
+  const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [userInfo, setUserInfo] = useState<any>(null);
@@ -65,6 +67,17 @@ export function UserButton() {
     };
   }, []);
 
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      // Clear the accessToken cookie
+      document.cookie = "accessToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+      router.push("/");
+    } catch (error) {
+      console.error("Sign-out error:", error);
+    }
+  };
+
   if (loading) {
     return (
       <Button size="sm" variant="outline" disabled>
@@ -96,7 +109,7 @@ export function UserButton() {
         <AvatarFallback>{displayName.charAt(0).toUpperCase()}</AvatarFallback>
       </Avatar>
       <span className="text-sm font-medium">{displayName}</span>
-      <Button size="sm" variant="outline" onClick={() => signOut()}>
+      <Button size="sm" variant="outline" onClick={handleSignOut}>
         Sign out
       </Button>
     </div>

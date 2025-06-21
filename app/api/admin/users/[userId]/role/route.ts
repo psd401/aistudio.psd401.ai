@@ -34,17 +34,8 @@ export async function PUT(
       );
     }
     
-    // Ensure we have a numeric user ID
-    const userId = parseInt(userIdString);
-    if (isNaN(userId)) {
-      return NextResponse.json(
-        { isSuccess: false, message: 'Invalid user ID' },
-        { status: 400 }
-      );
-    }
-
     // Update the user's role via Data API
-    await updateUserRole(userId, newRole);
+    await updateUserRole(userIdString, newRole);
 
     return NextResponse.json({
       isSuccess: true,

@@ -1,10 +1,9 @@
 "use server"
 
-import { db } from "@/db/query"
+import { desc, eq } from "drizzle-orm"
+import { db } from "@/db/db"
 import { rolesTable, userRolesTable, roleToolsTable } from "@/db/schema"
 import { ActionState } from "@/types"
-import { eq, and } from "drizzle-orm"
-import { auth } from "@clerk/nextjs/server"
 import { hasRole } from "@/utils/roles"
 import type { InsertRole, SelectRole } from "@/db/schema"
 import logger from "@/lib/logger"

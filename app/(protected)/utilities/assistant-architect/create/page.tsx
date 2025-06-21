@@ -1,0 +1,20 @@
+"use server"
+
+import { redirect } from "next/navigation"
+import { CreateForm } from "./_components/create-form"
+import { CreateLayout } from "./_components/create-layout"
+import { getServerSession } from "@/lib/auth/server-session"
+
+export default async function CreateAssistantPage() {
+  // Check authentication
+  const session = await getServerSession()
+  if (!session || !session.sub) {
+    redirect("/sign-in")
+  }
+
+  return (
+    <CreateLayout currentStep={1} title="Create Assistant">
+      <CreateForm />
+    </CreateLayout>
+  )
+} 

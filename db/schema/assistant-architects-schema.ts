@@ -13,7 +13,7 @@ import {
 } from "drizzle-orm/pg-core"
 import { aiModelsTable } from "./core-schema"
 import { relations } from "drizzle-orm"
-import { users } from "@clerk/nextjs/api" // Assuming users table for creator
+import { usersTable } from "./core-schema"
 
 // Enums
 export const fieldTypeEnum = pgEnum("field_type", [
@@ -59,7 +59,7 @@ export const assistantArchitectsTable = pgTable("assistant_architects", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   imagePath: text("image_path"),
-  creatorId: text("creator_id").notNull(),
+  userId: text("user_id").notNull(),
   status: toolStatusEnum("status").default("draft").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")

@@ -10,9 +10,13 @@ export async function GET() {
     const models = modelsData.map(model => ({
       id: model.id,
       name: model.name,
+      provider: model.provider,
       modelId: model.model_id,
       description: model.description,
-      isActive: model.active,  // Changed from is_active to active
+      capabilities: model.capabilities,
+      maxTokens: model.max_tokens,
+      active: model.active,
+      chatEnabled: model.chat_enabled,
       createdAt: model.created_at,
       updatedAt: model.updated_at
     }));
@@ -47,16 +51,35 @@ export async function POST(request: Request) {
     const modelData = {
       name: body.name,
       modelId: body.modelId,
+      provider: body.provider,
       description: body.description,
-      isActive: body.isActive ?? true
+      capabilities: body.capabilities,
+      maxTokens: body.maxTokens ? parseInt(body.maxTokens) : null,
+      isActive: body.active ?? true,
+      chatEnabled: body.chatEnabled ?? false
     };
 
     const model = await createAIModel(modelData);
+    
+    // Transform the response to camelCase
+    const transformedModel = {
+      id: model.id,
+      name: model.name,
+      provider: model.provider,
+      modelId: model.model_id,
+      description: model.description,
+      capabilities: model.capabilities,
+      maxTokens: model.max_tokens,
+      active: model.active,
+      chatEnabled: model.chat_enabled,
+      createdAt: model.created_at,
+      updatedAt: model.updated_at
+    };
 
     return NextResponse.json({
       isSuccess: true,
       message: 'Model created successfully',
-      data: model
+      data: transformedModel
     });
   } catch (error) {
     console.error('Error creating model:', error);
@@ -81,13 +104,33 @@ export async function PUT(request: Request) {
 
     const body = await request.json();
     const { id, ...updates } = body;
+    
+    // Convert maxTokens to number if present
+    if (updates.maxTokens !== undefined) {
+      updates.maxTokens = updates.maxTokens ? parseInt(updates.maxTokens) : null;
+    }
 
     const model = await updateAIModel(id, updates);
+    
+    // Transform the response to camelCase
+    const transformedModel = {
+      id: model.id,
+      name: model.name,
+      provider: model.provider,
+      modelId: model.model_id,
+      description: model.description,
+      capabilities: model.capabilities,
+      maxTokens: model.max_tokens,
+      active: model.active,
+      chatEnabled: model.chat_enabled,
+      createdAt: model.created_at,
+      updatedAt: model.updated_at
+    };
 
     return NextResponse.json({
       isSuccess: true,
       message: 'Model updated successfully',
-      data: model
+      data: transformedModel
     });
   } catch (error) {
     console.error('Error updating model:', error);

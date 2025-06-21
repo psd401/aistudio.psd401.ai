@@ -1,11 +1,12 @@
 "use server"
 
 import { 
-  hasUserRole, 
-  getUserRolesByClerkId, 
-  hasToolAccess as dataApiHasToolAccess,
-  getUserTools as dataApiGetUserTools 
-} from '@/lib/db/data-api-adapter';
+  checkUserRole, 
+  hasToolAccess as dbHasToolAccess, 
+  getUserTools as dbGetUserTools,
+  getUserIdByCognitoSub
+} from "@/lib/db/data-api-adapter";
+import { getServerSession } from "@/lib/auth/server-session";
 import type { Role } from '@/types';
 
 const roleHierarchy: Record<Role, number> = {
@@ -17,41 +18,34 @@ const roleHierarchy: Record<Role, number> = {
 /**
  * Check if a user has a specific role
  */
-export async function hasRole(userId: string, roleName: string): Promise<boolean> {
-  try {
-    return await hasUserRole(userId, roleName);
-  } catch (error) {
-    console.error("Error checking role:", error)
-    return false
-  }
+export async function hasRole(roleName: string): Promise<boolean> {
+  const session = await getServerSession();
+  if (!session) return false;
+  
+  const userId = await getUserIdByCognitoSub(session.sub);
+  if (!userId) return false;
+  
+  return checkUserRole(userId, roleName);
 }
 
 /**
  * Check if a user has access to a specific tool
  */
-export async function hasToolAccess(userId: string, toolIdentifier: string): Promise<boolean> {
-  try {
-    return await dataApiHasToolAccess(userId, toolIdentifier);
-  } catch (error) {
-    console.error("Error checking tool access for %s to %s:", userId, toolIdentifier, error)
-    return false
-  }
+export async function hasToolAccess(toolIdentifier: string): Promise<boolean> {
+  const session = await getServerSession();
+  if (!session) return false;
+  
+  return dbHasToolAccess(session.sub, toolIdentifier);
 }
 
 /**
  * Get all tools a user has access to
  */
-export async function getUserTools(userId: string): Promise<string[]> {
-  try {
-    if (!userId) {
-      return [];
-    }
-
-    return await dataApiGetUserTools(userId);
-  } catch (error) {
-    console.error("Error fetching user tools:", error);
-    return [];
-  }
+export async function getUserTools(): Promise<string[]> {
+  const session = await getServerSession();
+  if (!session) return [];
+  
+  return dbGetUserTools(session.sub);
 }
 
 /**
@@ -59,7 +53,7 @@ export async function getUserTools(userId: string): Promise<string[]> {
  */
 export async function getUserRoles(userId: string): Promise<string[]> {
   try {
-    return await getUserRolesByClerkId(userId);
+    return await getUserRoles(userId);
   } catch (error) {
     console.error("Error getting user roles:", error)
     return []
@@ -104,4 +98,10 @@ export async function getHighestUserRole(userId: string): Promise<string | null>
     console.error("Error getting highest user role:", error)
     return null
   }
+}
+
+export async function syncUserRole(userId: string, role: string): Promise<void> {
+  // This is now handled by the database directly
+  // Role sync happens through user_roles table
+  throw new Error("syncUserRole is deprecated - use user_roles table directly");
 } 

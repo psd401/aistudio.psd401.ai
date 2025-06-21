@@ -16,12 +16,16 @@ export async function cleanupDatabase() {
   await testDb.delete(schema.users);
 }
 
-export async function createTestUser(clerkId: string, role: string = 'Staff') {
+export async function createTestUser(cognitoSub: string, role: string = 'Staff') {
   const [user] = await testDb
     .insert(schema.users)
     .values({
-      clerkId,
-      role,
+      id: `test-${cognitoSub}`,
+      cognitoSub,
+      email: `${cognitoSub}@test.com`,
+      name: `Test User ${cognitoSub}`,
+      createdAt: new Date(),
+      updatedAt: new Date()
     })
     .returning();
   return user;

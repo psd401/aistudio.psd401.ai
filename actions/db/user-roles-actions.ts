@@ -1,10 +1,10 @@
 "use server"
 
-import { db } from "@/db/query"
+import { db } from "@/db/db"
 import { userRolesTable, rolesTable, usersTable } from "@/db/schema"
 import { ActionState } from "@/types"
-import { eq, and } from "drizzle-orm"
-import { auth } from "@clerk/nextjs/server"
+import { eq, and, desc } from "drizzle-orm"
+import { getServerSession } from "@/lib/auth/server-session"
 import { hasRole } from "@/utils/roles"
 import type { InsertUserRole, SelectUserRole, SelectRole, SelectUser } from "@/db/schema"
 import logger from "@/lib/logger"
@@ -14,7 +14,7 @@ export async function assignRoleToUserAction(
   roleId: number
 ): Promise<ActionState<SelectUserRole>> {
   try {
-    const { userId: currentUserId } = auth()
+    const { userId: currentUserId } = getServerSession()
     if (!currentUserId) {
       return { isSuccess: false, message: "Unauthorized" }
     }
@@ -80,7 +80,7 @@ export async function removeRoleFromUserAction(
   roleId: number
 ): Promise<ActionState<void>> {
   try {
-    const { userId: currentUserId } = auth()
+    const { userId: currentUserId } = getServerSession()
     if (!currentUserId) {
       return { isSuccess: false, message: "Unauthorized" }
     }

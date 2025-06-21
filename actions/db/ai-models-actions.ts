@@ -1,17 +1,16 @@
 "use server"
 
-import { db } from "@/db/query"
-import { aiModelsTable } from "@/db/schema"
+import { executeSQL } from "@/lib/db/data-api-adapter"
 import { ActionState, SelectAiModel } from "@/types"
-import { asc } from "drizzle-orm"
 import logger from "@/lib/logger"
 
 export async function getAiModelsAction(): Promise<ActionState<SelectAiModel[]>> {
   try {
-    const models = await db
-      .select()
-      .from(aiModelsTable)
-      .orderBy(asc(aiModelsTable.name))
+    const models = await executeSQL(`
+      SELECT id, name, provider, model_id, description, capabilities, max_tokens, active, chat_enabled, created_at, updated_at
+      FROM ai_models
+      ORDER BY name ASC
+    `);
 
     return {
       isSuccess: true,

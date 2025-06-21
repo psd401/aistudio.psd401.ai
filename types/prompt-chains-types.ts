@@ -71,7 +71,7 @@ export interface ToolApprovalRequest {
   id: string
   name: string
   description?: string
-  creatorId: string
+  userId: string
   createdAt: Date
   inputFields: SelectToolInputField[]
   prompts: SelectChainPrompt[]

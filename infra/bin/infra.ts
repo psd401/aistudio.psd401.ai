@@ -25,12 +25,18 @@ function getCallbackAndLogoutUrls(environment: string, baseDomain?: string): { c
       callbackUrls: [
         'http://localhost:3000/',
         'http://localhost:3001/',
+        'http://localhost:3000/oauth2/idpresponse',
+        'http://localhost:3001/oauth2/idpresponse',
         baseDomain ? `https://dev.${baseDomain}/` : undefined,
+        baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : undefined,
       ].filter(Boolean) as string[],
       logoutUrls: [
         'http://localhost:3000/',
         'http://localhost:3001/',
+        'http://localhost:3000/oauth2/idpresponse',
+        'http://localhost:3001/oauth2/idpresponse',
         baseDomain ? `https://dev.${baseDomain}/` : undefined,
+        baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : undefined,
       ].filter(Boolean) as string[],
     };
   } else {
@@ -38,10 +44,14 @@ function getCallbackAndLogoutUrls(environment: string, baseDomain?: string): { c
       callbackUrls: [
         baseDomain ? `https://prod.${baseDomain}/` : undefined,
         baseDomain ? `https://dev.${baseDomain}/` : undefined,
+        baseDomain ? `https://prod.${baseDomain}/oauth2/idpresponse` : undefined,
+        baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : undefined,
       ].filter(Boolean) as string[],
       logoutUrls: [
         baseDomain ? `https://prod.${baseDomain}/` : undefined,
         baseDomain ? `https://dev.${baseDomain}/` : undefined,
+        baseDomain ? `https://prod.${baseDomain}/oauth2/idpresponse` : undefined,
+        baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : undefined,
       ].filter(Boolean) as string[],
     };
   }

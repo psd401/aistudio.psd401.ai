@@ -3,8 +3,7 @@
 import { db } from "@/db/db"
 import { InsertJob, SelectJob, jobsTable } from "@/db/schema"
 import { ActionState } from "@/types"
-import { eq } from "drizzle-orm"
-import { auth } from "@clerk/nextjs/server"
+import { eq, desc } from "drizzle-orm"
 import logger from "@/lib/logger"
 
 export async function createJobAction(

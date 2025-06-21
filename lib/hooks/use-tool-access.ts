@@ -1,35 +1,42 @@
 "use client"
 
-import { useUser } from "@clerk/nextjs"
 import { useEffect, useState } from "react"
-import { hasToolAccess } from "@/utils/roles"
+import { useUser } from "@/components/auth/user-provider"
 
-export function useToolAccess(toolIdentifier: string) {
-  const { user } = useUser()
+export function useToolAccess(toolName: string): {
+  hasAccess: boolean
+  loading: boolean
+} {
+  const { user, roles, loading: userLoading } = useUser()
   const [hasAccess, setHasAccess] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function checkAccess() {
-      if (!user) {
+      if (!user || userLoading) {
         setHasAccess(false)
-        setIsLoading(false)
+        setLoading(!userLoading)
         return
       }
 
       try {
-        const access = await hasToolAccess(user.id, toolIdentifier)
-        setHasAccess(access)
+        const response = await fetch(`/api/auth/user-tools`)
+        if (response.ok) {
+          const tools = await response.json()
+          setHasAccess(tools.includes(toolName))
+        } else {
+          setHasAccess(false)
+        }
       } catch (error) {
-        console.error("Error checking tool access", error)
+        console.error("Error checking tool access:", error)
         setHasAccess(false)
       } finally {
-        setIsLoading(false)
+        setLoading(false)
       }
     }
 
     checkAccess()
-  }, [user, toolIdentifier])
+  }, [user, userLoading, toolName])
 
-  return { hasAccess, isLoading }
+  return { hasAccess, loading }
 } 

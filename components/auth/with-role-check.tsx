@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { getCurrentUser } from "aws-amplify/auth"
-import { redirect } from "next/navigation"
+import { ReactNode } from "react"
+import { useUser } from "@/components/auth/user-provider"
+import { useRouter } from "next/navigation"
+import { useEffect } from "react"
 
 interface WithRoleCheckProps {
-  children: React.ReactNode
+  children: ReactNode
   role: string
   redirectTo?: string
 }
@@ -15,23 +16,34 @@ export function WithRoleCheck({
   role,
   redirectTo = "/"
 }: WithRoleCheckProps) {
-  const [user, setUser] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
+  const { user, roles, loading } = useUser()
+  const router = useRouter()
 
   useEffect(() => {
-    getCurrentUser()
-      .then(setUser)
-      .catch(() => setUser(null))
-      .finally(() => setLoading(false))
-  }, [])
+    if (!loading) {
+      if (!user) {
+        router.push(redirectTo)
+      } else {
+        const hasRole = roles.some(r => r.name === role)
+        if (!hasRole) {
+          router.push(redirectTo)
+        }
+      }
+    }
+  }, [loading, user, roles, role, redirectTo, router])
 
   if (loading) {
     return <div>Loading...</div>
   }
 
   if (!user) {
-    redirect(redirectTo)
+    return null
   }
 
-  return children
+  const hasRole = roles.some(r => r.name === role)
+  if (!hasRole) {
+    return null
+  }
+
+  return <>{children}</>
 } 

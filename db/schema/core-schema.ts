@@ -1,18 +1,23 @@
-import { pgTable, varchar, timestamp, text, integer, boolean, serial, uuid, jsonb } from 'drizzle-orm/pg-core';
-import { relations } from "drizzle-orm";
+import {
+  pgTable,
+  varchar,
+  timestamp,
+  text,
+  integer,
+  boolean,
+  serial,
+  uuid,
+  jsonb
+} from "drizzle-orm/pg-core"
+import { relations, sql } from "drizzle-orm"
 
 export const usersTable = pgTable('users', {
-  id: text('id').primaryKey(),
-  clerkId: varchar('clerk_id', { length: 255 }).notNull().unique(),
-  firstName: varchar('first_name', { length: 255 }),
-  lastName: varchar('last_name', { length: 255 }),
-  email: varchar('email', { length: 255 }),
-  lastSignInAt: timestamp('last_sign_in_at'),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at')
-    .defaultNow()
-    .notNull()
-    .$onUpdate(() => new Date())
+  id: text('id').primaryKey().default(sql`gen_random_uuid()`),
+  cognitoSub: varchar('cognito_sub', { length: 255 }).notNull().unique(),
+  email: varchar('email', { length: 255 }).notNull().unique(),
+  name: varchar('name', { length: 255 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull().$onUpdate(() => new Date())
 });
 
 export const ideasTable = pgTable("ideas", {
@@ -78,7 +83,7 @@ export const aiModelsRelations = relations(aiModelsTable, ({ many }) => ({
 
 export const conversationsTable = pgTable("conversations", {
   id: serial("id").primaryKey(),
-  clerkId: varchar("clerk_id", { length: 255 }).notNull().references(() => usersTable.clerkId),
+  userId: text("user_id").notNull().references(() => usersTable.id),
   title: text("title").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at")
@@ -92,7 +97,7 @@ export const conversationsTable = pgTable("conversations", {
 });
 
 export const conversationsRelations = relations(conversationsTable, ({ one, many }) => ({
-  user: one(usersTable, { fields: [conversationsTable.clerkId], references: [usersTable.clerkId] }),
+  user: one(usersTable, { fields: [conversationsTable.userId], references: [usersTable.id] }),
   model: one(aiModelsTable, { fields: [conversationsTable.modelId], references: [aiModelsTable.id] }),
   messages: many(messagesTable)
 }));

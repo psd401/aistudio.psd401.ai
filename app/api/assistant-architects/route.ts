@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server"
-import { getAuth } from "@clerk/nextjs/server"
 import { getAssistantArchitectsAction } from "@/actions/db/assistant-architect-actions"
-import { hasToolAccess } from "@/utils/roles"
+import { getServerSession } from "@/lib/auth/server-session"
+import { hasToolAccess } from "@/lib/db/data-api-adapter"
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
   try {
-    const { userId } = getAuth(request)
-    if (!userId) {
+    const session = await getServerSession()
+    if (!session || !session.sub) {
       return NextResponse.json(
         { isSuccess: false, message: "Unauthorized" },
         { status: 401 }
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
     }
 
     // Check if user has access to the assistant-architect tool
-    const hasAccess = await hasToolAccess(userId, "assistant-architect")
+    const hasAccess = await hasToolAccess(session.sub, "assistant-architect")
     if (!hasAccess) {
       return NextResponse.json(
         { isSuccess: false, message: "Forbidden" },

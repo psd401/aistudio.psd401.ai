@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server"
-import { getAuth } from "@clerk/nextjs/server"
-import { db } from "@/db/query"
-import { navigationItemsTable } from "@/db/schema"
-import { eq } from "drizzle-orm"
-import { hasRole } from "@/utils/roles"
+import { getServerSession } from "@/lib/auth/server-session"
+import { getNavigationItems, createNavigationItem, updateNavigationItem } from "@/lib/db/data-api-adapter"
+import { checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter"
 
 export async function GET(request: Request) {
   try {
-    const { userId } = getAuth(request)
-    if (!userId) {
+    // Check authentication using AWS Cognito
+    const session = await getServerSession()
+    if (!session || !session.sub) {
       return NextResponse.json(
         { isSuccess: false, message: "Unauthorized" },
         { status: 401 }
@@ -16,7 +15,7 @@ export async function GET(request: Request) {
     }
 
     // Check if user is admin
-    const isAdmin = await hasRole(userId, 'administrator')
+    const isAdmin = await checkUserRoleByCognitoSub(session.sub, 'administrator')
     if (!isAdmin) {
       return NextResponse.json(
         { isSuccess: false, message: "Forbidden - Admin access required" },
@@ -24,15 +23,28 @@ export async function GET(request: Request) {
       )
     }
 
-    // Get all navigation items
-    const navItems = await db
-      .select()
-      .from(navigationItemsTable)
-      .orderBy(navigationItemsTable.position)
+    // Get all navigation items (not just active ones for admin)
+    const navItems = await getNavigationItems(false)
+    
+    // Transform snake_case to camelCase
+    const transformedItems = navItems.map((item: any) => ({
+      id: item.id,
+      label: item.label,
+      icon: item.icon,
+      link: item.link,
+      description: item.description,
+      type: item.type,
+      parentId: item.parent_id,
+      toolId: item.tool_id,
+      requiresRole: item.requires_role,
+      position: item.position,
+      isActive: item.is_active,
+      createdAt: item.created_at
+    }))
 
     return NextResponse.json({
       isSuccess: true,
-      data: navItems
+      data: transformedItems
     })
   } catch (error) {
     console.error("Error fetching navigation items:", error)
@@ -48,8 +60,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { userId } = getAuth(request)
-    if (!userId) {
+    // Check authentication using AWS Cognito
+    const session = await getServerSession()
+    if (!session || !session.sub) {
       return NextResponse.json(
         { isSuccess: false, message: "Unauthorized" },
         { status: 401 }
@@ -57,7 +70,7 @@ export async function POST(request: Request) {
     }
 
     // Check if user is admin
-    const isAdmin = await hasRole(userId, 'administrator')
+    const isAdmin = await checkUserRoleByCognitoSub(session.sub, 'administrator')
     if (!isAdmin) {
       return NextResponse.json(
         { isSuccess: false, message: "Forbidden - Admin access required" },
@@ -76,28 +89,12 @@ export async function POST(request: Request) {
       )
     }
 
-    // Check if this is an update operation by looking for the item in the database
-    const existingItem = body.id ? await db
-      .select()
-      .from(navigationItemsTable)
-      .where(eq(navigationItemsTable.id, body.id))
-      .then(items => items[0])
-      : null;
-
-    // If the item exists, update it
-    if (existingItem) {
+    // Check if this is an update operation
+    if (body.id) {
       const { id, ...data } = body;
       console.log("Updating existing item:", id);
       try {
-        const [updatedItem] = await db
-          .update(navigationItemsTable)
-          .set(data)
-          .where(eq(navigationItemsTable.id, id))
-          .returning()
-
-        if (!updatedItem) {
-          throw new Error("Failed to update item");
-        }
+        const updatedItem = await updateNavigationItem(id, data)
 
         return NextResponse.json({
           isSuccess: true,
@@ -114,16 +111,23 @@ export async function POST(request: Request) {
     } 
     // Otherwise, create new item
     else {
-      console.log("Creating new item:", body.id);
+      // Generate a unique ID for new items
+      const newId = `nav_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+      console.log("Creating new item with ID:", newId);
       try {
-        const [newItem] = await db
-          .insert(navigationItemsTable)
-          .values(body)
-          .returning()
-
-        if (!newItem) {
-          throw new Error("Failed to create item");
-        }
+        const newItem = await createNavigationItem({
+          id: newId,
+          label: body.label,
+          icon: body.icon,
+          link: body.link,
+          description: body.description,
+          type: body.type,
+          parentId: body.parentId,
+          toolId: body.toolId,
+          requiresRole: body.requiresRole,
+          position: body.position || 0,
+          isActive: body.isActive ?? true
+        })
 
         return NextResponse.json({
           isSuccess: true,
@@ -152,8 +156,9 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const { userId } = getAuth(request)
-    if (!userId) {
+    // Check authentication using AWS Cognito
+    const session = await getServerSession()
+    if (!session || !session.sub) {
       return NextResponse.json(
         { isSuccess: false, message: "Unauthorized" },
         { status: 401 }
@@ -161,7 +166,7 @@ export async function PATCH(request: Request) {
     }
 
     // Check if user is admin
-    const isAdmin = await hasRole(userId, 'administrator')
+    const isAdmin = await checkUserRoleByCognitoSub(session.sub, 'administrator')
     if (!isAdmin) {
       return NextResponse.json(
         { isSuccess: false, message: "Forbidden - Admin access required" },
@@ -180,11 +185,7 @@ export async function PATCH(request: Request) {
     }
 
     try {
-      const [updatedItem] = await db
-        .update(navigationItemsTable)
-        .set({ position: body.position })
-        .where(eq(navigationItemsTable.id, body.id))
-        .returning()
+      const updatedItem = await updateNavigationItem(body.id, { position: body.position })
 
       console.log("Updated item:", updatedItem)
 

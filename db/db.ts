@@ -71,6 +71,19 @@ import {
 } from "@/db/schema"
 
 /**
+ * Primary database instance for server-side operations.
+ * 
+ * IMPORTANT: Import best practices:
+ * - Server components: Import directly `import { db } from "@/db/db"`
+ * - Client components: DO NOT import database. Use server actions instead.
+ * - Server actions: Import directly when needed.
+ * 
+ * NOTE: For server actions, especially those requiring auth,
+ * import directly with `import { db } from "@/db/db"` to avoid
+ * circular dependency issues.
+ */
+
+/**
  * Database configuration using Drizzle ORM.
  * 
  * Schema includes:

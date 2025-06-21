@@ -3,53 +3,54 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db/db';
 import { conversationsTable, type InsertConversation } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
+import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 
-export async function GET(req: NextRequest) {
-  const { userId } = getAuth(req);
-  
-  if (!userId) {
-    return new NextResponse('Unauthorized', { status: 401 });
+export async function GET() {
+  const currentUser = await getCurrentUserAction()
+  if (!currentUser.isSuccess) {
+    return new Response("Unauthorized", { status: 401 })
   }
 
   try {
-    const userConversations = await db
+    const conversations = await db
       .select()
       .from(conversationsTable)
-      .where(eq(conversationsTable.clerkId, userId))
-      .orderBy(desc(conversationsTable.createdAt));
+      .where(eq(conversationsTable.userId, currentUser.data.user.id))
+      .orderBy(desc(conversationsTable.createdAt))
 
-    return NextResponse.json(userConversations);
+    return new Response(JSON.stringify(conversations), {
+      headers: { "Content-Type": "application/json" },
+    })
   } catch (error) {
-    console.error('Error fetching conversations:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
+    console.error("Error fetching conversations:", error)
+    return new Response("Internal Server Error", { status: 500 })
   }
 }
 
-export async function POST(req: NextRequest) {
-  const { userId } = getAuth(req);
-  
-  if (!userId) {
-    return new NextResponse('Unauthorized', { status: 401 });
+export async function POST(req: Request) {
+  const currentUser = await getCurrentUserAction()
+  if (!currentUser.isSuccess) {
+    return new Response("Unauthorized", { status: 401 })
   }
 
+  const body = await req.json()
+  const conversationData: InsertConversation = body
+
   try {
-    const { title, modelId } = await req.json();
+    const [conversation] = await db
+      .insert(conversationsTable)
+      .values({
+        ...conversationData,
+        userId: currentUser.data.user.id,
+      })
+      .returning()
 
-    const newConversation: InsertConversation = {
-      clerkId: userId,
-      title,
-      modelId,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    const [conversation] = await db.insert(conversationsTable)
-      .values(newConversation)
-      .returning();
-
-    return NextResponse.json(conversation);
+    return new Response(JSON.stringify(conversation), {
+      status: 201,
+      headers: { "Content-Type": "application/json" },
+    })
   } catch (error) {
-    console.error('Error creating conversation:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
+    console.error("Error creating conversation:", error)
+    return new Response("Internal Server Error", { status: 500 })
   }
 } 

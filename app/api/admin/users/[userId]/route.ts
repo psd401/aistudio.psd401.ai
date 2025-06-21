@@ -23,9 +23,9 @@ export async function DELETE(
 
     // Await and validate the params object
     const params = await context.params;
-    const targetUserId = parseInt(params.userId);
+    const targetUserId = params.userId;
     
-    if (isNaN(targetUserId)) {
+    if (!targetUserId) {
       return NextResponse.json(
         { isSuccess: false, message: 'Invalid user ID' },
         { status: 400 }

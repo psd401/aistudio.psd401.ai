@@ -33,21 +33,17 @@ export async function GET(request: Request) {
     
     // Map to the format expected by the UI
     const users = dbUsers.map(dbUser => {
-      const userRolesList = rolesByUser[dbUser.id] || [];
-      
+      const userRolesList = rolesByUser[dbUser.id] || []
+
       return {
-        id: dbUser.id,
-        clerkId: dbUser.clerk_id || '',
-        firstName: dbUser.first_name || '',
-        lastName: dbUser.last_name || '',
-        email: dbUser.email || '',
-        lastSignInAt: dbUser.last_sign_in_at || null,
-        createdAt: dbUser.created_at || new Date(),
-        updatedAt: dbUser.updated_at || new Date(),
-        role: userRolesList[0] || '',
+        ...dbUser,
+        firstName: dbUser.first_name,
+        lastName: dbUser.last_name,
+        lastSignInAt: dbUser.last_sign_in_at,
+        role: userRolesList[0] || "",
         roles: userRolesList.map(name => ({ name }))
-      };
-    });
+      }
+    })
 
     return NextResponse.json({
       isSuccess: true,
@@ -77,7 +73,7 @@ export async function POST(request: Request) {
     
     const body = await request.json()
     const userData = {
-      clerkId: body.clerkId || 'temp-user-id', // TODO: Get from Amplify
+      cognitoSub: body.cognitoSub,
       firstName: body.firstName,
       lastName: body.lastName,
       email: body.email
@@ -114,7 +110,7 @@ export async function PUT(request: Request) {
     const body = await request.json()
     const { id, ...updates } = body
 
-    const user = await updateUser(id, updates)
+    const user = await updateUser(String(id), updates)
 
     return NextResponse.json({
       isSuccess: true,
@@ -152,7 +148,7 @@ export async function DELETE(request: Request) {
       )
     }
 
-    const user = await deleteUser(parseInt(id))
+    const user = await deleteUser(id)
 
     return NextResponse.json({
       isSuccess: true,

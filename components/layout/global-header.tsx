@@ -18,9 +18,24 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Textarea } from "@/components/ui/textarea"
 import { useState } from "react"
 import { createGithubIssueAction } from "@/actions/create-github-issue-action"
+import { signOut } from "aws-amplify/auth"
+import { useRouter } from "next/navigation"
 // ... rest of imports ...
 
 export function GlobalHeader() {
+  const router = useRouter()
+  
+  const handleSignOut = async () => {
+    try {
+      await signOut()
+      // Clear the accessToken cookie - this should happen server-side in the auth callback
+      document.cookie = "accessToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;"
+      router.push("/")
+    } catch (error) {
+      console.error("Sign-out error:", error)
+    }
+  }
+
   return (
     <header className="fixed top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 max-w-screen-2xl items-center">

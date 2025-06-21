@@ -3,7 +3,7 @@
 import { getAuth } from "@clerk/nextjs/server"
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/db/db"
-import { conversationsTable, messagesTable, aiModelsTable } from "@/db/schema"
+import { conversationsTable, messagesTable, aiModelsTable, usersTable } from "@/db/schema"
 import { eq } from "drizzle-orm"
 import { generateCompletion } from "@/lib/ai-helpers"
 import { CoreMessage } from "ai"
@@ -11,6 +11,7 @@ import { withErrorHandling, unauthorized, badRequest } from "@/lib/api-utils"
 import { createError } from "@/lib/error-utils"
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId } from "@/lib/db/queries/documents"
 import logger from "@/lib/logger"
+import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 
 export async function POST(req: NextRequest) {
   const { userId } = getAuth(req)
@@ -51,53 +52,51 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    let conversationIdToUse: number;
+    let conversationId: number | undefined;
     let title = "Follow-up Conversation";
 
-    // Check if conversation exists
+    // If an existing conversation ID is provided, use it
     if (existingConversationId) {
-      const [existingConversation] = await db
+      const conversations = await db
         .select()
         .from(conversationsTable)
         .where(eq(conversationsTable.id, existingConversationId))
-      
-      if (!existingConversation || existingConversation.clerkId !== userId) {
-        throw createError("Conversation not found or access denied", {
-          code: 'FORBIDDEN',
-          level: 'warn',
-          details: { conversationId: existingConversationId }
-        });
+
+      if (conversations.length > 0) {
+        conversationId = conversations[0].id
+        // Update the updated_at timestamp
+        await db
+          .update(conversationsTable)
+          .set({ updatedAt: new Date() })
+          .where(eq(conversationsTable.id, existingConversationId))
       }
-      
-      conversationIdToUse = existingConversationId;
-      title = existingConversation.title;
-      // Update timestamp
-      await db
-        .update(conversationsTable)
-        .set({ updatedAt: new Date() })
-        .where(eq(conversationsTable.id, existingConversationId));
-        
-    } else {
-      // Create a new conversation
-      title = messages[0].content.slice(0, 100); // Use first message for title
+    }
+
+    // If no conversation ID is provided or found, create a new conversation
+    if (!conversationId) {
+      const currentUser = await getCurrentUserAction()
+      if (!currentUser.isSuccess) {
+        return new Response("Unauthorized", { status: 401 })
+      }
+
       const [newConversation] = await db
         .insert(conversationsTable)
         .values({
-          clerkId: userId,
-          title: title,
-          modelId: textModelId, // Use the text model_id for the foreign key
+          title: messages[0].content.substring(0, 100),
+          userId: currentUser.data.user.id,
+          modelId: textModelId,
           source: source || "chat",
           executionId: executionId || null,
           context: context || null
         })
-        .returning();
-      conversationIdToUse = newConversation.id;
+        .returning()
+      conversationId = newConversation.id
     }
 
     // Insert only the NEW user message
     const userMessage = messages[messages.length - 1];
     await db.insert(messagesTable).values({
-      conversationId: conversationIdToUse,
+      conversationId: conversationId,
       role: userMessage.role,
       content: userMessage.content
     });
@@ -106,13 +105,13 @@ export async function POST(req: NextRequest) {
     const previousMessages = await db
       .select({ role: messagesTable.role, content: messagesTable.content })
       .from(messagesTable)
-      .where(eq(messagesTable.conversationId, conversationIdToUse))
+      .where(eq(messagesTable.conversationId, conversationId))
       .orderBy(messagesTable.createdAt);
 
     // --- Fetch documents and relevant content for AI context ---
     let documentContext = "";
     try {
-      const documents = await getDocumentsByConversationId({ conversationId: conversationIdToUse });
+      const documents = await getDocumentsByConversationId({ conversationId: conversationId });
       
       if (documents.length > 0) {
         // Get the user's latest message for context search
@@ -159,7 +158,7 @@ export async function POST(req: NextRequest) {
     } catch (docError) {
       logger.error("Error fetching document context", { 
         error: docError instanceof Error ? docError.message : String(docError),
-        conversationId: conversationIdToUse,
+        conversationId: conversationId,
         userId 
       });
       // Continue without document context if there's an error
@@ -191,7 +190,7 @@ export async function POST(req: NextRequest) {
 
     // Save the assistant's response
     await db.insert(messagesTable).values({
-      conversationId: conversationIdToUse,
+      conversationId: conversationId,
       role: "assistant",
       content: aiResponseContent
     });
@@ -199,7 +198,7 @@ export async function POST(req: NextRequest) {
     // Return data that will be wrapped in the standard response format
     return {
       text: aiResponseContent,
-      conversationId: conversationIdToUse
+      conversationId: conversationId
     };
   });
 }
