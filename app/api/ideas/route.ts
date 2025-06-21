@@ -1,41 +1,45 @@
-import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
-import { db } from '@/db/db';
+import { getServerSession } from '@/lib/auth/server-session';
+import { executeSQL } from '@/lib/db/data-api-adapter';
 import { ideasTable, ideaVotesTable, ideaNotesTable } from '@/db/schema';
 import { desc, eq, and, sql } from 'drizzle-orm';
 import { hasRole } from '@/utils/roles';
 
 export async function GET() {
-  // Protect route from unauthenticated users
-  const { userId } = await auth.protect();
+  const session = await getServerSession();
+  if (!session?.sub) {
+    return new NextResponse('Unauthorized', { status: 401 });
+  }
 
   try {
-    // Get all ideas with vote counts and note counts
-    const allIdeas = await db
-      .select({
-        ...ideasTable,
-        voteCount: sql<number>`count(distinct ${ideaVotesTable.id})::int`,
-        noteCount: sql<number>`count(distinct ${ideaNotesTable.id})::int`
-      })
-      .from(ideasTable)
-      .leftJoin(ideaVotesTable, eq(ideasTable.id, ideaVotesTable.ideaId))
-      .leftJoin(ideaNotesTable, eq(ideasTable.id, ideaNotesTable.ideaId))
-      .groupBy(ideasTable.id)
-      .orderBy(desc(ideasTable.createdAt));
+    const ideasSql = `
+      SELECT 
+        i.*,
+        COUNT(DISTINCT v.id)::int as votes,
+        COUNT(DISTINCT n.id)::int as notes
+      FROM ideas i
+      LEFT JOIN idea_votes v ON i.id = v.idea_id
+      LEFT JOIN idea_notes n ON i.id = n.idea_id
+      GROUP BY i.id
+      ORDER BY i.created_at DESC
+    `;
+    const allIdeas = await executeSQL(ideasSql);
 
-    // Get all votes for the current user
-    const userVotes = await db.select()
-      .from(ideaVotesTable)
-      .where(eq(ideaVotesTable.userId, userId));
+    const userVotesSql = 'SELECT idea_id FROM idea_votes WHERE user_id = :userId';
+    const userVotes = await executeSQL(userVotesSql, [{ name: 'userId', value: { stringValue: session.sub } }]);
+    const userVotedIdeaIds = new Set(userVotes.map((vote: any) => vote.idea_id));
 
-    // Add hasVoted flag to each idea
-    const ideasWithVotes = allIdeas.map(idea => ({
+    const ideasWithVotes = allIdeas.map((idea: any) => ({
       ...idea,
-      votes: idea.voteCount,
-      notes: idea.noteCount,
-      hasVoted: userVotes.some(vote => vote.ideaId === idea.id)
+      priorityLevel: idea.priority_level,
+      createdBy: idea.created_by,
+      createdAt: idea.created_at,
+      updatedAt: idea.updated_at,
+      completedAt: idea.completed_at,
+      completedBy: idea.completed_by,
+      hasVoted: userVotedIdeaIds.has(idea.id)
     }));
-
+    
     return NextResponse.json(ideasWithVotes);
   } catch (error) {
     console.error('Error fetching ideas:', error);
@@ -44,13 +48,14 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  // Protect route from unauthenticated users
-  const { userId } = await auth.protect();
+  const session = await getServerSession();
+  if (!session?.sub) {
+    return new NextResponse('Unauthorized', { status: 401 });
+  }
 
-  // Only staff or admin can create ideas
   const [isStaff, isAdmin] = await Promise.all([
-    hasRole(userId, 'staff'),
-    hasRole(userId, 'administrator')
+    hasRole('staff'),
+    hasRole('administrator')
   ]);
   if (!isStaff && !isAdmin) {
     return new NextResponse('Forbidden', { status: 403 });
@@ -62,16 +67,26 @@ export async function POST(request: Request) {
       return new NextResponse('Missing required fields', { status: 400 });
     }
 
-    const [newIdea] = await db.insert(ideasTable).values({
-      title,
-      description,
-      priorityLevel,
-      status: 'active',
-      createdBy: userId,
-      createdAt: new Date()
-    }).returning();
+    const sql = `
+      INSERT INTO ideas (title, description, priority_level, status, created_by, created_at)
+      VALUES (:title, :description, :priorityLevel, 'active', :createdBy, NOW())
+      RETURNING *
+    `;
+    const params = [
+      { name: 'title', value: { stringValue: title } },
+      { name: 'description', value: { stringValue: description } },
+      { name: 'priorityLevel', value: { stringValue: priorityLevel } },
+      { name: 'createdBy', value: { stringValue: session.sub } }
+    ];
+    const result = await executeSQL(sql, params);
+    const newIdea = result[0];
 
-    return NextResponse.json(newIdea);
+    return NextResponse.json({
+      ...newIdea,
+      priorityLevel: newIdea.priority_level,
+      createdBy: newIdea.created_by,
+      createdAt: newIdea.created_at
+    });
   } catch (error) {
     console.error('Error creating idea:', error);
     return new NextResponse('Internal Server Error', { status: 500 });

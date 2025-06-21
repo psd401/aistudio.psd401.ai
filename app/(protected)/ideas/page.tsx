@@ -53,6 +53,7 @@ export default function IdeasPage() {
     priorityLevel: 'medium',
   });
   const [editData, setEditData] = useState({
+    id: 0,
     title: '',
     description: '',
     priorityLevel: '',
@@ -72,8 +73,8 @@ export default function IdeasPage() {
       switch (sortBy) {
         case 'priority':
           const priorityOrder = { high: 0, medium: 1, low: 2 };
-          return priorityOrder[a.priorityLevel as keyof typeof priorityOrder] - 
-                 priorityOrder[b.priorityLevel as keyof typeof priorityOrder];
+          return (priorityOrder[a.priorityLevel as keyof typeof priorityOrder] || 3) - 
+                 (priorityOrder[b.priorityLevel as keyof typeof priorityOrder] || 3);
         case 'votes':
           return b.votes - a.votes;
         case 'newest':
@@ -252,8 +253,6 @@ export default function IdeasPage() {
       
       await fetchIdeas();
       setShowEditDialog(false);
-      setSelectedIdea(null);
-      setEditData({ title: '', description: '', priorityLevel: '' });
       toast({
         title: 'Success',
         description: 'Idea updated successfully',
@@ -273,6 +272,7 @@ export default function IdeasPage() {
   const handleOpenEdit = (idea: Idea) => {
     setSelectedIdea(idea);
     setEditData({
+      id: idea.id,
       title: idea.title,
       description: idea.description,
       priorityLevel: idea.priorityLevel,
@@ -280,261 +280,229 @@ export default function IdeasPage() {
     setShowEditDialog(true);
   };
 
+  const handleDelete = async (ideaId: number) => {
+    try {
+      const response = await fetch(`/api/ideas/${ideaId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) throw new Error('Failed to delete idea');
+      await fetchIdeas();
+      toast({
+        title: 'Success',
+        description: 'Idea deleted successfully',
+        variant: 'default',
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to delete idea',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return (
-    <div className="min-h-screen pt-14">
-      <div className="container py-8">
-        <div className="flex items-center justify-between mb-8">
-          <div className="space-y-1">
-            <h1 className="text-3xl font-bold">Ideas</h1>
-            <p className="text-muted-foreground">Share and discuss ideas for improving our tools.</p>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="newest">Newest</SelectItem>
-                <SelectItem value="priority">Priority</SelectItem>
-                <SelectItem value="votes">Most Voted</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Button onClick={() => setShowAddDialog(true)}>Add Idea</Button>
-          </div>
+    <>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Ideas</h1>
+        <div className="flex items-center gap-4">
+          <Select onValueChange={(value) => setSortBy(value as any)} value={sortBy}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest">Newest</SelectItem>
+              <SelectItem value="priority">Priority</SelectItem>
+              <SelectItem value="votes">Most Voted</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button onClick={() => setShowAddDialog(true)}>Add Idea</Button>
         </div>
+      </div>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <ScrollArea className="h-[calc(100vh-200px)]">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {sortIdeas(ideas).map((idea) => (
-            <Card key={idea.id}>
+            <Card key={idea.id} className={`flex flex-col ${idea.status === 'completed' ? 'bg-gray-100' : ''}`}>
               <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle>{idea.title}</CardTitle>
-                    <CardDescription>
-                      Created: {new Date(idea.createdAt).toLocaleDateString()}
-                      {idea.updatedAt && idea.updatedAt !== idea.createdAt && (
-                        <> · Updated: {new Date(idea.updatedAt).toLocaleDateString()}</>
-                      )}
-                    </CardDescription>
-                  </div>
-                  <Badge variant={idea.status === 'completed' ? 'default' : 'secondary'}>
-                    {idea.status}
+                <CardTitle className="flex justify-between items-start">
+                  <span>{idea.title}</span>
+                  <Badge 
+                    variant={
+                      idea.priorityLevel === 'high' ? 'destructive' :
+                      idea.priorityLevel === 'medium' ? 'secondary' : 'outline'
+                    }
+                  >
+                    {idea.priorityLevel}
                   </Badge>
-                </div>
+                </CardTitle>
+                <CardDescription>Created by {idea.createdBy ? `User ${idea.createdBy.substring(0, 8)}...` : 'Unknown'}</CardDescription>
               </CardHeader>
-
-              <CardContent>
-                <p className="text-sm text-muted-foreground">{idea.description}</p>
-                <div className="mt-4 flex items-center gap-2">
-                  <Badge variant="outline">{idea.priorityLevel}</Badge>
-                  <Badge variant="outline">{idea.votes} votes</Badge>
-                  <Badge variant="outline">{idea.notes} notes</Badge>
-                </div>
+              <CardContent className="flex-grow">
+                <p>{idea.description}</p>
               </CardContent>
-
-              <CardFooter className="pt-0">
-                <div className="flex flex-wrap items-center w-full gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleVote(idea.id)}
-                    disabled={idea.hasVoted}
-                  >
-                    <IconThumbUp className="h-4 w-4" />
-                    <span className="ml-1">Vote</span>
+              <CardFooter className="flex flex-wrap justify-between items-center gap-2">
+                <div className="flex items-center gap-4">
+                  <Button variant="ghost" size="sm" onClick={() => handleVote(idea.id)} className="flex items-center gap-1">
+                    <IconThumbUp size={16} className={idea.hasVoted ? 'text-blue-500' : ''}/> {idea.votes}
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleOpenNotes(idea)}
-                  >
-                    <IconNote className="h-4 w-4" />
-                    <span className="ml-1">Notes</span>
+                  <Button variant="ghost" size="sm" onClick={() => handleOpenNotes(idea)} className="flex items-center gap-1">
+                    <IconNote size={16} /> {idea.notes}
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleOpenEdit(idea)}
-                  >
-                    <IconEdit className="h-4 w-4" />
-                    <span className="ml-1">Edit</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(idea)}>
+                    <IconEdit size={16} />
                   </Button>
                   {idea.status !== 'completed' && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleStatusChange(idea.id, 'completed')}
-                    >
-                      <IconCheck className="h-4 w-4" />
-                      <span className="ml-1">Complete</span>
+                    <Button variant="ghost" size="icon" onClick={() => handleStatusChange(idea.id, 'completed')}>
+                      <IconCheck size={16} />
                     </Button>
                   )}
+                  <Button variant="ghost" size="icon" onClick={() => handleDelete(idea.id)}>
+                    <IconTrash size={16} />
+                  </Button>
                 </div>
               </CardFooter>
             </Card>
           ))}
         </div>
+      </ScrollArea>
 
-        <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add New Idea</DialogTitle>
-              <DialogDescription>
-                Share your idea for improving our tools.
-              </DialogDescription>
-            </DialogHeader>
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Idea</DialogTitle>
+            <DialogDescription>
+              Share your idea for improving our tools.
+            </DialogDescription>
+          </DialogHeader>
 
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Title</label>
-                <Input
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  placeholder="Enter idea title"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Description</label>
-                <Textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Describe your idea"
-                  rows={4}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Priority Level</label>
-                <Select
-                  value={formData.priorityLevel}
-                  onValueChange={(value) => setFormData({ ...formData, priorityLevel: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select priority" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowAddDialog(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleSubmit} disabled={loading}>
-                {loading ? (
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                ) : (
-                  'Submit'
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={showNotesDialog} onOpenChange={setShowNotesDialog}>
-          <DialogContent className="sm:max-w-[600px]">
-            <DialogHeader>
-              <DialogTitle>Notes</DialogTitle>
-              <DialogDescription>
-                {selectedIdea?.title}
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-4">
-              {notes.map((note) => (
-                <Card key={note.id}>
-                  <CardContent className="pt-6">
-                    <p className="text-sm break-words whitespace-pre-wrap">{note.content}</p>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      {new Date(note.createdAt).toLocaleString()} by {note.createdBy}
-                    </p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            <div className="flex gap-2 pt-4 border-t mt-4">
-              <Textarea
-                value={newNote}
-                onChange={(e) => setNewNote(e.target.value)}
-                placeholder="Add a note..."
-                className="flex-1"
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Title</label>
+              <Input
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                placeholder="Enter idea title"
               />
-              <Button onClick={handleAddNote}>Add</Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit Idea</DialogTitle>
-              <DialogDescription>
-                Update the details of this idea.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Title</label>
-                <Input
-                  value={editData.title}
-                  onChange={(e) => setEditData({ ...editData, title: e.target.value })}
-                  placeholder="Enter idea title"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Description</label>
-                <Textarea
-                  value={editData.description}
-                  onChange={(e) => setEditData({ ...editData, description: e.target.value })}
-                  placeholder="Describe your idea"
-                  rows={4}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Priority Level</label>
-                <Select
-                  value={editData.priorityLevel}
-                  onValueChange={(value) => setEditData({ ...editData, priorityLevel: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select priority" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
 
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowEditDialog(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleEdit} disabled={loading}>
-                {loading ? (
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                ) : (
-                  'Save Changes'
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-    </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Description</label>
+              <Textarea
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Describe your idea"
+                rows={4}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Priority Level</label>
+              <Select
+                value={formData.priorityLevel}
+                onValueChange={(value) => setFormData({ ...formData, priorityLevel: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select priority" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSubmit} disabled={loading}>
+              {loading ? (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              ) : (
+                'Submit'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showNotesDialog} onOpenChange={setShowNotesDialog}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Notes</DialogTitle>
+            <DialogDescription>
+              {selectedIdea?.title}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-4">
+            {notes.map((note) => (
+              <Card key={note.id}>
+                <CardContent className="pt-6">
+                  <p className="text-sm break-words whitespace-pre-wrap">{note.content}</p>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {new Date(note.createdAt).toLocaleString()} by {note.createdBy}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          <div className="flex gap-2 pt-4 border-t mt-4">
+            <Textarea
+              value={newNote}
+              onChange={(e) => setNewNote(e.target.value)}
+              placeholder="Add a note..."
+              className="flex-1"
+            />
+            <Button onClick={handleAddNote}>Add</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Idea</DialogTitle>
+            <DialogDescription>
+              Make changes to your idea here. Click save when you're done.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <Input
+              placeholder="Title"
+              value={editData.title}
+              onChange={(e) => setEditData({ ...editData, title: e.target.value })}
+            />
+            <Textarea
+              placeholder="Description"
+              value={editData.description}
+              onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+            />
+            <Select
+              value={editData.priorityLevel}
+              onValueChange={(value) => setEditData({ ...editData, priorityLevel: value })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Priority" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="low">Low</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleEdit} disabled={loading}>{loading ? 'Saving...' : 'Save Changes'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 } 
