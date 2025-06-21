@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   
   // Get user authentication
   const session = await getServerSession();
-  if (!session || !session.sub || !session.userId) {
+  if (!session || !session.sub) {
     return new NextResponse(
       JSON.stringify({ error: 'Unauthorized' }), 
       { status: 401, headers }
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
       VALUES (gen_random_uuid(), :userId, 'pdf-to-markdown', 'pending', :input, NOW(), NOW())
       RETURNING id, user_id, type, status, input, output, error, created_at, updated_at
     `, [
-      { name: 'userId', value: { stringValue: session.userId } },
+      { name: 'userId', value: { stringValue: session.sub } },
       { name: 'input', value: { stringValue: JSON.stringify(jobInput) } }
     ]);
     
@@ -197,7 +197,7 @@ async function processPdfInBackground(jobId: string, jobInput: any) {
     logger.info(`[PDF-to-Markdown Background] Calling LLM for job ${jobId}...`);
     const startTime = Date.now();
     const markdown = await generateCompletion(
-      { provider: model.provider, modelId: model.modelId },
+      { provider: model.provider, modelId: model.model_id },
       messages
     );
     

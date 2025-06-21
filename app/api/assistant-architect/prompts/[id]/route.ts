@@ -22,7 +22,7 @@ export async function GET(req: NextRequest, context: Params) {
     const promptSql = `
       SELECT id, tool_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at
       FROM chain_prompts
-      WHERE id = :promptId
+      WHERE id = :promptId::uuid
     `
     const promptResult = await executeSQL(promptSql, [
       { name: 'promptId', value: { stringValue: promptId } }

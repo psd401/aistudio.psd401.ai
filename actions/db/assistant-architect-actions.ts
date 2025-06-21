@@ -42,6 +42,7 @@ import { createNavigationItemAction } from "@/actions/db/navigation-actions"
 import logger from "@/lib/logger"
 import { getServerSession } from "@/lib/auth/server-session";
 import { executeSQL, checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter";
+import { RDSDataClient, BeginTransactionCommand, ExecuteStatementCommand, CommitTransactionCommand, RollbackTransactionCommand } from "@aws-sdk/client-rds-data";
 
 // Use inline type for architect with relations
 type ArchitectWithRelations = SelectAssistantArchitect & {
@@ -1165,8 +1166,8 @@ export async function executeAssistantArchitectAction({
   logger.info(`[EXEC] Started for tool ${toolId}`);
   
   try {
-    const { userId } = await getServerSession();
-    if (!userId) {
+    const session = await getServerSession();
+    if (!session?.sub) {
       throw createError("Unauthorized", {
         code: "UNAUTHORIZED",
         level: ErrorLevel.WARN
@@ -1189,7 +1190,7 @@ export async function executeAssistantArchitectAction({
       type: "assistant_architect_execution",
       status: "pending",
       input: JSON.stringify({ toolId, inputs }),
-      userId
+      userId: session.sub
     });
 
     if (!jobResult.isSuccess) {
@@ -1218,208 +1219,154 @@ async function executeAssistantArchitectJob(
   tool: ArchitectWithRelations,
   inputs: Record<string, unknown>
 ) {
-  let execution: SelectToolExecution | null = null;
   const executionStartTime = new Date();
   const results: PromptExecutionResult[] = [];
+  let executionId: string | null = null;
+  
+  const rdsDataClient = new RDSDataClient({ region: process.env.AWS_REGION || 'us-east-1' });
+  const dataApiConfig = {
+    resourceArn: process.env.RDS_RESOURCE_ARN!,
+    secretArn: process.env.RDS_SECRET_ARN!,
+    database: process.env.RDS_DATABASE_NAME || 'aistudio',
+  };
 
+  const beginTransactionCmd = new BeginTransactionCommand(dataApiConfig);
+  const { transactionId } = await rdsDataClient.send(beginTransactionCmd);
+
+  if (!transactionId) {
+    await updateJobAction(jobId, { status: "failed", error: "Failed to start a database transaction." });
+    return;
+  }
+  
   try {
-    // Update job status to running
     await updateJobAction(jobId, { status: "running" });
 
-    // Start transaction for the execution
-    await db.transaction(async (tx) => {
-      const [insertedExecution] = await tx.insert(toolExecutionsTable).values({
-        toolId: tool.id,
-        userId: tool.userId,
-        inputData: inputs,
-        status: "running",
-        startedAt: executionStartTime
-      }).returning();
-      execution = insertedExecution;
-      logger.info(`[EXEC:${jobId}] Created execution ${execution.id}`);
+    executionId = uuidv4();
+    const insertExecutionSql = `
+      INSERT INTO tool_executions (id, tool_id, user_id, input_data, status, started_at)
+      VALUES (:id::uuid, :toolId::uuid, :userId, :inputData::jsonb, :status::execution_status, :startedAt::timestamp)
+    `;
+    await rdsDataClient.send(new ExecuteStatementCommand({
+      ...dataApiConfig,
+      sql: insertExecutionSql,
+      parameters: [
+        { name: 'id', value: { stringValue: executionId } },
+        { name: 'toolId', value: { stringValue: tool.id } },
+        { name: 'userId', value: { stringValue: tool.userId! } },
+        { name: 'inputData', value: { stringValue: JSON.stringify(inputs) } },
+        { name: 'status', value: { stringValue: 'running' } },
+        { name: 'startedAt', value: { stringValue: executionStartTime.toISOString().slice(0, 19).replace('T', ' ') } },
+      ],
+      transactionId,
+    }));
 
-      const prompts = tool.prompts?.sort((a: SelectChainPrompt, b: SelectChainPrompt) => (a.position ?? 0) - (b.position ?? 0)) || [];
-
-      for (const [index, prompt] of prompts.entries()) {
-        let promptResultRecord: SelectPromptResult | null = null;
-        const promptStartTime = new Date();
-        const promptInputData: Record<string, unknown> = { ...inputs };
-        // Add previous prompt outputs as variables using slugified names
-        for (let prevIdx = 0; prevIdx < index; prevIdx++) {
-          const prevPrompt = prompts[prevIdx];
-          const prevResult = results.find(r => r.promptId === prevPrompt.id);
-          if (prevResult && prevResult.output !== undefined) {
-            promptInputData[slugify(prevPrompt.name)] = prevResult.output;
-          }
+    const prompts = tool.prompts?.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)) || [];
+    for (const prompt of prompts) {
+      const promptStartTime = new Date();
+      const promptInputData: Record<string, any> = { ...inputs };
+      
+      // Map outputs from previous prompts
+      for (const prevResult of results) {
+        const prevPrompt = tool.prompts?.find(p => p.id === prevResult.promptId);
+        if (prevPrompt) {
+          promptInputData[slugify(prevPrompt.name)] = prevResult.output;
         }
-        logger.info(`[EXEC:${jobId}] Processing prompt ${index+1}/${prompts.length}: ${prompt.name}`);
+      }
 
-        try {
-          const [insertedPromptResult] = await tx.insert(promptResultsTable).values({
-            executionId: execution.id,
-            promptId: prompt.id,
-            inputData: promptInputData,
-            status: "pending",
-            startedAt: promptStartTime
-          }).returning();
-          promptResultRecord = insertedPromptResult;
-
-          const model = prompt.modelId ? await db.query.aiModels.findFirst({ where: eq(aiModelsTable.id, prompt.modelId) }) : null;
-          if (!model) throw new Error(`No model configured or found for prompt ${prompt.id}`);
-
-          if (prompt.inputMapping) {
-            for (const [key, value] of Object.entries(prompt.inputMapping as Record<string, string>)) {
-              if (value.startsWith('input.')) {
-                const fieldId = value.replace('input.', '');
-                // Try to find by ID first (for preview), then by name (for compatibility)
-                const inputFieldDef = tool.inputFields?.find(
-                  (f: SelectToolInputField) => f.id === fieldId || f.name === fieldId
-                );
-                if (inputFieldDef) {
-                  // Only map if we haven't already mapped this input field
-                  if (!promptInputData[key]) {
-                    promptInputData[key] = inputs[inputFieldDef.name];
-                  }
-                } else {
-                  promptInputData[key] = `[Mapping error: Input field '${fieldId}' not found]`;
+      // Map inputs based on inputMapping
+      if (prompt.inputMapping) {
+        for (const [key, value] of Object.entries(prompt.inputMapping as Record<string, string>)) {
+          if (value.startsWith("input.")) {
+            const inputName = value.substring(6);
+            promptInputData[key] = inputs[inputName];
+          } else { // It's a prompt output mapping
+             const prevPrompt = tool.prompts?.find(p => p.id === value);
+             if (prevPrompt) {
+                const prevResult = results.find(r => r.promptId === prevPrompt.id);
+                if (prevResult) {
+                    promptInputData[key] = prevResult.output;
                 }
-              } else if (value.startsWith('prompt.')) {
-                // New: handle prompt.<id> mapping to previous prompt output
-                const promptId = value.replace('prompt.', '');
-                const previousResult = results.find((r: PromptExecutionResult) => r.promptId === promptId);
-                promptInputData[key] = previousResult?.output ?? `[Mapping error: Result from prompt '${promptId}' not found]`;
-              } else {
-                // Legacy: treat as direct prompt id (for backward compatibility)
-                const previousResult = results.find((r: PromptExecutionResult) => r.promptId === value);
-                promptInputData[key] = previousResult?.output ?? `[Mapping error: Result from prompt '${value}' not found]`;
-              }
-            }
+             }
           }
-
-          // Execute the prompt
-          const messages: CoreMessage[] = [
-            {
-              role: 'system',
-              content: prompt.systemContext || 'You are a helpful AI assistant.'
-            },
-            {
-              role: 'user',
-              content: decodePromptVariables(prompt.content).replace(/\${([\w-]+)}/g, (_match: string, key: string) => {
-                const value = promptInputData[key]
-                return value !== undefined ? String(value) : `[Missing value for ${key}]`
-              }).trim() || "Please provide input for this prompt."
-            }
-          ];
-
-          const output = await generateCompletion(
-            {
-              provider: model.provider,
-              modelId: model.modelId
-            },
-            messages
-          );
-
-          const endTime = new Date();
-          const executionTimeMs = endTime.getTime() - promptStartTime.getTime();
-
-          // Update prompt result with success
-          await tx.update(promptResultsTable)
-            .set({
-              status: "completed",
-              outputData: output,
-              completedAt: endTime,
-              executionTimeMs
-            })
-            .where(eq(promptResultsTable.id, promptResultRecord.id));
-
-          results.push({
-            promptId: prompt.id,
-            status: "completed",
-            input: promptInputData,
-            output,
-            startTime: promptStartTime,
-            endTime,
-            executionTimeMs
-          });
-
-          logger.info(`[EXEC:${jobId}] Completed prompt ${index+1}/${prompts.length}: ${prompt.name}`);
-        } catch (error) {
-          const errorMsg = error instanceof Error ? error.message : "Unknown error";
-          logger.error(`[EXEC:${jobId}] Error processing prompt ${index+1}: ${errorMsg}`);
-          
-          if (promptResultRecord) {
-            await tx.update(promptResultsTable)
-              .set({
-                status: "failed",
-                errorMessage: errorMsg,
-                completedAt: new Date()
-              })
-              .where(eq(promptResultsTable.id, promptResultRecord.id));
-          }
-
-          results.push({
-            promptId: prompt.id,
-            status: "failed",
-            input: promptInputData,
-            error: errorMsg,
-            startTime: promptStartTime,
-            endTime: new Date()
-          });
         }
       }
+      
+      const newPromptResultId = uuidv4();
+      try {
+        await rdsDataClient.send(new ExecuteStatementCommand({ ...dataApiConfig, 
+            sql: `INSERT INTO prompt_results (id, execution_id, prompt_id, input_data, status, started_at)
+                  VALUES (:id::uuid, :executionId::uuid, :promptId::uuid, :inputData::jsonb, 'pending'::execution_status, :startedAt::timestamp)`,
+            parameters: [
+                { name: 'id', value: { stringValue: newPromptResultId } },
+                { name: 'executionId', value: { stringValue: executionId } },
+                { name: 'promptId', value: { stringValue: prompt.id } },
+                { name: 'inputData', value: { stringValue: JSON.stringify(promptInputData) } },
+                { name: 'startedAt', value: { stringValue: promptStartTime.toISOString().slice(0, 19).replace('T', ' ') } },
+            ],
+            transactionId
+        }));
+        
+        const modelRecord = (await executeSQL('SELECT model_id, provider FROM ai_models WHERE id = :id', [{name: 'id', value: {longValue: prompt.modelId}}]))[0];
+        if (!modelRecord) throw new Error("Model not found");
 
-      // Determine final status
-      const hasFailedPrompts = results.some(r => r.status === "failed");
-      const finalStatus = hasFailedPrompts ? "failed" : "completed";
-      const finalErrorMessage = hasFailedPrompts ? results.find(r => r.status === "failed")?.error : null;
+        const messages: CoreMessage[] = [
+          {
+            role: 'system',
+            content: prompt.systemContext || 'You are a helpful AI assistant.'
+          },
+          {
+            role: 'user',
+            content: decodePromptVariables(prompt.content).replace(/\${([\w-]+)}/g, (_match: string, key: string) => {
+              const value = promptInputData[key]
+              return value !== undefined ? String(value) : `[Missing value for ${key}]`
+            }).trim() || "Please provide input for this prompt."
+          }
+        ];
 
-      // Update execution status
-      if (execution) {
-        const currentExecutionId = execution.id;
-        await tx.update(toolExecutionsTable)
-          .set({
-            status: finalStatus,
-            completedAt: new Date()
-          })
-          .where(eq(toolExecutionsTable.id, currentExecutionId));
+        const output = await generateCompletion({ provider: modelRecord.provider, modelId: modelRecord.model_id }, messages);
+
+        await rdsDataClient.send(new ExecuteStatementCommand({ ...dataApiConfig,
+            sql: `UPDATE prompt_results SET status = 'completed'::execution_status, output_data = :output, completed_at = :completedAt::timestamp, execution_time_ms = :execTime WHERE id = :id::uuid`,
+            parameters: [
+                { name: 'output', value: { stringValue: output } },
+                { name: 'completedAt', value: { stringValue: new Date().toISOString().slice(0, 19).replace('T', ' ') } },
+                { name: 'execTime', value: { longValue: new Date().getTime() - promptStartTime.getTime() } },
+                { name: 'id', value: { stringValue: newPromptResultId } }
+            ],
+            transactionId
+        }));
+        results.push({ promptId: prompt.id, status: "completed", input: promptInputData, output, startTime: promptStartTime, endTime: new Date(), executionTimeMs: 0 });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown prompt error';
+        await rdsDataClient.send(new ExecuteStatementCommand({ ...dataApiConfig,
+            sql: `UPDATE prompt_results SET status = 'failed'::execution_status, error_message = :errorMsg, completed_at = :completedAt::timestamp WHERE id = :id::uuid`,
+            parameters: [
+                { name: 'errorMsg', value: { stringValue: errorMsg } },
+                { name: 'completedAt', value: { stringValue: new Date().toISOString().slice(0, 19).replace('T', ' ') } },
+                { name: 'id', value: { stringValue: newPromptResultId } }
+            ],
+            transactionId
+        }));
+        results.push({ promptId: prompt.id, status: "failed", input: promptInputData, error: errorMsg, startTime: promptStartTime, endTime: new Date() });
       }
-
-      // Update job with final status and results
-      const finalExecutionId = execution?.id;
-      await updateJobAction(jobId, {
-        status: finalStatus as typeof jobStatusEnum.enumValues[number],
-        output: JSON.stringify({
-          executionId: finalExecutionId,
-          results
-        }),
-        error: finalErrorMessage || undefined
-      });
-    });
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : "Unknown error";
-    logger.error(`[EXEC:${jobId}] Execution failed:`, errorMsg);
-
-    // Update execution status if it was created
-    if (execution) {
-      // Use type assertion to resolve TypeScript's flow analysis limitation
-      const executionWithId = execution as SelectToolExecution;
-      await db.update(toolExecutionsTable)
-        .set({
-          status: "failed",
-          completedAt: new Date()
-        })
-        .where(eq(toolExecutionsTable.id, executionWithId.id));
     }
 
-    // Update job with error
-    await updateJobAction(jobId, {
-      status: "failed",
-      error: errorMsg,
-      output: JSON.stringify({
-        executionId: execution ? (execution as SelectToolExecution).id : undefined,
-        results
-      })
-    });
+    const finalStatus = results.some(r => r.status === "failed") ? "failed" : "completed";
+    await rdsDataClient.send(new ExecuteStatementCommand({ ...dataApiConfig, 
+        sql: `UPDATE tool_executions SET status = :status::execution_status, completed_at = :completedAt::timestamp WHERE id = :id::uuid`,
+        parameters: [
+            { name: 'status', value: { stringValue: finalStatus } },
+            { name: 'completedAt', value: { stringValue: new Date().toISOString().slice(0, 19).replace('T', ' ') } },
+            { name: 'id', value: { stringValue: executionId } }
+        ],
+        transactionId
+    }));
+    await rdsDataClient.send(new CommitTransactionCommand({ ...dataApiConfig, transactionId }));
+    await updateJobAction(jobId, { status: finalStatus, output: JSON.stringify({ executionId, results }) });
+  } catch (error) {
+    await rdsDataClient.send(new RollbackTransactionCommand({ ...dataApiConfig, transactionId }));
+    const errorMsg = error instanceof Error ? error.message : "Unknown job error";
+    await updateJobAction(jobId, { status: "failed", error: errorMsg, output: JSON.stringify({ executionId, results }) });
   }
 }
 

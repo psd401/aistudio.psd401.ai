@@ -469,19 +469,29 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                               <SelectValue placeholder={`Select ${field.label || field.name}...`} />
                             </SelectTrigger>
                             <SelectContent>
-                              {Array.isArray(field.options)
-                                ? field.options.map((option: any) => (
-                                    <SelectItem key={option.value} value={option.value}>
-                                      {option.label}
-                                    </SelectItem>
-                                  ))
-                                : typeof field.options === "string"
-                                  ? field.options.split(",").map((option: string) => (
-                                      <SelectItem key={option.trim()} value={option.trim()}>
-                                        {option.trim()}
-                                      </SelectItem>
-                                    ))
-                                  : null}
+                              {(() => {
+                                let options: Array<{ label: string, value: string }> = []
+                                if (typeof field.options === "string") {
+                                  try {
+                                    const parsed = JSON.parse(field.options)
+                                    if (Array.isArray(parsed)) {
+                                      options = parsed
+                                    }
+                                  } catch (e) {
+                                    options = field.options.split(",").map(s => ({
+                                      value: s.trim(),
+                                      label: s.trim()
+                                    }))
+                                  }
+                                } else if (Array.isArray(field.options)) {
+                                  options = field.options
+                                }
+                                return options.map(option => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))
+                              })()}
                             </SelectContent>
                           </Select>
                         ) : field.fieldType === "file_upload" ? (

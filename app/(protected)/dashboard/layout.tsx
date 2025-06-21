@@ -9,7 +9,7 @@ export default function DashboardLayout({
     <div className="flex min-h-screen pt-14">
       <NavbarNested />
       <main className="flex-1 lg:pl-[68px]">
-        <div className="bg-muted/40 p-4 sm:p-6 md:p-8">
+        <div className="bg-white p-4 sm:p-6 md:p-8">
           {children}
         </div>
       </main>
