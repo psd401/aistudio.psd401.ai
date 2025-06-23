@@ -1051,7 +1051,7 @@ export async function approveAssistantArchitect(id: string) {
   const sql = `
     UPDATE assistant_architects 
     SET status = 'approved'::tool_status, updated_at = NOW()
-    WHERE id = :id
+    WHERE id = :id::uuid
     RETURNING *
   `;
   
@@ -1064,7 +1064,7 @@ export async function approveAssistantArchitect(id: string) {
   
   // Also create the tool entry if needed
   await executeSQL(`
-    INSERT INTO tools (id, identifier, name, description, assistant_architect_id, is_active, created_at, updated_at)
+    INSERT INTO tools (id, identifier, name, description, prompt_chain_tool_id, is_active, created_at, updated_at)
     SELECT gen_random_uuid(), 
            LOWER(REPLACE(name, ' ', '-')), 
            name, 
@@ -1074,9 +1074,9 @@ export async function approveAssistantArchitect(id: string) {
            NOW(), 
            NOW()
     FROM assistant_architects
-    WHERE id = :id
+    WHERE id = :id::uuid
     AND NOT EXISTS (
-      SELECT 1 FROM tools WHERE assistant_architect_id = :id
+      SELECT 1 FROM tools WHERE prompt_chain_tool_id = :id::uuid
     )
   `, parameters);
   
@@ -1096,7 +1096,7 @@ export async function rejectAssistantArchitect(id: string) {
   const sql = `
     UPDATE assistant_architects 
     SET status = 'rejected'::tool_status, updated_at = NOW()
-    WHERE id = :id
+    WHERE id = :id::uuid
   `;
   
   const parameters = [

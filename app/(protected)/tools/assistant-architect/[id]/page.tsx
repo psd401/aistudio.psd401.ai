@@ -6,7 +6,6 @@ import { AssistantArchitectExecution } from "@/components/features/assistant-arc
 import { Card, CardContent } from "@/components/ui/card"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Terminal } from "lucide-react"
-import { hasToolAccess } from "@/utils/roles"
 import { AssistantArchitectWithRelations } from "@/types"
 
 /**
@@ -32,10 +31,6 @@ export default async function AssistantArchitectToolPage({
   // Properly await params
   const resolvedParams = await Promise.resolve(params);
   const id = resolvedParams.id;
-  
-  // Check if user has access to the assistant-architect tool
-  const hasAccess = await hasToolAccess(null, "assistant-architect")
-  if (!hasAccess) redirect("/dashboard")
   
   const result = await getAssistantArchitectAction(id)
   
