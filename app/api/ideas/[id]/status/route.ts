@@ -33,8 +33,17 @@ export async function PATCH(request: Request, context: { params: { id: string } 
     ];
 
     if (status === 'completed') {
+      // Get the user's numeric ID from their cognito_sub
+      const userSql = 'SELECT id FROM users WHERE cognito_sub = :cognitoSub';
+      const userResult = await executeSQL(userSql, [{ name: 'cognitoSub', value: { stringValue: session.sub } }]);
+      
+      if (!userResult || userResult.length === 0) {
+        return new NextResponse('User not found', { status: 404 });
+      }
+      
+      const userId = userResult[0].id;
       sql += ', completed_by = :completedBy, completed_at = NOW()';
-      params.push({ name: 'completedBy', value: { stringValue: session.sub } });
+      params.push({ name: 'completedBy', value: { stringValue: userId.toString() } });
     }
 
     sql += ' WHERE id = :ideaId RETURNING *';

@@ -26,11 +26,21 @@ export async function POST(request: Request, context: { params: { id: string } }
       return new NextResponse('Invalid idea ID', { status: 400 });
     }
 
+    // First get the user's numeric ID from their cognito_sub
+    const userSql = 'SELECT id FROM users WHERE cognito_sub = :cognitoSub';
+    const userResult = await executeSQL(userSql, [{ name: 'cognitoSub', value: { stringValue: session.sub } }]);
+    
+    if (!userResult || userResult.length === 0) {
+      return new NextResponse('User not found', { status: 404 });
+    }
+    
+    const userId = userResult[0].id;
+
     // Check if the user has already voted
     const existingVoteSql = 'SELECT id FROM idea_votes WHERE idea_id = :ideaId AND user_id = :userId';
     const existingVoteParams = [
       { name: 'ideaId', value: { longValue: ideaId } },
-      { name: 'userId', value: { stringValue: session.sub } }
+      { name: 'userId', value: { stringValue: userId.toString() } }
     ];
     const existingVotes = await executeSQL(existingVoteSql, existingVoteParams);
 

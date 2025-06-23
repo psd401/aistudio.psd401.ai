@@ -336,7 +336,7 @@ export default function IdeasPage() {
                     {idea.priorityLevel}
                   </Badge>
                 </CardTitle>
-                <CardDescription>Created by {idea.createdBy ? `User ${idea.createdBy.substring(0, 8)}...` : 'Unknown'}</CardDescription>
+                <CardDescription>Created by {idea.createdBy || 'Unknown'}</CardDescription>
               </CardHeader>
               <CardContent className="flex-grow">
                 <p>{idea.description}</p>
