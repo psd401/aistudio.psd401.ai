@@ -1,16 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuth } from '@clerk/nextjs/server';
+import { getServerSession } from '@/lib/auth/server-session';
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId } from '@/lib/db/queries/documents';
 
 export async function POST(request: NextRequest) {
   console.log('Document query API called');
   
-  const { userId } = getAuth(request);
-  
-  if (!userId) {
-    console.log('Unauthorized - No userId');
+  // Check authentication
+  const session = await getServerSession();
+  if (!session) {
+    console.log('Unauthorized - No session');
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  
+  const currentUser = await getCurrentUserAction();
+  if (!currentUser.isSuccess) {
+    console.log('Unauthorized - User not found');
+    return NextResponse.json({ error: 'User not found' }, { status: 401 });
+  }
+  
+  const userId = currentUser.data.user.id;
 
   try {
     const body = await request.json();

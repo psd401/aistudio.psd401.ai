@@ -4,6 +4,7 @@ import { withErrorHandling, unauthorized, badRequest } from '@/lib/api-utils';
 import { createError } from '@/lib/error-utils';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
+import logger from '@/lib/logger';
 
 export async function POST(request: NextRequest) {
   const session = await getServerSession();
@@ -17,6 +18,7 @@ export async function POST(request: NextRequest) {
   }
   
   const userId = currentUser.data.user.id;
+  logger.info(`Link API - Current user ID: ${userId}, type: ${typeof userId}`);
 
   return withErrorHandling(async () => {
     const body = await request.json();
@@ -48,11 +50,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    if (document.userId !== userId) {
+    logger.info(`Document user_id: ${document.user_id}, type: ${typeof document.user_id}`);
+    logger.info(`Current userId: ${userId}, type: ${typeof userId}`);
+    logger.info(`Comparison: ${document.user_id} !== ${userId} = ${document.user_id !== userId}`);
+
+    if (document.user_id !== userId) {
       throw createError('Access denied to document', {
         code: 'FORBIDDEN',
         level: 'warn',
-        details: { documentId, userId }
+        details: { documentId, userId, documentUserId: document.user_id }
       });
     }
 

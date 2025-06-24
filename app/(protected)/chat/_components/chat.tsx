@@ -6,11 +6,12 @@ import { ChatInput } from "./chat-input"
 import { ModelSelector } from "./model-selector"
 import { DocumentUpload } from "./document-upload"
 import { DocumentList } from "./document-list"
+import { AiThinkingIndicator } from "./ai-thinking-indicator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/components/ui/use-toast"
 import { Button } from "@/components/ui/button"
 import { IconPlayerStop } from "@tabler/icons-react"
-import { FileTextIcon } from "lucide-react"
+import { FileTextIcon, Loader2 } from "lucide-react"
 import type { SelectAiModel } from "@/types"
 import { RefreshCwIcon } from "lucide-react"
 
@@ -52,9 +53,13 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
   const needsDocumentUploadRef = useRef<boolean>(false)
 
   useEffect(() => {
-    console.log("[Chat] initialMessages prop changed, updating state:", initialMessages);
-    setMessages(initialMessages);
-  }, [initialMessages]);
+    // Only update messages from initialMessages if we're loading a different conversation
+    // or if it's the initial mount (messages.length === 0)
+    if (messages.length === 0 || (initialConversationId !== currentConversationId && initialMessages.length > 0)) {
+      console.log("[Chat] initialMessages prop changed, updating state:", initialMessages);
+      setMessages(initialMessages);
+    }
+  }, [initialMessages, initialConversationId]); // Note: intentionally not including messages or currentConversationId to avoid infinite loops
 
   // Add a new effect to track changes to initialConversationId
   useEffect(() => {
@@ -222,10 +227,16 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
   }
 
   const linkUnlinkedDocuments = async (conversationId: number) => {
-    console.log("[linkUnlinkedDocuments] Linking documents to conversation:", conversationId);
+    console.log("[linkUnlinkedDocuments] Linking documents to conversation:", conversationId, "processingDocumentId:", processingDocumentId);
     
     // Find documents in our state that might not be linked to this conversation
     const documentsToLink = documents.filter(doc => !doc.conversationId || doc.conversationId !== conversationId);
+    
+    // Also check if we have a processingDocumentId that needs to be linked
+    if (processingDocumentId && !documentsToLink.find(doc => doc.id === processingDocumentId)) {
+      console.log("[linkUnlinkedDocuments] Adding processingDocumentId to link list:", processingDocumentId);
+      documentsToLink.push({ id: processingDocumentId, name: "Processing document" } as Document);
+    }
     
     if (documentsToLink.length === 0) {
       console.log("[linkUnlinkedDocuments] No documents to link");
@@ -247,6 +258,11 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
         
         if (!response.ok) {
           console.error(`[linkUnlinkedDocuments] Failed to link document ${doc.id}`);
+          toast({
+            title: "Warning",
+            description: `Failed to link document ${doc.name || doc.id} to conversation`,
+            variant: "destructive"
+          });
           continue;
         }
         
@@ -326,7 +342,10 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
         conversationId: currentConversationId,
         modelId: selectedModel.model_id,
         includeDocumentContext: true,
-        documentId: currentConversationId === undefined && processingDocumentId ? processingDocumentId : undefined
+        documentId: currentConversationId === undefined && processingDocumentId ? processingDocumentId : undefined,
+        processingDocumentId: processingDocumentId,
+        hasConversation: !!currentConversationId,
+        documentsCount: documents.length
       })
       
       const currentId = currentConversationId;
@@ -367,37 +386,21 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
         console.log('[handleSubmit] JSON Response data:', data);
         
         // The API returns a response with data.data.text structure based on the withErrorHandling wrapper
-        if (data && data.data && data.data.text) {
+        if (data.success && data.data?.text) {
           console.log('[handleSubmit] Found text in data.data.text');
           assistantText = data.data.text;
-        } else if (data && data.success === true && data.data) {
-          // Explore the data structure if it matches the standard API response format
-          console.log('[handleSubmit] Exploring data structure in standard response format');
-          
-          if (typeof data.data === 'string') {
-            // If data.data is directly a string
-            assistantText = data.data;
-          } else if (data.data && typeof data.data === 'object') {
-            // Look for text in common properties
-            assistantText = data.data.text || data.data.content || data.data.message || "";
-            
-            // Try to find the first string property that might be the response
-            if (!assistantText) {
-              for (const key in data.data) {
-                if (typeof data.data[key] === 'string' && data.data[key].length > 20) {
-                  console.log(`[handleSubmit] Using string property: ${key}`);
-                  assistantText = data.data[key];
-                  break;
-                }
-              }
-            }
-          }
-        } else {
-          // Fallbacks for non-standard response structures
-          assistantText = data.text || 
-                          data.content || 
-                          (data.message && data.message.content) ||
-                          "";
+        } else if (data.text) {
+          // Direct text property
+          console.log('[handleSubmit] Found text in data.text');
+          assistantText = data.text;
+        } else if (data.content) {
+          // Alternative content property
+          console.log('[handleSubmit] Found text in data.content');
+          assistantText = data.content;
+        } else if (data.message?.content) {
+          // Message content structure
+          console.log('[handleSubmit] Found text in data.message.content');
+          assistantText = data.message.content;
         }
         
         console.log('[handleSubmit] Final extracted assistant text:', assistantText);
@@ -408,25 +411,20 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
           assistantText = "Sorry, there was an issue displaying the response.";
         }
         
-        if (!currentConversationId && data.conversationId) {
-          newConversationId = data.conversationId;
+        // Check for conversationId in the response
+        const responseConversationId = data.data?.conversationId || data.conversationId;
+        
+        if (!currentConversationId && responseConversationId) {
+          newConversationId = responseConversationId;
           // Update state *before* URL change
           setCurrentConversationId(newConversationId); 
-          if(processingDocumentId) setProcessingDocumentId(null); 
           // Update the URL *after* state is likely processed
           window.history.pushState({}, '', `/chat?conversation=${newConversationId}`);
           
           // Link any unlinked documents to the new conversation
-          linkUnlinkedDocuments(newConversationId);
-        } else if (!currentConversationId && data.data && data.data.conversationId) {
-          // Try alternate location for conversationId
-          newConversationId = data.data.conversationId;
-          setCurrentConversationId(newConversationId);
-          if(processingDocumentId) setProcessingDocumentId(null);
-          window.history.pushState({}, '', `/chat?conversation=${newConversationId}`);
-          
-          // Link any unlinked documents to the new conversation
-          linkUnlinkedDocuments(newConversationId);
+          await linkUnlinkedDocuments(newConversationId);
+          // Clear processingDocumentId AFTER linking is complete
+          if(processingDocumentId) setProcessingDocumentId(null); 
         }
       } else {
         // For non-JSON responses
@@ -520,7 +518,7 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
         behavior: "smooth"
       })
     }
-  }, [messages])
+  }, [messages, isLoading])
 
   const handleAttachClick = () => {
     if (!currentConversationId && messages.length === 0) {
@@ -591,6 +589,12 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
                 messageId={`message-${message.id}`}
               />
             ))}
+            {isLoading && (
+              <AiThinkingIndicator 
+                processingDocument={documents.length > 0 || !!processingDocumentId}
+                modelName={selectedModel?.name}
+              />
+            )}
           </div>
         </ScrollArea>
 

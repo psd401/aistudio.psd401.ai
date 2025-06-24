@@ -5,7 +5,7 @@ import { generateCompletion } from "@/lib/ai-helpers"
 import { CoreMessage } from "ai"
 import { withErrorHandling, unauthorized, badRequest } from "@/lib/api-utils"
 import { createError } from "@/lib/error-utils"
-import { getDocumentsByConversationId, getDocumentChunksByDocumentId } from "@/lib/db/queries/documents"
+import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents"
 import logger from "@/lib/logger"
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 import { getServerSession } from "@/lib/auth/server-session"
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
 
   return withErrorHandling(async () => {
     // Destructure conversationId from body
-    const { messages, modelId: textModelId, source, executionId, context, conversationId: existingConversationId } = await req.json()
+    const { messages, modelId: textModelId, source, executionId, context, conversationId: existingConversationId, documentId } = await req.json()
 
     if (!textModelId) {
       throw createError('Model ID is required', {
@@ -146,9 +146,27 @@ export async function POST(req: NextRequest) {
     // --- Fetch documents and relevant content for AI context ---
     let documentContext = "";
     try {
-      const documents = await getDocumentsByConversationId({ conversationId: conversationId });
+      let documents = [];
+      
+      // If we have a conversationId, get documents linked to it
+      if (conversationId) {
+        documents = await getDocumentsByConversationId({ conversationId: conversationId });
+      }
+      
+      // If a documentId was provided, also fetch that specific document
+      // This ensures we include it even if linking hasn't completed yet
+      if (documentId) {
+        const singleDoc = await getDocumentById({ id: documentId });
+        if (singleDoc && !documents.find(d => d.id === documentId)) {
+          documents.push(singleDoc);
+          logger.info(`Added document ${documentId} to context (total documents: ${documents.length})`);
+        }
+      }
+      
+      logger.info(`Processing chat with conversationId: ${conversationId}, documentId: ${documentId}, found ${documents.length} documents`);
       
       if (documents.length > 0) {
+        logger.info(`Found ${documents.length} documents for conversation ${conversationId}`);
         // Get the user's latest message for context search
         const latestUserMessage = userMessage.content;
         
@@ -157,29 +175,53 @@ export async function POST(req: NextRequest) {
           getDocumentChunksByDocumentId({ documentId: doc.id })
         );
         const documentChunksArrays = await Promise.all(documentChunksPromises);
-        const allDocumentChunks = documentChunksArrays.flat();
+        let allDocumentChunks = documentChunksArrays.flat();
+        
+        // If no chunks found and we just uploaded a document, wait a bit and retry
+        if (allDocumentChunks.length === 0 && documentId) {
+          logger.info("No chunks found immediately, waiting 500ms for chunks to be saved...");
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          const retryChunksPromises = documents.map(doc => 
+            getDocumentChunksByDocumentId({ documentId: doc.id })
+          );
+          const retryChunksArrays = await Promise.all(retryChunksPromises);
+          allDocumentChunks = retryChunksArrays.flat();
+        }
+        
+        logger.info(`Found ${allDocumentChunks.length} total chunks`);
 
         // Simple keyword matching to find relevant chunks
         // In production, you'd use embedding-based semantic search
-        const relevantChunks = allDocumentChunks
-          .filter(chunk => {
-            const content = chunk.content.toLowerCase();
-            const message = latestUserMessage.toLowerCase();
-            // Look for common words (3+ characters) from the user message in the chunks
-            const keywords = message.split(/\s+/).filter(word => word.length > 2);
-            return keywords.some(keyword => content.includes(keyword));
-          })
-          .sort((a, b) => {
-            // Simple scoring by keyword frequency
-            const aScore = allDocumentChunks.filter(chunk => 
-              chunk.content.toLowerCase().includes(latestUserMessage.toLowerCase())
-            ).length;
-            const bScore = allDocumentChunks.filter(chunk => 
-              chunk.content.toLowerCase().includes(latestUserMessage.toLowerCase())
-            ).length;
-            return bScore - aScore;
-          })
-          .slice(0, 3); // Top 3 most relevant chunks
+        
+        // Check if user is asking about "this" or the document in general
+        const generalDocumentQueries = ['this', 'document', 'file', 'pdf', 'uploaded', 'attachment'];
+        const isGeneralDocumentQuery = generalDocumentQueries.some(term => 
+          latestUserMessage.toLowerCase().includes(term)
+        );
+        
+        let relevantChunks = [];
+        
+        if (isGeneralDocumentQuery || latestUserMessage.toLowerCase().includes('summar')) {
+          // If asking about the document in general, include all chunks
+          relevantChunks = allDocumentChunks.slice(0, 5); // Limit to first 5 chunks
+        } else {
+          // Otherwise, do keyword matching
+          relevantChunks = allDocumentChunks
+            .filter(chunk => {
+              const content = chunk.content.toLowerCase();
+              const message = latestUserMessage.toLowerCase();
+              // Look for common words (3+ characters) from the user message in the chunks
+              const keywords = message.split(/\s+/).filter(word => word.length > 2);
+              return keywords.some(keyword => content.includes(keyword));
+            })
+            .slice(0, 3); // Top 3 most relevant chunks
+        }
+
+        // If no chunks matched but we have documents, include at least the first chunk
+        if (relevantChunks.length === 0 && allDocumentChunks.length > 0) {
+          relevantChunks = allDocumentChunks.slice(0, 3);
+        }
 
         if (relevantChunks.length > 0) {
           const documentNames = documents.map(doc => doc.name).join(", ");
@@ -188,13 +230,20 @@ export async function POST(req: NextRequest) {
               `[Document Excerpt ${index + 1}]:\n${chunk.content}`
             ).join('\n\n')
           }\n\nPlease use this document content to answer the user's questions when relevant.`;
+          logger.info(`Including ${relevantChunks.length} relevant chunks in AI context`);
+        } else if (allDocumentChunks.length === 0 && documents.length > 0) {
+          // Document exists but no chunks were found
+          documentContext = `\n\nNote: A document was uploaded but its content could not be extracted or is still being processed. The document name is: ${documents.map(d => d.name).join(", ")}`;
+          logger.warn(`Document exists but no chunks found for documents: ${documents.map(d => d.id).join(", ")}`);
+        } else {
+          logger.info(`No relevant chunks found for message: "${latestUserMessage}"`);
         }
       }
     } catch (docError) {
       logger.error("Error fetching document context", { 
         error: docError instanceof Error ? docError.message : String(docError),
         conversationId: conversationId,
-        userId 
+        documentId
       });
       // Continue without document context if there's an error
     }

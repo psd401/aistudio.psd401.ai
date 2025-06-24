@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase/client';
+import { getDocumentSignedUrl, deleteDocument } from '@/lib/aws/s3-client';
 import { 
   getDocumentsByConversationId, 
   getDocumentById, 
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
       }
       
       // Check if the document belongs to the authenticated user
-      if (document.userId !== userId) {
+      if (document.user_id !== userId) {
         return NextResponse.json({ 
           success: false, 
           error: 'Unauthorized access to document' 
@@ -48,12 +48,14 @@ export async function GET(request: NextRequest) {
       }
 
       // Get a fresh signed URL for the document
-      const filePath = document.url.split('documents/')[1]; // Extract path from URL
-      const { data: urlData } = await supabaseAdmin.storage
-        .from('documents')
-        .createSignedUrl(filePath, 60); // URL valid for 60 seconds
-
-      if (!urlData?.signedUrl) {
+      // document.url now contains the S3 key
+      let signedUrl;
+      try {
+        signedUrl = await getDocumentSignedUrl({
+          key: document.url,
+          expiresIn: 3600 // 1 hour
+        });
+      } catch (error) {
         return NextResponse.json({
           success: false,
           error: 'Failed to generate document access URL'
@@ -65,7 +67,7 @@ export async function GET(request: NextRequest) {
         success: true,
         document: {
           ...document,
-          url: urlData.signedUrl
+          url: signedUrl
         }
       });
     }
@@ -88,15 +90,19 @@ export async function GET(request: NextRequest) {
       // Get fresh signed URLs for all documents
       const documentsWithSignedUrls = await Promise.all(
         documents.map(async (doc) => {
-          const filePath = doc.url.split('documents/')[1];
-          const { data: urlData } = await supabaseAdmin.storage
-            .from('documents')
-            .createSignedUrl(filePath, 60);
-          
-          return {
-            ...doc,
-            url: urlData?.signedUrl || doc.url
-          };
+          try {
+            const signedUrl = await getDocumentSignedUrl({
+              key: doc.url,
+              expiresIn: 3600 // 1 hour
+            });
+            return {
+              ...doc,
+              url: signedUrl
+            };
+          } catch (error) {
+            // If we can't generate a signed URL, return the document without it
+            return doc;
+          }
         })
       );
       
@@ -160,22 +166,20 @@ export async function DELETE(request: NextRequest) {
     }
     
     // Check if the document belongs to the authenticated user
-    if (document.userId !== userId) {
+    if (document.user_id !== userId) {
       return NextResponse.json({ 
         success: false, 
         error: 'Unauthorized access to document' 
       }, { status: 403 });
     }
 
-    // Delete the file from Supabase storage
-    const filePath = document.url.split('documents/')[1]; // Extract path from URL
-    if (filePath) {
-      const { error: storageError } = await supabaseAdmin.storage
-        .from('documents')
-        .remove([filePath]);
-
-      if (storageError) {
+    // Delete the file from S3
+    if (document.url) {
+      try {
+        await deleteDocument(document.url);
+      } catch (storageError) {
         // Continue with database deletion even if storage deletion fails
+        console.error('Failed to delete from S3:', storageError);
       }
     }
     
