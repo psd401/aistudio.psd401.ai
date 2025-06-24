@@ -1,8 +1,7 @@
 "use server"
 
-import { InsertJob, SelectJob, jobsTable } from "@/db/schema"
+import { InsertJob, SelectJob } from "@/types/db-types"
 import { ActionState } from "@/types"
-import { eq } from "drizzle-orm"
 import logger from "@/lib/logger"
 import { executeSQL } from "@/lib/db/data-api-adapter"
 import { v4 as uuidv4 } from "uuid";

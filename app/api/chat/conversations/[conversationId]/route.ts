@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase/client';
 import { getDocumentsByConversationId } from '@/lib/db/queries/documents';
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 import { executeSQL } from "@/lib/db/data-api-adapter"

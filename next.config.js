@@ -11,12 +11,7 @@ const nextConfig = {
   },
   output: 'standalone',
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'img.clerk.com',
-      },
-    ],
+    remotePatterns: [],
   },
   devIndicators: false,
   experimental: {

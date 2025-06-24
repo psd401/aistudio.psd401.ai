@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action";
-import { SelectRole, SelectUser } from "@/db/schema";
+import { SelectRole, SelectUser } from "@/types/db-types";
 
 interface UserContextValue {
   user: SelectUser | null;

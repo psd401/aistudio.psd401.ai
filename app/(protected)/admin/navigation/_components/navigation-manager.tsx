@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton"
 import { Plus, Navigation, AlertCircle } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { SelectNavigationItem } from "@/db/schema"
+import { SelectNavigationItem } from "@/types/db-types"
 
 interface OrganizedItem extends SelectNavigationItem {
   children: OrganizedItem[]

@@ -2,7 +2,7 @@
 
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { SelectNavigationItem } from "@/db/schema"
+import { SelectNavigationItem } from "@/types/db-types"
 import { Button } from "@/components/ui/button"
 import { 
   GripVertical, 

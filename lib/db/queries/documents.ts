@@ -1,4 +1,4 @@
-import { InsertDocument, SelectDocument, InsertDocumentChunk, SelectDocumentChunk } from "@/db/schema";
+import { InsertDocument, SelectDocument, InsertDocumentChunk, SelectDocumentChunk } from "@/types/db-types";
 import logger from "@/lib/logger"
 import { executeSQL } from "@/lib/db/data-api-adapter"
 

@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL } from '@/lib/db/data-api-adapter';
-import { ideasTable, ideaVotesTable, ideaNotesTable } from '@/db/schema';
-import { desc, eq, and, sql } from 'drizzle-orm';
 import { hasRole } from '@/utils/roles';
 
 export async function GET() {

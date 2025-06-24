@@ -1,11 +1,17 @@
 import '@testing-library/jest-dom';
 
-// Mock Clerk
-jest.mock('@clerk/nextjs', () => ({
-  auth: () => Promise.resolve({ userId: 'test-user' }),
-  currentUser: () => Promise.resolve({ id: 'test-user', firstName: 'Test', lastName: 'User' }),
-  useUser: () => ({ isSignedIn: true, user: { id: 'test-user', firstName: 'Test', lastName: 'User' } }),
-  UserButton: () => null
+// Mock AWS Cognito authentication
+jest.mock('@/lib/auth/server-session', () => ({
+  getServerSession: () => Promise.resolve({ 
+    sub: 'test-cognito-sub',
+    email: 'test@example.com'
+  })
+}));
+
+jest.mock('aws-amplify', () => ({
+  Amplify: {
+    configure: jest.fn()
+  }
 }));
 
 // Mock ResizeObserver

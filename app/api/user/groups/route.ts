@@ -1,18 +1,19 @@
 import { NextResponse } from "next/server"
-import { getAuth, clerkClient } from "@clerk/nextjs/server"
+import { getServerSession } from "@/lib/auth/server-session"
+import { getUserRolesByCognitoSub } from "@/lib/db/data-api-adapter"
 
 export async function GET(request: Request) {
   try {
-    const { userId } = getAuth(request)
-    if (!userId) {
+    const session = await getServerSession()
+    if (!session) {
       return NextResponse.json(
         { isSuccess: false, message: "Unauthorized" },
         { status: 401 }
       )
     }
 
-    const user = await clerkClient.users.getUser(userId)
-    const groups = user.privateMetadata.groups as string[] || []
+    // Get user roles (formerly called groups in Clerk)
+    const groups = await getUserRolesByCognitoSub(session.sub)
 
     return NextResponse.json({ isSuccess: true, groups })
   } catch (error) {

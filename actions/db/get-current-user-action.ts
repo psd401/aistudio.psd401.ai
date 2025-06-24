@@ -10,12 +10,11 @@ import {
 } from "@/lib/db/data-api-adapter"
 import { getServerSession } from "@/lib/auth/server-session"
 import { ActionState } from "@/types"
-import { SelectUser } from "@/db/schema"
-import { rolesTable } from "@/db/schema/roles-schema"
+import { SelectUser } from "@/types/db-types"
 
 interface CurrentUserWithRoles {
   user: SelectUser
-  roles: (typeof rolesTable.$inferSelect)[]
+  roles: { id: string; name: string; description?: string }[]
 }
 
 export async function getCurrentUserAction(): Promise<

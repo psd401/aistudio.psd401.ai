@@ -4,7 +4,7 @@ import {
   SelectChainPrompt,
   SelectToolExecution,
   SelectPromptResult
-} from "@/db/schema"
+} from "@/types/db-types"
 
 // Input field option type
 export interface InputFieldOption {

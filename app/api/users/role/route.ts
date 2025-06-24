@@ -1,20 +1,18 @@
-import { auth } from '@clerk/nextjs/server';
-import { db } from '@/db/db';
-import { usersTable } from '@/db/schema';
+import { getServerSession } from '@/lib/auth/server-session';
+import { executeSQL, updateUserRole } from '@/lib/db/data-api-adapter';
 import type { Role } from '@/types';
-import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { hasRole } from '@/utils/roles';
 
 export async function POST(request: Request) {
-  const { userId } = auth();
+  const session = await getServerSession();
   
-  if (!userId) {
+  if (!session) {
     return new NextResponse('Unauthorized', { status: 401 });
   }
 
   // Check if current user is administrator
-  const isAdmin = await hasRole(userId, 'administrator');
+  const isAdmin = await hasRole('administrator');
   if (!isAdmin) {
     return new NextResponse('Forbidden', { status: 403 });
   }
@@ -26,13 +24,19 @@ export async function POST(request: Request) {
       return new NextResponse('Invalid request', { status: 400 });
     }
 
-    const [updatedUser] = await db
-      .update(usersTable)
-      .set({ role: role as Role })
-      .where(eq(usersTable.clerkId, targetUserId))
-      .returning();
-
-    return NextResponse.json(updatedUser);
+    // Update user role using RDS Data API
+    await updateUserRole(targetUserId, role);
+    
+    // Get updated user info
+    const sql = 'SELECT id, cognito_sub, email, first_name, last_name FROM users WHERE id = :userId';
+    const params = [{ name: 'userId', value: { stringValue: targetUserId } }];
+    const result = await executeSQL(sql, params);
+    
+    if (!result || result.length === 0) {
+      return new NextResponse('User not found', { status: 404 });
+    }
+    
+    return NextResponse.json(result[0]);
   } catch (error) {
     console.error('Error updating user role:', error);
     return new NextResponse('Internal Server Error', { status: 500 });

@@ -1,13 +1,6 @@
 "use server"
 
-import { db } from "@/db/db"
 import {
-  assistantArchitectsTable,
-  toolInputFieldsTable,
-  chainPromptsTable,
-  toolExecutionsTable,
-  promptResultsTable,
-  fieldTypeEnum,
   type InsertAssistantArchitect,
   type SelectAssistantArchitect,
   type InsertToolInputField,
@@ -18,16 +11,9 @@ import {
   type SelectChainPrompt,
   type SelectToolExecution,
   type SelectPromptResult,
-  aiModelsTable,
-  toolsTable,
   type SelectTool,
-  rolesTable,
-  roleToolsTable,
-  type SelectAiModel,
-  jobStatusEnum,
-  navigationItemsTable
-} from "@/db/schema"
-import { desc, eq, and, asc, inArray } from "drizzle-orm";
+  type SelectAiModel
+} from "@/types/db-types"
 import { v4 as uuidv4 } from "uuid";
 import { CoreMessage } from "ai"
 
@@ -838,36 +824,45 @@ export async function updatePromptPositionAction(
     }
 
     // Find the prompt
-    const [prompt] = await db
-      .select()
-      .from(chainPromptsTable)
-      .where(eq(chainPromptsTable.id, id))
+    const promptResult = await executeSQL(
+      `SELECT * FROM chain_prompts WHERE id = :id`,
+      [{ name: 'id', value: { stringValue: id } }]
+    )
 
-    if (!prompt) {
+    if (!promptResult.records || promptResult.records.length === 0) {
       return { isSuccess: false, message: "Prompt not found" }
     }
 
-    // Get the tool to check permissions
-    const [tool] = await db
-      .select()
-      .from(assistantArchitectsTable)
-      .where(eq(assistantArchitectsTable.id, prompt.toolId))
+    const prompt = promptResult.records[0]
+    const toolId = prompt[1]?.stringValue // toolId is at index 1
 
-    if (!tool) {
+    // Get the tool to check permissions
+    const toolResult = await executeSQL(
+      `SELECT * FROM assistant_architects WHERE id = :id`,
+      [{ name: 'id', value: { stringValue: toolId } }]
+    )
+
+    if (!toolResult.records || toolResult.records.length === 0) {
       return { isSuccess: false, message: "Tool not found" }
     }
 
+    const tool = toolResult.records[0]
+    const toolUserId = tool[5]?.stringValue // userId is at index 5
+
     // Only tool creator or admin can update prompt positions
-    const isAdmin = await hasRole(userId, "administrator")
-    if (!isAdmin && tool.userId !== userId) {
+    const isAdmin = await hasRole("administrator")
+    if (!isAdmin && toolUserId !== userId) {
       return { isSuccess: false, message: "Forbidden" }
     }
 
     // Update the prompt's position
-    await db
-      .update(chainPromptsTable)
-      .set({ position })
-      .where(eq(chainPromptsTable.id, id))
+    await executeSQL(
+      `UPDATE chain_prompts SET position = :position WHERE id = :id`,
+      [
+        { name: 'position', value: { longValue: position } },
+        { name: 'id', value: { stringValue: id } }
+      ]
+    )
 
     return {
       isSuccess: true,
@@ -892,16 +887,25 @@ export async function createToolExecutionAction(
     }
 
     execution.userId = userId
+    const executionId = crypto.randomUUID()
 
-    const [newExecution] = await db
-      .insert(toolExecutionsTable)
-      .values(execution)
-      .returning()
+    await executeSQL(
+      `INSERT INTO tool_executions (id, tool_id, user_id, inputs, outputs, created_at) 
+       VALUES (:id, :toolId, :userId, :inputs, :outputs, :createdAt)`,
+      [
+        { name: 'id', value: { stringValue: executionId } },
+        { name: 'toolId', value: { stringValue: execution.toolId } },
+        { name: 'userId', value: { stringValue: execution.userId } },
+        { name: 'inputs', value: { stringValue: JSON.stringify(execution.inputs || {}) } },
+        { name: 'outputs', value: { stringValue: JSON.stringify(execution.outputs || {}) } },
+        { name: 'createdAt', value: { stringValue: new Date().toISOString() } }
+      ]
+    )
 
     return {
       isSuccess: true,
       message: "Tool execution created successfully",
-      data: newExecution.id
+      data: executionId
     }
   } catch (error) {
     logger.error("Error creating tool execution:", error)
@@ -920,15 +924,40 @@ export async function updatePromptResultAction(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await db
-      .update(promptResultsTable)
-      .set(result)
-      .where(
-        and(
-          eq(promptResultsTable.executionId, executionId),
-          eq(promptResultsTable.promptId, promptId)
-        )
-      )
+    const updates: { name: string; value: any }[] = []
+    const setClauses: string[] = []
+
+    if (result.result !== undefined) {
+      setClauses.push('result = :result')
+      updates.push({ name: 'result', value: { stringValue: result.result } })
+    }
+    if (result.error !== undefined) {
+      setClauses.push('error = :error')
+      updates.push({ name: 'error', value: { stringValue: result.error } })
+    }
+    if (result.executionTime !== undefined) {
+      setClauses.push('execution_time = :executionTime')
+      updates.push({ name: 'executionTime', value: { longValue: result.executionTime } })
+    }
+    if (result.tokensUsed !== undefined) {
+      setClauses.push('tokens_used = :tokensUsed')
+      updates.push({ name: 'tokensUsed', value: { longValue: result.tokensUsed } })
+    }
+
+    if (setClauses.length === 0) {
+      return { isSuccess: true, message: "No updates to apply", data: undefined }
+    }
+
+    updates.push(
+      { name: 'executionId', value: { stringValue: executionId } },
+      { name: 'promptId', value: { stringValue: promptId } }
+    )
+
+    await executeSQL(
+      `UPDATE prompt_results SET ${setClauses.join(', ')} 
+       WHERE execution_id = :executionId AND prompt_id = :promptId`,
+      updates
+    )
 
     return {
       isSuccess: true,
@@ -1644,26 +1673,33 @@ export async function setPromptPositionsAction(
     if (!userId) return { isSuccess: false, message: "Unauthorized" }
 
     // Verify permissions
-    const [tool] = await db
-      .select()
-      .from(assistantArchitectsTable)
-      .where(eq(assistantArchitectsTable.id, toolId))
+    const toolResult = await executeSQL(
+      `SELECT * FROM assistant_architects WHERE id = :id`,
+      [{ name: 'id', value: { stringValue: toolId } }]
+    )
 
-    if (!tool) return { isSuccess: false, message: "Tool not found" }
+    if (!toolResult.records || toolResult.records.length === 0) {
+      return { isSuccess: false, message: "Tool not found" }
+    }
 
-    const isAdmin = await hasRole(userId, "administrator")
-    if (!isAdmin && tool.userId !== userId) {
+    const tool = toolResult.records[0]
+    const toolUserId = tool[5]?.stringValue // userId is at index 5
+
+    const isAdmin = await hasRole("administrator")
+    if (!isAdmin && toolUserId !== userId) {
       return { isSuccess: false, message: "Forbidden" }
     }
 
-    await db.transaction(async (tx) => {
-      for (const { id, position } of positions) {
-        await tx
-          .update(chainPromptsTable)
-          .set({ position })
-          .where(eq(chainPromptsTable.id, id))
-      }
-    });
+    // Update positions for each prompt
+    for (const { id, position } of positions) {
+      await executeSQL(
+        `UPDATE chain_prompts SET position = :position WHERE id = :id`,
+        [
+          { name: 'position', value: { longValue: position } },
+          { name: 'id', value: { stringValue: id } }
+        ]
+      )
+    }
 
     return { isSuccess: true, message: "Prompt positions updated", data: undefined }
   } catch (error) {
@@ -1682,34 +1718,83 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
     }
 
     // Check if user is an administrator
-    const isAdmin = await hasRole(userId, "administrator")
+    const isAdmin = await hasRole("administrator")
     if (!isAdmin) {
       return { isSuccess: false, message: "Only administrators can view approved tools" }
     }
 
     // Get all approved tools
-    const approvedTools = await db
-      .select()
-      .from(assistantArchitectsTable)
-      .where(eq(assistantArchitectsTable.status, "approved"));
+    const toolsResult = await executeSQL(
+      `SELECT * FROM assistant_architects WHERE status = :status`,
+      [{ name: 'status', value: { stringValue: 'approved' } }]
+    )
+
+    if (!toolsResult.records || toolsResult.records.length === 0) {
+      return {
+        isSuccess: true,
+        message: "No approved tools found",
+        data: []
+      }
+    }
 
     // Get related data for each tool
     const toolsWithRelations = await Promise.all(
-      approvedTools.map(async (tool) => {
+      toolsResult.records.map(async (toolRecord) => {
+        const toolId = toolRecord[0]?.stringValue || ''
+        
         // Run input fields and prompts queries in parallel
-        const [inputFields, prompts] = await Promise.all([
-          db
-            .select()
-            .from(toolInputFieldsTable)
-            .where(eq(toolInputFieldsTable.toolId, tool.id))
-            .orderBy(asc(toolInputFieldsTable.position)),
-            
-          db
-            .select()
-            .from(chainPromptsTable)
-            .where(eq(chainPromptsTable.toolId, tool.id))
-            .orderBy(asc(chainPromptsTable.position))
+        const [inputFieldsResult, promptsResult] = await Promise.all([
+          executeSQL(
+            `SELECT * FROM tool_input_fields WHERE tool_id = :toolId ORDER BY position ASC`,
+            [{ name: 'toolId', value: { stringValue: toolId } }]
+          ),
+          executeSQL(
+            `SELECT * FROM chain_prompts WHERE tool_id = :toolId ORDER BY position ASC`,
+            [{ name: 'toolId', value: { stringValue: toolId } }]
+          )
         ]);
+
+        // Map the tool record
+        const tool: SelectAssistantArchitect = {
+          id: toolRecord[0]?.stringValue || '',
+          name: toolRecord[1]?.stringValue || '',
+          description: toolRecord[2]?.stringValue || null,
+          status: toolRecord[3]?.stringValue || 'draft',
+          imagePath: toolRecord[4]?.stringValue || null,
+          userId: toolRecord[5]?.stringValue || '',
+          createdAt: new Date(toolRecord[6]?.stringValue || ''),
+          updatedAt: new Date(toolRecord[7]?.stringValue || '')
+        }
+
+        // Map input fields
+        const inputFields = inputFieldsResult.records?.map(record => ({
+          id: record[0]?.stringValue || '',
+          toolId: record[1]?.stringValue || '',
+          name: record[2]?.stringValue || '',
+          label: record[3]?.stringValue || '',
+          type: record[4]?.stringValue || 'text',
+          placeholder: record[5]?.stringValue || null,
+          description: record[6]?.stringValue || null,
+          required: record[7]?.booleanValue || false,
+          defaultValue: record[8]?.stringValue || null,
+          position: Number(record[9]?.longValue || 0),
+          createdAt: new Date(record[10]?.stringValue || ''),
+          updatedAt: new Date(record[11]?.stringValue || '')
+        })) || []
+
+        // Map prompts
+        const prompts = promptsResult.records?.map(record => ({
+          id: record[0]?.stringValue || '',
+          toolId: record[1]?.stringValue || '',
+          name: record[2]?.stringValue || '',
+          content: record[3]?.stringValue || '',
+          systemContext: record[4]?.stringValue || null,
+          userContext: record[5]?.stringValue || null,
+          position: Number(record[6]?.longValue || 0),
+          selectedModelId: record[7]?.stringValue || null,
+          createdAt: new Date(record[8]?.stringValue || ''),
+          updatedAt: new Date(record[9]?.stringValue || '')
+        })) || []
 
         return {
           ...tool,
@@ -1732,22 +1817,35 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
 
 export async function getAllAssistantArchitectsForAdminAction(): Promise<ActionState<ArchitectWithRelations[]>> {
   try {
-    const { userId } = await getServerSession();
-    if (!userId) {
+    const session = await getServerSession();
+    if (!session) {
       return { isSuccess: false, message: "Unauthorized" }
     }
-    const isAdmin = await hasRole(userId, "administrator")
+    const isAdmin = await hasRole("administrator")
     if (!isAdmin) {
       return { isSuccess: false, message: "Only administrators can view all assistants" }
     }
     // Get all assistants
-    const allAssistants = await db.select().from(assistantArchitectsTable)
+    const allAssistants = await executeSQL(`
+      SELECT id, name, description, status, image_path, user_id, created_at, updated_at
+      FROM assistant_architects
+      ORDER BY created_at DESC
+    `);
+    
     // Get related data for each assistant
     const assistantsWithRelations = await Promise.all(
       allAssistants.map(async (tool) => {
         const [inputFields, prompts] = await Promise.all([
-          db.select().from(toolInputFieldsTable).where(eq(toolInputFieldsTable.toolId, tool.id)).orderBy(asc(toolInputFieldsTable.position)),
-          db.select().from(chainPromptsTable).where(eq(chainPromptsTable.toolId, tool.id)).orderBy(asc(chainPromptsTable.position))
+          executeSQL(`
+            SELECT * FROM tool_input_fields 
+            WHERE tool_id = :toolId 
+            ORDER BY position ASC
+          `, [{ name: 'toolId', value: { stringValue: tool.id } }]),
+          executeSQL(`
+            SELECT * FROM chain_prompts 
+            WHERE tool_id = :toolId 
+            ORDER BY position ASC
+          `, [{ name: 'toolId', value: { stringValue: tool.id } }])
         ])
         return { ...tool, inputFields, prompts }
       })
