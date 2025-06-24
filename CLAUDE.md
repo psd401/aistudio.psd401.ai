@@ -38,12 +38,23 @@ npm run db:studio         # Open Drizzle Studio UI
 - Use strict TypeScript typing with interfaces preferred
 - Server components in app directory, client components with 'use client'
 - Import order: React/Next.js, third-party, internal, styles
-- Database operations use Drizzle ORM with standardized schema naming
+- Database operations use AWS RDS Data API for new features
 - Tests use Jest with React Testing Library (.test.ts/.test.tsx)
 
+### Authentication
+- Use AWS Cognito for authentication instead of Clerk
+- Import `getServerSession()` from `/lib/auth/server-session.ts` for auth checks
+- Use `hasToolAccess()` from `/lib/db/data-api-adapter.ts` for role-based access
+- Protected routes should check authentication and tool access
+
 ### Database Access
-- Always import database from `/db/db.ts`
-- Use schema definitions from `/db/schema/index.ts`
+- **For new features and migrated code**: Use AWS RDS Data API
+  - Import `executeSQL()` from `/lib/db/data-api-adapter.ts`
+  - Use parameterized SQL queries with proper type mapping
+  - Parameter types: `stringValue`, `longValue`, `booleanValue`, `isNull`
+- **For legacy code**: Still uses Drizzle ORM
+  - Import database from `/db/db.ts`
+  - Use schema definitions from `/db/schema/index.ts`
 - Follow naming convention: tables have `Table` suffix in schema
 - Types use `InsertX` and `SelectX` naming convention
 
