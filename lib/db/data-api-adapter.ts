@@ -1,5 +1,6 @@
-import { RDSDataClient, ExecuteStatementCommand, BatchExecuteStatementCommand } from "@aws-sdk/client-rds-data";
+import { RDSDataClient, ExecuteStatementCommand } from "@aws-sdk/client-rds-data";
 import { config } from 'dotenv';
+import logger from '@/lib/logger';
 
 // Load environment variables
 config({ path: '.env.local' });
@@ -74,7 +75,7 @@ export async function executeSQL(sql: string, parameters: any[] = []) {
       const response = await client.send(command);
       return formatDataApiResponse(response);
     } catch (error: any) {
-      console.error(`Data API Error (attempt ${attempt}/${maxRetries}):`, error);
+      logger.error(`Data API Error (attempt ${attempt}/${maxRetries}):`, error);
       lastError = error;
       
       // Check if it's a retryable error
@@ -88,7 +89,7 @@ export async function executeSQL(sql: string, parameters: any[] = []) {
         // Wait before retry with exponential backoff
         if (attempt < maxRetries) {
           const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-          console.log(`Retrying in ${delay}ms...`);
+          logger.info(`Retrying in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
@@ -211,6 +212,11 @@ export async function createNavigationItem(data: {
   ];
   
   const result = await executeSQL(sql, parameters);
+  
+  if (!result || result.length === 0) {
+    throw new Error('Failed to create navigation item');
+  }
+  
   return formatNavigationItem(result[0]);
 }
 
@@ -266,6 +272,11 @@ export async function updateNavigationItem(id: string, data: Partial<{
   `;
   
   const result = await executeSQL(sql, parameters);
+  
+  if (!result || result.length === 0) {
+    throw new Error(`Navigation item with id ${id} not found or update failed`);
+  }
+  
   return formatNavigationItem(result[0]);
 }
 
@@ -283,6 +294,10 @@ export async function deleteNavigationItem(id: string) {
 }
 
 function formatNavigationItem(item: any) {
+  if (!item) {
+    throw new Error('Navigation item not found');
+  }
+  
   return {
     id: item.id,
     label: item.label,

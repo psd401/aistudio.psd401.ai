@@ -11,16 +11,48 @@ import {
 } from "@aws-sdk/client-s3"
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import { createError } from "@/lib/error-utils"
+import { Settings } from "@/lib/settings-manager"
 
-const region = process.env.AWS_REGION || "us-east-1"
-const bucketName = process.env.S3_BUCKET || "aistudio-documents"
+// Cache S3 config to avoid repeated async calls
+let s3ConfigCache: { bucket: string | null; region: string | null } | null = null
+let s3ClientCache: S3Client | null = null
 
-// Initialize S3 client
-const s3Client = new S3Client({
-  region,
-  // In production, this will use IAM role credentials automatically
-  // In development, it will use credentials from ~/.aws/credentials or environment variables
-})
+// Get S3 configuration with caching
+async function getS3Config() {
+  if (s3ConfigCache) {
+    return s3ConfigCache
+  }
+  
+  const config = await Settings.getS3()
+  s3ConfigCache = {
+    bucket: config.bucket || "aistudio-documents",
+    region: config.region || "us-east-1"
+  }
+  
+  return s3ConfigCache
+}
+
+// Get or create S3 client
+async function getS3Client() {
+  if (s3ClientCache) {
+    return s3ClientCache
+  }
+  
+  const config = await getS3Config()
+  s3ClientCache = new S3Client({
+    region: config.region!,
+    // In production, this will use IAM role credentials automatically
+    // In development, it will use credentials from ~/.aws/credentials or environment variables
+  })
+  
+  return s3ClientCache
+}
+
+// Clear cached S3 configuration and client (call this when settings change)
+export function clearS3Cache() {
+  s3ConfigCache = null
+  s3ClientCache = null
+}
 
 export interface UploadDocumentParams {
   userId: string
@@ -37,6 +69,10 @@ export interface DocumentUrlParams {
 
 // Ensure the documents bucket exists
 export async function ensureDocumentsBucket(): Promise<void> {
+  const s3Client = await getS3Client()
+  const config = await getS3Config()
+  const bucketName = config.bucket!
+  
   try {
     // Check if bucket exists
     await s3Client.send(new HeadBucketCommand({ Bucket: bucketName }))
@@ -47,8 +83,8 @@ export async function ensureDocumentsBucket(): Promise<void> {
         await s3Client.send(
           new CreateBucketCommand({
             Bucket: bucketName,
-            ...(region !== "us-east-1" && {
-              CreateBucketConfiguration: { LocationConstraint: region },
+            ...(config.region !== "us-east-1" && {
+              CreateBucketConfiguration: { LocationConstraint: config.region },
             }),
           })
         )
@@ -96,6 +132,10 @@ export async function uploadDocument({
   metadata = {},
 }: UploadDocumentParams): Promise<{ key: string; url: string }> {
   await ensureDocumentsBucket()
+  
+  const s3Client = await getS3Client()
+  const config = await getS3Config()
+  const bucketName = config.bucket!
 
   const timestamp = Date.now()
   const key = `${userId}/${timestamp}-${fileName}`
@@ -135,6 +175,10 @@ export async function getDocumentSignedUrl({
   key,
   expiresIn = 3600,
 }: DocumentUrlParams): Promise<string> {
+  const s3Client = await getS3Client()
+  const config = await getS3Config()
+  const bucketName = config.bucket!
+  
   try {
     const command = new GetObjectCommand({
       Bucket: bucketName,
@@ -153,6 +197,10 @@ export async function getDocumentSignedUrl({
 
 // Delete a document from S3
 export async function deleteDocument(key: string): Promise<void> {
+  const s3Client = await getS3Client()
+  const config = await getS3Config()
+  const bucketName = config.bucket!
+  
   try {
     const command = new DeleteObjectCommand({
       Bucket: bucketName,
@@ -170,6 +218,10 @@ export async function deleteDocument(key: string): Promise<void> {
 
 // Check if a document exists
 export async function documentExists(key: string): Promise<boolean> {
+  const s3Client = await getS3Client()
+  const config = await getS3Config()
+  const bucketName = config.bucket!
+  
   try {
     await s3Client.send(
       new HeadObjectCommand({
@@ -194,6 +246,10 @@ export async function listUserDocuments(
   userId: string,
   maxKeys: number = 1000
 ): Promise<Array<{ key: string; size: number; lastModified: Date }>> {
+  const s3Client = await getS3Client()
+  const config = await getS3Config()
+  const bucketName = config.bucket!
+  
   try {
     const command = new ListObjectsV2Command({
       Bucket: bucketName,

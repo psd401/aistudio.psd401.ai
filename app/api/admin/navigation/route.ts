@@ -3,7 +3,7 @@ import { getServerSession } from "@/lib/auth/server-session"
 import { getNavigationItems, createNavigationItem, updateNavigationItem } from "@/lib/db/data-api-adapter"
 import { checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter"
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
     // Check authentication using AWS Cognito
     const session = await getServerSession()
@@ -27,7 +27,7 @@ export async function GET(request: Request) {
     const navItems = await getNavigationItems(false)
     
     // Transform snake_case to camelCase
-    const transformedItems = navItems.map((item: any) => ({
+    const transformedItems = navItems.map((item) => ({
       id: item.id,
       label: item.label,
       icon: item.icon,
@@ -47,7 +47,6 @@ export async function GET(request: Request) {
       data: transformedItems
     })
   } catch (error) {
-    console.error("Error fetching navigation items:", error)
     return NextResponse.json(
       { 
         isSuccess: false, 
@@ -79,7 +78,6 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    console.log("Received body:", JSON.stringify(body, null, 2));
 
     // Validate required fields
     if (!body.label || !body.icon || !body.type) {
@@ -89,61 +87,65 @@ export async function POST(request: Request) {
       )
     }
 
-    // Check if this is an update operation
+    // Check if this is an update operation by checking if the item exists
     if (body.id) {
-      const { id, ...data } = body;
-      console.log("Updating existing item:", id);
-      try {
-        const updatedItem = await updateNavigationItem(id, data)
+      // First check if this ID exists in the database
+      const existingItems = await getNavigationItems();
+      const itemExists = existingItems.some(item => item.id === body.id);
+      
+      if (itemExists) {
+        // This is an update operation
+        const { id, ...data } = body;
+        try {
+          const updatedItem = await updateNavigationItem(id, data)
 
-        return NextResponse.json({
-          isSuccess: true,
-          message: "Navigation item updated successfully",
-          data: updatedItem
-        })
-      } catch (error) {
-        console.error("Database error during update:", error);
-        return NextResponse.json(
-          { isSuccess: false, message: "Failed to update navigation item" },
-          { status: 500 }
-        )
+          return NextResponse.json({
+            isSuccess: true,
+            message: "Navigation item updated successfully",
+            data: updatedItem
+          })
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : "Failed to update navigation item";
+          return NextResponse.json(
+            { isSuccess: false, message: errorMessage },
+            { status: 500 }
+          )
+        }
       }
-    } 
-    // Otherwise, create new item
-    else {
-      // Generate a unique ID for new items
-      const newId = `nav_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
-      console.log("Creating new item with ID:", newId);
-      try {
-        const newItem = await createNavigationItem({
-          id: newId,
-          label: body.label,
-          icon: body.icon,
-          link: body.link,
-          description: body.description,
-          type: body.type,
-          parentId: body.parentId,
-          toolId: body.toolId,
-          requiresRole: body.requiresRole,
-          position: body.position || 0,
-          isActive: body.isActive ?? true
-        })
+      // If the item doesn't exist, fall through to create it
+    }
+    
+    // Create new item (either no ID provided or ID doesn't exist)
+    // Use provided ID if available, otherwise generate one
+    const newId = body.id || `nav_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+    try {
+      const newItem = await createNavigationItem({
+        id: newId,
+        label: body.label,
+        icon: body.icon,
+        link: body.link,
+        description: body.description,
+        type: body.type,
+        parentId: body.parentId,
+        toolId: body.toolId,
+        requiresRole: body.requiresRole,
+        position: body.position || 0,
+        isActive: body.isActive ?? true
+      })
 
-        return NextResponse.json({
-          isSuccess: true,
-          message: "Navigation item created successfully",
-          data: newItem
-        })
-      } catch (error) {
-        console.error("Database error during insert:", error);
-        return NextResponse.json(
-          { isSuccess: false, message: "Failed to create navigation item" },
-          { status: 500 }
-        )
-      }
+      return NextResponse.json({
+        isSuccess: true,
+        message: "Navigation item created successfully",
+        data: newItem
+      })
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to create navigation item";
+      return NextResponse.json(
+        { isSuccess: false, message: errorMessage },
+        { status: 500 }
+      )
     }
   } catch (error) {
-    console.error("Error in navigation POST route:", error)
     return NextResponse.json(
       { 
         isSuccess: false, 
@@ -175,7 +177,6 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json()
-    console.log("PATCH request body:", body)
     
     if (!body.id || typeof body.position !== 'number') {
       return NextResponse.json(
@@ -187,7 +188,6 @@ export async function PATCH(request: Request) {
     try {
       const updatedItem = await updateNavigationItem(body.id, { position: body.position })
 
-      console.log("Updated item:", updatedItem)
 
       if (!updatedItem) {
         return NextResponse.json(
@@ -202,11 +202,9 @@ export async function PATCH(request: Request) {
         data: updatedItem
       })
     } catch (error) {
-      console.error("Database error:", error)
       throw error
     }
   } catch (error) {
-    console.error("Error updating position:", error)
     return NextResponse.json(
       { 
         isSuccess: false, 

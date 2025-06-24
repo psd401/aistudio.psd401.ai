@@ -3,6 +3,7 @@ import { createAzure } from '@ai-sdk/azure'
 import { google } from '@ai-sdk/google'
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import logger from "@/lib/logger"
+import { Settings } from "@/lib/settings-manager"
 
 interface ModelConfig {
   provider: string
@@ -20,13 +21,18 @@ export async function generateCompletion(
 
   switch (modelConfig.provider) {
     case 'amazon-bedrock': {
-      const region = process.env.BEDROCK_REGION || 'unknown-region';
+      const bedrockConfig = await Settings.getBedrock();
+      const region = bedrockConfig.region || 'unknown-region';
       logger.info(`[generateCompletion] Using Amazon Bedrock with region '${region}' and model ID '${modelConfig.modelId}'`);
       
+      if (!bedrockConfig.accessKeyId || !bedrockConfig.secretAccessKey || !bedrockConfig.region) {
+        throw new Error('Amazon Bedrock is not configured. Please set the required settings in the admin panel.')
+      }
+      
       const bedrock = createAmazonBedrock({
-        region: process.env.BEDROCK_REGION || '',
-        accessKeyId: process.env.BEDROCK_ACCESS_KEY_ID || '',
-        secretAccessKey: process.env.BEDROCK_SECRET_ACCESS_KEY || ''
+        region: bedrockConfig.region,
+        accessKeyId: bedrockConfig.accessKeyId,
+        secretAccessKey: bedrockConfig.secretAccessKey
       })
 
       const result = await generateText({
@@ -42,9 +48,15 @@ export async function generateCompletion(
     }
 
     case 'azure': {
+      const azureConfig = await Settings.getAzureOpenAI();
+      
+      if (!azureConfig.key || !azureConfig.resourceName) {
+        throw new Error('Azure OpenAI is not configured. Please set the required settings in the admin panel.')
+      }
+      
       const azureClient = createAzure({
-        apiKey: process.env.AZURE_OPENAI_KEY || '',
-        resourceName: process.env.AZURE_OPENAI_RESOURCENAME || ''
+        apiKey: azureConfig.key,
+        resourceName: azureConfig.resourceName
       })
 
       const result = await generateText({
@@ -60,16 +72,14 @@ export async function generateCompletion(
     }
 
     case 'google': {
-      // Get API key from environment variables
-      const googleApiKey = process.env.GOOGLE_API_KEY || '';
+      // Get API key from settings
+      const googleApiKey = await Settings.getGoogleAI();
       
       logger.info(`[generateCompletion] Using Google AI with model ID '${modelConfig.modelId}'`);
-      logger.info(`[generateCompletion] GOOGLE_API_KEY set: ${!!process.env.GOOGLE_API_KEY}`);
-      logger.info(`[generateCompletion] GOOGLE_GENERATIVE_AI_API_KEY set: ${!!process.env.GOOGLE_GENERATIVE_AI_API_KEY}`);
       
       if (!googleApiKey) {
-        logger.error('[generateCompletion] Google API key is missing from environment variables');
-        throw new Error('Google API key is not configured. Please set GOOGLE_API_KEY in environment variables.');
+        logger.error('[generateCompletion] Google API key is missing');
+        throw new Error('Google API key is not configured. Please set GOOGLE_API_KEY in the admin panel.');
       }
       
       // Manually set the environment variable that the Google AI SDK is looking for
@@ -94,7 +104,7 @@ export async function generateCompletion(
         
         // Check if it's an API key error
         if (error instanceof Error && error.message && error.message.includes('API key')) {
-          throw new Error(`Google API key issue: ${error.message}. Please check your GOOGLE_API_KEY environment variable.`);
+          throw new Error(`Google API key issue: ${error.message}. Please check your Google API key in the admin panel.`);
         }
         
         // Rethrow any other errors

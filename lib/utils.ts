@@ -20,4 +20,4 @@ export function generateToolIdentifier(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-} 
+}
