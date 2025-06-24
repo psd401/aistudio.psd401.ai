@@ -2,10 +2,10 @@
 
 import { redirect } from "next/navigation"
 import { Chat } from "./_components/chat"
-import { db } from "@/db/db"
-import { messagesTable, conversationsTable } from "@/db/schema"
-import { eq, and } from "drizzle-orm"
 import { hasToolAccess } from "@/utils/roles"
+import { getServerSession } from "@/lib/auth/server-session"
+import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
+import { executeSQL } from "@/lib/db/data-api-adapter"
 
 interface ChatPageProps {
   searchParams: Promise<{ conversation?: string }>
@@ -13,6 +13,19 @@ interface ChatPageProps {
 
 export default async function ChatPage({ searchParams }: ChatPageProps) {
   console.log("[ChatPage] Starting auth check")
+  
+  // Get current session and user
+  const session = await getServerSession()
+  if (!session) {
+    redirect("/sign-in")
+  }
+  
+  const currentUser = await getCurrentUserAction()
+  if (!currentUser.isSuccess) {
+    redirect("/sign-in")
+  }
+  
+  const userId = currentUser.data.user.id
   
   let initialMessages = []
   const resolvedParams = await searchParams
@@ -24,30 +37,34 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
   if (conversationId) {
     console.log(`[ChatPage] Attempting to load conversation ID: ${conversationId}`);
     // Step 1: Verify conversation exists and belongs to the user
-    const conversation = await db
-      .select({
-        id: conversationsTable.id,
-        title: conversationsTable.title,
-      })
-      .from(conversationsTable)
-      .where(
-        and(
-          eq(conversationsTable.id, conversationId),
-          eq(conversationsTable.clerkId, userId) // Ensure user owns the conversation
-        )
-      )
-      .limit(1);
+    const conversationQuery = `
+      SELECT id, title
+      FROM conversations
+      WHERE id = :conversationId
+        AND user_id = :userId
+      LIMIT 1
+    `;
+    const conversationParams = [
+      { name: 'conversationId', value: { longValue: conversationId } },
+      { name: 'userId', value: { stringValue: userId } }
+    ];
+    const conversation = await executeSQL(conversationQuery, conversationParams);
 
     if (conversation && conversation.length > 0) {
       console.log(`[ChatPage] Found conversation: ${JSON.stringify(conversation[0])}`);
       conversationTitle = conversation[0].title; // Set title from fetched conversation
 
       // Step 2: Fetch messages for the verified conversation
-      const messages = await db
-        .select()
-        .from(messagesTable)
-        .where(eq(messagesTable.conversationId, conversationId))
-        .orderBy(messagesTable.createdAt);
+      const messagesQuery = `
+        SELECT id, content, role
+        FROM messages
+        WHERE conversation_id = :conversationId
+        ORDER BY created_at ASC
+      `;
+      const messagesParams = [
+        { name: 'conversationId', value: { longValue: conversationId } }
+      ];
+      const messages = await executeSQL(messagesQuery, messagesParams);
       
       console.log(`[ChatPage] Fetched ${messages.length} messages for conversation ${conversationId}`);
 

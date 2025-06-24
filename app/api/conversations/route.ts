@@ -1,30 +1,38 @@
-import { db } from '@/db/db';
-import { conversationsTable } from '@/db/schema';
-import { eq, and } from 'drizzle-orm';
-import { getAuth } from '@clerk/nextjs/server';
 import { NextRequest } from 'next/server';
 import { withErrorHandling, unauthorized } from '@/lib/api-utils';
+import { getServerSession } from '@/lib/auth/server-session';
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
+import { executeSQL } from '@/lib/db/data-api-adapter';
 
 export async function GET(req: NextRequest) {
-  const auth = getAuth(req);
-  const { userId } = auth;
-  
-  if (!userId) {
+  const session = await getServerSession();
+  if (!session) {
     return unauthorized('User not authenticated');
   }
+  
+  const currentUser = await getCurrentUserAction();
+  if (!currentUser.isSuccess) {
+    return unauthorized('User not found');
+  }
+  
+  const userId = currentUser.data.user.id;
 
   return withErrorHandling(async () => {
-    const userConversations = await db
-      .select()
-      .from(conversationsTable)
-      .where(
-        and(
-          eq(conversationsTable.clerkId, userId),
-          eq(conversationsTable.source, "chat")
-        )
-      )
-      .orderBy(conversationsTable.updatedAt);
-
+    const query = `
+      SELECT id, user_id, title, created_at, updated_at, 
+             model_id, source, execution_id, context
+      FROM conversations
+      WHERE user_id = :userId
+        AND source = :source
+      ORDER BY updated_at DESC
+    `;
+    
+    const parameters = [
+      { name: 'userId', value: { stringValue: userId } },
+      { name: 'source', value: { stringValue: 'chat' } }
+    ];
+    
+    const userConversations = await executeSQL(query, parameters);
     return userConversations;
   });
 } 

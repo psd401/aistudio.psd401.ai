@@ -1,15 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuth } from '@clerk/nextjs/server';
 import { linkDocumentToConversation, getDocumentById } from '@/lib/db/queries/documents';
 import { withErrorHandling, unauthorized, badRequest } from '@/lib/api-utils';
 import { createError } from '@/lib/error-utils';
+import { getServerSession } from '@/lib/auth/server-session';
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 
 export async function POST(request: NextRequest) {
-  const { userId } = getAuth(request);
-  
-  if (!userId) {
+  const session = await getServerSession();
+  if (!session) {
     return unauthorized('User not authenticated');
   }
+  
+  const currentUser = await getCurrentUserAction();
+  if (!currentUser.isSuccess) {
+    return unauthorized('User not found');
+  }
+  
+  const userId = currentUser.data.user.id;
 
   return withErrorHandling(async () => {
     const body = await request.json();

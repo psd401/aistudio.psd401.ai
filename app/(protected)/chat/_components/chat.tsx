@@ -308,6 +308,7 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
     }
 
     console.log('[handleSubmit] Starting submission with model:', selectedModel)
+    console.log('[handleSubmit] Model ID:', selectedModel?.model_id)
     setIsLoading(true)
     const userMessage = {
       id: crypto.randomUUID(),
@@ -323,7 +324,7 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
       console.log('[handleSubmit] Sending request:', {
         messages: [...messages, userMessage],
         conversationId: currentConversationId,
-        modelId: selectedModel.modelId,
+        modelId: selectedModel.model_id,
         includeDocumentContext: true,
         documentId: currentConversationId === undefined && processingDocumentId ? processingDocumentId : undefined
       })
@@ -335,7 +336,7 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
         body: JSON.stringify({
           messages: [...messages, userMessage],
           conversationId: currentId,
-          modelId: selectedModel.modelId,
+          modelId: selectedModel.model_id,
           includeDocumentContext: true,
           documentId: currentId === undefined && processingDocumentId ? processingDocumentId : undefined
         })
@@ -349,7 +350,8 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
         let errorMessage = response.statusText
         try {
           const errorData = await response.json()
-          errorMessage = errorData.error || errorMessage
+          console.log('[handleSubmit] Error data:', errorData)
+          errorMessage = errorData.error || errorData.message || JSON.stringify(errorData) || errorMessage
         } catch {
           // If response is not JSON, use status text
         }
@@ -468,7 +470,7 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
     async function loadModels() {
       try {
         console.log('[loadModels] Fetching models from API');
-        const response = await fetch("/api/models");
+        const response = await fetch("/api/chat/models");
         
         if (!response.ok) {
           console.error(`[loadModels] Error: ${response.status} ${response.statusText}`);
@@ -488,7 +490,7 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
         }
         
         // Filter models with chatEnabled set to true
-        const chatModels = modelsData.filter(model => model.chatEnabled === true);
+        const chatModels = modelsData.filter(model => model.chat_enabled === true);
         
         console.log('[loadModels] Chat-enabled models:', chatModels);
         
@@ -542,7 +544,7 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
   // No need for fallbacks - if models aren't loaded yet, we'll show an empty state
   
   return (
-    <div className="flex flex-col h-full bg-background border border-border rounded-lg shadow-sm overflow-hidden">
+    <div className="flex flex-col h-full bg-white border border-border rounded-lg shadow-sm overflow-hidden">
       <div className="flex items-center justify-between p-3 border-b border-border">
         <ModelSelector
           models={models}
@@ -580,7 +582,7 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        <ScrollArea ref={scrollRef} className="flex-1 p-4">
+        <ScrollArea ref={scrollRef} className="flex-1 p-4 bg-white">
           <div role="list" aria-label="Chat messages">
             {messages.map((message) => (
               <Message 
@@ -614,7 +616,7 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
         )}
       </div>
 
-      <div className="p-4 border-t border-border">
+      <div className="p-4 border-t border-border bg-white">
         <div className="flex items-end gap-2">
           <ChatInput
             input={input}

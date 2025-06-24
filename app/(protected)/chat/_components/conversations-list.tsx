@@ -353,7 +353,7 @@ export function ConversationsList() {
   }
 
   return (
-    <div className="flex flex-col h-full p-4 bg-muted/20 border-r border-border">
+    <div className="flex flex-col h-full p-4 bg-white">
       <Button
         className="flex items-center justify-center gap-2 mb-4 w-full bg-primary hover:bg-primary/90 text-primary-foreground"
         onClick={handleNewChat}

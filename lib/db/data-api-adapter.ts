@@ -488,11 +488,12 @@ export async function getUserRolesByCognitoSub(cognitoSub: string): Promise<stri
 export async function hasToolAccess(cognitoSub: string, toolIdentifier: string): Promise<boolean> {
   const query = `
     SELECT COUNT(*) as count
-    FROM tool_accesses ta
-    JOIN users u ON ta.user_id = u.id
-    JOIN tools t ON ta.tool_id = t.id
+    FROM users u
+    JOIN user_roles ur ON u.id = ur.user_id
+    JOIN role_tools rt ON ur.role_id = rt.role_id
+    JOIN tools t ON rt.tool_id = t.id
     WHERE u.cognito_sub = :cognitoSub
-      AND t.tool_identifier = :toolIdentifier
+      AND t.identifier = :toolIdentifier
   `;
 
   const parameters = [
@@ -506,10 +507,11 @@ export async function hasToolAccess(cognitoSub: string, toolIdentifier: string):
 
 export async function getUserTools(cognitoSub: string): Promise<string[]> {
   const query = `
-    SELECT DISTINCT t.tool_identifier
-    FROM tool_accesses ta
-    JOIN tools t ON ta.tool_id = t.id
-    JOIN users u ON ta.user_id = u.id
+    SELECT DISTINCT t.identifier
+    FROM users u
+    JOIN user_roles ur ON u.id = ur.user_id
+    JOIN role_tools rt ON ur.role_id = rt.role_id
+    JOIN tools t ON rt.tool_id = t.id
     WHERE u.cognito_sub = :cognitoSub
   `;
 
@@ -518,7 +520,7 @@ export async function getUserTools(cognitoSub: string): Promise<string[]> {
   ];
   
   const result = await executeSQL(query, parameters);
-  return result.map((r: any) => r.tool_identifier);
+  return result.map((r: any) => r.identifier);
 }
 
 // Helper function to convert camelCase to snake_case

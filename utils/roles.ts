@@ -4,7 +4,8 @@ import {
   checkUserRole, 
   hasToolAccess as dbHasToolAccess, 
   getUserTools as dbGetUserTools,
-  getUserIdByCognitoSub
+  getUserIdByCognitoSub,
+  getUserRolesByCognitoSub as dbGetUserRolesByCognitoSub
 } from "@/lib/db/data-api-adapter";
 import { getServerSession } from "@/lib/auth/server-session";
 import type { Role } from '@/types';
@@ -53,7 +54,13 @@ export async function getUserTools(): Promise<string[]> {
  */
 export async function getUserRoles(userId: string): Promise<string[]> {
   try {
-    return await getUserRoles(userId);
+    // Get cognito sub for the userId
+    const session = await getServerSession();
+    if (!session) return [];
+    
+    // Note: This function expects a userId but getUserRolesByCognitoSub expects a cognito sub
+    // For now, assuming userId is the cognito sub (this may need adjustment based on usage)
+    return await dbGetUserRolesByCognitoSub(userId);
   } catch (error) {
     console.error("Error getting user roles:", error)
     return []

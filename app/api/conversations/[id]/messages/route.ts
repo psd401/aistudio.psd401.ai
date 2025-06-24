@@ -1,17 +1,23 @@
-import { db } from '@/db/db';
-import { messagesTable, conversationsTable } from '@/db/schema';
-import { eq } from 'drizzle-orm';
-import { getAuth } from '@clerk/nextjs/server';
 import { NextRequest } from 'next/server';
+import { getServerSession } from '@/lib/auth/server-session';
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
+import { executeSQL } from '@/lib/db/data-api-adapter';
 
 export async function GET(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { userId } = getAuth(req);
-  if (!userId) {
+  const session = await getServerSession();
+  if (!session) {
     return new Response('Unauthorized', { status: 401 });
   }
+  
+  const currentUser = await getCurrentUserAction();
+  if (!currentUser.isSuccess) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+  
+  const userId = currentUser.data.user.id;
 
   // Await the params object
   const params = await context.params;
@@ -22,22 +28,31 @@ export async function GET(
 
   try {
     // Verify ownership
-    const conversation = await db
-      .select()
-      .from(conversationsTable)
-      .where(eq(conversationsTable.id, conversationId))
-      .limit(1);
+    const checkQuery = `
+      SELECT id, user_id
+      FROM conversations
+      WHERE id = :conversationId
+    `;
+    const checkParams = [
+      { name: 'conversationId', value: { longValue: conversationId } }
+    ];
+    const conversation = await executeSQL(checkQuery, checkParams);
 
-    if (!conversation.length || conversation[0].clerkId !== userId) {
+    if (!conversation.length || conversation[0].user_id !== userId) {
       return new Response('Not found', { status: 404 });
     }
 
     // Fetch all messages for the conversation
-    const conversationMessages = await db
-      .select()
-      .from(messagesTable)
-      .where(eq(messagesTable.conversationId, conversationId))
-      .orderBy(messagesTable.createdAt);
+    const messagesQuery = `
+      SELECT id, role, content, created_at
+      FROM messages
+      WHERE conversation_id = :conversationId
+      ORDER BY created_at ASC
+    `;
+    const messagesParams = [
+      { name: 'conversationId', value: { longValue: conversationId } }
+    ];
+    const conversationMessages = await executeSQL(messagesQuery, messagesParams);
 
     // Format messages for the chat
     const formattedMessages = conversationMessages.map(msg => ({

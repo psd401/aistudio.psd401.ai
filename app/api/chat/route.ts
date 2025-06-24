@@ -1,10 +1,6 @@
 "use server"
 
-import { getAuth } from "@clerk/nextjs/server"
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/db/db"
-import { conversationsTable, messagesTable, aiModelsTable, usersTable } from "@/db/schema"
-import { eq } from "drizzle-orm"
 import { generateCompletion } from "@/lib/ai-helpers"
 import { CoreMessage } from "ai"
 import { withErrorHandling, unauthorized, badRequest } from "@/lib/api-utils"
@@ -12,10 +8,12 @@ import { createError } from "@/lib/error-utils"
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId } from "@/lib/db/queries/documents"
 import logger from "@/lib/logger"
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
+import { getServerSession } from "@/lib/auth/server-session"
+import { executeSQL } from "@/lib/db/data-api-adapter"
 
 export async function POST(req: NextRequest) {
-  const { userId } = getAuth(req)
-  if (!userId) {
+  const session = await getServerSession()
+  if (!session) {
     return unauthorized('User not authenticated')
   }
 
@@ -39,16 +37,34 @@ export async function POST(req: NextRequest) {
     }
 
     // Find the AI model record using the text modelId to get the provider
-    const [aiModel] = await db
-      .select()
-      .from(aiModelsTable)
-      .where(eq(aiModelsTable.modelId, textModelId))
-
-    if (!aiModel) {
+    const modelQuery = `
+      SELECT id, name, provider, model_id
+      FROM ai_models
+      WHERE model_id = :modelId
+      LIMIT 1
+    `;
+    const modelParams = [
+      { name: 'modelId', value: { stringValue: textModelId } }
+    ];
+    const modelResult = await executeSQL(modelQuery, modelParams);
+    
+    if (!modelResult.length) {
       throw createError(`AI Model with identifier '${textModelId}' not found`, {
         code: 'NOT_FOUND',
         level: 'error',
         details: { modelId: textModelId }
+      });
+    }
+    
+    const aiModel = modelResult[0];
+    console.log('[POST /api/chat] Found AI Model:', aiModel);
+    
+    // Ensure id is a number
+    if (!aiModel.id) {
+      throw createError('AI Model record missing id field', {
+        code: 'INVALID_DATA',
+        level: 'error',
+        details: { model: aiModel }
       });
     }
 
@@ -57,18 +73,24 @@ export async function POST(req: NextRequest) {
 
     // If an existing conversation ID is provided, use it
     if (existingConversationId) {
-      const conversations = await db
-        .select()
-        .from(conversationsTable)
-        .where(eq(conversationsTable.id, existingConversationId))
+      const checkQuery = `
+        SELECT id FROM conversations
+        WHERE id = :conversationId
+      `;
+      const checkParams = [
+        { name: 'conversationId', value: { longValue: existingConversationId } }
+      ];
+      const conversations = await executeSQL(checkQuery, checkParams);
 
       if (conversations.length > 0) {
         conversationId = conversations[0].id
         // Update the updated_at timestamp
-        await db
-          .update(conversationsTable)
-          .set({ updatedAt: new Date() })
-          .where(eq(conversationsTable.id, existingConversationId))
+        const updateQuery = `
+          UPDATE conversations
+          SET updated_at = NOW()
+          WHERE id = :conversationId
+        `;
+        await executeSQL(updateQuery, checkParams);
       }
     }
 
@@ -79,34 +101,47 @@ export async function POST(req: NextRequest) {
         return new Response("Unauthorized", { status: 401 })
       }
 
-      const [newConversation] = await db
-        .insert(conversationsTable)
-        .values({
-          title: messages[0].content.substring(0, 100),
-          userId: currentUser.data.user.id,
-          modelId: textModelId,
-          source: source || "chat",
-          executionId: executionId || null,
-          context: context || null
-        })
-        .returning()
-      conversationId = newConversation.id
+      const insertQuery = `
+        INSERT INTO conversations (title, user_id, model_id, source, execution_id, context)
+        VALUES (:title, :userId, :modelId, :source, :executionId, :context)
+        RETURNING id
+      `;
+      const insertParams = [
+        { name: 'title', value: { stringValue: messages[0].content.substring(0, 100) } },
+        { name: 'userId', value: { stringValue: currentUser.data.user.id } },
+        { name: 'modelId', value: { stringValue: aiModel.model_id } },
+        { name: 'source', value: { stringValue: source || "chat" } },
+        { name: 'executionId', value: executionId ? { stringValue: executionId } : { isNull: true } },
+        { name: 'context', value: context ? { stringValue: JSON.stringify(context) } : { isNull: true } }
+      ];
+      const newConversation = await executeSQL(insertQuery, insertParams);
+      conversationId = newConversation[0].id
     }
 
     // Insert only the NEW user message
     const userMessage = messages[messages.length - 1];
-    await db.insert(messagesTable).values({
-      conversationId: conversationId,
-      role: userMessage.role,
-      content: userMessage.content
-    });
+    const insertMessageQuery = `
+      INSERT INTO messages (conversation_id, role, content)
+      VALUES (:conversationId, :role, :content)
+    `;
+    const insertMessageParams = [
+      { name: 'conversationId', value: { longValue: conversationId } },
+      { name: 'role', value: { stringValue: userMessage.role } },
+      { name: 'content', value: { stringValue: userMessage.content } }
+    ];
+    await executeSQL(insertMessageQuery, insertMessageParams);
 
     // --- Fetch previous messages for AI context --- 
-    const previousMessages = await db
-      .select({ role: messagesTable.role, content: messagesTable.content })
-      .from(messagesTable)
-      .where(eq(messagesTable.conversationId, conversationId))
-      .orderBy(messagesTable.createdAt);
+    const messagesQuery = `
+      SELECT role, content
+      FROM messages
+      WHERE conversation_id = :conversationId
+      ORDER BY created_at ASC
+    `;
+    const messagesParams = [
+      { name: 'conversationId', value: { longValue: conversationId } }
+    ];
+    const previousMessages = await executeSQL(messagesQuery, messagesParams);
 
     // --- Fetch documents and relevant content for AI context ---
     let documentContext = "";
@@ -189,11 +224,16 @@ export async function POST(req: NextRequest) {
     );
 
     // Save the assistant's response
-    await db.insert(messagesTable).values({
-      conversationId: conversationId,
-      role: "assistant",
-      content: aiResponseContent
-    });
+    const saveAssistantQuery = `
+      INSERT INTO messages (conversation_id, role, content)
+      VALUES (:conversationId, :role, :content)
+    `;
+    const saveAssistantParams = [
+      { name: 'conversationId', value: { longValue: conversationId } },
+      { name: 'role', value: { stringValue: "assistant" } },
+      { name: 'content', value: { stringValue: aiResponseContent } }
+    ];
+    await executeSQL(saveAssistantQuery, saveAssistantParams);
 
     // Return data that will be wrapped in the standard response format
     return {
@@ -204,10 +244,17 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const { userId } = getAuth(req)
-  if (!userId) {
+  const session = await getServerSession()
+  if (!session) {
     return unauthorized('User not authenticated')
   }
+  
+  const currentUser = await getCurrentUserAction()
+  if (!currentUser.isSuccess) {
+    return unauthorized('User not found')
+  }
+  
+  const userId = currentUser.data.user.id
 
   const { searchParams } = new URL(req.url)
   const conversationId = searchParams.get('conversationId')
@@ -216,20 +263,31 @@ export async function GET(req: NextRequest) {
   }
 
   // Check that the conversation belongs to the user
-  const [conversation] = await db
-    .select()
-    .from(conversationsTable)
-    .where(eq(conversationsTable.id, conversationId))
-  if (!conversation || conversation.clerkId !== userId) {
+  const checkQuery = `
+    SELECT id, user_id
+    FROM conversations
+    WHERE id = :conversationId
+  `;
+  const checkParams = [
+    { name: 'conversationId', value: { longValue: parseInt(conversationId) } }
+  ];
+  const conversationResult = await executeSQL(checkQuery, checkParams);
+  
+  if (!conversationResult.length || conversationResult[0].user_id !== userId) {
     return NextResponse.json({ error: 'Conversation not found or access denied' }, { status: 403 })
   }
 
   // Fetch all messages for the conversation, ordered by creation time
-  const messages = await db
-    .select({ id: messagesTable.id, role: messagesTable.role, content: messagesTable.content })
-    .from(messagesTable)
-    .where(eq(messagesTable.conversationId, conversationId))
-    .orderBy(messagesTable.createdAt)
+  const messagesQuery = `
+    SELECT id, role, content
+    FROM messages
+    WHERE conversation_id = :conversationId
+    ORDER BY created_at ASC
+  `;
+  const messagesParams = [
+    { name: 'conversationId', value: { longValue: parseInt(conversationId) } }
+  ];
+  const messages = await executeSQL(messagesQuery, messagesParams);
 
   return NextResponse.json({ messages })
 } 

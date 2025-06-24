@@ -1,18 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuth } from '@clerk/nextjs/server';
 import { supabaseAdmin } from '@/lib/supabase/client';
 import { 
   getDocumentsByConversationId, 
   getDocumentById, 
   deleteDocumentById 
 } from '@/lib/db/queries/documents';
+import { getServerSession } from '@/lib/auth/server-session';
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 
 export async function GET(request: NextRequest) {
   // Check authentication
-  const { userId } = getAuth(request);
-  if (!userId) {
+  const session = await getServerSession();
+  if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  
+  const currentUser = await getCurrentUserAction();
+  if (!currentUser.isSuccess) {
+    return NextResponse.json({ error: 'User not found' }, { status: 401 });
+  }
+  
+  const userId = currentUser.data.user.id;
 
   // Get URL parameters
   const searchParams = request.nextUrl.searchParams;
@@ -117,10 +125,17 @@ export async function GET(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   // Check authentication
-  const { userId } = getAuth(request);
-  if (!userId) {
+  const session = await getServerSession();
+  if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  
+  const currentUser = await getCurrentUserAction();
+  if (!currentUser.isSuccess) {
+    return NextResponse.json({ error: 'User not found' }, { status: 401 });
+  }
+  
+  const userId = currentUser.data.user.id;
 
   // Get URL parameters
   const searchParams = request.nextUrl.searchParams;

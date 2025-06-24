@@ -14,10 +14,11 @@ logger.info('[Upload API Module] Winston logger test: route.ts file loaded');
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getAuth } from '@clerk/nextjs/server';
 import { supabaseAdmin } from '@/lib/supabase/client';
 import { saveDocument, batchInsertDocumentChunks } from '@/lib/db/queries/documents';
 import { extractTextFromDocument, chunkText, getFileTypeFromFileName } from '@/lib/document-processing';
+import { getServerSession } from '@/lib/auth/server-session';
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 // import * as fs from 'fs'; // No longer needed if text processing is out
 // import * as path from 'path'; // No longer needed if text processing is out
 
@@ -108,17 +109,28 @@ export async function POST(request: NextRequest) {
   };
   
   // Check authentication first
-  logger.info('[Upload API] Attempting getAuth...');
-  const { userId } = getAuth(request);
-  logger.info(`[Upload API] getAuth completed. userId: ${userId}`);
+  logger.info('[Upload API] Attempting getServerSession...');
+  const session = await getServerSession();
+  logger.info(`[Upload API] getServerSession completed. session exists: ${!!session}`);
 
-  if (!userId) {
-    logger.info('Unauthorized - No userId');
+  if (!session) {
+    logger.info('Unauthorized - No session');
     return new NextResponse(
       JSON.stringify({ error: 'Unauthorized' }), 
       { status: 401, headers }
     );
   }
+  
+  const currentUser = await getCurrentUserAction();
+  if (!currentUser.isSuccess) {
+    logger.info('Unauthorized - User not found');
+    return new NextResponse(
+      JSON.stringify({ error: 'User not found' }), 
+      { status: 401, headers }
+    );
+  }
+  
+  const userId = currentUser.data.user.id;
 
   // Add more checks before the main try block if needed
 
