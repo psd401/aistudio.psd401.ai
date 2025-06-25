@@ -218,7 +218,7 @@ export function ConversationsList() {
       // If we're deleting the current conversation, redirect to /chat
       const currentConversationId = pathname.match(/\/chat\?conversation=(\d+)/)?.[1];
       if (currentConversationId && parseInt(currentConversationId) === id) {
-        router.push("/chat");
+        window.location.href = "/chat";
       }
 
       toast({
@@ -244,7 +244,7 @@ export function ConversationsList() {
   }
 
   async function handleNewChat() {
-    router.push("/chat")
+    window.location.href = "/chat"
   }
 
   async function handleEdit(id: number, e: React.MouseEvent) {
