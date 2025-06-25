@@ -1,5 +1,6 @@
 "use client"
 
+import { useChat } from 'ai/react'
 import { useEffect, useRef, useState } from "react"
 import { Message } from "./message"
 import { ChatInput } from "./chat-input"
@@ -11,7 +12,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/components/ui/use-toast"
 import { Button } from "@/components/ui/button"
 import { IconPlayerStop } from "@tabler/icons-react"
-import { FileTextIcon, Loader2 } from "lucide-react"
+import { FileTextIcon } from "lucide-react"
 import type { SelectAiModel } from "@/types"
 import { RefreshCwIcon } from "lucide-react"
 
@@ -26,7 +27,6 @@ interface Document {
 
 interface ChatProps {
   conversationId?: number
-  title?: string
   initialMessages?: Array<{
     id: string
     content: string
@@ -34,13 +34,10 @@ interface ChatProps {
   }>
 }
 
-export function Chat({ conversationId: initialConversationId, title, initialMessages = [] }: ChatProps) {
-  const [messages, setMessages] = useState(initialMessages)
+export function Chat({ conversationId: initialConversationId, initialMessages = [] }: ChatProps) {
   const [currentConversationId, setCurrentConversationId] = useState<number | undefined>(initialConversationId)
   const [models, setModels] = useState<SelectAiModel[]>([])
   const [selectedModel, setSelectedModel] = useState<SelectAiModel | null>(null)
-  const [input, setInput] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
   const [documents, setDocuments] = useState<Document[]>([])
   const [showDocuments, setShowDocuments] = useState(false)
   const [pendingDocument, setPendingDocument] = useState<Document | null>(null)
@@ -49,142 +46,123 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
   const { toast } = useToast()
   const hiddenFileInputRef = useRef<HTMLInputElement>(null)
   
-  // Track if we have a new conversation that needs document upload
-  const needsDocumentUploadRef = useRef<boolean>(false)
-
-  useEffect(() => {
-    // Only update messages from initialMessages if we're loading a different conversation
-    // or if it's the initial mount (messages.length === 0)
-    if (messages.length === 0 || (initialConversationId !== currentConversationId && initialMessages.length > 0)) {
-      console.log("[Chat] initialMessages prop changed, updating state:", initialMessages);
-      setMessages(initialMessages);
+  // Use Vercel AI SDK's useChat hook
+  const { messages, input, handleInputChange, handleSubmit: handleChatSubmit, isLoading, stop, setMessages, setInput } = useChat({
+    api: '/api/chat/stream-final',
+    initialMessages,
+    body: {
+      modelId: selectedModel?.model_id,
+      conversationId: currentConversationId,
+      documentId: currentConversationId === undefined && processingDocumentId ? processingDocumentId : undefined
+    },
+    onResponse: (response) => {
+      // Get conversation ID from header
+      const headerConversationId = response.headers.get('X-Conversation-Id')
+      if (headerConversationId && !currentConversationId) {
+        const newId = parseInt(headerConversationId)
+        setCurrentConversationId(newId)
+        window.history.pushState({}, '', `/chat?conversation=${newId}`)
+        if (processingDocumentId) {
+          linkUnlinkedDocuments(newId).then(() => {
+            setProcessingDocumentId(null)
+          })
+        }
+      }
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send message",
+        variant: "destructive"
+      })
     }
-  }, [initialMessages, initialConversationId]); // Note: intentionally not including messages or currentConversationId to avoid infinite loops
+  })
 
-  // Add a new effect to track changes to initialConversationId
+  // Initialize component state
   useEffect(() => {
-    console.log("[Chat] initialConversationId changed:", initialConversationId);
-    setCurrentConversationId(initialConversationId);
+    setCurrentConversationId(initialConversationId)
     
-    // Clear pending document state when switching conversations
-    setPendingDocument(null);
-    setProcessingDocumentId(null);
-    
-    // Reset document upload ref
-    needsDocumentUploadRef.current = false;
-    
-    // Instead of setting documents to empty, trigger a fetch if we have an ID
     if (initialConversationId) {
-      console.log("[Chat] Fetching documents for initial conversation ID:", initialConversationId);
-      
-      // Add proper cleanup for fetch operations
-      const abortController = new AbortController();
-      fetchDocuments(initialConversationId, abortController.signal);
-      
-      return () => {
-        // Cancel any in-flight fetch requests when component unmounts or ID changes
-        abortController.abort();
-      };
+      // Load existing conversation
+      setMessages(initialMessages)
+      fetchDocuments(initialConversationId)
     } else {
-      // Only clear documents if we don't have a conversation ID
-      setDocuments([]);
+      // New chat - ensure everything is cleared
+      setMessages([])
+      setInput('')
+      setDocuments([])
+      setShowDocuments(false)
+      setPendingDocument(null)
+      setProcessingDocumentId(null)
     }
-  }, [initialConversationId]);
+  }, []) // Empty deps since this runs once on mount
 
-  // Separate effect for handling pending documents
   useEffect(() => {
-    // If we have a pending document and a conversation ID, we should upload it
     if (pendingDocument && currentConversationId) {
-      console.log("[Chat] Conversation ID received and pending document exists, triggering upload");
       toast({
         title: "Uploading document",
         description: `Uploading ${pendingDocument.name} to conversation`,
         variant: "default"
-      });
-      // We'll handle this via the DocumentUpload component's useEffect
-      needsDocumentUploadRef.current = true;
+      })
     }
-  }, [currentConversationId, pendingDocument, toast]);
+  }, [currentConversationId, pendingDocument, toast])
 
-  // Add a useEffect to log and auto-show documents when they're available
   useEffect(() => {
-    console.log("[Chat] Documents state changed:", documents);
     if (documents.length > 0) {
-      console.log("[Chat] Auto-showing document panel because documents are available");
-      setShowDocuments(true);
+      setShowDocuments(true)
     }
-  }, [documents]);
+  }, [documents])
 
   const fetchDocuments = async (convId?: number, signal?: AbortSignal) => {
-    const idToUse = convId || currentConversationId;
-    if (!idToUse) return;
+    const idToUse = convId || currentConversationId
+    if (!idToUse) return
 
     try {
-      console.log(`[fetchDocuments] Fetching documents for conversation: ${idToUse}`);
       const response = await fetch(`/api/documents?conversationId=${idToUse}`, {
-        // Add cache buster to ensure we get fresh data
         headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
         cache: 'no-store',
-        signal: signal // Add AbortSignal to allow cancellation
-      });
+        signal: signal
+      })
       
-      if (!response.ok) throw new Error("Failed to fetch documents");
+      if (!response.ok) throw new Error("Failed to fetch documents")
       
-      const data = await response.json();
-      console.log(`[fetchDocuments] Response data:`, data);
+      const data = await response.json()
       
       if (data.success && data.documents) {
-        console.log(`[fetchDocuments] Retrieved ${data.documents.length} documents`);
         if (data.documents.length > 0) {
-          setDocuments(data.documents);
-          setShowDocuments(true);
+          setDocuments(data.documents)
+          setShowDocuments(true)
         } else {
-          setDocuments([]);
+          setDocuments([])
         }
       } else {
-        console.log(`[fetchDocuments] No documents returned or success is false:`, data);
-        setDocuments([]);
+        setDocuments([])
       }
     } catch (error) {
-      console.error('[fetchDocuments] Error:', error);
-      setDocuments([]);
+      // console.error('[fetchDocuments] Error:', error)
+      setDocuments([])
     }
-  };
+  }
 
-  // Add a function to force document refresh
   const forceDocumentRefresh = () => {
-    console.log("[Chat] Force refreshing documents");
     if (currentConversationId) {
-      fetchDocuments(currentConversationId);
+      fetchDocuments(currentConversationId)
     }
-  };
+  }
 
   const handleDocumentUpload = async (documentInfo: Document) => {
-    console.log("[handleDocumentUpload] Document uploaded:", documentInfo);
-    
-    // Save the document to our state
     setDocuments(prev => {
-      // Check if it's already in the list to avoid duplicates
-      const exists = prev.some(doc => doc.id === documentInfo.id);
-      if (exists) return prev;
-      return [...prev, documentInfo];
-    });
+      const exists = prev.some(doc => doc.id === documentInfo.id)
+      if (exists) return prev
+      return [...prev, documentInfo]
+    })
     
-    // Clear the pending document since it's been uploaded
-    setProcessingDocumentId(documentInfo.id);
-    setPendingDocument(null);
+    setProcessingDocumentId(documentInfo.id)
+    setPendingDocument(null)
+    setShowDocuments(true)
     
-    // Show the documents panel
-    setShowDocuments(true);
-    
-    // If we have a conversation ID, link the document to the conversation
     if (currentConversationId) {
       try {
-        console.log("[handleDocumentUpload] Linking document to conversation:", {
-          documentId: documentInfo.id,
-          conversationId: currentConversationId
-        });
-        
         const response = await fetch('/api/documents/link', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -192,22 +170,20 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
             documentId: documentInfo.id,
             conversationId: currentConversationId
           })
-        });
+        })
         
         if (!response.ok) {
-          throw new Error('Failed to link document to conversation');
+          throw new Error('Failed to link document to conversation')
         }
         
-        console.log("[handleDocumentUpload] Document linked successfully");
-        // Refetch documents to ensure we have the latest state
-        fetchDocuments();
+        fetchDocuments()
       } catch (error) {
-        console.error("[handleDocumentUpload] Error linking document:", error);
+        // console.error("[handleDocumentUpload] Error linking document:", error)
         toast({
           title: "Warning",
-          description: "Document uploaded but not linked to conversation. It may not be accessible in chat.",
+          description: "Document uploaded but not linked to conversation.",
           variant: "destructive"
-        });
+        })
       }
     }
     
@@ -215,35 +191,21 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
       title: "Document uploaded",
       description: `${documentInfo.name} has been uploaded successfully`,
       variant: "default"
-    });
+    })
   }
   
   const handleDocumentSelected = (documentInfo: Partial<Document>) => {
-    console.log("[handleDocumentSelected] Document selected:", documentInfo);
-    
-    // We just need to know the file details to show pending state
-    setPendingDocument(documentInfo as Document); // Store details for UI
-    // Upload is now triggered directly from DocumentUpload component
+    setPendingDocument(documentInfo as Document)
   }
 
   const linkUnlinkedDocuments = async (conversationId: number) => {
-    console.log("[linkUnlinkedDocuments] Linking documents to conversation:", conversationId, "processingDocumentId:", processingDocumentId);
+    const documentsToLink = documents.filter(doc => !doc.conversationId || doc.conversationId !== conversationId)
     
-    // Find documents in our state that might not be linked to this conversation
-    const documentsToLink = documents.filter(doc => !doc.conversationId || doc.conversationId !== conversationId);
-    
-    // Also check if we have a processingDocumentId that needs to be linked
     if (processingDocumentId && !documentsToLink.find(doc => doc.id === processingDocumentId)) {
-      console.log("[linkUnlinkedDocuments] Adding processingDocumentId to link list:", processingDocumentId);
-      documentsToLink.push({ id: processingDocumentId, name: "Processing document" } as Document);
+      documentsToLink.push({ id: processingDocumentId, name: "Processing document" } as Document)
     }
     
-    if (documentsToLink.length === 0) {
-      console.log("[linkUnlinkedDocuments] No documents to link");
-      return;
-    }
-    
-    console.log(`[linkUnlinkedDocuments] Found ${documentsToLink.length} documents to link`);
+    if (documentsToLink.length === 0) return
     
     for (const doc of documentsToLink) {
       try {
@@ -254,27 +216,18 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
             documentId: doc.id,
             conversationId: conversationId
           })
-        });
+        })
         
         if (!response.ok) {
-          console.error(`[linkUnlinkedDocuments] Failed to link document ${doc.id}`);
-          toast({
-            title: "Warning",
-            description: `Failed to link document ${doc.name || doc.id} to conversation`,
-            variant: "destructive"
-          });
-          continue;
+          // console.error(`Failed to link document ${doc.id}`)
+          continue
         }
-        
-        console.log(`[linkUnlinkedDocuments] Successfully linked document ${doc.id}`);
       } catch (error) {
-        console.error(`[linkUnlinkedDocuments] Error linking document ${doc.id}:`, error);
+        // console.error(`Error linking document ${doc.id}:`, error)
       }
     }
     
-    // Refetch documents to ensure we have the latest state
-    console.log("[linkUnlinkedDocuments] Refetching documents after linking");
-    fetchDocuments(conversationId);
+    fetchDocuments(conversationId)
   }
 
   const handleDocumentDelete = async (documentId: string) => {
@@ -285,12 +238,11 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
       
       if (!response.ok) throw new Error("Failed to delete document")
       
-      // Remove from local state
-      setDocuments(prev => prev.filter(doc => doc.id !== documentId));
+      setDocuments(prev => prev.filter(doc => doc.id !== documentId))
       
       return true
     } catch (error) {
-      console.error('[handleDocumentDelete] Error:', error)
+      // console.error('[handleDocumentDelete] Error:', error)
       toast({
         title: "Error",
         description: "Failed to delete document",
@@ -300,11 +252,7 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
     }
   }
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value)
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!input.trim()) {
       toast({
@@ -323,192 +271,44 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
       return
     }
 
-    console.log('[handleSubmit] Starting submission with model:', selectedModel)
-    console.log('[handleSubmit] Model ID:', selectedModel?.model_id)
-    setIsLoading(true)
-    const userMessage = {
-      id: crypto.randomUUID(),
-      role: "user" as const,
-      content: input
-    }
-    // Add user message immediately
-    setMessages(prev => [...prev, userMessage]) 
-    const currentInput = input; // Store input before clearing
-    setInput("")
-
-    try {
-      console.log('[handleSubmit] Sending request:', {
-        messages: [...messages, userMessage],
-        conversationId: currentConversationId,
-        modelId: selectedModel.model_id,
-        includeDocumentContext: true,
-        documentId: currentConversationId === undefined && processingDocumentId ? processingDocumentId : undefined,
-        processingDocumentId: processingDocumentId,
-        hasConversation: !!currentConversationId,
-        documentsCount: documents.length
-      })
-      
-      const currentId = currentConversationId;
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [...messages, userMessage],
-          conversationId: currentId,
-          modelId: selectedModel.model_id,
-          includeDocumentContext: true,
-          documentId: currentId === undefined && processingDocumentId ? processingDocumentId : undefined
-        })
-      })
-
-      console.log('[handleSubmit] Response status:', response.status)
-      const contentType = response.headers.get('Content-Type')
-      console.log('[handleSubmit] Response content type:', contentType)
-
-      if (!response.ok) {
-        let errorMessage = response.statusText
-        try {
-          const errorData = await response.json()
-          console.log('[handleSubmit] Error data:', errorData)
-          errorMessage = errorData.error || errorData.message || JSON.stringify(errorData) || errorMessage
-        } catch {
-          // If response is not JSON, use status text
-        }
-        throw new Error(errorMessage)
-      }
-
-      let assistantText = "";
-      let newConversationId: number | undefined = currentConversationId;
-      const respType = contentType || "";
-
-      if (respType.includes("application/json")) {
-        const data = await response.json();
-        console.log('[handleSubmit] JSON Response data:', data);
-        
-        // The API returns a response with data.data.text structure based on the withErrorHandling wrapper
-        if (data.success && data.data?.text) {
-          console.log('[handleSubmit] Found text in data.data.text');
-          assistantText = data.data.text;
-        } else if (data.text) {
-          // Direct text property
-          console.log('[handleSubmit] Found text in data.text');
-          assistantText = data.text;
-        } else if (data.content) {
-          // Alternative content property
-          console.log('[handleSubmit] Found text in data.content');
-          assistantText = data.content;
-        } else if (data.message?.content) {
-          // Message content structure
-          console.log('[handleSubmit] Found text in data.message.content');
-          assistantText = data.message.content;
-        }
-        
-        console.log('[handleSubmit] Final extracted assistant text:', assistantText);
-        
-        // If we still don't have text, use a fallback message
-        if (!assistantText) {
-          console.warn('[handleSubmit] Could not find response text in data structure');
-          assistantText = "Sorry, there was an issue displaying the response.";
-        }
-        
-        // Check for conversationId in the response
-        const responseConversationId = data.data?.conversationId || data.conversationId;
-        
-        if (!currentConversationId && responseConversationId) {
-          newConversationId = responseConversationId;
-          // Update state *before* URL change
-          setCurrentConversationId(newConversationId); 
-          // Update the URL *after* state is likely processed
-          window.history.pushState({}, '', `/chat?conversation=${newConversationId}`);
-          
-          // Link any unlinked documents to the new conversation
-          await linkUnlinkedDocuments(newConversationId);
-          // Clear processingDocumentId AFTER linking is complete
-          if(processingDocumentId) setProcessingDocumentId(null); 
-        }
-      } else {
-        // For non-JSON responses
-        const responseText = await response.text();
-        console.log('[handleSubmit] Text response:', responseText);
-        assistantText = responseText;
-      }
-
-      // Add the final assistant message directly
-      const assistantMessage = {
-        id: crypto.randomUUID(), // Generate ID here
-        role: "assistant" as const,
-        content: assistantText
-      };
-      
-      setMessages(prev => [...prev, assistantMessage]);
-
-    } catch (error) {
-      console.error('[handleSubmit] Error:', error)
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to send message",
-        variant: "destructive"
-      })
-      // Restore user message and input on error
-      setMessages(prev => prev.filter(msg => msg.id !== userMessage.id)); 
-      setInput(currentInput) 
-    } finally {
-      setIsLoading(false)
-      // Scroll logic remains the same
-      if (scrollRef.current) {
-        scrollRef.current.scrollTo({
-          top: scrollRef.current.scrollHeight,
-          behavior: "smooth"
-        })
-      }
-    }
+    handleChatSubmit(e)
   }
 
   useEffect(() => {
     async function loadModels() {
       try {
-        console.log('[loadModels] Fetching models from API');
-        const response = await fetch("/api/chat/models");
+        const response = await fetch("/api/chat/models")
         
         if (!response.ok) {
-          console.error(`[loadModels] Error: ${response.status} ${response.statusText}`);
-          return;
+          // console.error(`[loadModels] Error: ${response.status} ${response.statusText}`)
+          return
         }
         
-        const result = await response.json();
-        
-        // Check if the result contains the data property (standard API response format)
-        const modelsData = result.data || result;
-        
-        console.log('[loadModels] Models loaded:', modelsData);
+        const result = await response.json()
+        const modelsData = result.data || result
         
         if (!Array.isArray(modelsData) || modelsData.length === 0) {
-          console.warn('[loadModels] No models returned from API or invalid format');
-          return;
+          console.warn('[loadModels] No models returned from API or invalid format')
+          return
         }
         
-        // Filter models with chatEnabled set to true
-        const chatModels = modelsData.filter(model => model.chat_enabled === true);
-        
-        console.log('[loadModels] Chat-enabled models:', chatModels);
+        const chatModels = modelsData.filter(model => model.chat_enabled === true)
         
         if (chatModels.length > 0) {
-          setModels(chatModels);
-          setSelectedModel(chatModels[0]);
-        } else {
-          console.warn('[loadModels] No chat-enabled models found');
+          setModels(chatModels)
+          setSelectedModel(chatModels[0])
         }
       } catch (error) {
-        console.error('[loadModels] Error:', error);
+        // console.error('[loadModels] Error:', error)
         toast({
           title: "Error",
           description: "Failed to load models",
           variant: "destructive"
-        });
+        })
       }
     }
     
-    loadModels();
+    loadModels()
   }, [toast])
 
   useEffect(() => {
@@ -529,18 +329,11 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
       })
     }
     setShowDocuments(true)
-    // Only trigger file dialog if there's no pending document
     if (!pendingDocument) {
       hiddenFileInputRef.current?.click()
     }
   }
 
-  const onPaperclipClick = () => {
-    handleAttachClick();
-  }
-
-  // No need for fallbacks - if models aren't loaded yet, we'll show an empty state
-  
   return (
     <div className="flex flex-col h-full bg-white border border-border rounded-lg shadow-sm overflow-hidden">
       <div className="flex items-center justify-between p-3 border-b border-border">
@@ -628,7 +421,7 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
             handleSubmit={handleSubmit}
             isLoading={isLoading}
             disabled={!selectedModel}
-            onAttachClick={onPaperclipClick}
+            onAttachClick={handleAttachClick}
             showAttachButton={true}
             ariaLabel="Type your message"
             inputId="chat-input-field"
@@ -639,7 +432,7 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
             <Button
               variant="outline"
               size="icon"
-              onClick={() => setIsLoading(false)}
+              onClick={stop}
               aria-label="Stop generation"
               aria-disabled={!isLoading}
             >
@@ -651,4 +444,4 @@ export function Chat({ conversationId: initialConversationId, title, initialMess
       </div>
     </div>
   )
-} 
+}

@@ -84,6 +84,8 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
 
   return (
     <Chat
+      // Use conversationId as key to force remount when changing conversations
+      key={conversationId || 'new-chat'}
       // Pass conversationId only if it's valid and verified, otherwise undefined for new chat
       conversationId={initialMessages.length > 0 ? conversationId : undefined}
       title={conversationTitle} // Pass the fetched or default title

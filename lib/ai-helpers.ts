@@ -1,7 +1,22 @@
-import { generateText, CoreMessage } from 'ai'
+import { 
+  generateText, 
+  streamText, 
+  generateObject,
+  tool,
+  CoreMessage,
+  CoreTool,
+  StreamTextResult,
+  GenerateObjectResult,
+  ToolExecutionError,
+  InvalidToolArgumentsError,
+  NoSuchToolError,
+  ToolCallRepairError
+} from 'ai'
 import { createAzure } from '@ai-sdk/azure'
 import { google } from '@ai-sdk/google'
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
+import { createOpenAI } from '@ai-sdk/openai'
+import { z } from 'zod'
 import logger from "@/lib/logger"
 import { Settings } from "@/lib/settings-manager"
 
@@ -10,20 +25,26 @@ interface ModelConfig {
   modelId: string
 }
 
-export async function generateCompletion(
-  modelConfig: ModelConfig,
-  messages: CoreMessage[]
-) {
-  // Log the full prompt for debugging
-  logger.info('[generateCompletion] SENDING TO LLM:', messages.map(m => `\n[${m.role}]\n${m.content}`).join('\n---\n'));
+export interface StreamingOptions {
+  onToken?: (token: string) => void
+  onFinish?: (result: any) => void
+  onError?: (error: Error) => void
+}
 
-  logger.info('[generateCompletion] Received messages:', JSON.stringify(messages, null, 2));
+export interface ToolDefinition {
+  name: string
+  description: string
+  parameters: z.ZodType<any>
+  execute: (args: any, context?: { toolCallId: string; messages: CoreMessage[]; abortSignal: AbortSignal }) => Promise<any>
+}
+
+// Get the appropriate model client based on provider
+async function getModelClient(modelConfig: ModelConfig) {
+  logger.info(`[getModelClient] Getting client for provider '${modelConfig.provider}' with model '${modelConfig.modelId}'`);
 
   switch (modelConfig.provider) {
     case 'amazon-bedrock': {
       const bedrockConfig = await Settings.getBedrock();
-      const region = bedrockConfig.region || 'unknown-region';
-      logger.info(`[generateCompletion] Using Amazon Bedrock with region '${region}' and model ID '${modelConfig.modelId}'`);
       
       if (!bedrockConfig.accessKeyId || !bedrockConfig.secretAccessKey || !bedrockConfig.region) {
         throw new Error('Amazon Bedrock is not configured. Please set the required settings in the admin panel.')
@@ -35,16 +56,7 @@ export async function generateCompletion(
         secretAccessKey: bedrockConfig.secretAccessKey
       })
 
-      const result = await generateText({
-        model: bedrock(modelConfig.modelId),
-        messages
-      })
-
-      if (!result.text) {
-        throw new Error('No content returned from Amazon Bedrock')
-      }
-
-      return result.text
+      return bedrock(modelConfig.modelId)
     }
 
     case 'azure': {
@@ -59,60 +71,141 @@ export async function generateCompletion(
         resourceName: azureConfig.resourceName
       })
 
-      const result = await generateText({
-        model: azureClient(modelConfig.modelId),
-        messages
-      })
-
-      if (!result.text) {
-        throw new Error('No content returned from Azure')
-      }
-
-      return result.text
+      return azureClient(modelConfig.modelId)
     }
 
     case 'google': {
-      // Get API key from settings
       const googleApiKey = await Settings.getGoogleAI();
       
-      logger.info(`[generateCompletion] Using Google AI with model ID '${modelConfig.modelId}'`);
-      
       if (!googleApiKey) {
-        logger.error('[generateCompletion] Google API key is missing');
         throw new Error('Google API key is not configured. Please set GOOGLE_API_KEY in the admin panel.');
       }
       
       // Manually set the environment variable that the Google AI SDK is looking for
-      // This ensures the SDK finds the key regardless of which env var name we use
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = googleApiKey;
       
-      try {
-        const googleClient = google(modelConfig.modelId);
+      return google(modelConfig.modelId);
+    }
+
+    case 'openai': {
+      const openAIKey = await Settings.getOpenAI();
       
-        const result = await generateText({
-          model: googleClient,
-          messages
-        });
-
-        if (!result.text) {
-          throw new Error('No content returned from Google');
-        }
-
-        return result.text;
-      } catch (error) {
-        logger.error('[generateCompletion] Google AI error:', error);
-        
-        // Check if it's an API key error
-        if (error instanceof Error && error.message && error.message.includes('API key')) {
-          throw new Error(`Google API key issue: ${error.message}. Please check your Google API key in the admin panel.`);
-        }
-        
-        // Rethrow any other errors
-        throw error;
+      if (!openAIKey) {
+        throw new Error('OpenAI API key is not configured. Please set OPENAI_API_KEY in the admin panel.');
       }
+      
+      const openai = createOpenAI({
+        apiKey: openAIKey
+      });
+      
+      return openai(modelConfig.modelId);
     }
 
     default:
       throw new Error(`Unsupported provider: ${modelConfig.provider}`)
   }
-} 
+}
+
+// Generate a text completion
+export async function generateCompletion(
+  modelConfig: ModelConfig,
+  messages: CoreMessage[],
+  tools?: Record<string, CoreTool>
+) {
+  logger.info('[generateCompletion] SENDING TO LLM:', messages.map(m => `\n[${m.role}]\n${m.content}`).join('\n---\n'));
+  
+  const model = await getModelClient(modelConfig);
+  
+  try {
+    const result = await generateText({
+      model,
+      messages,
+      tools,
+      maxSteps: tools ? 5 : undefined // Allow multi-step tool calling
+    });
+
+    if (!result.text) {
+      throw new Error(`No content returned from ${modelConfig.provider}`);
+    }
+
+    return result.text;
+  } catch (error) {
+    // Handle specific AI SDK errors
+    if (error instanceof NoSuchToolError) {
+      logger.error('[generateCompletion] Tool not found:', error.toolName);
+      throw new Error(`AI tried to use unknown tool: ${error.toolName}`);
+    } else if (error instanceof InvalidToolArgumentsError) {
+      logger.error('[generateCompletion] Invalid tool arguments:', error);
+      throw new Error(`Invalid arguments for tool ${error.toolName}: ${error.message}`);
+    } else if (error instanceof ToolExecutionError) {
+      logger.error('[generateCompletion] Tool execution failed:', error);
+      throw new Error(`Tool ${error.toolName} failed: ${error.message}`);
+    }
+    
+    throw error;
+  }
+}
+
+// Stream a text completion
+export async function streamCompletion(
+  modelConfig: ModelConfig,
+  messages: CoreMessage[],
+  options?: StreamingOptions,
+  tools?: Record<string, CoreTool>
+): Promise<StreamTextResult<Record<string, CoreTool>>> {
+  logger.info('[streamCompletion] Starting stream for:', modelConfig);
+  
+  const model = await getModelClient(modelConfig);
+  
+  const result = await streamText({
+    model,
+    messages,
+    tools,
+    maxSteps: tools ? 5 : undefined,
+    onChunk: options?.onToken ? ({ chunk }) => {
+      if (chunk.type === 'text-delta') {
+        options.onToken!(chunk.textDelta);
+      }
+    } : undefined,
+    onFinish: options?.onFinish
+  });
+
+  return result;
+}
+
+// Generate a structured object
+export async function generateStructuredOutput<T>(
+  modelConfig: ModelConfig,
+  messages: CoreMessage[],
+  schema: z.ZodType<T>
+): Promise<T> {
+  logger.info('[generateStructuredOutput] Generating structured output');
+  
+  const model = await getModelClient(modelConfig);
+  
+  const result = await generateObject({
+    model,
+    messages,
+    schema,
+    mode: 'json' // Use JSON mode for better compatibility
+  });
+
+  return result.object;
+}
+
+// Helper to create a tool from a definition
+export function createTool(definition: ToolDefinition): CoreTool {
+  return tool({
+    description: definition.description,
+    parameters: definition.parameters,
+    execute: definition.execute
+  });
+}
+
+// Export error types for consumers
+export {
+  ToolExecutionError,
+  InvalidToolArgumentsError,
+  NoSuchToolError,
+  ToolCallRepairError
+}; 
