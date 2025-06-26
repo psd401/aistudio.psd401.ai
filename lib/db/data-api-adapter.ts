@@ -1052,7 +1052,7 @@ export async function updateAssistantArchitect(id: string, updates: Record<strin
 export async function deleteAssistantArchitect(id: string) {
   const sql = `
     DELETE FROM assistant_architects 
-    WHERE id = :id
+    WHERE id = :id::uuid
     RETURNING *
   `;
   

@@ -46,10 +46,15 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
-  ChevronsUpDown
+  ChevronsUpDown,
+  Download,
+  Upload
 } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/components/ui/use-toast"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { ExportDialog } from "./export-dialog"
+import { ImportDialog } from "./import-dialog"
 import {
   ColumnDef,
   flexRender,
@@ -84,13 +89,15 @@ export function AssistantsTable() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const [isEditOpen, setIsEditOpen] = useState(false)
   const [editingAssistant, setEditingAssistant] = useState<Assistant | null>(null)
   const [formData, setFormData] = useState({
     name: "",
     description: ""
   })
   const [sorting, setSorting] = useState<SortingState>([])
+  const [selectedAssistants, setSelectedAssistants] = useState<Set<string>>(new Set())
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false)
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const { toast } = useToast()
 
   // Fetch assistants
@@ -106,7 +113,7 @@ export function AssistantsTable() {
         setError(data.message || "Failed to fetch assistants")
       }
     } catch (error) {
-      console.error("Error fetching assistants:", error)
+      // console.error("Error fetching assistants:", error)
       setError("Failed to fetch assistants")
     } finally {
       setIsLoading(false)
@@ -275,13 +282,35 @@ export function AssistantsTable() {
     }
   }
 
+  // Handle selection
+  const handleSelectAssistant = (assistantId: string) => {
+    const newSelected = new Set(selectedAssistants)
+    if (newSelected.has(assistantId)) {
+      newSelected.delete(assistantId)
+    } else {
+      newSelected.add(assistantId)
+    }
+    setSelectedAssistants(newSelected)
+  }
+
+  const handleSelectAll = () => {
+    if (selectedAssistants.size === assistants.length) {
+      setSelectedAssistants(new Set())
+    } else {
+      setSelectedAssistants(new Set(assistants.map(a => a.id)))
+    }
+  }
+
   // Sortable column header component
   const SortableColumnHeader = useCallback(({
     column,
     title,
     className = ""
   }: {
-    column: any;
+    column: {
+      toggleSorting: (desc?: boolean) => void;
+      getIsSorted: () => false | "asc" | "desc";
+    };
     title: string;
     className?: string;
   }) => (
@@ -304,6 +333,25 @@ export function AssistantsTable() {
   // Define columns
   const columns = useMemo<ColumnDef<Assistant>[]>(
     () => [
+      {
+        id: "select",
+        header: () => (
+          <Checkbox
+            checked={selectedAssistants.size === assistants.length && assistants.length > 0}
+            onCheckedChange={handleSelectAll}
+            aria-label="Select all"
+          />
+        ),
+        cell: ({ row }) => (
+          <Checkbox
+            checked={selectedAssistants.has(row.original.id)}
+            onCheckedChange={() => handleSelectAssistant(row.original.id)}
+            aria-label="Select row"
+          />
+        ),
+        enableSorting: false,
+        enableHiding: false,
+      },
       {
         accessorKey: "name",
         header: ({ column }) => <SortableColumnHeader column={column} title="Assistant" />,
@@ -420,7 +468,7 @@ export function AssistantsTable() {
         ),
       },
     ],
-    [SortableColumnHeader, getStatusBadge, handleStatusChange, handleDelete, router]
+    [SortableColumnHeader, getStatusBadge, handleStatusChange, handleDelete, router, selectedAssistants, assistants.length, handleSelectAll, handleSelectAssistant]
   )
 
   const table = useReactTable({
@@ -479,13 +527,32 @@ export function AssistantsTable() {
           )}
         </div>
 
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Assistant
+        <div className="flex items-center gap-2">
+          {selectedAssistants.size > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => setIsExportDialogOpen(true)}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export ({selectedAssistants.size})
             </Button>
-          </DialogTrigger>
+          )}
+          
+          <Button
+            variant="outline"
+            onClick={() => setIsImportDialogOpen(true)}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Import
+          </Button>
+
+          <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Assistant
+              </Button>
+            </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create Assistant</DialogTitle>
@@ -528,6 +595,7 @@ export function AssistantsTable() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <div className="rounded-md border">
@@ -561,7 +629,7 @@ export function AssistantsTable() {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8">
+                <TableCell colSpan={6} className="text-center py-8">
                   <Bot className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
                   <p className="text-muted-foreground">No assistants found</p>
                 </TableCell>
@@ -570,6 +638,20 @@ export function AssistantsTable() {
           </TableBody>
         </Table>
       </div>
+
+      <ExportDialog
+        open={isExportDialogOpen}
+        onOpenChange={setIsExportDialogOpen}
+        selectedAssistantIds={Array.from(selectedAssistants)}
+        assistants={assistants}
+        onExportComplete={() => setSelectedAssistants(new Set())}
+      />
+
+      <ImportDialog
+        open={isImportDialogOpen}
+        onOpenChange={setIsImportDialogOpen}
+        onImportComplete={fetchAssistants}
+      />
     </div>
   )
 } 
