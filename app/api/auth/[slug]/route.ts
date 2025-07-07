@@ -1,6 +1,9 @@
 import { createAuthRouteHandlers } from "@/app/utils/amplifyServerUtils";
 
-export const GET = createAuthRouteHandlers({
+const handlers = createAuthRouteHandlers({
   redirectOnSignInComplete: "/dashboard",
   redirectOnSignOutComplete: "/",
-}); 
+});
+
+export const GET = handlers.GET;
+export const POST = handlers.POST; 

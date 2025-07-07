@@ -103,15 +103,15 @@ export async function POST(req: NextRequest) {
 
       const insertQuery = `
         INSERT INTO conversations (title, user_id, model_id, source, execution_id, context)
-        VALUES (:title, :userId, :modelId, :source, :executionId, :context)
+        VALUES (:title, :userId, :modelId, :source, :executionId, :context::jsonb)
         RETURNING id
       `;
       const insertParams = [
         { name: 'title', value: { stringValue: messages[0].content.substring(0, 100) } },
-        { name: 'userId', value: { stringValue: currentUser.data.user.id } },
-        { name: 'modelId', value: { stringValue: aiModel.model_id } },
+        { name: 'userId', value: { longValue: currentUser.data.user.id } },
+        { name: 'modelId', value: { longValue: aiModel.id } },
         { name: 'source', value: { stringValue: source || "chat" } },
-        { name: 'executionId', value: executionId ? { stringValue: executionId } : { isNull: true } },
+        { name: 'executionId', value: executionId ? { longValue: executionId } : { isNull: true } },
         { name: 'context', value: context ? { stringValue: JSON.stringify(context) } : { isNull: true } }
       ];
       const newConversation = await executeSQL(insertQuery, insertParams);

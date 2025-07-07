@@ -18,14 +18,20 @@ export async function GET(req: NextRequest, context: Params) {
     const resolvedParams = await Promise.resolve(context.params)
     const promptId = resolvedParams.id
 
+    // Parse promptId to integer
+    const promptIdInt = parseInt(promptId, 10)
+    if (isNaN(promptIdInt)) {
+      return new NextResponse("Invalid prompt ID", { status: 400 })
+    }
+
     // Find the prompt by ID
     const promptSql = `
-      SELECT id, tool_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at
+      SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at
       FROM chain_prompts
-      WHERE id = :promptId::uuid
+      WHERE id = :promptId
     `
     const promptResult = await executeSQL(promptSql, [
-      { name: 'promptId', value: { stringValue: promptId } }
+      { name: 'promptId', value: { longValue: promptIdInt } }
     ])
 
     if (!promptResult || promptResult.length === 0) {
@@ -67,7 +73,7 @@ export async function GET(req: NextRequest, context: Params) {
     // Transform snake_case to camelCase and return the prompt along with the actual text model_id
     return NextResponse.json({
       id: prompt.id,
-      toolId: prompt.tool_id,
+      toolId: prompt.assistant_architect_id,
       name: prompt.name,
       content: prompt.content,
       systemContext: prompt.system_context,

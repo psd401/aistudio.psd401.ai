@@ -35,7 +35,14 @@ export async function PUT(
     }
     
     // Update the user's role via Data API
-    await updateUserRole(userIdString, newRole);
+    const userId = parseInt(userIdString, 10);
+    if (isNaN(userId)) {
+      return NextResponse.json(
+        { isSuccess: false, message: 'Invalid user ID' },
+        { status: 400 }
+      );
+    }
+    await updateUserRole(userId, newRole);
 
     return NextResponse.json({
       isSuccess: true,

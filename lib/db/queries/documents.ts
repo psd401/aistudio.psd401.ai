@@ -15,7 +15,7 @@ export async function saveDocument(document: InsertDocument): Promise<SelectDocu
       { name: 'type', value: { stringValue: document.type } },
       { name: 'url', value: { stringValue: document.url } },
       { name: 'size', value: document.size ? { longValue: document.size } : { isNull: true } },
-      { name: 'userId', value: { stringValue: document.userId } },
+      { name: 'userId', value: { longValue: document.userId } },
       { name: 'conversationId', value: document.conversationId ? { longValue: document.conversationId } : { isNull: true } },
       { name: 'metadata', value: document.metadata ? { stringValue: JSON.stringify(document.metadata) } : { isNull: true } }
     ];
@@ -24,13 +24,13 @@ export async function saveDocument(document: InsertDocument): Promise<SelectDocu
     if (document.id) {
       fields.unshift('id');
       placeholders.unshift(':id');
-      parameters.unshift({ name: 'id', value: { stringValue: document.id } });
+      parameters.unshift({ name: 'id', value: { longValue: document.id } });
     }
 
     // Apply proper type casting for PostgreSQL
     const valuesWithCast = placeholders.map((placeholder, index) => {
       const field = fields[index];
-      if (field === 'id' && placeholder === ':id') return ':id::uuid';
+      if (field === 'id' && placeholder === ':id') return ':id';
       if (field === 'metadata' && placeholder === ':metadata') return ':metadata::jsonb';
       return placeholder;
     });
@@ -66,16 +66,16 @@ export async function saveDocument(document: InsertDocument): Promise<SelectDocu
 /**
  * Gets a document by id
  */
-export async function getDocumentById({ id }: { id: string }): Promise<SelectDocument | undefined> {
+export async function getDocumentById({ id }: { id: number }): Promise<SelectDocument | undefined> {
   try {
     const query = `
       SELECT id, name, type, url, size, user_id, conversation_id, created_at
       FROM documents
-      WHERE id = :id::uuid
+      WHERE id = :id
       LIMIT 1
     `;
     const parameters = [
-      { name: 'id', value: { stringValue: id } }
+      { name: 'id', value: { longValue: id } }
     ];
     
     const results = await executeSQL(query, parameters);
@@ -89,7 +89,7 @@ export async function getDocumentById({ id }: { id: string }): Promise<SelectDoc
 /**
  * Gets documents by user id
  */
-export async function getDocumentsByUserId({ userId }: { userId: string }): Promise<SelectDocument[]> {
+export async function getDocumentsByUserId({ userId }: { userId: number }): Promise<SelectDocument[]> {
   try {
     const query = `
       SELECT id, name, type, url, size, user_id, conversation_id, created_at
@@ -98,7 +98,7 @@ export async function getDocumentsByUserId({ userId }: { userId: string }): Prom
       ORDER BY created_at DESC
     `;
     const parameters = [
-      { name: 'userId', value: { stringValue: userId } }
+      { name: 'userId', value: { longValue: userId } }
     ];
     
     const results = await executeSQL(query, parameters);
@@ -144,10 +144,10 @@ export async function deleteDocumentById({ id }: { id: string }): Promise<void> 
   try {
     const query = `
       DELETE FROM documents
-      WHERE id = :id::uuid
+      WHERE id = :id
     `;
     const parameters = [
-      { name: 'id', value: { stringValue: id } }
+      { name: 'id', value: { longValue: id } }
     ];
     
     await executeSQL(query, parameters);
@@ -166,7 +166,7 @@ export async function saveDocumentChunk(chunk: InsertDocumentChunk): Promise<Sel
     const fields = ['document_id', 'content', 'chunk_index'];
     const placeholders = [':documentId', ':content', ':chunkIndex'];
     const parameters = [
-      { name: 'documentId', value: { stringValue: chunk.documentId } },
+      { name: 'documentId', value: { longValue: chunk.documentId } },
       { name: 'content', value: { stringValue: chunk.content } },
       { name: 'chunkIndex', value: { longValue: chunk.chunkIndex } }
     ];
@@ -175,7 +175,7 @@ export async function saveDocumentChunk(chunk: InsertDocumentChunk): Promise<Sel
     if (chunk.id) {
       fields.unshift('id');
       placeholders.unshift(':id');
-      parameters.unshift({ name: 'id', value: { stringValue: chunk.id } });
+      parameters.unshift({ name: 'id', value: { longValue: chunk.id } });
     }
     
     if (chunk.metadata) {
@@ -187,8 +187,8 @@ export async function saveDocumentChunk(chunk: InsertDocumentChunk): Promise<Sel
     // Apply proper type casting for PostgreSQL
     const valuesWithCast = placeholders.map((placeholder, index) => {
       const field = fields[index];
-      if (field === 'id' && placeholder === ':id') return ':id::uuid';
-      if (field === 'document_id' && placeholder === ':documentId') return ':documentId::uuid';
+      if (field === 'id' && placeholder === ':id') return ':id';
+      if (field === 'document_id' && placeholder === ':documentId') return ':documentId';
       if (field === 'metadata' && placeholder === ':metadata') return ':metadata::jsonb';
       return placeholder;
     });
@@ -227,17 +227,17 @@ export async function saveDocumentChunk(chunk: InsertDocumentChunk): Promise<Sel
 export async function getDocumentChunksByDocumentId({ 
   documentId 
 }: { 
-  documentId: string 
+  documentId: number 
 }): Promise<SelectDocumentChunk[]> {
   try {
     const query = `
       SELECT id, document_id, content, chunk_index, created_at
       FROM document_chunks
-      WHERE document_id = :documentId::uuid
+      WHERE document_id = :documentId
       ORDER BY chunk_index ASC
     `;
     const parameters = [
-      { name: 'documentId', value: { stringValue: documentId } }
+      { name: 'documentId', value: { longValue: documentId } }
     ];
     
     const results = await executeSQL(query, parameters);
@@ -261,7 +261,7 @@ export async function batchInsertDocumentChunks(chunks: InsertDocumentChunk[]): 
       const fields = ['document_id', 'content', 'chunk_index'];
       const placeholders = [':documentId', ':content', ':chunkIndex'];
       const parameters = [
-        { name: 'documentId', value: { stringValue: chunk.documentId } },
+        { name: 'documentId', value: { longValue: chunk.documentId } },
         { name: 'content', value: { stringValue: chunk.content } },
         { name: 'chunkIndex', value: { longValue: chunk.chunkIndex } }
       ];
@@ -270,7 +270,7 @@ export async function batchInsertDocumentChunks(chunks: InsertDocumentChunk[]): 
       if (chunk.id) {
         fields.unshift('id');
         placeholders.unshift(':id');
-        parameters.unshift({ name: 'id', value: { stringValue: chunk.id } });
+        parameters.unshift({ name: 'id', value: { longValue: chunk.id } });
       }
       
       if (chunk.metadata) {
@@ -282,8 +282,8 @@ export async function batchInsertDocumentChunks(chunks: InsertDocumentChunk[]): 
       // Apply proper type casting for PostgreSQL
       const valuesWithCast = placeholders.map((placeholder, index) => {
         const field = fields[index];
-        if (field === 'id' && placeholder === ':id') return ':id::uuid';
-        if (field === 'document_id' && placeholder === ':documentId') return ':documentId::uuid';
+        if (field === 'id' && placeholder === ':id') return ':id';
+        if (field === 'document_id' && placeholder === ':documentId') return ':documentId';
         if (field === 'metadata' && placeholder === ':metadata') return ':metadata::jsonb';
         return placeholder;
       });
@@ -322,15 +322,15 @@ export async function batchInsertDocumentChunks(chunks: InsertDocumentChunk[]): 
 export async function deleteDocumentChunksByDocumentId({ 
   documentId 
 }: { 
-  documentId: string 
+  documentId: number 
 }): Promise<void> {
   try {
     const query = `
       DELETE FROM document_chunks
-      WHERE document_id = :documentId::uuid
+      WHERE document_id = :documentId
     `;
     const parameters = [
-      { name: 'documentId', value: { stringValue: documentId } }
+      { name: 'documentId', value: { longValue: documentId } }
     ];
     
     await executeSQL(query, parameters);
@@ -344,18 +344,18 @@ export async function deleteDocumentChunksByDocumentId({
  * Update the conversation ID for a given document ID
  */
 export async function linkDocumentToConversation(
-  documentId: string,
+  documentId: number,
   conversationId: number
 ): Promise<SelectDocument | undefined> {
   try {
     const query = `
       UPDATE documents
       SET conversation_id = :conversationId
-      WHERE id = :documentId::uuid
+      WHERE id = :documentId
       RETURNING id, name, type, url, size, user_id, conversation_id, created_at
     `;
     const parameters = [
-      { name: 'documentId', value: { stringValue: documentId } },
+      { name: 'documentId', value: { longValue: documentId } },
       { name: 'conversationId', value: { longValue: conversationId } }
     ];
     

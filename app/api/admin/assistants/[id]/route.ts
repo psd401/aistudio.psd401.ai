@@ -33,8 +33,16 @@ export async function PUT(
 
     const body = await request.json()
     const { id } = params
+    
+    const assistantId = parseInt(id, 10)
+    if (isNaN(assistantId)) {
+      return NextResponse.json(
+        { isSuccess: false, message: 'Invalid assistant ID' },
+        { status: 400 }
+      )
+    }
 
-    const assistant = await updateAssistantArchitect(id, body)
+    const assistant = await updateAssistantArchitect(assistantId, body)
 
     return NextResponse.json({
       isSuccess: true,
@@ -74,8 +82,16 @@ export async function DELETE(
     }
 
     const { id } = params
+    
+    const assistantId = parseInt(id, 10)
+    if (isNaN(assistantId)) {
+      return NextResponse.json(
+        { isSuccess: false, message: 'Invalid assistant ID' },
+        { status: 400 }
+      )
+    }
 
-    await deleteAssistantArchitect(id)
+    await deleteAssistantArchitect(assistantId)
 
     return NextResponse.json({
       isSuccess: true,
@@ -115,9 +131,17 @@ export async function POST(
 
     const body = await request.json()
     const { id } = params
+    
+    const assistantId = parseInt(id, 10)
+    if (isNaN(assistantId)) {
+      return NextResponse.json(
+        { isSuccess: false, message: 'Invalid assistant ID' },
+        { status: 400 }
+      )
+    }
 
     if (body.action === 'approve') {
-      const result = await approveAssistantArchitect(id)
+      const result = await approveAssistantArchitect(assistantId)
       return NextResponse.json({
         isSuccess: true,
         message: 'Assistant approved successfully',
@@ -126,7 +150,7 @@ export async function POST(
     }
 
     if (body.action === 'reject') {
-      await rejectAssistantArchitect(id)
+      await rejectAssistantArchitect(assistantId)
       return NextResponse.json({
         isSuccess: true,
         message: 'Assistant rejected successfully'

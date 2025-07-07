@@ -14,7 +14,7 @@ import { SelectUser } from "@/types/db-types"
 
 interface CurrentUserWithRoles {
   user: SelectUser
-  roles: { id: string; name: string; description?: string }[]
+  roles: { id: number; name: string; description?: string }[]
 }
 
 export async function getCurrentUserAction(): Promise<
@@ -53,9 +53,11 @@ export async function getCurrentUserAction(): Promise<
           WHERE id = :userId
           RETURNING id, cognito_sub, email, first_name, last_name, created_at, updated_at
         `
+        // Ensure user.id is a number
+        const userId = typeof user.id === 'string' ? parseInt(user.id, 10) : user.id
         const updateParams = [
           { name: "cognitoSub", value: { stringValue: session.sub } },
-          { name: "userId", value: { stringValue: user.id } }
+          { name: "userId", value: { longValue: userId } }
         ]
         const updateResult = await executeSQL(updateQuery, updateParams)
         user = updateResult[0]
@@ -84,8 +86,10 @@ export async function getCurrentUserAction(): Promise<
       WHERE id = :userId
       RETURNING id, cognito_sub, email, first_name, last_name, last_sign_in_at, created_at, updated_at
     `
+    // Ensure user.id is a number
+    const userId = typeof user.id === 'string' ? parseInt(user.id, 10) : user.id
     const updateLastSignInParams = [
-      { name: "userId", value: { stringValue: user.id } }
+      { name: "userId", value: { longValue: userId } }
     ]
     const updateResult = await executeSQL(updateLastSignInQuery, updateLastSignInParams)
     user = updateResult[0]

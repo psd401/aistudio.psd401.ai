@@ -42,14 +42,31 @@ export async function DELETE(
       return new Response('Not found', { status: 404 });
     }
 
-    // Delete all messages first
+    // Delete document chunks first (they reference documents)
+    const deleteChunksQuery = `
+      DELETE FROM document_chunks 
+      WHERE document_id IN (
+        SELECT id FROM documents 
+        WHERE conversation_id = :conversationId
+      )
+    `;
+    await executeSQL(deleteChunksQuery, checkParams);
+
+    // Delete documents
+    const deleteDocumentsQuery = `
+      DELETE FROM documents 
+      WHERE conversation_id = :conversationId
+    `;
+    await executeSQL(deleteDocumentsQuery, checkParams);
+
+    // Delete all messages
     const deleteMessagesQuery = `
       DELETE FROM messages 
       WHERE conversation_id = :conversationId
     `;
     await executeSQL(deleteMessagesQuery, checkParams);
 
-    // Then delete the conversation
+    // Finally delete the conversation
     const deleteConversationQuery = `
       DELETE FROM conversations 
       WHERE id = :conversationId

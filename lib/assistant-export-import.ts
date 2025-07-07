@@ -39,14 +39,14 @@ export const CURRENT_EXPORT_VERSION = "1.0"
 /**
  * Fetches complete assistant data including prompts and input fields
  */
-export async function getAssistantDataForExport(assistantIds: string[]): Promise<ExportedAssistant[]> {
+export async function getAssistantDataForExport(assistantIds: number[]): Promise<ExportedAssistant[]> {
   if (!assistantIds.length) return []
 
   // Create parameter placeholders for the IN clause
-  const placeholders = assistantIds.map((_, index) => `:id${index}::uuid`).join(', ')
+  const placeholders = assistantIds.map((_, index) => `:id${index}`).join(', ')
   const parameters = assistantIds.map((id, index) => ({
     name: `id${index}`,
-    value: { stringValue: id }
+    value: { longValue: id }
   }))
 
   // Fetch assistants
@@ -72,22 +72,22 @@ export async function getAssistantDataForExport(assistantIds: string[]): Promise
         am.model_id as model_name
       FROM chain_prompts cp
       LEFT JOIN ai_models am ON cp.model_id = am.id
-      WHERE cp.tool_id = :toolId::uuid
+      WHERE cp.assistant_architect_id = :assistantId
       ORDER BY cp.position ASC
     `
     const prompts = await executeSQL(promptsQuery, [
-      { name: 'toolId', value: { stringValue: assistant.id } }
+      { name: 'assistantId', value: { longValue: assistant.id } }
     ])
 
     // Fetch input fields
     const fieldsQuery = `
       SELECT name, label, field_type, position, options
       FROM tool_input_fields
-      WHERE tool_id = :toolId::uuid
+      WHERE assistant_architect_id = :assistantId
       ORDER BY position ASC
     `
     const inputFields = await executeSQL(fieldsQuery, [
-      { name: 'toolId', value: { stringValue: assistant.id } }
+      { name: 'assistantId', value: { longValue: assistant.id } }
     ])
 
     return {

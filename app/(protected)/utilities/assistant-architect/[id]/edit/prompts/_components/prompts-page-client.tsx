@@ -260,6 +260,7 @@ const Flow = React.forwardRef(({
 
   // Initialize nodes and edges on first load only
   useEffect(() => {
+    console.log('[Flow] useEffect triggered with prompts:', prompts);
     if (initialPositionsSet.current) return
     
     // If no prompts, just set up the start node
@@ -311,7 +312,7 @@ const Flow = React.forwardRef(({
         const xPos = 250 + (colIndex * horizontalSpacing) - centerOffset;
         
         promptNodes.push({
-          id: prompt.id,
+          id: String(prompt.id),
           type: 'prompt' as const,
           position: { x: xPos, y: rowY },
           data: {
@@ -336,9 +337,9 @@ const Flow = React.forwardRef(({
     if (promptsByPosition[0]) {
       promptsByPosition[0].forEach(prompt => {
         newEdges.push({
-          id: `e-start-${prompt.id}`,
+          id: `e-start-${String(prompt.id)}`,
           source: 'start',
-          target: prompt.id,
+          target: String(prompt.id),
           type: 'smoothstep'
         });
       });
@@ -355,12 +356,12 @@ const Flow = React.forwardRef(({
       // If there's one prompt at current position and multiple at next position,
       // connect the current to each of the next (branching)
       if (currentPrompts.length === 1 && nextPrompts.length > 1) {
-        const sourceId = currentPrompts[0].id;
+        const sourceId = String(currentPrompts[0].id);
         nextPrompts.forEach(targetPrompt => {
           newEdges.push({
-            id: `e-${sourceId}-${targetPrompt.id}`,
+            id: `e-${sourceId}-${String(targetPrompt.id)}`,
             source: sourceId,
-            target: targetPrompt.id,
+            target: String(targetPrompt.id),
             type: 'smoothstep'
           });
         });
@@ -368,11 +369,11 @@ const Flow = React.forwardRef(({
       // If there are multiple prompts at current position and one at next position,
       // connect each current to the next (merging)
       else if (currentPrompts.length > 1 && nextPrompts.length === 1) {
-        const targetId = nextPrompts[0].id;
+        const targetId = String(nextPrompts[0].id);
         currentPrompts.forEach(sourcePrompt => {
           newEdges.push({
-            id: `e-${sourcePrompt.id}-${targetId}`,
-            source: sourcePrompt.id,
+            id: `e-${String(sourcePrompt.id)}-${targetId}`,
+            source: String(sourcePrompt.id),
             target: targetId,
             type: 'smoothstep'
           });
@@ -385,9 +386,9 @@ const Flow = React.forwardRef(({
         currentPrompts.forEach(sourcePrompt => {
           nextPrompts.forEach(targetPrompt => {
             newEdges.push({
-              id: `e-${sourcePrompt.id}-${targetPrompt.id}`,
-              source: sourcePrompt.id,
-              target: targetPrompt.id,
+              id: `e-${String(sourcePrompt.id)}-${String(targetPrompt.id)}`,
+              source: String(sourcePrompt.id),
+              target: String(targetPrompt.id),
               type: 'smoothstep'
             });
           });
@@ -395,6 +396,17 @@ const Flow = React.forwardRef(({
       }
     }
 
+    console.log('[Flow] Setting nodes:', {
+      startNode,
+      promptNodes,
+      promptCount: promptNodes.length,
+      nodeIds: promptNodes.map(n => n.id)
+    });
+    console.log('[Flow] Setting edges:', {
+      edgeCount: newEdges.length,
+      edges: newEdges
+    });
+    
     setNodes([startNode, ...promptNodes])
     setEdges(newEdges)
     initialPositionsSet.current = true
@@ -600,13 +612,15 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
     }
     
     try {
-      const result = await deletePromptAction(promptId)
+      // Convert string ID back to integer for backend API
+      const promptIdInt = parseInt(promptId, 10);
+      const result = await deletePromptAction(promptIdInt)
 
       if (result.isSuccess) {
         toast.success("Prompt deleted successfully")
         
         // Remove the deleted prompt from our local state
-        setPrompts(current => current.filter(p => p.id !== promptId))
+        setPrompts(current => current.filter(p => p.id !== promptIdInt))
         
         // Update the graph with the latest execution order
         if (reactFlowInstanceRef.current) {
@@ -678,7 +692,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
       
       // Update each prompt's position
       const updatePromises = executionOrder.map((promptId, index) => 
-        updatePromptPositionAction(promptId, index)
+        updatePromptPositionAction(parseInt(promptId, 10), index)
       );
       
       // Wait for all position updates to complete
@@ -690,7 +704,8 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
       setPrompts(current => {
         const updatedPrompts = [...current];
         executionOrder.forEach((id, index) => {
-          const promptIndex = updatedPrompts.findIndex(p => p.id === id);
+          const idInt = parseInt(id, 10);
+          const promptIndex = updatedPrompts.findIndex(p => p.id === idInt);
           if (promptIndex >= 0) {
             updatedPrompts[promptIndex] = {
               ...updatedPrompts[promptIndex],

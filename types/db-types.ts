@@ -2,8 +2,8 @@
 // These types match the database structure
 
 export type InsertJob = {
-  id?: string;
-  userId: string;
+  id?: number;
+  userId: number;
   status?: string;
   type: string;
   input: string;
@@ -14,8 +14,8 @@ export type InsertJob = {
 }
 
 export type SelectJob = {
-  id: string;
-  userId: string;
+  id: number;
+  userId: number;
   status: string;
   type: string;
   input: string;
@@ -26,14 +26,14 @@ export type SelectJob = {
 }
 
 export type InsertNavigationItem = {
-  id?: string;
+  id?: number;
   label: string;
   icon: string;
   link?: string | null;
-  parentId?: string | null;
+  parentId?: number | null;
   description?: string | null;
   type?: string;
-  toolId?: string | null;
+  toolId?: number | null;
   requiresRole?: string | null;
   position?: number;
   isActive?: boolean;
@@ -41,14 +41,14 @@ export type InsertNavigationItem = {
 }
 
 export type SelectNavigationItem = {
-  id: string;
+  id: number;
   label: string;
   icon: string;
   link: string | null;
-  parentId: string | null;
+  parentId: number | null;
   description: string | null;
   type: string;
-  toolId: string | null;
+  toolId: number | null;
   requiresRole: string | null;
   position: number;
   isActive: boolean;
@@ -56,7 +56,7 @@ export type SelectNavigationItem = {
 }
 
 export type SelectUser = {
-  id: string;
+  id: number;
   cognitoSub: string | null;
   email: string;
   firstName: string | null;
@@ -67,31 +67,31 @@ export type SelectUser = {
 }
 
 export type SelectDocument = {
-  id: string;
+  id: number;
   name: string;
   type: string;
   url: string;
   size: number;
-  userId: string;
+  userId: number;
   conversationId: number | null;
   metadata?: any;
   createdAt: Date;
 }
 
 export type InsertDocument = {
-  id?: string;
+  id?: number;
   name: string;
   type: string;
   url: string;
   size?: number;
-  userId: string;
+  userId: number;
   conversationId?: number | null;
   metadata?: any;
 }
 
 export type SelectDocumentChunk = {
-  id: string;
-  documentId: string;
+  id: number;
+  documentId: number;
   content: string;
   chunkIndex: number;
   metadata?: any;
@@ -99,123 +99,129 @@ export type SelectDocumentChunk = {
 }
 
 export type InsertDocumentChunk = {
-  id?: string;
-  documentId: string;
+  id?: number;
+  documentId: number;
   content: string;
   chunkIndex: number;
   metadata?: any;
 }
 
 export type SelectAssistantArchitect = {
-  id: string;
+  id: number;
   name: string;
   description: string | null;
   status: string;
   imagePath: string | null;
-  userId: string;
+  userId: number;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export type SelectToolInputField = {
-  id: string;
-  toolId: string;
+  id: number;
+  assistantArchitectId: number;
   name: string;
   label: string;
-  type: string;
-  placeholder: string | null;
-  required: boolean;
-  defaultValue: string | null;
-  options: string | null;
+  fieldType: string;
+  options: any | null;
   position: number;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export type SelectChainPrompt = {
-  id: string;
-  toolId: string;
-  prompt: string;
+  id: number;
+  assistantArchitectId: number;
+  name: string;
+  content: string;
+  systemContext: string | null;
+  modelId: number | null;
   position: number;
-  aiModelId: string | null;
+  inputMapping: any | null;
+  parallelGroup: number | null;
+  timeoutSeconds: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export type SelectToolExecution = {
-  id: string;
-  toolId: string;
-  userId: string;
-  input: any;
+  id: number;
+  assistantArchitectId: number;
+  userId: number;
+  inputData: any;
   status: string;
-  jobId: string | null;
-  createdAt: Date;
-  updatedAt: Date;
+  errorMessage: string | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
 }
 
 export type SelectPromptResult = {
-  id: string;
-  toolExecutionId: string;
-  chainPromptId: string;
+  id: number;
+  toolExecutionId: number;
+  chainPromptId: number;
   result: string;
-  aiModelId: string | null;
+  aiModelId: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export type InsertAssistantArchitect = {
-  id?: string;
+  id?: number;
   name: string;
   description?: string;
   status?: string;
   imagePath?: string;
-  userId?: string;
+  userId?: number;
 }
 
 export type InsertToolInputField = {
-  id?: string;
-  toolId: string;
+  id?: number;
+  assistantArchitectId: number;
   name: string;
   label: string;
-  type: string;
-  placeholder?: string;
-  required?: boolean;
-  defaultValue?: string;
-  options?: string;
+  fieldType: string;
+  options?: any;
   position?: number;
 }
 
 export type InsertChainPrompt = {
-  id?: string;
-  toolId: string;
-  prompt: string;
+  id?: number;
+  assistantArchitectId: number;
+  name: string;
+  content: string;
+  systemContext?: string;
+  modelId?: number;
   position?: number;
-  aiModelId?: string;
+  inputMapping?: any;
+  parallelGroup?: number;
+  timeoutSeconds?: number;
 }
 
 export type InsertToolExecution = {
-  id?: string;
-  toolId: string;
-  userId: string;
-  input: any;
+  id?: number;
+  assistantArchitectId: number;
+  userId: number;
+  inputData: any;
   status?: string;
-  jobId?: string;
+  errorMessage?: string;
+  startedAt?: Date;
+  completedAt?: Date;
 }
 
 export type InsertPromptResult = {
-  id?: string;
-  toolExecutionId: string;
-  chainPromptId: string;
+  id?: number;
+  toolExecutionId: number;
+  chainPromptId: number;
   result: string;
-  aiModelId?: string;
+  aiModelId?: number;
 }
 
 export type SelectTool = {
-  id: string;
+  id: number;
   identifier: string;
   name: string;
   description: string | null;
-  promptChainToolId: string | null;
+  promptChainToolId: number | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;

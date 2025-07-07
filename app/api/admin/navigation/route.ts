@@ -97,7 +97,7 @@ export async function POST(request: Request) {
         // This is an update operation
         const { id, ...data } = body;
         try {
-          const updatedItem = await updateNavigationItem(id, data)
+          const updatedItem = await updateNavigationItem(parseInt(id, 10), data)
 
           return NextResponse.json({
             isSuccess: true,
@@ -115,19 +115,16 @@ export async function POST(request: Request) {
       // If the item doesn't exist, fall through to create it
     }
     
-    // Create new item (either no ID provided or ID doesn't exist)
-    // Use provided ID if available, otherwise generate one
-    const newId = body.id || `nav_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+    // Create new item (ID will be auto-generated)
     try {
       const newItem = await createNavigationItem({
-        id: newId,
         label: body.label,
         icon: body.icon,
         link: body.link,
         description: body.description,
         type: body.type,
-        parentId: body.parentId,
-        toolId: body.toolId,
+        parentId: body.parentId ? parseInt(body.parentId, 10) : undefined,
+        toolId: body.toolId ? parseInt(body.toolId, 10) : undefined,
         requiresRole: body.requiresRole,
         position: body.position || 0,
         isActive: body.isActive ?? true
@@ -186,7 +183,7 @@ export async function PATCH(request: Request) {
     }
 
     try {
-      const updatedItem = await updateNavigationItem(body.id, { position: body.position })
+      const updatedItem = await updateNavigationItem(parseInt(body.id, 10), { position: body.position })
 
 
       if (!updatedItem) {

@@ -17,7 +17,7 @@ export async function GET() {
       ORDER BY created_at DESC
     `;
     const parameters = [
-      { name: 'userId', value: { stringValue: currentUser.data.user.id } }
+      { name: 'userId', value: { longValue: currentUser.data.user.id } }
     ];
     
     const conversations = await executeSQL(query, parameters);
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     `;
     const insertParams = [
       { name: 'title', value: { stringValue: body.title || 'New Conversation' } },
-      { name: 'userId', value: { stringValue: currentUser.data.user.id } },
+      { name: 'userId', value: { longValue: currentUser.data.user.id } },
       { name: 'modelId', value: body.modelId ? { longValue: body.modelId } : { isNull: true } },
       { name: 'source', value: { stringValue: body.source || 'chat' } },
       { name: 'executionId', value: body.executionId ? { stringValue: body.executionId } : { isNull: true } },

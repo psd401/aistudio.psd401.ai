@@ -154,9 +154,17 @@ export async function DELETE(request: NextRequest) {
     }, { status: 400 });
   }
 
+  const docId = parseInt(documentId, 10);
+  if (isNaN(docId)) {
+    return NextResponse.json({ 
+      success: false, 
+      error: 'Invalid document ID' 
+    }, { status: 400 });
+  }
+
   try {
     // First check if the document exists and belongs to the user
-    const document = await getDocumentById({ id: documentId });
+    const document = await getDocumentById({ id: docId });
     
     if (!document) {
       return NextResponse.json({ 
@@ -184,7 +192,7 @@ export async function DELETE(request: NextRequest) {
     }
     
     // Delete the document from the database
-    await deleteDocumentById({ id: documentId });
+    await deleteDocumentById({ id: docId });
     
     return NextResponse.json({
       success: true,

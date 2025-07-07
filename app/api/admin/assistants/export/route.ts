@@ -35,9 +35,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Validate UUIDs
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-    const invalidIds = assistantIds.filter(id => !uuidRegex.test(id))
+    // Validate IDs are numbers
+    const invalidIds = assistantIds.filter(id => !Number.isInteger(id) || id <= 0)
     if (invalidIds.length > 0) {
       return NextResponse.json(
         { isSuccess: false, message: `Invalid assistant IDs: ${invalidIds.join(', ')}` },

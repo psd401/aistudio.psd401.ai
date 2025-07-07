@@ -46,7 +46,7 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
     `;
     const conversationParams = [
       { name: 'conversationId', value: { longValue: conversationId } },
-      { name: 'userId', value: { stringValue: userId } }
+      { name: 'userId', value: { longValue: userId } }
     ];
     const conversation = await executeSQL(conversationQuery, conversationParams);
 

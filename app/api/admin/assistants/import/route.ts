@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "@/lib/auth/server-session"
 import { checkUserRoleByCognitoSub, executeSQL } from "@/lib/db/data-api-adapter"
 import { validateImportFile, mapModelsForImport, type ExportFormat } from "@/lib/assistant-export-import"
-import { v4 as uuidv4 } from "uuid"
+// UUID import removed - using auto-increment IDs
 import logger from "@/lib/logger"
 
 export async function POST(request: NextRequest) {
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const userId = userResult[0].id
+    const userId = userResult[0].id // This is now an integer
 
     // Collect all unique model names for mapping
     const modelNames = new Set<string>()
@@ -100,31 +100,30 @@ export async function POST(request: NextRequest) {
     // Import each assistant
     for (const assistant of importData.assistants) {
       try {
-        const assistantId = uuidv4()
-
-        // Insert assistant
-        await executeSQL(`
+        // Insert assistant and get the generated ID
+        const assistantResult = await executeSQL(`
           INSERT INTO assistant_architects (
-            id, name, description, status, image_path, 
+            name, description, status, image_path, 
             is_parallel, timeout_seconds, user_id, created_at, updated_at
           ) VALUES (
-            :id::uuid, :name, :description, :status::tool_status, :imagePath,
+            :name, :description, :status::tool_status, :imagePath,
             :isParallel, :timeoutSeconds, :userId, NOW(), NOW()
           )
+          RETURNING id
         `, [
-          { name: 'id', value: { stringValue: assistantId } },
           { name: 'name', value: { stringValue: assistant.name } },
           { name: 'description', value: { stringValue: assistant.description || '' } },
           { name: 'status', value: { stringValue: 'pending_approval' } }, // Always import as pending
           { name: 'imagePath', value: assistant.image_path ? { stringValue: assistant.image_path } : { isNull: true } },
           { name: 'isParallel', value: { booleanValue: assistant.is_parallel || false } },
           { name: 'timeoutSeconds', value: assistant.timeout_seconds ? { longValue: assistant.timeout_seconds } : { isNull: true } },
-          { name: 'userId', value: { stringValue: userId } }
+          { name: 'userId', value: { longValue: userId } }
         ])
+
+        const assistantId = assistantResult[0].id
 
         // Insert prompts
         for (const prompt of assistant.prompts) {
-          const promptId = uuidv4()
           const modelId = modelMap.get(prompt.model_name)
 
           if (!modelId) {
@@ -134,17 +133,16 @@ export async function POST(request: NextRequest) {
 
           await executeSQL(`
             INSERT INTO chain_prompts (
-              id, tool_id, name, content, system_context, model_id,
+              assistant_architect_id, name, content, system_context, model_id,
               position, parallel_group, input_mapping, timeout_seconds,
               created_at, updated_at
             ) VALUES (
-              :id::uuid, :toolId::uuid, :name, :content, :systemContext, :modelId,
+              :assistantId, :name, :content, :systemContext, :modelId,
               :position, :parallelGroup, :inputMapping::jsonb, :timeoutSeconds,
               NOW(), NOW()
             )
           `, [
-            { name: 'id', value: { stringValue: promptId } },
-            { name: 'toolId', value: { stringValue: assistantId } },
+            { name: 'assistantId', value: { longValue: assistantId } },
             { name: 'name', value: { stringValue: prompt.name } },
             { name: 'content', value: { stringValue: prompt.content } },
             { name: 'systemContext', value: prompt.system_context ? { stringValue: prompt.system_context } : { isNull: true } },
@@ -158,19 +156,16 @@ export async function POST(request: NextRequest) {
 
         // Insert input fields
         for (const field of assistant.input_fields) {
-          const fieldId = uuidv4()
-
           await executeSQL(`
             INSERT INTO tool_input_fields (
-              id, tool_id, name, label, field_type, position, options,
+              assistant_architect_id, name, label, field_type, position, options,
               created_at, updated_at
             ) VALUES (
-              :id::uuid, :toolId::uuid, :name, :label, :fieldType::field_type, 
+              :assistantId, :name, :label, :fieldType::field_type, 
               :position, :options::jsonb, NOW(), NOW()
             )
           `, [
-            { name: 'id', value: { stringValue: fieldId } },
-            { name: 'toolId', value: { stringValue: assistantId } },
+            { name: 'assistantId', value: { longValue: assistantId } },
             { name: 'name', value: { stringValue: field.name } },
             { name: 'label', value: { stringValue: field.label } },
             { name: 'fieldType', value: { stringValue: field.field_type } },

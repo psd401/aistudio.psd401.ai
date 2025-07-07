@@ -217,13 +217,13 @@ export async function POST(request: NextRequest) {
     let uploadResult;
     try {
       uploadResult = await uploadDocument({
-        userId,
+        userId: String(userId),
         fileName: sanitizedFileName,
         fileContent: fileBuffer,
         contentType: file.type,
         metadata: {
           originalName: file.name,
-          uploadedBy: userId,
+          uploadedBy: String(userId),
         }
       });
       logger.info('File uploaded successfully to S3:', uploadResult);

@@ -4,7 +4,7 @@ import { redirect, notFound } from "next/navigation"
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { getAiModelsAction } from "@/actions/db/ai-models-actions"
 import { getServerSession } from "@/lib/auth/server-session"
-import { checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter"
+import { checkUserRoleByCognitoSub, executeSQL } from "@/lib/db/data-api-adapter"
 import { CreateLayout } from "../../../create/_components/create-layout"
 import { PromptsPageClient } from "./_components/prompts-page-client"
 import Link from "next/link"
@@ -25,7 +25,15 @@ export default async function PromptsPage({ params }: { params: { id: string } }
   }
   
   const isAdmin = await checkUserRoleByCognitoSub(session.sub, "administrator")
-  const isCreator = session.sub === tool.creatorId
+  
+  // Get the current user's database ID to check ownership
+  const currentUserResult = await executeSQL(`
+    SELECT id FROM users WHERE cognito_sub = :cognitoSub
+  `, [{ name: 'cognitoSub', value: { stringValue: session.sub } }])
+  
+  const currentUserId = currentUserResult.length > 0 ? currentUserResult[0].id : null
+  const isCreator = currentUserId && currentUserId === tool.userId
+  
   const canEdit = isAdmin || (isCreator && (tool.status === "draft" || tool.status === "pending_approval" || tool.status === "rejected" || tool.status === "approved"))
   if (!canEdit) {
     redirect(`/utilities/assistant-architect/${id}`)
@@ -34,6 +42,7 @@ export default async function PromptsPage({ params }: { params: { id: string } }
   const models = modelsResult.isSuccess ? modelsResult.data : []
   const sortedPrompts = tool.prompts?.slice().sort((a, b) => a.position - b.position) || []
   const sortedInputFields = tool.inputFields?.slice().sort((a, b) => a.position - b.position) || []
+  
   return (
     <CreateLayout currentStep={3} assistantId={id} title="Add Prompts">
       <div className="space-y-6">

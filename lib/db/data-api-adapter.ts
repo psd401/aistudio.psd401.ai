@@ -173,39 +173,37 @@ export async function getNavigationItems(activeOnly: boolean = false) {
 }
 
 export async function createNavigationItem(data: {
-  id: string;
   label: string;
   icon: string;
   link?: string;
   description?: string;
   type: string;
-  parentId?: string;
-  toolId?: string;
+  parentId?: number;
+  toolId?: number;
   requiresRole?: string;
   position?: number;
   isActive?: boolean;
 }) {
   const sql = `
     INSERT INTO navigation_items (
-      id, label, icon, link, description, type, parent_id, 
+      label, icon, link, description, type, parent_id, 
       tool_id, requires_role, position, is_active, created_at
     )
     VALUES (
-      :id, :label, :icon, :link, :description, :type::navigation_type, :parentId,
+      :label, :icon, :link, :description, :type::navigation_type, :parentId,
       :toolId, :requiresRole, :position, :isActive, NOW()
     )
     RETURNING *
   `;
   
   const parameters = [
-    { name: 'id', value: { stringValue: data.id } },
     { name: 'label', value: { stringValue: data.label } },
     { name: 'icon', value: { stringValue: data.icon } },
     { name: 'link', value: data.link ? { stringValue: data.link } : { isNull: true } },
     { name: 'description', value: data.description ? { stringValue: data.description } : { isNull: true } },
     { name: 'type', value: { stringValue: data.type } },
-    { name: 'parentId', value: data.parentId ? { stringValue: data.parentId } : { isNull: true } },
-    { name: 'toolId', value: data.toolId ? { stringValue: data.toolId } : { isNull: true } },
+    { name: 'parentId', value: data.parentId ? { longValue: data.parentId } : { isNull: true } },
+    { name: 'toolId', value: data.toolId ? { longValue: data.toolId } : { isNull: true } },
     { name: 'requiresRole', value: data.requiresRole ? { stringValue: data.requiresRole } : { isNull: true } },
     { name: 'position', value: { longValue: data.position || 0 } },
     { name: 'isActive', value: { booleanValue: data.isActive ?? true } }
@@ -220,20 +218,20 @@ export async function createNavigationItem(data: {
   return formatNavigationItem(result[0]);
 }
 
-export async function updateNavigationItem(id: string, data: Partial<{
+export async function updateNavigationItem(id: number, data: Partial<{
   label: string;
   icon: string;
   link: string;
   description: string;
   type: string;
-  parentId: string;
-  toolId: string;
+  parentId: number;
+  toolId: number;
   requiresRole: string;
   position: number;
   isActive: boolean;
 }>) {
   const fields = [];
-  const parameters = [{ name: 'id', value: { stringValue: id } }];
+  const parameters = [{ name: 'id', value: { longValue: id } }];
   let paramIndex = 0;
   
   for (const [key, value] of Object.entries(data)) {
@@ -280,14 +278,14 @@ export async function updateNavigationItem(id: string, data: Partial<{
   return formatNavigationItem(result[0]);
 }
 
-export async function deleteNavigationItem(id: string) {
+export async function deleteNavigationItem(id: number) {
   const sql = `
     DELETE FROM navigation_items
     WHERE id = :id
     RETURNING *
   `;
   
-  const parameters = [{ name: 'id', value: { stringValue: id } }];
+  const parameters = [{ name: 'id', value: { longValue: id } }];
   
   const result = await executeSQL(sql, parameters);
   return result[0];
@@ -340,7 +338,7 @@ export async function getUserRoles() {
 }
 
 export interface UserData {
-  id?: string;
+  id?: number;
   cognitoSub: string;
   email: string;
   firstName?: string;
@@ -363,7 +361,7 @@ export async function createUser(userData: UserData) {
   return result[0];
 }
 
-export async function updateUser(id: number | string, updates: Record<string, any>) {
+export async function updateUser(id: number, updates: Record<string, any>) {
   // Build dynamic UPDATE statement
   const updateFields = Object.keys(updates)
     .filter(key => key !== 'id')
@@ -381,7 +379,7 @@ export async function updateUser(id: number | string, updates: Record<string, an
   `;
   
   const parameters = [
-    { name: 'id', value: { stringValue: String(id) } },
+    { name: 'id', value: { longValue: id } },
     ...Object.entries(updates)
       .filter(([key]) => key !== 'id')
       .map(([key, value], index) => ({
@@ -394,7 +392,7 @@ export async function updateUser(id: number | string, updates: Record<string, an
   return result[0];
 }
 
-export async function deleteUser(id: number | string) {
+export async function deleteUser(id: number) {
   const sql = `
     DELETE FROM users 
     WHERE id = :id
@@ -402,7 +400,7 @@ export async function deleteUser(id: number | string) {
   `;
   
   const parameters = [
-    { name: 'id', value: { stringValue: String(id) } }
+    { name: 'id', value: { longValue: id } }
   ];
   
   const result = await executeSQL(sql, parameters);
@@ -428,7 +426,7 @@ export async function getUserByCognitoSub(cognitoSub: string) {
   return result[0];
 }
 
-export async function checkUserRole(userId: string, roleName: string): Promise<boolean> {
+export async function checkUserRole(userId: number, roleName: string): Promise<boolean> {
   const query = `
     SELECT COUNT(*) as count
     FROM user_roles ur
@@ -438,7 +436,7 @@ export async function checkUserRole(userId: string, roleName: string): Promise<b
   `;
 
   const parameters = [
-    { name: 'userId', value: { stringValue: userId } },
+    { name: 'userId', value: { longValue: userId } },
     { name: 'roleName', value: { stringValue: roleName } }
   ];
   
@@ -560,7 +558,7 @@ export async function getRoleByName(roleName: string) {
   return executeSQL(sql, parameters);
 }
 
-export async function updateUserRole(userId: number | string, newRoleName: string) {
+export async function updateUserRole(userId: number, newRoleName: string) {
   const [role] = await getRoleByName(newRoleName);
   if (!role) {
     throw new Error(`Role '${newRoleName}' not found`);
@@ -570,13 +568,13 @@ export async function updateUserRole(userId: number | string, newRoleName: strin
   const statements = [
     {
       sql: 'DELETE FROM user_roles WHERE user_id = :userId',
-      parameters: [{ name: 'userId', value: { stringValue: String(userId) } }]
+      parameters: [{ name: 'userId', value: { longValue: userId } }]
     },
     {
       sql: 'INSERT INTO user_roles (user_id, role_id) VALUES (:userId, :roleId)',
       parameters: [
-        { name: 'userId', value: { stringValue: String(userId) } },
-        { name: 'roleId', value: { stringValue: String(role.id) } }
+        { name: 'userId', value: { longValue: userId } },
+        { name: 'roleId', value: { longValue: role.id } }
       ]
     }
   ];
@@ -704,15 +702,15 @@ export async function deleteAIModel(id: number) {
   return result[0];
 }
 
-export async function assignRoleToUser(userId: string, roleId: string | number) {
+export async function assignRoleToUser(userId: number, roleId: number) {
   const sql = `
     INSERT INTO user_roles (user_id, role_id, created_at, updated_at)
     VALUES (:userId, :roleId, NOW(), NOW())
     RETURNING *
   `
   const parameters = [
-    { name: "userId", value: { stringValue: userId } },
-    { name: "roleId", value: { stringValue: String(roleId) } }
+    { name: "userId", value: { longValue: userId } },
+    { name: "roleId", value: { longValue: roleId } }
   ]
   return executeSQL(sql, parameters)
 }
@@ -753,8 +751,8 @@ export async function createRole(roleData: {
   isSystem?: boolean;
 }) {
   const sql = `
-    INSERT INTO roles (id, name, description, is_system, created_at, updated_at)
-    VALUES (gen_random_uuid(), :name, :description, :isSystem, NOW(), NOW())
+    INSERT INTO roles (name, description, is_system, created_at, updated_at)
+    VALUES (:name, :description, :isSystem, NOW(), NOW())
     RETURNING id, name, description, is_system, created_at, updated_at
   `;
   
@@ -771,13 +769,13 @@ export async function createRole(roleData: {
 /**
  * Update an existing role
  */
-export async function updateRole(id: string, updates: {
+export async function updateRole(id: number, updates: {
   name?: string;
   description?: string;
 }) {
   const updateFields = [];
   const parameters: any[] = [
-    { name: 'id', value: { stringValue: id } }
+    { name: 'id', value: { longValue: id } }
   ];
   
   if (updates.name !== undefined) {
@@ -814,7 +812,7 @@ export async function updateRole(id: string, updates: {
 /**
  * Delete a role (only non-system roles)
  */
-export async function deleteRole(id: string) {
+export async function deleteRole(id: number) {
   const sql = `
     DELETE FROM roles 
     WHERE id = :id AND is_system = false
@@ -822,7 +820,7 @@ export async function deleteRole(id: string) {
   `;
   
   const parameters = [
-    { name: 'id', value: { stringValue: id } }
+    { name: 'id', value: { longValue: id } }
   ];
   
   const result = await executeSQL(sql, parameters);
@@ -835,7 +833,7 @@ export async function deleteRole(id: string) {
 /**
  * Get all tools assigned to a role
  */
-export async function getRoleTools(roleId: string) {
+export async function getRoleTools(roleId: number) {
   const sql = `
     SELECT t.id, t.identifier, t.name, t.description, 
            t.is_active, t.created_at, t.updated_at
@@ -997,10 +995,10 @@ export async function createAssistantArchitect(data: {
   };
 }
 
-export async function updateAssistantArchitect(id: string, updates: Record<string, any>) {
+export async function updateAssistantArchitect(id: number, updates: Record<string, any>) {
   const updateFields = [];
   const parameters: any[] = [
-    { name: 'id', value: { stringValue: id } }
+    { name: 'id', value: { longValue: id } }
   ];
   
   let paramIndex = 0;
@@ -1049,31 +1047,55 @@ export async function updateAssistantArchitect(id: string, updates: Record<strin
   };
 }
 
-export async function deleteAssistantArchitect(id: string) {
+export async function deleteAssistantArchitect(id: number) {
+  // Delete related records first to avoid foreign key constraint violations
+  
+  // Delete chain prompts
+  await executeSQL(`
+    DELETE FROM chain_prompts 
+    WHERE assistant_architect_id = :id
+  `, [{ name: 'id', value: { longValue: id } }]);
+  
+  // Delete tool input fields
+  await executeSQL(`
+    DELETE FROM tool_input_fields 
+    WHERE assistant_architect_id = :id
+  `, [{ name: 'id', value: { longValue: id } }]);
+  
+  // Delete tool executions (if any)
+  await executeSQL(`
+    DELETE FROM tool_executions 
+    WHERE assistant_architect_id = :id
+  `, [{ name: 'id', value: { longValue: id } }]);
+  
+  // Note: The tools table is linked differently - tools have their own lifecycle
+  // and are not directly tied to assistant architects via foreign key
+  
+  // Finally delete the assistant architect
   const sql = `
     DELETE FROM assistant_architects 
-    WHERE id = :id::uuid
+    WHERE id = :id
     RETURNING *
   `;
   
   const parameters = [
-    { name: 'id', value: { stringValue: id } }
+    { name: 'id', value: { longValue: id } }
   ];
   
   const result = await executeSQL(sql, parameters);
   return result[0];
 }
 
-export async function approveAssistantArchitect(id: string) {
+export async function approveAssistantArchitect(id: number) {
   const sql = `
     UPDATE assistant_architects 
     SET status = 'approved'::tool_status, updated_at = NOW()
-    WHERE id = :id::uuid
+    WHERE id = :id
     RETURNING *
   `;
   
   const parameters = [
-    { name: 'id', value: { stringValue: id } }
+    { name: 'id', value: { longValue: id } }
   ];
   
   const result = await executeSQL(sql, parameters);
@@ -1091,9 +1113,9 @@ export async function approveAssistantArchitect(id: string) {
            NOW(), 
            NOW()
     FROM assistant_architects
-    WHERE id = :id::uuid
+    WHERE id = :id
     AND NOT EXISTS (
-      SELECT 1 FROM tools WHERE prompt_chain_tool_id = :id::uuid
+      SELECT 1 FROM tools WHERE prompt_chain_tool_id = :id
     )
   `, parameters);
   
@@ -1109,15 +1131,15 @@ export async function approveAssistantArchitect(id: string) {
   };
 }
 
-export async function rejectAssistantArchitect(id: string) {
+export async function rejectAssistantArchitect(id: number) {
   const sql = `
     UPDATE assistant_architects 
     SET status = 'rejected'::tool_status, updated_at = NOW()
-    WHERE id = :id::uuid
+    WHERE id = :id
   `;
   
   const parameters = [
-    { name: 'id', value: { stringValue: id } }
+    { name: 'id', value: { longValue: id } }
   ];
   
   await executeSQL(sql, parameters);

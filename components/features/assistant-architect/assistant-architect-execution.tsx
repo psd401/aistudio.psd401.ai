@@ -48,6 +48,11 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   const [expandedInputs, setExpandedInputs] = useState<Record<string, boolean>>({})
   const [conversationId, setConversationId] = useState<number | null>(null)
 
+  // Debug: Log when component renders
+  useEffect(() => {
+    // Removed verbose logging
+  })
+
   // Define base types for fields first
   const stringSchema = z.string();
 
@@ -86,9 +91,27 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   })
 
   const onSubmit = useCallback(async (values: z.infer<typeof formSchema>) => {
-    setIsLoading(true)
-    setResults(null)
-    setError(null)
+    // Only clear results if we're not already processing
+    if (!isLoading && !isPolling) {
+      // Don't clear results if we already have completed results - user might be using chat
+      if (!results || results.status !== 'completed') {
+        setIsLoading(true)
+        setResults(null)
+        setError(null)
+      } else {
+        // If we have completed results, confirm before re-running
+        const confirmRerun = window.confirm("You have existing results. Do you want to run the assistant again? This will clear your current results and chat.")
+        if (!confirmRerun) {
+          return;
+        }
+        setIsLoading(true)
+        setResults(null)
+        setError(null)
+        setConversationId(null) // Reset conversation when re-running
+      }
+    } else {
+      return; // Prevent double submission
+    }
 
     try {
       const result = await executeAssistantArchitectAction({
@@ -97,7 +120,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
       })
 
       if (result.isSuccess && result.data?.jobId) {
-        setJobId(result.data.jobId)
+        setJobId(String(result.data.jobId))
         setIsPolling(true)
         toast({ title: "Execution Started", description: "The tool is now running" })
       } else {
@@ -121,7 +144,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
       })
       setIsLoading(false)
     }
-  }, [setIsLoading, setResults, setError, tool.id, toast])
+  }, [isLoading, isPolling, setIsLoading, setResults, setError, tool.id, toast, results, setConversationId])
 
   // Update the form values type
   const safeJsonParse = useCallback((jsonString: string | null | undefined): Record<string, unknown> | null => {

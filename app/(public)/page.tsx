@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Image from "next/image";
-import { signInWithRedirect } from "aws-amplify/auth";
+import { signInWithRedirect, fetchAuthSession } from "aws-amplify/auth";
 import { useEffect, useState } from "react";
 import { getCurrentUser } from "aws-amplify/auth";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -15,43 +15,98 @@ export default function LandingPage() {
   const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
-    // Check if we have OAuth callback parameters
-    const code = searchParams.get("code");
-    const state = searchParams.get("state");
-    
-    if (code && state) {
-      // We have OAuth callback parameters, Amplify will handle them automatically
-      setIsProcessing(true);
+    let mounted = true;
+
+    // Check authentication status
+    const checkAuth = async () => {
+      console.log("[Landing] Checking auth status...");
       
-      // Listen for successful sign-in
-      const hubListener = Hub.listen("auth", ({ payload }) => {
-        if (payload.event === "signedIn") {
-          // Redirect to dashboard after successful sign-in
-          router.push("/dashboard");
+      // Check for OAuth callback parameters
+      const code = searchParams.get("code");
+      const state = searchParams.get("state");
+      
+      if (code) {
+        console.log("[Landing] OAuth callback detected");
+        setIsProcessing(true);
+        
+        // Give Amplify time to process the OAuth callback
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      try {
+        // Check auth session first
+        const session = await fetchAuthSession();
+        console.log("[Landing] Auth session:", { hasTokens: !!session.tokens });
+        
+        if (session.tokens?.accessToken) {
+          // We have valid tokens, get user and redirect
+          const user = await getCurrentUser();
+          console.log("[Landing] User authenticated:", user.username);
+          
+          if (mounted) {
+            router.push("/dashboard");
+          }
+        } else {
+          console.log("[Landing] No valid session");
+          if (mounted) {
+            setIsProcessing(false);
+          }
         }
-      });
+      } catch (error) {
+        console.log("[Landing] Auth check error:", error);
+        if (mounted) {
+          setIsProcessing(false);
+        }
+      }
+    };
+
+    checkAuth();
+
+    // Listen for auth events
+    const hubListener = Hub.listen("auth", ({ payload }) => {
+      console.log("[Landing] Auth event:", payload.event);
       
-      return () => {
-        hubListener();
-      };
-    } else {
-      // No OAuth parameters, check if user is already signed in
-      getCurrentUser()
-        .then(() => {
-          // User is signed in, redirect to dashboard
-          router.push("/dashboard");
-        })
-        .catch(() => {
-          // User is not signed in, stay on landing page
-        });
-    }
+      switch (payload.event) {
+        case "signedIn":
+        case "signIn":
+        case "tokenRefresh":
+        case "signInWithRedirect":
+          // User signed in successfully
+          if (mounted) {
+            checkAuth(); // Re-check auth status
+          }
+          break;
+        case "signedOut":
+        case "signOut":
+          // User signed out
+          if (mounted) {
+            setIsProcessing(false);
+          }
+          break;
+        case "signIn_failure":
+        case "signInWithRedirect_failure":
+          // Sign in failed
+          console.error("[Landing] Sign in failed:", payload.data);
+          if (mounted) {
+            setIsProcessing(false);
+          }
+          break;
+      }
+    });
+
+    return () => {
+      mounted = false;
+      hubListener();
+    };
   }, [router, searchParams]);
 
   const handleSignIn = async () => {
     try {
+      setIsProcessing(true);
       await signInWithRedirect();
     } catch (error) {
       console.error("Sign-in error:", error);
+      setIsProcessing(false);
     }
   };
 

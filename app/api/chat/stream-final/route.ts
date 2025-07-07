@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     return new Response('Unauthorized', { status: 401 });
   }
 
-  const { messages, modelId: textModelId, conversationId: existingConversationId, documentId } = await req.json();
+  const { messages, modelId: textModelId, conversationId: existingConversationId, documentId, source, executionId, context } = await req.json();
 
   // Get model info
   const modelQuery = `
@@ -26,15 +26,18 @@ export async function POST(req: Request) {
     WHERE model_id = :modelId
     LIMIT 1
   `;
+  console.log('[stream-final] Looking up model:', textModelId);
   const modelResult = await executeSQL(modelQuery, [
     { name: 'modelId', value: { stringValue: textModelId } }
   ]);
   
   if (!modelResult.length) {
-    return new Response('Model not found', { status: 404 });
+    console.error('[stream-final] Model not found:', textModelId);
+    return new Response(`Model not found: ${textModelId}`, { status: 404 });
   }
   
   const aiModel = modelResult[0];
+  console.log('[stream-final] Found AI model:', aiModel);
   
   // Handle conversation
   let conversationId = existingConversationId;
@@ -46,15 +49,18 @@ export async function POST(req: Request) {
     }
 
     const insertQuery = `
-      INSERT INTO conversations (title, user_id, model_id, source)
-      VALUES (:title, :userId, :modelId, :source)
+      INSERT INTO conversations (title, user_id, model_id, source, execution_id, context)
+      VALUES (:title, :userId, :modelId, :source, :executionId, :context::jsonb)
       RETURNING id
     `;
+    console.log('[stream-final] Creating conversation with model_id:', aiModel.id, 'user_id:', currentUser.data.user.id);
     const newConversation = await executeSQL(insertQuery, [
       { name: 'title', value: { stringValue: messages[0].content.substring(0, 100) } },
-      { name: 'userId', value: { stringValue: currentUser.data.user.id } },
-      { name: 'modelId', value: { stringValue: aiModel.model_id } },
-      { name: 'source', value: { stringValue: "chat" } }
+      { name: 'userId', value: { longValue: currentUser.data.user.id } },
+      { name: 'modelId', value: { longValue: aiModel.id } },
+      { name: 'source', value: { stringValue: source || "chat" } },
+      { name: 'executionId', value: executionId ? { longValue: executionId } : { isNull: true } },
+      { name: 'context', value: context ? { stringValue: JSON.stringify(context) } : { isNull: true } }
     ]);
     conversationId = newConversation[0].id;
   }
@@ -213,10 +219,17 @@ export async function POST(req: Request) {
     // Continue without document context if there's an error
   }
 
-  const systemPrompt = 'You are a helpful AI assistant.' + documentContext;
+  // Build system prompt based on source
+  let systemPrompt = source === "assistant_execution"
+    ? "You are a helpful AI assistant having a follow-up conversation about the results of an AI tool execution. Use the context provided to help answer questions, but stay focused on topics related to the execution results. If a question is completely unrelated to the execution results, politely redirect the user to start a new chat for unrelated topics."
+    : "You are a helpful AI assistant.";
+  
+  systemPrompt += documentContext;
 
   const aiMessages = [
     { role: 'system' as const, content: systemPrompt },
+    // Only include context if it's the first message (no previous messages) and we have context
+    ...(allMessages.length === 1 && context ? [{ role: 'system' as const, content: `Context from execution: ${JSON.stringify(context)}` }] : []),
     ...allMessages.map(msg => ({ role: msg.role as 'user' | 'assistant', content: msg.content }))
   ];
 

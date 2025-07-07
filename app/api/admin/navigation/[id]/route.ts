@@ -29,7 +29,7 @@ export async function DELETE(
     const { id } = params
 
     // Delete the navigation item
-    await deleteNavigationItem(id)
+    await deleteNavigationItem(parseInt(id, 10))
 
     return NextResponse.json({
       isSuccess: true,

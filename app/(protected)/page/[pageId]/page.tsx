@@ -12,10 +12,14 @@ export default async function PublicPage({ params }: PageProps) {
   const { pageId } = await params
   
   try {
-    // Fetch the page navigation item
-    const pageItemSql = 'SELECT * FROM navigation_items WHERE id = :pageId';
+    // Construct the full link path from the pageId slug
+    const pageLink = `/page/${pageId}`;
+
+    // Fetch the page navigation item by link
+    const pageItemSql = 'SELECT * FROM navigation_items WHERE link = :pageLink AND type = :type::navigation_type';
     const pageItemResult = await executeSQL(pageItemSql, [
-      { name: 'pageId', value: { stringValue: pageId } }
+      { name: 'pageLink', value: { stringValue: pageLink } },
+      { name: 'type', value: { stringValue: 'page' } }
     ]);
     
     const pageItem = pageItemResult[0];
@@ -27,34 +31,34 @@ export default async function PublicPage({ params }: PageProps) {
   const childItemsSql = `
     SELECT * FROM navigation_items 
     WHERE parent_id = :parentId 
-    AND type = 'link' 
+    AND type = 'link'::navigation_type 
     AND is_active = true
     ORDER BY position ASC
   `;
   const childItems = await executeSQL(childItemsSql, [
-    { name: 'parentId', value: { stringValue: pageId } }
+    { name: 'parentId', value: { longValue: pageItem.id } }
   ]);
 
   // Helper to extract toolId from a link like /tools/assistant-architect/{toolId}
-  function extractAssistantId(link: string | null | undefined): string | null {
+  function extractAssistantId(link: string | null | undefined): number | null {
     if (!link) return null
-    const match = link.match(/\/tools\/assistant-architect\/([\w-]+)/)
-    return match ? match[1] : null
+    const match = link.match(/\/tools\/assistant-architect\/(\d+)/)
+    return match ? parseInt(match[1], 10) : null
   }
 
   // For each child, try to extract assistant/tool id from the link
   const childAssistantIds = childItems
     .map((child: any) => extractAssistantId(child.link))
-    .filter((id): id is string => Boolean(id))
+    .filter((id): id is number => Boolean(id) && !isNaN(id))
 
-  let assistants: Record<string, any> = {}
+  let assistants: Record<number, any> = {}
   if (childAssistantIds.length > 0) {
-    // Build the IN clause for SQL with UUID casting
-    const placeholders = childAssistantIds.map((_, i) => `:id${i}::uuid`).join(', ');
+    // Build the IN clause for SQL with integer IDs
+    const placeholders = childAssistantIds.map((_, i) => `:id${i}`).join(', ');
     const assistantsSql = `SELECT * FROM assistant_architects WHERE id IN (${placeholders})`;
     const assistantParams = childAssistantIds.map((id, i) => ({
       name: `id${i}`,
-      value: { stringValue: id }
+      value: { longValue: id }
     }));
     
     const assistantRows = await executeSQL(assistantsSql, assistantParams);

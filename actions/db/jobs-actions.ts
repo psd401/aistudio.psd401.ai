@@ -4,7 +4,6 @@ import { InsertJob, SelectJob } from "@/types/db-types"
 import { ActionState } from "@/types"
 import logger from "@/lib/logger"
 import { executeSQL } from "@/lib/db/data-api-adapter"
-import { v4 as uuidv4 } from "uuid";
 
 export async function createJobAction(
   job: Omit<InsertJob, "id" | "createdAt" | "updatedAt">
@@ -14,14 +13,18 @@ export async function createJobAction(
       return { isSuccess: false, message: "A userId must be provided to create a job." };
     }
 
-    const newJobId = uuidv4();
+    // Convert userId to number if it's a string
+    const userIdNum = typeof job.userId === 'string' ? parseInt(job.userId, 10) : job.userId;
+    if (isNaN(userIdNum)) {
+      return { isSuccess: false, message: "Invalid userId provided." };
+    }
+
     const result = await executeSQL(`
-      INSERT INTO jobs (id, user_id, status, type, input, output, error, created_at, updated_at)
-      VALUES (:id::uuid, :userId, :status::job_status, :type, :input, :output, :error, NOW(), NOW())
+      INSERT INTO jobs (user_id, status, type, input, output, error, created_at, updated_at)
+      VALUES (:userId, :status::job_status, :type, :input, :output, :error, NOW(), NOW())
       RETURNING *
     `, [
-      { name: 'id', value: { stringValue: newJobId } },
-      { name: 'userId', value: { stringValue: job.userId } },
+      { name: 'userId', value: { longValue: userIdNum } },
       { name: 'status', value: { stringValue: job.status ?? 'pending' } },
       { name: 'type', value: { stringValue: job.type } },
       { name: 'input', value: { stringValue: job.input } },
@@ -59,9 +62,14 @@ export async function createJobAction(
 
 export async function getJobAction(id: string): Promise<ActionState<SelectJob>> {
   try {
+    const idNum = parseInt(id, 10);
+    if (isNaN(idNum)) {
+      return { isSuccess: false, message: "Invalid job ID" };
+    }
+
     const result = await executeSQL(
-      'SELECT * FROM jobs WHERE id = :id::uuid',
-      [{ name: 'id', value: { stringValue: id } }]
+      'SELECT * FROM jobs WHERE id = :id',
+      [{ name: 'id', value: { longValue: idNum } }]
     );
     const job = result[0];
 
@@ -94,9 +102,14 @@ export async function getJobAction(id: string): Promise<ActionState<SelectJob>> 
 
 export async function getUserJobsAction(userId: string): Promise<ActionState<SelectJob[]>> {
   try {
+    const userIdNum = parseInt(userId, 10);
+    if (isNaN(userIdNum)) {
+      return { isSuccess: false, message: "Invalid user ID" };
+    }
+
     const result = await executeSQL(
       'SELECT * FROM jobs WHERE user_id = :userId',
-      [{ name: 'userId', value: { stringValue: userId } }]
+      [{ name: 'userId', value: { longValue: userIdNum } }]
     );
 
     const transformedJobs = result.map((job: any) => ({
@@ -127,6 +140,11 @@ export async function updateJobAction(
   data: Partial<Omit<InsertJob, 'id' | 'userId'>>
 ): Promise<ActionState<SelectJob>> {
   try {
+    const idNum = parseInt(id, 10);
+    if (isNaN(idNum)) {
+      return { isSuccess: false, message: "Invalid job ID" };
+    }
+
     const setClauses = Object.entries(data)
       .map(([key, value]) => {
         const dbKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
@@ -141,10 +159,10 @@ export async function updateJobAction(
       name: key,
       value: value === null || value === undefined ? { isNull: true } : { stringValue: String(value) }
     }));
-    parameters.push({ name: 'id', value: { stringValue: id } });
+    parameters.push({ name: 'id', value: { longValue: idNum } });
     
     const result = await executeSQL(
-      `UPDATE jobs SET ${setClauses}, updated_at = NOW() WHERE id = :id::uuid RETURNING *`,
+      `UPDATE jobs SET ${setClauses}, updated_at = NOW() WHERE id = :id RETURNING *`,
       parameters
     );
 

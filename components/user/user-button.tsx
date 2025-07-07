@@ -6,6 +6,7 @@ import { Hub } from 'aws-amplify/utils';
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
+import { clearAuthCookiesClient } from "@/lib/auth/cookie-utils";
 
 export function UserButton() {
   const router = useRouter();
@@ -17,29 +18,48 @@ export function UserButton() {
     const checkUser = async () => {
       setLoading(true);
       try {
-        const userData = await getCurrentUser();
+        // First try to get the auth session
+        const session = await fetchAuthSession();
         
-        // Get the session to access the ID token
-        try {
-          const session = await fetchAuthSession();
-          const idToken = session.tokens?.idToken;
-          
-          if (idToken?.payload) {
-            setUserInfo({
-              email: idToken.payload.email,
-              given_name: idToken.payload.given_name,
-              family_name: idToken.payload.family_name,
-              name: idToken.payload.name,
-              picture: idToken.payload.picture
-            });
+        if (session.tokens?.idToken) {
+          // If we have tokens, try to get the current user
+          try {
+            const userData = await getCurrentUser();
+            setUser(userData);
+            
+            const idToken = session.tokens.idToken;
+            if (idToken?.payload) {
+              setUserInfo({
+                email: idToken.payload.email,
+                given_name: idToken.payload.given_name,
+                family_name: idToken.payload.family_name,
+                name: idToken.payload.name,
+                picture: idToken.payload.picture
+              });
+            }
+          } catch (userError) {
+            // Even if getCurrentUser fails, we might still have valid session tokens
+            console.error('UserButton - Error getting current user:', userError);
+            // Use token payload as fallback
+            const idToken = session.tokens.idToken;
+            if (idToken?.payload) {
+              setUser({ username: idToken.payload.sub, userId: idToken.payload.sub });
+              setUserInfo({
+                email: idToken.payload.email,
+                given_name: idToken.payload.given_name,
+                family_name: idToken.payload.family_name,
+                name: idToken.payload.name,
+                picture: idToken.payload.picture
+              });
+            }
           }
-        } catch (sessionError) {
-          console.error('UserButton - Error fetching session:', sessionError);
+        } else {
+          setUser(null);
+          setUserInfo(null);
         }
-        
-        setUser(userData);
       } catch (error) {
-        console.error('UserButton - Error getting user:', error);
+        // If fetchAuthSession fails, user is not authenticated
+        console.error('UserButton - Error fetching auth session:', error);
         setUser(null);
         setUserInfo(null);
       } finally {
@@ -69,12 +89,37 @@ export function UserButton() {
 
   const handleSignOut = async () => {
     try {
-      await signOut();
-      // Clear the accessToken cookie
-      document.cookie = "accessToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-      router.push("/");
+      // First, sign out with Amplify (global sign out)
+      await signOut({ global: true });
+      
+      // Call server-side sign out to clear HttpOnly cookies
+      await fetch("/api/auth/signout", { 
+        method: "POST",
+        credentials: "include"
+      });
+      
+      // Clear all authentication cookies client-side
+      clearAuthCookiesClient();
+      
+      // Clear state immediately
+      setUser(null);
+      setUserInfo(null);
+      
+      // Force a full page reload to clear any cached auth state
+      window.location.href = "/";
     } catch (error) {
       console.error("Sign-out error:", error);
+      
+      // Even if sign out fails, clear cookies and redirect
+      try {
+        await fetch("/api/auth/signout", { 
+          method: "POST",
+          credentials: "include"
+        });
+      } catch {}
+      
+      clearAuthCookiesClient();
+      window.location.href = "/";
     }
   };
 

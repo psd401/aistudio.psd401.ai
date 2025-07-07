@@ -9,7 +9,7 @@ import {
 import { ActionState } from "@/types"
 import type { InsertNavigationItem, SelectNavigationItem } from "@/types/db-types"
 import logger from "@/lib/logger"
-import { v4 as uuidv4 } from "uuid"
+// UUID import removed - using auto-increment IDs
 
 export async function getNavigationItemsAction(): Promise<ActionState<SelectNavigationItem[]>> {
   try {
@@ -47,14 +47,13 @@ export async function createNavigationItemAction(
 ): Promise<ActionState<SelectNavigationItem>> {
   try {
     const newItem = await createNavigationItem({
-      id: data.id || uuidv4(),
       label: data.label,
       icon: data.icon,
       link: data.link,
       description: data.description,
       type: data.type || 'page',
-      parentId: data.parentId,
-      toolId: data.toolId,
+      parentId: data.parentId ? Number(data.parentId) : undefined,
+      toolId: data.toolId ? Number(data.toolId) : undefined,
       requiresRole: data.requiresRole,
       position: data.position,
       isActive: data.isActive ?? true
@@ -88,11 +87,11 @@ export async function createNavigationItemAction(
 }
 
 export async function updateNavigationItemAction(
-  id: string,
+  id: string | number,
   data: Partial<InsertNavigationItem>
 ): Promise<ActionState<SelectNavigationItem>> {
   try {
-    const updatedItem = await updateNavigationItem(id, data)
+    const updatedItem = await updateNavigationItem(Number(id), data)
     
     // Transform to match expected format
     const transformedItem = {
@@ -122,10 +121,10 @@ export async function updateNavigationItemAction(
 }
 
 export async function deleteNavigationItemAction(
-  id: string
+  id: string | number
 ): Promise<ActionState<void>> {
   try {
-    await deleteNavigationItem(id)
+    await deleteNavigationItem(Number(id))
     
     return {
       isSuccess: true,

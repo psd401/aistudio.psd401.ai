@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
     `;
     
     const parameters = [
-      { name: 'userId', value: { stringValue: userId } },
+      { name: 'userId', value: { longValue: userId } },
       { name: 'source', value: { stringValue: 'chat' } }
     ];
     

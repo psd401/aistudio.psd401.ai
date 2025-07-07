@@ -178,7 +178,15 @@ export async function DELETE(request: Request) {
       )
     }
 
-    await deleteAssistantArchitect(id)
+    const assistantId = parseInt(id, 10)
+    if (isNaN(assistantId)) {
+      return NextResponse.json(
+        { isSuccess: false, message: 'Invalid assistant ID' },
+        { status: 400 }
+      )
+    }
+
+    await deleteAssistantArchitect(assistantId)
 
     return NextResponse.json({
       isSuccess: true,

@@ -5,7 +5,7 @@ import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-ac
 import { CreateForm } from "../../create/_components/create-form"
 import { CreateLayout } from "../../create/_components/create-layout"
 import { getServerSession } from "@/lib/auth/server-session"
-import { checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter"
+import { checkUserRoleByCognitoSub, executeSQL } from "@/lib/db/data-api-adapter"
 
 interface Props {
   params: {
@@ -31,7 +31,17 @@ export default async function EditAssistantArchitectPage({ params }: Props) {
   }
   
   const isAdmin = await checkUserRoleByCognitoSub(session.sub, 'administrator')
-  const isCreator = session.sub === tool.creatorId
+  
+  // Get the user ID for comparison
+  // tool.userId is the integer user ID from the database, we need to compare with cognito_sub
+  // We'll need to check if the current user owns this tool by their database ID
+  const currentUserResult = await executeSQL(`
+    SELECT id FROM users WHERE cognito_sub = :cognitoSub
+  `, [{ name: 'cognitoSub', value: { stringValue: session.sub } }])
+  
+  const currentUserId = currentUserResult.length > 0 ? currentUserResult[0].id : null
+  const isCreator = currentUserId && currentUserId === tool.userId
+  
   // Allow editing if user is admin or creator and tool is draft, pending_approval, rejected, or approved
   const canEdit = isAdmin || (isCreator && (tool.status === "draft" || tool.status === "pending_approval" || tool.status === "rejected" || tool.status === "approved"))
   if (!canEdit) {
