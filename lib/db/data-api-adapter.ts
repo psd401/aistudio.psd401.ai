@@ -9,11 +9,14 @@ const client = new RDSDataClient({
   maxAttempts: 3
 });
 
-const dataApiConfig = {
-  resourceArn: process.env.RDS_RESOURCE_ARN!,
-  secretArn: process.env.RDS_SECRET_ARN!,
-  database: process.env.RDS_DATABASE_NAME || 'aistudio'
-};
+// Get Data API configuration at runtime
+function getDataApiConfig() {
+  return {
+    resourceArn: process.env.RDS_RESOURCE_ARN!,
+    secretArn: process.env.RDS_SECRET_ARN!,
+    database: process.env.RDS_DATABASE_NAME || 'aistudio'
+  };
+}
 
 /**
  * Convert Data API response to a more usable format
@@ -62,7 +65,7 @@ export async function executeSQL(sql: string, parameters: any[] = []) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const command = new ExecuteStatementCommand({
-        ...dataApiConfig,
+        ...getDataApiConfig(),
         sql,
         parameters: parameters.length > 0 ? parameters : undefined,
         includeResultMetadata: true
@@ -123,7 +126,7 @@ export async function executeTransaction(statements: Array<{ sql: string, parame
 
 async function beginTransaction() {
   const command = new ExecuteStatementCommand({
-    ...dataApiConfig,
+    ...getDataApiConfig(),
     sql: 'BEGIN'
   });
   const response = await client.send(command);
@@ -132,7 +135,7 @@ async function beginTransaction() {
 
 async function commitTransaction(transactionId: string) {
   const command = new ExecuteStatementCommand({
-    ...dataApiConfig,
+    ...getDataApiConfig(),
     sql: 'COMMIT',
     transactionId
   });
@@ -141,7 +144,7 @@ async function commitTransaction(transactionId: string) {
 
 async function rollbackTransaction(transactionId: string) {
   const command = new ExecuteStatementCommand({
-    ...dataApiConfig,
+    ...getDataApiConfig(),
     sql: 'ROLLBACK',
     transactionId
   });
