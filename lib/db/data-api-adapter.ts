@@ -2,18 +2,23 @@ import { RDSDataClient, ExecuteStatementCommand } from "@aws-sdk/client-rds-data
 import logger from '@/lib/logger';
 
 // Initialize the RDS Data API client
+// In Amplify, credentials come from the execution IAM role automatically
 const client = new RDSDataClient({ 
   region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
-  // For local development, you'll need AWS credentials configured
-  // via AWS CLI, environment variables, or IAM roles
   maxAttempts: 3
 });
 
 // Get Data API configuration at runtime
 function getDataApiConfig() {
+  if (!process.env.RDS_RESOURCE_ARN || !process.env.RDS_SECRET_ARN) {
+    throw new Error(
+      `Missing required environment variables. RDS_RESOURCE_ARN: ${process.env.RDS_RESOURCE_ARN ? 'set' : 'missing'}, RDS_SECRET_ARN: ${process.env.RDS_SECRET_ARN ? 'set' : 'missing'}`
+    );
+  }
+  
   return {
-    resourceArn: process.env.RDS_RESOURCE_ARN!,
-    secretArn: process.env.RDS_SECRET_ARN!,
+    resourceArn: process.env.RDS_RESOURCE_ARN,
+    secretArn: process.env.RDS_SECRET_ARN,
     database: process.env.RDS_DATABASE_NAME || 'aistudio'
   };
 }
