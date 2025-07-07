@@ -13,8 +13,14 @@ function getRDSClient(): RDSDataClient {
     // 3. Check EC2 instance metadata
     // 4. Check shared credentials file
     // 5. Check ECS task role
+    // In AWS Amplify, AWS_DEFAULT_REGION is automatically set
+    const region = process.env.AWS_REGION || 
+                   process.env.AWS_DEFAULT_REGION || 
+                   process.env.NEXT_PUBLIC_AWS_REGION || 
+                   'us-east-1';
+    
     client = new RDSDataClient({ 
-      region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
+      region,
       credentials: fromNodeProviderChain(),
       maxAttempts: 3
     });
@@ -33,7 +39,9 @@ function getDataApiConfig() {
   return {
     resourceArn: process.env.RDS_RESOURCE_ARN,
     secretArn: process.env.RDS_SECRET_ARN,
-    database: process.env.RDS_DATABASE_NAME || 'aistudio'
+    // Database name is included in the secret, but we can specify it explicitly
+    // The Data API will use the database from the secret if not specified
+    database: 'aistudio'
   };
 }
 

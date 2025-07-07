@@ -47,6 +47,13 @@ export async function GET(request: NextRequest) {
     
     // Check if Data API is configured
     if (!process.env.RDS_RESOURCE_ARN || !process.env.RDS_SECRET_ARN) {
+      console.error("Missing RDS configuration:", {
+        RDS_RESOURCE_ARN: process.env.RDS_RESOURCE_ARN ? 'set' : 'missing',
+        RDS_SECRET_ARN: process.env.RDS_SECRET_ARN ? 'set' : 'missing',
+        AWS_REGION: process.env.AWS_REGION || 'not set',
+        AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION || 'not set',
+        NEXT_PUBLIC_AWS_REGION: process.env.NEXT_PUBLIC_AWS_REGION || 'not set'
+      });
       return NextResponse.json(
         {
           isSuccess: false,
@@ -81,6 +88,14 @@ export async function GET(request: NextRequest) {
       
     } catch (error) {
       console.error("Data API error:", error);
+      // Log more details about the error
+      if (error instanceof Error) {
+        console.error("Error details:", {
+          name: error.name,
+          message: error.message,
+          stack: error.stack?.split('\n').slice(0, 5).join('\n')
+        });
+      }
       return NextResponse.json(
         {
           isSuccess: false,
@@ -93,6 +108,14 @@ export async function GET(request: NextRequest) {
     
   } catch (error) {
     console.error("Error in navigation API:", error)
+    // Log more details about the error
+    if (error instanceof Error) {
+      console.error("Outer error details:", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack?.split('\n').slice(0, 5).join('\n')
+      });
+    }
     return NextResponse.json(
       {
         isSuccess: false,
