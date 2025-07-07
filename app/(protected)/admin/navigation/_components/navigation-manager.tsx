@@ -24,7 +24,7 @@ interface OrganizedItem extends SelectNavigationItem {
  * @param level - Current nesting level (used for indentation)
  * @returns Array of organized items with their children
  */
-function organizeItems(items: SelectNavigationItem[], parentId: string | null = null, level: number = 0): OrganizedItem[] {
+function organizeItems(items: SelectNavigationItem[], parentId: number | null = null, level: number = 0): OrganizedItem[] {
   const filteredItems = items
     .filter(item => item.parentId === parentId)
     .sort((a, b) => (a.position || 0) - (b.position || 0))
@@ -58,10 +58,10 @@ function flattenOrganizedItems(items: OrganizedItem[]): OrganizedItem[] {
  */
 export function NavigationManager() {
   const [items, setItems] = useState<SelectNavigationItem[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeId, setActiveId] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isFormOpen, setIsFormOpen] = useState(false)
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
+  const [collapsedSections, setCollapsedSections] = useState<Set<number>>(new Set())
   const [error, setError] = useState<string | null>(null)
 
   // Configure drag sensor with a minimum distance to prevent accidental drags
@@ -97,7 +97,7 @@ export function NavigationManager() {
   }, [])
 
   const handleDragStart = (event: DragStartEvent) => {
-    setActiveId(event.active.id as string)
+    setActiveId(Number(event.active.id))
   }
 
   /**
@@ -110,8 +110,8 @@ export function NavigationManager() {
     const { active, over } = event
 
     if (over && active.id !== over.id) {
-      const oldIndex = items.findIndex((item) => item.id === active.id)
-      const newIndex = items.findIndex((item) => item.id === over.id)
+      const oldIndex = items.findIndex((item) => item.id === Number(active.id))
+      const newIndex = items.findIndex((item) => item.id === Number(over.id))
 
       // Get the dragged item and its parent ID
       const draggedItem = items[oldIndex]
@@ -180,7 +180,7 @@ export function NavigationManager() {
   /**
    * Toggles the collapsed state of a section
    */
-  const toggleSection = (sectionId: string) => {
+  const toggleSection = (sectionId: number) => {
     setCollapsedSections(prev => {
       const next = new Set(prev)
       if (next.has(sectionId)) {
@@ -257,7 +257,7 @@ export function NavigationManager() {
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
             >
-              <SortableContext items={flattenedItems.map(item => item.id)} strategy={verticalListSortingStrategy}>
+              <SortableContext items={flattenedItems.map(item => String(item.id))} strategy={verticalListSortingStrategy}>
                 <div className="space-y-2">
                   {flattenedItems.map((item) => (
                     <div

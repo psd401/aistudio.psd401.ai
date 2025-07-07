@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from "next/server"
-import { createRole, executeSQL, checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter"
-import { requireRole } from "@/lib/auth/role-helpers"
+import { NextResponse } from "next/server"
 import { getServerSession } from "@/lib/auth/server-session"
+import { executeSQL, checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter"
 
 export async function GET() {
   try {
@@ -23,47 +22,32 @@ export async function GET() {
       )
     }
 
-    // Get all roles
+    // Get all tools
     const result = await executeSQL({
-      sql: 'SELECT name FROM roles ORDER BY name',
+      sql: 'SELECT id, name, identifier, description FROM tools ORDER BY name',
       database: 'aistudio',
       secretArn: process.env.DB_SECRET_ARN!,
       resourceArn: process.env.DB_RESOURCE_ARN!,
     })
 
-    const roles = result.records?.map(record => ({
-      id: record[0].stringValue!,
-      name: record[0].stringValue!,
+    const tools = result.records?.map(record => ({
+      id: record[0].longValue!.toString(),
+      name: record[1].stringValue!,
+      identifier: record[2].stringValue!,
+      description: record[3].stringValue || null,
     })) || []
 
     return NextResponse.json({
       isSuccess: true,
-      data: roles
+      data: tools
     })
   } catch (error) {
     return NextResponse.json(
       { 
         isSuccess: false, 
-        message: error instanceof Error ? error.message : "Failed to fetch roles"
+        message: error instanceof Error ? error.message : "Failed to fetch tools"
       },
       { status: 500 }
     )
   }
 }
-
-export async function POST(request: NextRequest) {
-  try {
-    await requireRole("administrator")
-    
-    const body = await request.json()
-    const role = await createRole(body)
-    
-    return NextResponse.json({ role })
-  } catch (error: any) {
-    console.error("Error creating role:", error)
-    return NextResponse.json(
-      { error: error.message || "Failed to create role" },
-      { status: 500 }
-    )
-  }
-} 

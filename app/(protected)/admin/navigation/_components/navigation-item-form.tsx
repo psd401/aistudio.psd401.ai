@@ -28,14 +28,14 @@ interface NavigationItemFormProps {
 }
 
 const formSchema = z.object({
-  id: z.string().optional(),
+  id: z.union([z.string(), z.number()]).optional(),
   label: z.string().min(2, "Label must be at least 2 characters"),
   icon: z.custom<IconName>((val) => Object.keys(iconMap).includes(val as string), "Invalid icon"),
   link: z.string().optional(),
   description: z.string().optional(),
   type: z.enum(["link", "section", "page"]),
-  parentId: z.string().optional(),
-  toolId: z.string().optional().nullable(),
+  parentId: z.union([z.string(), z.number()]).optional(),
+  toolId: z.union([z.string(), z.number()]).optional().nullable(),
   requiresRole: z.string().optional().nullable(),
   position: z.number().optional(),
   isActive: z.boolean().optional()
@@ -125,26 +125,18 @@ export function NavigationItemForm({
 
   const onFormSubmit = async (values: FormValues) => {
     try {
-      let baseId = initialData?.id || generateToolIdentifier(values.label)
-      let id = baseId
-      let suffix = 2
-      // Ensure uniqueness among all navigation items
-      while (items.some(item => item.id === id && item.id !== initialData?.id)) {
-        id = `${baseId}-${suffix++}`
-      }
-      if (!id) {
-        toast.error("Navigation item ID cannot be empty. Please use a different label.")
-        return
-      }
-      // For pages, set the link to /page/[id]
+      // For pages, set the link to /page/[label-slug]
       let link = values.link
       if (values.type === "page") {
-        link = `/page/${id}`
+        // Generate a slug from the label for the page link
+        const slug = generateToolIdentifier(values.label)
+        link = `/page/${slug}`
       }
       // Format the data correctly
       const data = {
         ...values,
-        id,
+        // Only include id if we're updating an existing item
+        ...(initialData?.id && { id: initialData.id }),
         link,
         toolId: values.toolId || null,
         parentId: values.parentId || null,
@@ -330,8 +322,8 @@ export function NavigationItemForm({
                       <FormItem>
                         <FormLabel>Parent</FormLabel>
                         <Select
-                          onValueChange={(value) => field.onChange(value === "none" ? undefined : value)}
-                          defaultValue={field.value || "none"}
+                          onValueChange={(value) => field.onChange(value === "none" ? undefined : Number(value))}
+                          defaultValue={field.value ? String(field.value) : "none"}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -341,7 +333,7 @@ export function NavigationItemForm({
                           <SelectContent className="max-h-60 overflow-y-auto">
                             <SelectItem value="none">None</SelectItem>
                             {parents.map((parent) => (
-                              <SelectItem key={parent.id} value={parent.id}>
+                              <SelectItem key={parent.id} value={String(parent.id)}>
                                 {parent.label}
                               </SelectItem>
                             ))}
@@ -362,8 +354,8 @@ export function NavigationItemForm({
                       <FormItem>
                         <FormLabel>Required Tool</FormLabel>
                         <Select
-                          onValueChange={(value) => field.onChange(value === "none" ? null : value)}
-                          defaultValue={field.value || "none"}
+                          onValueChange={(value) => field.onChange(value === "none" ? null : Number(value))}
+                          defaultValue={field.value ? String(field.value) : "none"}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -373,7 +365,7 @@ export function NavigationItemForm({
                           <SelectContent>
                             <SelectItem value="none">None</SelectItem>
                             {tools.map((tool) => (
-                              <SelectItem key={tool.id} value={tool.id}>
+                              <SelectItem key={tool.id} value={String(tool.id)}>
                                 {tool.name}
                               </SelectItem>
                             ))}

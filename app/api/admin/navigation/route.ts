@@ -91,13 +91,13 @@ export async function POST(request: Request) {
     if (body.id) {
       // First check if this ID exists in the database
       const existingItems = await getNavigationItems();
-      const itemExists = existingItems.some(item => item.id === body.id);
+      const itemExists = existingItems.some(item => item.id === Number(body.id));
       
       if (itemExists) {
         // This is an update operation
         const { id, ...data } = body;
         try {
-          const updatedItem = await updateNavigationItem(parseInt(id, 10), data)
+          const updatedItem = await updateNavigationItem(Number(id), data)
 
           return NextResponse.json({
             isSuccess: true,
@@ -123,8 +123,8 @@ export async function POST(request: Request) {
         link: body.link,
         description: body.description,
         type: body.type,
-        parentId: body.parentId ? parseInt(body.parentId, 10) : undefined,
-        toolId: body.toolId ? parseInt(body.toolId, 10) : undefined,
+        parentId: body.parentId ? Number(body.parentId) : undefined,
+        toolId: body.toolId ? Number(body.toolId) : undefined,
         requiresRole: body.requiresRole,
         position: body.position || 0,
         isActive: body.isActive ?? true
@@ -183,7 +183,7 @@ export async function PATCH(request: Request) {
     }
 
     try {
-      const updatedItem = await updateNavigationItem(parseInt(body.id, 10), { position: body.position })
+      const updatedItem = await updateNavigationItem(Number(body.id), { position: body.position })
 
 
       if (!updatedItem) {
