@@ -75,14 +75,23 @@ export async function executeSQL(sql: string, parameters: any[] = []) {
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      const config = getDataApiConfig();
+      logger.info('Executing SQL', { 
+        hasResourceArn: !!config.resourceArn,
+        hasSecretArn: !!config.secretArn,
+        database: config.database,
+        attempt
+      });
+      
       const command = new ExecuteStatementCommand({
-        ...getDataApiConfig(),
+        ...config,
         sql,
         parameters: parameters.length > 0 ? parameters : undefined,
         includeResultMetadata: true
       });
 
       const response = await getRDSClient().send(command);
+      logger.info('SQL executed successfully');
       return formatDataApiResponse(response);
     } catch (error: any) {
       logger.error(`Data API Error (attempt ${attempt}/${maxRetries}):`, error);
