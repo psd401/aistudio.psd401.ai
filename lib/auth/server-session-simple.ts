@@ -24,8 +24,8 @@ export async function getServerSession(): Promise<CognitoSession | null> {
       email: jwtPayload.email,
       ...jwtPayload,
     };
-  } catch (error) {
-    console.error("Session retrieval failed:", error);
+  } catch {
+    // Session retrieval failed
     return null;
   }
 }

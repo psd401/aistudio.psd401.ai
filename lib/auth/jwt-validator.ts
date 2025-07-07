@@ -52,7 +52,7 @@ export async function validateJWT(): Promise<JWTPayload | null> {
   try {
     // Skip validation if required env vars are missing
     if (!process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID || !process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID) {
-      console.warn("JWT validation skipped: Missing Cognito configuration");
+      // JWT validation skipped: Missing Cognito configuration
       return null;
     }
 
@@ -70,9 +70,9 @@ export async function validateJWT(): Promise<JWTPayload | null> {
       email_verified: payload.email_verified as boolean | undefined,
       ...payload,
     };
-  } catch (error) {
+  } catch {
     // Token is invalid or expired
-    console.error("JWT validation failed:", error);
+    // JWT validation failed - token is invalid or expired
     return null;
   }
 }
