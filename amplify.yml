@@ -4,7 +4,18 @@ applications:
       phases:
         preBuild:
           commands:
-            - echo "DATABASE_URL=${DATABASE_URL}" >> .env
+            # General
+            - echo "AMPLIFY_APP_ORIGIN=${AMPLIFY_APP_ORIGIN}" >> .env
+            # Auth
+            - echo "NEXT_PUBLIC_COGNITO_USER_POOL_ID=${NEXT_PUBLIC_COGNITO_USER_POOL_ID}" >> .env
+            - echo "NEXT_PUBLIC_COGNITO_CLIENT_ID=${NEXT_PUBLIC_COGNITO_CLIENT_ID}" >> .env
+            - echo "NEXT_PUBLIC_COGNITO_DOMAIN=${NEXT_PUBLIC_COGNITO_DOMAIN}" >> .env
+            - echo "NEXT_PUBLIC_AWS_REGION=${NEXT_PUBLIC_AWS_REGION}" >> .env
+            - echo "COGNITO_JWKS_URL=${COGNITO_JWKS_URL}" >> .env
+            # Database
+            - echo "RDS_RESOURCE_ARN=${RDS_RESOURCE_ARN}" >> .env
+            - echo "RDS_SECRET_ARN=${RDS_SECRET_ARN}" >> .env
+            # AI Provider Keys (existing)
             - echo "AZURE_OPENAI_KEY=${AZURE_OPENAI_KEY}" >> .env
             - echo "AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}" >> .env
             - echo "AZURE_OPENAI_RESOURCENAME=${AZURE_OPENAI_RESOURCENAME}" >> .env
