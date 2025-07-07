@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 
 const nextConfig = {
+  output: 'standalone', // Required for AWS Amplify hosting
   images: {
     remotePatterns: [
       {

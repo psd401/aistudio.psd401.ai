@@ -1,6 +1,8 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as amplify from '@aws-cdk/aws-amplify-alpha';
+import * as codebuild from 'aws-cdk-lib/aws-codebuild';
+import * as iam from 'aws-cdk-lib/aws-iam';
 
 export interface FrontendStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
@@ -21,27 +23,69 @@ export class FrontendStack extends cdk.Stack {
         repository: 'aistudio.psd401.ai',
         oauthToken: props.githubToken,
       }),
-      environmentVariables: {
-        // General
-        AMPLIFY_APP_ORIGIN: 'PLACEHOLDER',
-        
-        // Auth
-        NEXT_PUBLIC_COGNITO_USER_POOL_ID: 'PLACEHOLDER',
-        NEXT_PUBLIC_COGNITO_CLIENT_ID: 'PLACEHOLDER',
-        NEXT_PUBLIC_COGNITO_DOMAIN: 'PLACEHOLDER',
-        NEXT_PUBLIC_AWS_REGION: 'PLACEHOLDER',
-        COGNITO_JWKS_URL: 'PLACEHOLDER',
-        
-        // Database
-        RDS_RESOURCE_ARN: 'PLACEHOLDER',
-        RDS_SECRET_ARN: 'PLACEHOLDER'
-      },
+      platform: amplify.Platform.WEB_COMPUTE, // Required for Next.js SSR
+      // Remove environmentVariables from here - they should be set manually after deployment
+      // to avoid overwriting existing values on CDK updates
       autoBranchDeletion: true,
+      buildSpec: codebuild.BuildSpec.fromObject({
+        version: 1,
+        frontend: {
+          phases: {
+            preBuild: {
+              commands: [
+                'npm ci --legacy-peer-deps'
+              ]
+            },
+            build: {
+              commands: [
+                'npm run build'
+              ]
+            }
+          },
+          artifacts: {
+            baseDirectory: '.next',
+            files: ['**/*']
+          },
+          cache: {
+            paths: [
+              'node_modules/**/*',
+              '.next/cache/**/*'
+            ]
+          }
+        }
+      })
     });
 
     // Branches
     const branchName = props.environment === 'prod' ? 'main' : 'dev';
     const branch = amplifyApp.addBranch(branchName);
+
+    // Grant permissions to access RDS Data API and Secrets Manager
+    // Get the role from the Amplify app
+    const amplifyRole = amplifyApp.node.findChild('Role') as iam.Role;
+    
+    // Add permissions for RDS Data API
+    amplifyRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'rds-data:ExecuteStatement',
+        'rds-data:BatchExecuteStatement',
+        'rds-data:BeginTransaction',
+        'rds-data:CommitTransaction',
+        'rds-data:RollbackTransaction'
+      ],
+      resources: ['*'] // You could restrict this to specific cluster ARNs
+    }));
+    
+    // Add permissions for Secrets Manager
+    amplifyRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'secretsmanager:GetSecretValue',
+        'secretsmanager:DescribeSecret'
+      ],
+      resources: ['*'] // You could restrict this to specific secret ARNs
+    }));
 
     // Outputs
     new cdk.CfnOutput(this, 'AmplifyAppId', {
@@ -57,5 +101,19 @@ export class FrontendStack extends cdk.Stack {
 
     // Add custom domain using the correct Amplify CDK method
     amplifyApp.addDomain(props.baseDomain, { subDomains: [{ branch, prefix: props.environment }] });
+
+    // Output instructions for setting environment variables
+    new cdk.CfnOutput(this, 'EnvironmentVariablesInstructions', {
+      value: `After deployment, set the following environment variables in the AWS Amplify console:
+      AMPLIFY_APP_ORIGIN=https://${props.environment}.${props.baseDomain}
+      NEXT_PUBLIC_COGNITO_USER_POOL_ID=<from auth stack>
+      NEXT_PUBLIC_COGNITO_CLIENT_ID=<from auth stack>
+      NEXT_PUBLIC_COGNITO_DOMAIN=<from auth stack>
+      NEXT_PUBLIC_AWS_REGION=${this.region}
+      COGNITO_JWKS_URL=<from auth stack>
+      RDS_RESOURCE_ARN=<from database stack>
+      RDS_SECRET_ARN=<from database stack>`,
+      description: 'Required environment variables for Amplify app'
+    });
   }
 }

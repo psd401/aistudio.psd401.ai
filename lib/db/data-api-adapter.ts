@@ -1,4 +1,5 @@
 import { RDSDataClient, ExecuteStatementCommand } from "@aws-sdk/client-rds-data";
+import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import logger from '@/lib/logger';
 
 // Lazy-initialize the RDS Data API client
@@ -6,8 +7,15 @@ let client: RDSDataClient | null = null;
 
 function getRDSClient(): RDSDataClient {
   if (!client) {
+    // Use the Node.js credential provider chain which will:
+    // 1. Check environment variables (AWS_ACCESS_KEY_ID, etc.)
+    // 2. Check ECS container credentials (for Amplify WEB_COMPUTE)
+    // 3. Check EC2 instance metadata
+    // 4. Check shared credentials file
+    // 5. Check ECS task role
     client = new RDSDataClient({ 
       region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
+      credentials: fromNodeProviderChain(),
       maxAttempts: 3
     });
   }

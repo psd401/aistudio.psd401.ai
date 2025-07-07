@@ -4,22 +4,30 @@ applications:
       phases:
         preBuild:
           commands:
-            # General
+            # Create .env file for runtime
             - echo "AMPLIFY_APP_ORIGIN=${AMPLIFY_APP_ORIGIN}" >> .env
-            # Auth
             - echo "NEXT_PUBLIC_COGNITO_USER_POOL_ID=${NEXT_PUBLIC_COGNITO_USER_POOL_ID}" >> .env
             - echo "NEXT_PUBLIC_COGNITO_CLIENT_ID=${NEXT_PUBLIC_COGNITO_CLIENT_ID}" >> .env
             - echo "NEXT_PUBLIC_COGNITO_DOMAIN=${NEXT_PUBLIC_COGNITO_DOMAIN}" >> .env
             - echo "NEXT_PUBLIC_AWS_REGION=${NEXT_PUBLIC_AWS_REGION}" >> .env
             - echo "COGNITO_JWKS_URL=${COGNITO_JWKS_URL}" >> .env
-            # Database
             - echo "RDS_RESOURCE_ARN=${RDS_RESOURCE_ARN}" >> .env
             - echo "RDS_SECRET_ARN=${RDS_SECRET_ARN}" >> .env
-            # General
+            # Install dependencies
             - npm ci --legacy-peer-deps
         build:
           commands:
-            - npm run build
+            # Build with all environment variables available
+            - |
+              export AMPLIFY_APP_ORIGIN=${AMPLIFY_APP_ORIGIN}
+              export NEXT_PUBLIC_COGNITO_USER_POOL_ID=${NEXT_PUBLIC_COGNITO_USER_POOL_ID}
+              export NEXT_PUBLIC_COGNITO_CLIENT_ID=${NEXT_PUBLIC_COGNITO_CLIENT_ID}
+              export NEXT_PUBLIC_COGNITO_DOMAIN=${NEXT_PUBLIC_COGNITO_DOMAIN}
+              export NEXT_PUBLIC_AWS_REGION=${NEXT_PUBLIC_AWS_REGION}
+              export COGNITO_JWKS_URL=${COGNITO_JWKS_URL}
+              export RDS_RESOURCE_ARN=${RDS_RESOURCE_ARN}
+              export RDS_SECRET_ARN=${RDS_SECRET_ARN}
+              npm run build
       artifacts:
         baseDirectory: .next
         files:
