@@ -1,3 +1,4 @@
+import { NextRequest, NextResponse } from 'next/server';
 import logger from "@/lib/logger"
 
 // Limit request body size to 25MB for uploads
@@ -8,11 +9,6 @@ export const config = {
     }
   }
 }
-
-console.log('[Upload API Module] Loading route.ts file...'); // Log module load
-logger.info('[Upload API Module] Winston logger test: route.ts file loaded');
-
-import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { uploadDocument, getDocumentSignedUrl } from '@/lib/aws/s3-client';
 import { saveDocument, batchInsertDocumentChunks } from '@/lib/db/queries/documents';
