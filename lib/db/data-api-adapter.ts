@@ -1,9 +1,5 @@
 import { RDSDataClient, ExecuteStatementCommand } from "@aws-sdk/client-rds-data";
-import { config } from 'dotenv';
 import logger from '@/lib/logger';
-
-// Load environment variables
-config({ path: '.env.local' });
 
 // Initialize the RDS Data API client
 const client = new RDSDataClient({ 
