@@ -4,12 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Image from "next/image";
 import { signInWithRedirect, fetchAuthSession } from "aws-amplify/auth";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { getCurrentUser } from "aws-amplify/auth";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Hub } from "aws-amplify/utils";
 
-export default function LandingPage() {
+function LandingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isProcessing, setIsProcessing] = useState(false);
@@ -152,5 +152,19 @@ export default function LandingPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function LandingPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <div className="text-lg text-muted-foreground">Loading...</div>
+        </div>
+      </div>
+    }>
+      <LandingPageContent />
+    </Suspense>
   );
 }

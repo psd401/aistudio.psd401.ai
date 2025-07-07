@@ -1,6 +1,7 @@
-"use server"
-
 import { NavbarNested } from "@/components/navigation/navbar-nested"
+
+// Force dynamic rendering for all admin pages to avoid static generation issues with authentication
+export const dynamic = 'force-dynamic'
 
 export default async function AdminLayout({
   children
