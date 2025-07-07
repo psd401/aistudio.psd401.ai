@@ -15,20 +15,7 @@ applications:
             # Database
             - echo "RDS_RESOURCE_ARN=${RDS_RESOURCE_ARN}" >> .env
             - echo "RDS_SECRET_ARN=${RDS_SECRET_ARN}" >> .env
-            # AI Provider Keys (existing)
-            - echo "AZURE_OPENAI_KEY=${AZURE_OPENAI_KEY}" >> .env
-            - echo "AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}" >> .env
-            - echo "AZURE_OPENAI_RESOURCENAME=${AZURE_OPENAI_RESOURCENAME}" >> .env
-            - echo "BEDROCK_ACCESS_KEY_ID=${BEDROCK_ACCESS_KEY_ID}" >> .env
-            - echo "BEDROCK_SECRET_ACCESS_KEY=${BEDROCK_SECRET_ACCESS_KEY}" >> .env
-            - echo "BEDROCK_REGION=${BEDROCK_REGION}" >> .env
-            - echo "GOOGLE_API_KEY=${GOOGLE_API_KEY}" >> .env
-            - echo "LATIMER_API_KEY=${LATIMER_API_KEY}" >> .env
-            - echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> .env
-            - echo "GOOGLE_VERTEX_PROJECT_ID=${GOOGLE_VERTEX_PROJECT_ID}" >> .env
-            - echo "GOOGLE_VERTEX_LOCATION=${GOOGLE_VERTEX_LOCATION}" >> .env
-            - echo "GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS}" >> .env
-            - echo "GITHUB_ISSUE_TOKEN=${GITHUB_ISSUE_TOKEN}" >> .env
+            # General
             - npm ci --legacy-peer-deps
         build:
           commands:

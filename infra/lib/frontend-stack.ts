@@ -23,11 +23,19 @@ export class FrontendStack extends cdk.Stack {
         oauthToken: props.githubToken,
       }),
       environmentVariables: {
-        DATABASE_URL: 'PLACEHOLDER',
+        // General
+        AMPLIFY_APP_ORIGIN: 'PLACEHOLDER',
+        
+        // Auth
         NEXT_PUBLIC_COGNITO_USER_POOL_ID: 'PLACEHOLDER',
         NEXT_PUBLIC_COGNITO_CLIENT_ID: 'PLACEHOLDER',
         NEXT_PUBLIC_COGNITO_DOMAIN: 'PLACEHOLDER',
-        // Add other secrets as needed
+        NEXT_PUBLIC_AWS_REGION: 'PLACEHOLDER',
+        COGNITO_JWKS_URL: 'PLACEHOLDER',
+        
+        // Database
+        RDS_RESOURCE_ARN: 'PLACEHOLDER',
+        RDS_SECRET_ARN: 'PLACEHOLDER'
       },
       autoBranchDeletion: true,
     });
