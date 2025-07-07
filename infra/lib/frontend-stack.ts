@@ -12,7 +12,6 @@ export class FrontendStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: FrontendStackProps) {
     super(scope, id, props);
 
-    const subdomain = props.environment === 'dev' ? `dev.${props.baseDomain}` : `prod.${props.baseDomain}`;
 
     // Amplify App
     const amplifyApp = new amplify.App(this, 'AmplifyApp', {
