@@ -8,6 +8,8 @@ const PUBLIC_PATHS: string[] = [
   "/favicon.ico",
   "/api/auth", // AWS Amplify auth routes including signout
   "/api/public", // expand as needed
+  "/api/health", // Health check endpoint
+  "/api/ping", // Ping endpoint for testing
   "/hero-bg.jpg", // public assets
 ];
 
