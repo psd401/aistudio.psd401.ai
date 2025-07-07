@@ -1,12 +1,18 @@
 import { RDSDataClient, ExecuteStatementCommand } from "@aws-sdk/client-rds-data";
 import logger from '@/lib/logger';
 
-// Initialize the RDS Data API client
-// In Amplify, credentials come from the execution IAM role automatically
-const client = new RDSDataClient({ 
-  region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
-  maxAttempts: 3
-});
+// Lazy-initialize the RDS Data API client
+let client: RDSDataClient | null = null;
+
+function getRDSClient(): RDSDataClient {
+  if (!client) {
+    client = new RDSDataClient({ 
+      region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
+      maxAttempts: 3
+    });
+  }
+  return client;
+}
 
 // Get Data API configuration at runtime
 function getDataApiConfig() {
@@ -76,7 +82,7 @@ export async function executeSQL(sql: string, parameters: any[] = []) {
         includeResultMetadata: true
       });
 
-      const response = await client.send(command);
+      const response = await getRDSClient().send(command);
       return formatDataApiResponse(response);
     } catch (error: any) {
       logger.error(`Data API Error (attempt ${attempt}/${maxRetries}):`, error);
@@ -134,7 +140,7 @@ async function beginTransaction() {
     ...getDataApiConfig(),
     sql: 'BEGIN'
   });
-  const response = await client.send(command);
+  const response = await getRDSClient().send(command);
   return response.transactionId!;
 }
 
@@ -144,7 +150,7 @@ async function commitTransaction(transactionId: string) {
     sql: 'COMMIT',
     transactionId
   });
-  await client.send(command);
+  await getRDSClient().send(command);
 }
 
 async function rollbackTransaction(transactionId: string) {
@@ -153,7 +159,7 @@ async function rollbackTransaction(transactionId: string) {
     sql: 'ROLLBACK',
     transactionId
   });
-  await client.send(command);
+  await getRDSClient().send(command);
 }
 
 /**
