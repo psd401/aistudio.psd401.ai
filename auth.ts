@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken"
 import type { NextAuthConfig } from "next-auth"
 
 export const authConfig: NextAuthConfig = {
+  trustHost: true, // Required for AWS Amplify
   providers: [
     Cognito({
       clientId: process.env.AUTH_COGNITO_CLIENT_ID!,
@@ -15,6 +16,7 @@ export const authConfig: NextAuthConfig = {
           scope: "openid email profile",
           response_type: "code",
           prompt: "login", // Force Cognito to show login screen and create new session
+          redirect_uri: process.env.AUTH_URL ? `${process.env.AUTH_URL}/api/auth/callback/cognito` : undefined,
         },
       },
       client: {
