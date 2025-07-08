@@ -1,5 +1,3 @@
-"use server"
-
 import { requireRole } from "@/lib/auth/role-helpers"
 import { UsersClient } from "@/components/features/users-client"
 

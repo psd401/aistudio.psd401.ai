@@ -1,5 +1,3 @@
-"use server"
-
 import { redirect, notFound } from "next/navigation"
 import { getServerSession } from "@/lib/auth/server-session"
 import { checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter"

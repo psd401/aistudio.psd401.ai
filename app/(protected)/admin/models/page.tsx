@@ -1,5 +1,3 @@
-"use server"
-
 import { Suspense } from "react"
 import { AiModelsClient } from "@/components/features/ai-models-client"
 import { requireRole } from "@/lib/auth/role-helpers"

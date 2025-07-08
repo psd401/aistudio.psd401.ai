@@ -1,5 +1,3 @@
-"use server"
-
 import { redirect } from "next/navigation"
 import { Chat } from "./_components/chat"
 import { hasToolAccess } from "@/utils/roles"

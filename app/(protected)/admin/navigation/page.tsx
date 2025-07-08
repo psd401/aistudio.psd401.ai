@@ -1,5 +1,3 @@
-"use server"
-
 import { NavigationManager } from "./_components/navigation-manager"
 
 export default async function NavigationPage() {

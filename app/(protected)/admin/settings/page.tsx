@@ -1,5 +1,3 @@
-"use server"
-
 import { Suspense } from "react"
 import { SettingsClient } from "./_components/settings-client"
 import { requireRole } from "@/lib/auth/role-helpers"

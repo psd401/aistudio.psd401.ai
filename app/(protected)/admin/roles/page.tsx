@@ -1,5 +1,3 @@
-"use server"
-
 import { Suspense } from "react"
 import { RolesTable } from "./_components/roles-table"
 import { RoleForm } from "./_components/role-form"

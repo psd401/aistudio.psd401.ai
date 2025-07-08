@@ -1,5 +1,3 @@
-"use server"
-
 import { getAssistantArchitectByIdAction } from "@/actions/db/assistant-architect-actions"
 import { PreviewPageClient } from "./_components/preview-page-client"
 import { CreateLayout } from "../../../create/_components/create-layout"

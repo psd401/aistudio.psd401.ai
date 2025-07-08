@@ -1,5 +1,3 @@
-"use server"
-
 import { redirect } from "next/navigation"
 import { CreateForm } from "./_components/create-form"
 import { CreateLayout } from "./_components/create-layout"

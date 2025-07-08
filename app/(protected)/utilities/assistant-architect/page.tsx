@@ -1,5 +1,3 @@
-"use server"
-
 import { redirect } from "next/navigation"
 import { AssistantArchitectList } from "@/components/features/assistant-architect/assistant-architect-list"
 import { Button } from "@/components/ui/button"

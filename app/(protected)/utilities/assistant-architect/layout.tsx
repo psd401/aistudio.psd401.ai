@@ -1,5 +1,3 @@
-"use server"
-
 import { NavbarNested } from "@/components/navigation/navbar-nested"
 
 export default async function AssistantArchitectLayout({

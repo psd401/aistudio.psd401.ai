@@ -1,5 +1,3 @@
-"use server"
-
 import { redirect, notFound } from "next/navigation"
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { getAiModelsAction } from "@/actions/db/ai-models-actions"

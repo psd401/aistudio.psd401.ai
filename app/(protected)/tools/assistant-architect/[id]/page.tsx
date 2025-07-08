@@ -1,5 +1,3 @@
-"use server"
-
 import { redirect } from "next/navigation"
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { AssistantArchitectExecution } from "@/components/features/assistant-architect/assistant-architect-execution"
