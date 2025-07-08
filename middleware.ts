@@ -1,66 +1,59 @@
-import { NextResponse, NextRequest } from "next/server";
-import { validateJWT } from "@/lib/auth/jwt-validator";
+import { auth } from "@/auth";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 
-const PUBLIC_PATHS: string[] = [
-  "/", // landing page
-  "/sign-in",
-  "/favicon.ico",
-  "/api/auth", // AWS Amplify auth routes including signout
-  "/api/public", // expand as needed
-  "/api/health", // Health check endpoint
-  "/api/ping", // Ping endpoint for testing
-  "/hero-bg.jpg", // public assets
+// Public paths that don't require authentication
+const PUBLIC_PATHS = [
+  "/",
+  "/signout",
+  "/api/auth",
+  "/api/public",
+  "/api/health",
+  "/api/ping",
+  "/api/auth/federated-signout",
+  "/auth/error",
 ];
 
-function isPublic(pathname: string) {
-  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
-}
+export default auth((req) => {
+  const { nextUrl, auth } = req;
+  const isLoggedIn = !!auth;
 
-export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+  // Check if path is public
+  const isPublicPath = PUBLIC_PATHS.some(path => 
+    nextUrl.pathname === path || nextUrl.pathname.startsWith(path + "/")
+  );
 
-  // Static assets and Next.js internals should always pass through
+  // Allow public paths
+  if (isPublicPath) {
+    return NextResponse.next();
+  }
+
+  // Allow static assets
   if (
-    pathname.startsWith("/_next") || 
-    pathname.startsWith("/static") ||
-    pathname.match(/\.(jpg|jpeg|png|gif|ico|css|js)$/i)
+    nextUrl.pathname.startsWith("/_next") ||
+    nextUrl.pathname.startsWith("/static") ||
+    nextUrl.pathname.match(/\.(jpg|jpeg|png|gif|ico|css|js)$/i)
   ) {
     return NextResponse.next();
   }
 
-  // Public paths bypass authentication
-  if (isPublic(pathname)) {
-    return NextResponse.next();
+  // Redirect unauthenticated users to sign-in
+  if (!isLoggedIn) {
+    return NextResponse.redirect(new URL(`/api/auth/signin?callbackUrl=${encodeURIComponent(nextUrl.pathname)}`, nextUrl));
   }
 
-  try {
-    // Use our custom JWT validation instead of Amplify
-    const session = await validateJWT();
-    
-    if (!session || !session.sub) {
-      // Log unauthorized access attempt (in production, use proper logging)
-      
-      // Redirect to home page
-      const url = req.nextUrl.clone();
-      url.pathname = "/";
-      return NextResponse.redirect(url);
-    }
-
-    // Valid session - add user info to headers for downstream use
-    const res = NextResponse.next();
-    res.headers.set("x-user-sub", session.sub);
-    res.headers.set("x-auth-validated", new Date().toISOString());
-    
-    return res;
-  } catch {
-    // Log authentication errors (in production, use proper logging)
-    
-    // On any error, allow the request to proceed
-    // This prevents 500 errors from blocking the entire app
-    return NextResponse.next();
-  }
-}
+  return NextResponse.next();
+});
 
 export const config = {
-  matcher: "/((?!_next/static|_next/image|favicon.ico).*)",
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api/auth (NextAuth routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
+    "/((?!api/auth|_next/static|_next/image|favicon.ico).*)",
+  ],
 };

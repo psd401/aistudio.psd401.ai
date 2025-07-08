@@ -1,50 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCookieClearingHeaders } from "@/lib/auth/cookie-utils";
+import { auth, signOut } from "@/auth";
 
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
-    // Create response that redirects to home
-    const response = NextResponse.json(
-      { success: true, message: "Signed out successfully" },
-      { status: 200 }
-    );
-
-    // Clear all authentication cookies server-side
-    getCookieClearingHeaders().forEach(header => {
-      response.headers.append("Set-Cookie", header);
-    });
-
-    // Add cache control headers to prevent caching
-    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
-    response.headers.set("Pragma", "no-cache");
-    response.headers.set("Expires", "0");
-
-    return response;
+    // Get the current session BEFORE signing out
+    const session = await auth();
+    
+    if (session) {
+      // Build the Cognito logout URL first
+      const cognitoDomain = process.env.NEXT_PUBLIC_COGNITO_DOMAIN;
+      const clientId = process.env.AUTH_COGNITO_CLIENT_ID;
+      const logoutUri = `${request.nextUrl.origin}/`;
+      
+      const cognitoLogoutUrl = `https://${cognitoDomain}/logout?client_id=${clientId}&logout_uri=${encodeURIComponent(logoutUri)}`;
+      
+      // Sign out from NextAuth
+      // IMPORTANT: Don't await this, as it might interfere with our redirect
+      signOut({ redirect: false });
+      
+      // Immediately redirect to Cognito logout
+      return NextResponse.redirect(cognitoLogoutUrl);
+    }
+    
+    // If no session, just redirect to home
+    return NextResponse.redirect(new URL("/", request.url));
   } catch (error) {
     console.error("[Sign Out Route] Error:", error);
     
-    // Even on error, try to clear cookies
-    const response = NextResponse.json(
-      { success: false, message: "Sign out error occurred" },
-      { status: 500 }
-    );
-    
-    getCookieClearingHeaders().forEach(header => {
-      response.headers.append("Set-Cookie", header);
-    });
-    
-    return response;
+    // On error, redirect home
+    return NextResponse.redirect(new URL("/", request.url));
   }
-}
-
-export async function GET(request: NextRequest) {
-  // Also support GET for direct navigation
-  const response = NextResponse.redirect(new URL("/", request.url));
-  
-  // Clear all authentication cookies
-  getCookieClearingHeaders().forEach(header => {
-    response.headers.append("Set-Cookie", header);
-  });
-  
-  return response;
 }

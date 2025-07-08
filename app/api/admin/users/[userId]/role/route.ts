@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { updateUserRole } from '@/lib/db/data-api-adapter';
-import { cookies } from 'next/headers';
+import { getServerSession } from '@/lib/auth/server-session';
 
 export async function PUT(
   request: NextRequest,
@@ -11,11 +11,10 @@ export async function PUT(
     const params = await context.params;
     const userIdString = params.userId;
     
-    // Check authorization - temporary solution
-    const cookieStore = await cookies()
-    const hasAuthCookie = cookieStore.has('CognitoIdentityServiceProvider.3409udcdkhvqbs5njab7do8fsr.LastAuthUser')
+    // Check authorization
+    const session = await getServerSession()
     
-    if (!hasAuthCookie) {
+    if (!session) {
       return NextResponse.json(
         { isSuccess: false, message: 'Unauthorized' },
         { status: 401 }

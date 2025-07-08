@@ -1,7 +1,7 @@
 import '@/app/globals.css';
 import { Toaster } from 'sonner';
 import { GlobalHeader } from '@/components/layout/global-header';
-import AmplifyProvider from "@/components/utilities/amplify-provider"
+import AuthSessionProvider from "@/components/utilities/session-provider"
 import { fontSans } from "@/lib/fonts"
 import { cn } from "@/lib/utils"
 
@@ -25,11 +25,11 @@ export default function RootLayout({
         )}
         suppressHydrationWarning
       >
-        <AmplifyProvider>
+        <AuthSessionProvider>
           <GlobalHeader />
           {children}
           <Toaster />
-        </AmplifyProvider>
+        </AuthSessionProvider>
       </body>
     </html>
   )

@@ -1,5 +1,5 @@
 import { NextResponse, NextRequest } from "next/server"
-import { cookies } from "next/headers"
+import { getServerSession } from "@/lib/auth/server-session"
 import { getNavigationItems as getNavigationItemsViaDataAPI } from "@/lib/db/data-api-adapter"
 
 /**
@@ -31,14 +31,10 @@ import { getNavigationItems as getNavigationItemsViaDataAPI } from "@/lib/db/dat
  */
 export async function GET(request: NextRequest) {
   try {
-    // For now, we'll use a temporary solution to get navigation working
-    // In a production app, you would verify the JWT token from cookies here
-    const cookieStore = await cookies()
+    // Check if user is authenticated using NextAuth
+    const session = await getServerSession()
     
-    // Check if user has any auth cookies (temporary check)
-    const hasAuthCookie = cookieStore.has('CognitoIdentityServiceProvider.3409udcdkhvqbs5njab7do8fsr.LastAuthUser')
-    
-    if (!hasAuthCookie) {
+    if (!session) {
       return NextResponse.json(
         { isSuccess: false, message: "Unauthorized" },
         { status: 401 }

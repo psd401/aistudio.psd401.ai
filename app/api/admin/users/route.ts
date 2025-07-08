@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server"
 import { getUsers, getUserRoles, createUser, updateUser, deleteUser, hasUserRole } from "@/lib/db/data-api-adapter"
-import { cookies } from "next/headers"
+import { getServerSession } from "@/lib/auth/server-session"
 
 export async function GET(request: Request) {
   try {
-    // Check authorization - temporary solution using cookies
-    const cookieStore = await cookies()
-    const hasAuthCookie = cookieStore.has('CognitoIdentityServiceProvider.3409udcdkhvqbs5njab7do8fsr.LastAuthUser')
+    // Check authorization
+    const session = await getServerSession()
     
-    if (!hasAuthCookie) {
+    if (!session) {
       return NextResponse.json(
         { isSuccess: false, message: "Unauthorized" },
         { status: 401 }
@@ -62,11 +61,13 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     // Check authorization
-    const cookieStore = await cookies()
-    const hasAuthCookie = cookieStore.has('CognitoIdentityServiceProvider.3409udcdkhvqbs5njab7do8fsr.LastAuthUser')
+    const session = await getServerSession()
     
-    if (!hasAuthCookie) {
-      return new NextResponse("Unauthorized", { status: 401 })
+    if (!session) {
+      return NextResponse.json(
+        { isSuccess: false, message: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
     // TODO: Implement proper admin check
@@ -98,11 +99,13 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   try {
     // Check authorization
-    const cookieStore = await cookies()
-    const hasAuthCookie = cookieStore.has('CognitoIdentityServiceProvider.3409udcdkhvqbs5njab7do8fsr.LastAuthUser')
+    const session = await getServerSession()
     
-    if (!hasAuthCookie) {
-      return new NextResponse("Unauthorized", { status: 401 })
+    if (!session) {
+      return NextResponse.json(
+        { isSuccess: false, message: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
     // TODO: Implement proper admin check
@@ -129,11 +132,13 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   try {
     // Check authorization
-    const cookieStore = await cookies()
-    const hasAuthCookie = cookieStore.has('CognitoIdentityServiceProvider.3409udcdkhvqbs5njab7do8fsr.LastAuthUser')
+    const session = await getServerSession()
     
-    if (!hasAuthCookie) {
-      return new NextResponse("Unauthorized", { status: 401 })
+    if (!session) {
+      return NextResponse.json(
+        { isSuccess: false, message: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
     // TODO: Implement proper admin check

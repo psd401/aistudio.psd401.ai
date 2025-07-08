@@ -92,12 +92,14 @@ export async function executeSQL(sql: string, parameters: any[] = []) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const config = getDataApiConfig();
-      logger.info('Executing SQL', { 
-        hasResourceArn: !!config.resourceArn,
-        hasSecretArn: !!config.secretArn,
-        database: config.database,
-        attempt
-      });
+      if (process.env.SQL_LOGGING !== 'false') {
+        logger.debug('Executing SQL', { 
+          hasResourceArn: !!config.resourceArn,
+          hasSecretArn: !!config.secretArn,
+          database: config.database,
+          attempt
+        });
+      }
       
       const command = new ExecuteStatementCommand({
         ...config,
@@ -107,7 +109,9 @@ export async function executeSQL(sql: string, parameters: any[] = []) {
       });
 
       const response = await getRDSClient().send(command);
-      logger.info('SQL executed successfully');
+      if (process.env.SQL_LOGGING !== 'false') {
+        logger.debug('SQL executed successfully');
+      }
       return formatDataApiResponse(response);
     } catch (error: any) {
       logger.error(`Data API Error (attempt ${attempt}/${maxRetries}):`, error);
@@ -124,7 +128,9 @@ export async function executeSQL(sql: string, parameters: any[] = []) {
         // Wait before retry with exponential backoff
         if (attempt < maxRetries) {
           const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-          logger.info(`Retrying in ${delay}ms...`);
+          if (process.env.SQL_LOGGING !== 'false') {
+            logger.debug(`Retrying in ${delay}ms...`);
+          }
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }

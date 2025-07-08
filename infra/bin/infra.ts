@@ -25,10 +25,10 @@ function getCallbackAndLogoutUrls(environment: string, baseDomain?: string): { c
       callbackUrls: [
         'http://localhost:3000/',
         'http://localhost:3001/',
-        'http://localhost:3000/oauth2/idpresponse',
-        'http://localhost:3001/oauth2/idpresponse',
+        'http://localhost:3000/api/auth/callback/cognito',
+        'http://localhost:3001/api/auth/callback/cognito',
         baseDomain ? `https://dev.${baseDomain}/` : undefined,
-        baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : undefined,
+        baseDomain ? `https://dev.${baseDomain}/api/auth/callback/cognito` : undefined,
       ].filter(Boolean) as string[],
       logoutUrls: [
         'http://localhost:3000/',
@@ -44,8 +44,8 @@ function getCallbackAndLogoutUrls(environment: string, baseDomain?: string): { c
       callbackUrls: [
         baseDomain ? `https://prod.${baseDomain}/` : undefined,
         baseDomain ? `https://dev.${baseDomain}/` : undefined,
-        baseDomain ? `https://prod.${baseDomain}/oauth2/idpresponse` : undefined,
-        baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : undefined,
+        baseDomain ? `https://prod.${baseDomain}/api/auth/callback/cognito` : undefined,
+        baseDomain ? `https://dev.${baseDomain}/api/auth/callback/cognito` : undefined,
       ].filter(Boolean) as string[],
       logoutUrls: [
         baseDomain ? `https://prod.${baseDomain}/` : undefined,
