@@ -4,7 +4,6 @@ import jwt from "jsonwebtoken"
 import type { NextAuthConfig } from "next-auth"
 
 export const authConfig: NextAuthConfig = {
-  trustHost: true, // Required for AWS Amplify
   providers: [
     Cognito({
       clientId: process.env.AUTH_COGNITO_CLIENT_ID!,
