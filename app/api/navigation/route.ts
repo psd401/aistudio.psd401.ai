@@ -42,18 +42,39 @@ export async function GET(request: NextRequest) {
     }
     
     // Check if Data API is configured
-    if (!process.env.RDS_RESOURCE_ARN || !process.env.RDS_SECRET_ARN) {
-      console.error("Missing RDS configuration:", {
+    const missingEnvVars = [];
+    if (!process.env.RDS_RESOURCE_ARN) missingEnvVars.push('RDS_RESOURCE_ARN');
+    if (!process.env.RDS_SECRET_ARN) missingEnvVars.push('RDS_SECRET_ARN');
+    
+    // AWS Amplify provides AWS_REGION and AWS_DEFAULT_REGION at runtime
+    // We should check NEXT_PUBLIC_AWS_REGION as a fallback
+    const region = process.env.AWS_REGION || 
+                   process.env.AWS_DEFAULT_REGION || 
+                   process.env.NEXT_PUBLIC_AWS_REGION;
+    
+    if (!region) missingEnvVars.push('NEXT_PUBLIC_AWS_REGION');
+    
+    if (missingEnvVars.length > 0) {
+      console.error("Missing required environment variables:", {
+        missing: missingEnvVars,
         RDS_RESOURCE_ARN: process.env.RDS_RESOURCE_ARN ? 'set' : 'missing',
         RDS_SECRET_ARN: process.env.RDS_SECRET_ARN ? 'set' : 'missing',
-        AWS_REGION: process.env.AWS_REGION || 'not set',
-        AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION || 'not set',
-        NEXT_PUBLIC_AWS_REGION: process.env.NEXT_PUBLIC_AWS_REGION || 'not set'
+        AWS_REGION: process.env.AWS_REGION || 'not set (provided by Amplify)',
+        AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION || 'not set (provided by Amplify)',
+        NEXT_PUBLIC_AWS_REGION: process.env.NEXT_PUBLIC_AWS_REGION || 'not set',
+        availableEnvVars: Object.keys(process.env).filter(k => 
+          k.includes('AWS') || k.includes('RDS')).join(', ')
       });
+      
       return NextResponse.json(
         {
           isSuccess: false,
-          message: "Database not configured. Please set RDS_RESOURCE_ARN and RDS_SECRET_ARN in your environment."
+          message: `Database configuration incomplete. Missing: ${missingEnvVars.join(', ')}`,
+          debug: process.env.NODE_ENV !== 'production' ? {
+            missing: missingEnvVars,
+            availableEnvVars: Object.keys(process.env).filter(k => 
+              k.includes('AWS') || k.includes('RDS'))
+          } : undefined
         },
         { status: 500 }
       )
@@ -84,19 +105,38 @@ export async function GET(request: NextRequest) {
       
     } catch (error) {
       console.error("Data API error:", error);
-      // Log more details about the error
-      if (error instanceof Error) {
-        console.error("Error details:", {
+      
+      // Enhanced error logging for debugging
+      const errorDetails: any = {
+        timestamp: new Date().toISOString(),
+        endpoint: '/api/navigation',
+        error: error instanceof Error ? {
           name: error.name,
           message: error.message,
           stack: error.stack?.split('\n').slice(0, 5).join('\n')
-        });
+        } : error
+      };
+      
+      // Check if it's an AWS SDK error
+      if (error instanceof Error && 'name' in error) {
+        if (error.name === 'CredentialsProviderError' || 
+            error.message?.includes('Could not load credentials')) {
+          errorDetails.credentialIssue = true;
+          errorDetails.hint = 'AWS credentials not properly configured';
+        } else if (error.name === 'AccessDeniedException') {
+          errorDetails.permissionIssue = true;
+          errorDetails.hint = 'IAM permissions insufficient for RDS Data API';
+        }
       }
+      
+      console.error("Enhanced error details:", errorDetails);
+      
       return NextResponse.json(
         {
           isSuccess: false,
           message: "Failed to fetch navigation items",
-          error: error instanceof Error ? error.message : "Unknown error"
+          error: error instanceof Error ? error.message : "Unknown error",
+          debug: process.env.NODE_ENV !== 'production' ? errorDetails : undefined
         },
         { status: 500 }
       )

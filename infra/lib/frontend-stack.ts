@@ -38,6 +38,10 @@ export class FrontendStack extends cdk.Stack {
             },
             build: {
               commands: [
+                // Write all required environment variables to .env file
+                // AWS-prefixed variables are not allowed in Amplify console, so we only use NEXT_PUBLIC_AWS_REGION
+                'env | grep -E "^AUTH_|^NEXT_PUBLIC_|^RDS_|^SQL_" >> .env',
+                // Build the Next.js application
                 'npm run build'
               ]
             }

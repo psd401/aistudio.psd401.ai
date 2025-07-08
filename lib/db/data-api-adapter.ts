@@ -13,7 +13,8 @@ function getRDSClient(): RDSDataClient {
     // 3. Check EC2 instance metadata
     // 4. Check shared credentials file
     // 5. Check ECS task role
-    // In AWS Amplify, AWS_DEFAULT_REGION is automatically set
+    // AWS Amplify automatically sets AWS_REGION and AWS_DEFAULT_REGION at runtime
+    // We can't set AWS-prefixed vars in console, but Amplify provides them
     const region = process.env.AWS_REGION || 
                    process.env.AWS_DEFAULT_REGION || 
                    process.env.NEXT_PUBLIC_AWS_REGION || 
@@ -28,13 +29,52 @@ function getRDSClient(): RDSDataClient {
   return client;
 }
 
-// Get Data API configuration at runtime
+// Get Data API configuration at runtime with comprehensive validation
 function getDataApiConfig() {
-  if (!process.env.RDS_RESOURCE_ARN || !process.env.RDS_SECRET_ARN) {
-    throw new Error(
-      `Missing required environment variables. RDS_RESOURCE_ARN: ${process.env.RDS_RESOURCE_ARN ? 'set' : 'missing'}, RDS_SECRET_ARN: ${process.env.RDS_SECRET_ARN ? 'set' : 'missing'}`
-    );
+  // Check all required environment variables
+  const missingVars = [];
+  
+  if (!process.env.RDS_RESOURCE_ARN) {
+    missingVars.push('RDS_RESOURCE_ARN');
   }
+  
+  if (!process.env.RDS_SECRET_ARN) {
+    missingVars.push('RDS_SECRET_ARN');
+  }
+  
+  // Check for AWS region configuration
+  // AWS Amplify provides AWS_REGION and AWS_DEFAULT_REGION at runtime
+  // We should have NEXT_PUBLIC_AWS_REGION set in console as fallback
+  const region = process.env.AWS_REGION || 
+                 process.env.AWS_DEFAULT_REGION || 
+                 process.env.NEXT_PUBLIC_AWS_REGION;
+  
+  if (!region) {
+    missingVars.push('NEXT_PUBLIC_AWS_REGION (AWS region not configured)');
+  }
+  
+  if (missingVars.length > 0) {
+    const errorMsg = `Missing required environment variables: ${missingVars.join(', ')}. ` +
+                     `Available env vars: ${Object.keys(process.env).filter(k => 
+                       k.includes('AWS') || k.includes('RDS')).join(', ')}`;
+    logger.error('Environment validation failed', { 
+      missingVars,
+      region,
+      hasResourceArn: !!process.env.RDS_RESOURCE_ARN,
+      hasSecretArn: !!process.env.RDS_SECRET_ARN,
+      availableEnvVars: Object.keys(process.env).filter(k => 
+        k.includes('AWS') || k.includes('RDS'))
+    });
+    throw new Error(errorMsg);
+  }
+  
+  // Log successful configuration
+  logger.debug('Data API configuration validated', {
+    hasResourceArn: true,
+    hasSecretArn: true,
+    region,
+    database: 'aistudio'
+  });
   
   return {
     resourceArn: process.env.RDS_RESOURCE_ARN,
@@ -1184,4 +1224,60 @@ export async function rejectAssistantArchitect(id: number) {
   ];
   
   await executeSQL(sql, parameters);
+}
+
+/**
+ * Validate AWS RDS Data API configuration and connectivity
+ * Use this to debug connection issues in production
+ */
+export async function validateDataAPIConnection() {
+  try {
+    // 1. Check environment variables
+    const config = getDataApiConfig();
+    logger.info('Data API configuration loaded successfully', {
+      hasResourceArn: !!config.resourceArn,
+      hasSecretArn: !!config.secretArn,
+      database: config.database
+    });
+    
+    // 2. Check AWS credentials
+    const client = getRDSClient();
+    const region = process.env.AWS_REGION || 
+                   process.env.AWS_DEFAULT_REGION || 
+                   process.env.NEXT_PUBLIC_AWS_REGION || 
+                   'us-east-1';
+    
+    logger.info('RDS Data API client initialized', { region });
+    
+    // 3. Test database connectivity with a simple query
+    const testSql = 'SELECT 1 as test';
+    const result = await executeSQL(testSql);
+    
+    if (result && result[0] && result[0].test === 1) {
+      logger.info('Database connectivity test passed');
+      return {
+        success: true,
+        message: 'Data API connection validated successfully',
+        config: {
+          region,
+          hasResourceArn: !!config.resourceArn,
+          hasSecretArn: !!config.secretArn,
+          database: config.database
+        }
+      };
+    } else {
+      throw new Error('Unexpected test query result');
+    }
+  } catch (error) {
+    logger.error('Data API validation failed', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error',
+      error: error instanceof Error ? {
+        name: error.name,
+        message: error.message,
+        stack: error.stack?.split('\n').slice(0, 5).join('\n')
+      } : error
+    };
+  }
 } 
