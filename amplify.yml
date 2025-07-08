@@ -8,8 +8,8 @@ applications:
             - npm ci --legacy-peer-deps
         build:
           commands:
-            # Write all AUTH environment variables to .env.production file
-            - env | grep -E '^AUTH_|^NEXT_PUBLIC_|^RDS_|^SQL_' >> .env.production
+            # Write all AUTH environment variables to .env file
+            - env | grep -E '^AUTH_|^NEXT_PUBLIC_|^RDS_|^SQL_' >> .env
             # Build the Next.js application
             - npm run build
       artifacts:
