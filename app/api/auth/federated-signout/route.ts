@@ -39,7 +39,7 @@ export async function GET() {
           path: '/',
           httpOnly: true,
           sameSite: 'lax',
-          secure: false
+          secure: process.env.NODE_ENV === 'production'
         });
       }
     });

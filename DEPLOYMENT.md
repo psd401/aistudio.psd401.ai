@@ -144,4 +144,25 @@ To remove all resources (dev only):
 cdk destroy --all --context baseDomain=yourdomain.com
 ```
 
-See `OPERATIONS.md` for ongoing management and monitoring. 
+See `OPERATIONS.md` for ongoing management and monitoring.
+
+## 10. NextAuth v5 Environment Variables
+After deploying the stacks, you must set these environment variables in AWS Amplify console:
+
+### Critical for Authentication:
+- `AUTH_URL` - Must match your deployment URL:
+  - Dev: `https://dev.<yourdomain>`
+  - Prod: `https://prod.<yourdomain>`
+- `AUTH_SECRET` - Generate with `openssl rand -base64 32`
+- `AUTH_COGNITO_CLIENT_ID` - From Auth stack outputs
+- `AUTH_COGNITO_ISSUER` - Format: `https://cognito-idp.<region>.amazonaws.com/<user-pool-id>`
+
+### Other Required Variables:
+These are output by the CDK stacks and must be set in Amplify:
+- `NEXT_PUBLIC_COGNITO_USER_POOL_ID`
+- `NEXT_PUBLIC_COGNITO_CLIENT_ID`
+- `NEXT_PUBLIC_COGNITO_DOMAIN`
+- `NEXT_PUBLIC_AWS_REGION`
+- `RDS_RESOURCE_ARN`
+- `RDS_SECRET_ARN`
+- `SQL_LOGGING` - Set to `false` for production 

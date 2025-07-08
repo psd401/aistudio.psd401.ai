@@ -105,14 +105,17 @@ export class FrontendStack extends cdk.Stack {
     // Output instructions for setting environment variables
     new cdk.CfnOutput(this, 'EnvironmentVariablesInstructions', {
       value: `After deployment, set the following environment variables in the AWS Amplify console:
-      AMPLIFY_APP_ORIGIN=https://${props.environment}.${props.baseDomain}
+      AUTH_URL=https://${props.environment}.${props.baseDomain}
+      AUTH_SECRET=<generate with: openssl rand -base64 32>
+      AUTH_COGNITO_CLIENT_ID=<from auth stack>
+      AUTH_COGNITO_ISSUER=https://cognito-idp.${this.region}.amazonaws.com/<user-pool-id from auth stack>
       NEXT_PUBLIC_COGNITO_USER_POOL_ID=<from auth stack>
       NEXT_PUBLIC_COGNITO_CLIENT_ID=<from auth stack>
       NEXT_PUBLIC_COGNITO_DOMAIN=<from auth stack>
       NEXT_PUBLIC_AWS_REGION=${this.region}
-      COGNITO_JWKS_URL=<from auth stack>
       RDS_RESOURCE_ARN=<from database stack>
-      RDS_SECRET_ARN=<from database stack>`,
+      RDS_SECRET_ARN=<from database stack>
+      SQL_LOGGING=false`,
       description: 'Required environment variables for Amplify app'
     });
   }
