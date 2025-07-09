@@ -108,6 +108,7 @@ export class DatabaseStack extends cdk.Stack {
     });
 
     // Database initialization Lambda
+    // Note: Lambda doesn't need to be in VPC since it uses RDS Data API
     const dbInitLambda = new lambda.Function(this, 'DbInitLambda', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
@@ -118,11 +119,33 @@ export class DatabaseStack extends cdk.Stack {
             'bash', '-c',
             'npm install && npm run build && cp -r ../schema dist/ && cp -r dist/* /asset-output/'
           ],
+          environment: {
+            NPM_CONFIG_CACHE: '/tmp/.npm',
+          },
+          local: {
+            tryBundle(outputDir: string) {
+              try {
+                const execSync = require('child_process').execSync;
+                const lambdaDir = path.join(__dirname, '../database/lambda');
+                
+                // Run npm install and build
+                execSync('npm install', { cwd: lambdaDir, stdio: 'inherit' });
+                execSync('npm run build', { cwd: lambdaDir, stdio: 'inherit' });
+                
+                // Copy built files to output directory
+                execSync(`cp -r ${path.join(lambdaDir, 'dist')}/* ${outputDir}/`, { stdio: 'inherit' });
+                execSync(`cp -r ${path.join(__dirname, '../database/schema')} ${outputDir}/`, { stdio: 'inherit' });
+                
+                return true;
+              } catch {
+                // If local bundling fails, fall back to Docker
+                return false;
+              }
+            },
+          },
         },
       }),
-      vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
-      securityGroups: [dbSg],
+      // Lambda doesn't need VPC access since it uses RDS Data API
       timeout: cdk.Duration.minutes(5),
       memorySize: 1024,
       environment: {
