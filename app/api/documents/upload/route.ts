@@ -30,20 +30,27 @@ const ALLOWED_MIME_TYPES = [
 ];
 
 // Enhanced file validation schema
+// Using z.any() since File/Blob classes are not available during SSR/build
 const FileSchema = z.object({
-  file: z.instanceof(Blob)
+  file: z.any()
+    .refine((file) => {
+      // Runtime check for file-like object
+      return file && typeof file === 'object' && 'size' in file && 'name' in file && 'type' in file;
+    }, {
+      message: 'Invalid file object',
+    })
     .refine((file) => file.size <= MAX_FILE_SIZE, {
       message: `File size must be less than ${MAX_FILE_SIZE / (1024 * 1024)}MB`,
     })
     .refine((file) => {
-      const fileName = (file as File).name || '';
+      const fileName = file.name || '';
       const fileExtension = `.${fileName.split('.').pop()?.toLowerCase()}`;
       return ALLOWED_FILE_EXTENSIONS.includes(fileExtension);
     }, {
       message: `Unsupported file extension. Allowed file types are: ${ALLOWED_FILE_EXTENSIONS.join(', ')}`,
     })
     .refine((file) => {
-      const mimeType = (file as File).type;
+      const mimeType = file.type;
       return ALLOWED_MIME_TYPES.includes(mimeType);
     }, {
       message: `Unsupported file type. Allowed MIME types are: ${ALLOWED_MIME_TYPES.join(', ')}`,

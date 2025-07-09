@@ -1,6 +1,5 @@
 import NextAuth from "next-auth"
 import Cognito from "next-auth/providers/cognito"
-import jwt from "jsonwebtoken"
 import type { NextAuthConfig } from "next-auth"
 
 export const authConfig: NextAuthConfig = {
@@ -36,7 +35,10 @@ export const authConfig: NextAuthConfig = {
     async jwt({ token, account, profile, user, trigger }) {
       // Initial sign in - store essential data
       if (account && account.id_token) {
-        const decoded = jwt.decode(account.id_token) as any;
+        // Parse JWT payload without using jsonwebtoken library (Edge Runtime compatible)
+        const base64Payload = account.id_token.split('.')[1];
+        const payload = Buffer.from(base64Payload, 'base64').toString('utf-8');
+        const decoded = JSON.parse(payload);
         
         return {
           sub: decoded.sub,

@@ -3,7 +3,7 @@
  * Ensures all required environment variables are set before the application starts
  */
 
-import logger from '@/lib/logger';
+// Logger is not imported to maintain compatibility with Edge Runtime and client-side code
 
 interface EnvVar {
   name: string;
@@ -93,10 +93,10 @@ export function requireValidEnv(): void {
     throw new EnvironmentValidationError(missing, warnings);
   }
   
-  // Log warnings in development
+  // Console warnings in development (logger not available in Edge Runtime)
   if (process.env.NODE_ENV === 'development' && warnings.length > 0) {
-    logger.warn('Environment validation warnings:');
-    warnings.forEach(warning => logger.warn(`  - ${warning}`));
+    console.warn('Environment validation warnings:');
+    warnings.forEach(warning => console.warn(`  - ${warning}`));
   }
 }
 

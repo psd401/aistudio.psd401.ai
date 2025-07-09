@@ -121,11 +121,10 @@ export const updateConversationSchema = z.object({
 });
 
 // Document schemas
+// Note: File validation is handled at runtime in the route handler
+// since File class is not available during SSR/build
 export const uploadDocumentSchema = z.object({
-  file: z.instanceof(File).refine(
-    (file) => file.size <= 25 * 1024 * 1024,
-    'File size must be less than 25MB'
-  )
+  file: z.any() // Runtime validation is done in the route handler
 });
 
 // Job schemas
