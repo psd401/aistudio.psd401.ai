@@ -12,7 +12,7 @@ export async function GET(request: Request) {
       )
     }
 
-    // Get user roles (formerly called groups in Clerk)
+    // Get user roles
     const groups = await getUserRolesByCognitoSub(session.sub)
 
     return NextResponse.json({ isSuccess: true, groups })

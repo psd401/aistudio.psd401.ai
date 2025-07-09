@@ -30,12 +30,9 @@ export function DocumentList({
   const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
-    console.log("[DocumentList] initialDocuments prop changed:", initialDocuments);
     if (initialDocuments) {
-      console.log("[DocumentList] Updating documents state from props:", initialDocuments.length, "documents");
       setDocuments(initialDocuments);
     } else if (conversationId) {
-      console.log("[DocumentList] No initialDocuments, but have conversationId, fetching documents");
       fetchDocuments();
     }
   }, [conversationId, initialDocuments])
@@ -43,7 +40,6 @@ export function DocumentList({
   const fetchDocuments = async () => {
     if (!conversationId) return;
     
-    console.log(`[DocumentList] fetchDocuments called for conversation: ${conversationId}`);
     setIsLoading(true)
     try {
       const response = await fetch(`/api/documents?conversationId=${conversationId}`, {
@@ -53,17 +49,13 @@ export function DocumentList({
         throw new Error('Failed to fetch documents')
       }
       const data = await response.json()
-      console.log(`[DocumentList] fetchDocuments response:`, data);
       
       if (data.success && data.documents) {
-        console.log(`[DocumentList] Setting documents state with ${data.documents.length} documents`);
         setDocuments(data.documents || [])
       } else {
-        console.log(`[DocumentList] No documents in response:`, data);
         setDocuments([])
       }
     } catch (error) {
-      console.error('[DocumentList] Error fetching documents:', error)
       setDocuments([])
     } finally {
       setIsLoading(false)
@@ -71,12 +63,9 @@ export function DocumentList({
   }
   
   const handleRefresh = () => {
-    console.log(`[DocumentList] handleRefresh called, has onRefresh: ${!!onRefresh}`);
     if (onRefresh) {
-      console.log(`[DocumentList] Using parent onRefresh handler`);
       onRefresh()
     } else {
-      console.log(`[DocumentList] Using local fetchDocuments`);
       fetchDocuments()
     }
   }
@@ -88,7 +77,6 @@ export function DocumentList({
       await onDeleteDocument(documentId)
       setDocuments(docs => docs.filter(doc => doc.id !== documentId))
     } catch (error) {
-      console.error('Error deleting document:', error)
     }
   }
 
@@ -125,7 +113,6 @@ export function DocumentList({
         window.open(data.document.url, '_blank', 'noopener,noreferrer');
       }
     } catch (error) {
-      console.error('Error accessing document:', error);
     }
   };
 

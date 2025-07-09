@@ -16,11 +16,6 @@ npm run lint              # Run linting
 npm run test              # Run all tests
 npm run test:watch        # Run tests in watch mode
 npm test -- <path-to-test-file>  # Run a single test file
-
-# Database
-npm run db:generate       # Generate database migrations
-npm run db:push           # Push schema changes to database
-npm run db:studio         # Open Drizzle Studio UI
 ```
 
 ## Code Style Guidelines
@@ -29,7 +24,7 @@ npm run db:studio         # Open Drizzle Studio UI
 - `app/` - Next.js App Router pages and layouts
 - `components/` - UI components (Shadcn) and feature components
 - `actions/` - Server actions for database operations
-- `db/` - Database schemas and configuration with Drizzle ORM
+- `db/` - Database schemas and configuration
 - `lib/` - Utility functions and helpers
 
 ### Conventions
@@ -38,23 +33,20 @@ npm run db:studio         # Open Drizzle Studio UI
 - Use strict TypeScript typing with interfaces preferred
 - Server components in app directory, client components with 'use client'
 - Import order: React/Next.js, third-party, internal, styles
-- Database operations use AWS RDS Data API for new features
+- Database operations use AWS RDS Data API
 - Tests use Jest with React Testing Library (.test.ts/.test.tsx)
 
 ### Authentication
-- Use AWS Cognito for authentication instead of Clerk
+- Use AWS Cognito for authentication
 - Import `getServerSession()` from `/lib/auth/server-session.ts` for auth checks
 - Use `hasToolAccess()` from `/lib/db/data-api-adapter.ts` for role-based access
 - Protected routes should check authentication and tool access
 
 ### Database Access
-- **For new features and migrated code**: Use AWS RDS Data API
+- Use AWS RDS Data API for all database operations
   - Import `executeSQL()` from `/lib/db/data-api-adapter.ts`
   - Use parameterized SQL queries with proper type mapping
   - Parameter types: `stringValue`, `longValue`, `booleanValue`, `isNull`
-- **For legacy code**: Still uses Drizzle ORM
-  - Import database from `/db/db.ts`
-  - Use schema definitions from `/db/schema/index.ts`
 - Follow naming convention: tables have `Table` suffix in schema
 - Types use `InsertX` and `SelectX` naming convention
 

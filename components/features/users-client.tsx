@@ -20,7 +20,7 @@ export function UsersClient() {
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-  const [userToDelete, setUserToDelete] = useState<{ id: number | string; clerkId?: string } | null>(null)
+  const [userToDelete, setUserToDelete] = useState<{ id: number | string } | null>(null)
   const { toast } = useToast()
 
   const fetchUsers = async () => {

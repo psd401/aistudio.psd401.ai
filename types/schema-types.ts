@@ -32,7 +32,6 @@ export type InsertUser = {
   email: string;
   firstName?: string | null;
   lastName?: string | null;
-  oldClerkId?: string | null;
   lastSignInAt?: Date | null;
   createdAt?: Date;
   updatedAt?: Date;

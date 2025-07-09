@@ -26,18 +26,15 @@ export async function POST(req: Request) {
     WHERE model_id = :modelId
     LIMIT 1
   `;
-  console.log('[stream-final] Looking up model:', textModelId);
   const modelResult = await executeSQL(modelQuery, [
     { name: 'modelId', value: { stringValue: textModelId } }
   ]);
   
   if (!modelResult.length) {
-    console.error('[stream-final] Model not found:', textModelId);
     return new Response(`Model not found: ${textModelId}`, { status: 404 });
   }
   
   const aiModel = modelResult[0];
-  console.log('[stream-final] Found AI model:', aiModel);
   
   // Handle conversation
   let conversationId = existingConversationId;
@@ -53,7 +50,6 @@ export async function POST(req: Request) {
       VALUES (:title, :userId, :modelId, :source, :executionId, :context::jsonb)
       RETURNING id
     `;
-    console.log('[stream-final] Creating conversation with model_id:', aiModel.id, 'user_id:', currentUser.data.user.id);
     const newConversation = await executeSQL(insertQuery, [
       { name: 'title', value: { stringValue: messages[0].content.substring(0, 100) } },
       { name: 'userId', value: { longValue: currentUser.data.user.id } },

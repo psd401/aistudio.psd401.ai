@@ -42,13 +42,6 @@ export function Message({ message, messageId }: MessageProps) {
   const isAssistant = message.role === "assistant"
   const uniqueId = messageId || `message-${message.id}`
   
-  // Log what's being rendered
-  console.log(`[Message] Rendering message:`, {
-    id: message.id,
-    role: message.role,
-    contentLength: message.content ? message.content.length : 0,
-    contentPreview: message.content ? message.content.substring(0, 50) : 'empty'
-  });
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)

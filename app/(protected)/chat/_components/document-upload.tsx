@@ -41,7 +41,6 @@ export function DocumentUpload({
   // Handle automatic upload when conversation ID is available
   useEffect(() => {
     if (conversationId && selectedFile && !hasAttemptedUpload.current) {
-      console.log("[DocumentUpload] Triggering upload for selectedFile since conversation ID is available");
       hasAttemptedUpload.current = true;
       uploadDocument(selectedFile);
     }
@@ -131,7 +130,6 @@ export function DocumentUpload({
     const formData = new FormData()
     formData.append('file', fileToUpload)
     
-    console.log(`Uploading document ${fileToUpload.name}`)
     
     try {
       // Simulate upload progress
@@ -142,8 +140,6 @@ export function DocumentUpload({
         })
       }, 300)
       
-      console.log(`[DocumentUpload] Attempting POST to /api/documents/upload with file: ${fileToUpload.name}`);
-      console.log('Sending document upload request...')
       const response = await fetch('/api/documents/upload', {
         method: 'POST',
         body: formData
@@ -161,14 +157,11 @@ export function DocumentUpload({
           } else {
             // If response is not JSON, try to read as text
             const text = await response.text()
-            console.error('Non-JSON error response:', text)
             errMsg = `Server error: ${response.status} ${response.statusText}`
           }
         } catch (parseError) {
-          console.error('Error parsing error response:', parseError)
           // Keep the default error message
         }
-        console.error('Upload response not OK:', response.status, errMsg)
         throw new Error(errMsg)
       }
       
@@ -180,11 +173,9 @@ export function DocumentUpload({
         }
         data = await response.json()
       } catch (parseError) {
-        console.error('Error parsing success response:', parseError)
         throw new Error('Invalid response format from server')
       }
       
-      console.log('Upload successful, response data:', data)
       
       if (!data.success || !data.document) {
         throw new Error('Invalid response from server: Missing document information')
@@ -203,7 +194,6 @@ export function DocumentUpload({
       hasAttemptedUpload.current = true;
       
     } catch (error) {
-      console.error('Error uploading document:', error)
       toast({
         title: "Upload failed",
         description: error instanceof Error ? error.message : 'Failed to upload document',

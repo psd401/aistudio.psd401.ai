@@ -217,8 +217,6 @@ const Flow = React.forwardRef(({
       .filter(([id]) => id !== 'start')
       .map(([id, level]) => ({ id, position: level }));
 
-    console.log('Node levels:', Object.fromEntries(nodeLevels));
-    console.log('Execution mapping:', result);
 
     return result;
   }, [reactFlowInstance]);
@@ -229,11 +227,10 @@ const Flow = React.forwardRef(({
     try {
       const order = calculateExecutionOrder();
       if (order.length === 0) { setIsSaving(false); return; }
-      console.log('Saving execution order:', order);
       // Transaction update
       await setPromptPositionsAction(assistantId, order);
       toast.success("Graph structure saved");
-    } catch(e){ console.error("Failed to save positions",e); toast.error("Failed to save graph structure"); }
+    } catch(e){ toast.error("Failed to save graph structure"); }
     finally { setIsSaving(false);} 
   }, [calculateExecutionOrder, assistantId]);
 
@@ -260,7 +257,6 @@ const Flow = React.forwardRef(({
 
   // Initialize nodes and edges on first load only
   useEffect(() => {
-    console.log('[Flow] useEffect triggered with prompts:', prompts);
     if (initialPositionsSet.current) return
     
     // If no prompts, just set up the start node
@@ -396,16 +392,6 @@ const Flow = React.forwardRef(({
       }
     }
 
-    console.log('[Flow] Setting nodes:', {
-      startNode,
-      promptNodes,
-      promptCount: promptNodes.length,
-      nodeIds: promptNodes.map(n => n.id)
-    });
-    console.log('[Flow] Setting edges:', {
-      edgeCount: newEdges.length,
-      edges: newEdges
-    });
     
     setNodes([startNode, ...promptNodes])
     setEdges(newEdges)
@@ -558,7 +544,6 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
       }
     } catch (error) {
       toast.error("Failed to add prompt")
-      console.error(error)
     } finally {
       setIsLoading(false)
     }
@@ -600,7 +585,6 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
       }
     } catch (error) {
       toast.error("Failed to update prompt")
-      console.error(error)
     } finally {
       setIsLoading(false)
     }
@@ -648,7 +632,6 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
       }
     } catch (error) {
       toast.error("Failed to delete prompt")
-      console.error(error)
     }
   }
 
@@ -688,7 +671,6 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         executionOrder = reactFlowInstanceRef.current.calculateExecutionOrder() || order;
       }
       
-      console.log('Updating execution order:', executionOrder);
       
       // Update each prompt's position
       const updatePromises = executionOrder.map((promptId, index) => 
@@ -716,7 +698,6 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         return updatedPrompts;
       });
     } catch (error) {
-      console.error("Failed to update positions:", error)
       toast.error("Failed to update execution order")
     } finally {
       setIsUpdatingPositions(false)

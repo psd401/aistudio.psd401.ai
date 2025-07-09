@@ -57,7 +57,6 @@ export async function POST(req: NextRequest) {
     }
     
     const aiModel = modelResult[0];
-    console.log('[POST /api/chat] Found AI Model:', aiModel);
     
     // Ensure id is a number
     if (!aiModel.id) {

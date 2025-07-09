@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { deleteUser, getUserByClerkId, hasUserRole } from '@/lib/db/data-api-adapter';
+import { deleteUser, hasUserRole } from '@/lib/db/data-api-adapter';
 import { getServerSession } from '@/lib/auth/server-session';
 
 export async function DELETE(

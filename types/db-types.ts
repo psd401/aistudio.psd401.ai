@@ -1,4 +1,4 @@
-// Temporary type definitions to replace Drizzle schema types
+// Type definitions for database operations
 // These types match the database structure
 
 export type InsertJob = {

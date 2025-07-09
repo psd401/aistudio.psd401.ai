@@ -44,7 +44,6 @@ export function ConversationsList() {
     
     // Defensive check to prevent errors
     if (!conversations || !Array.isArray(conversations) || conversations.length === 0) {
-      console.log('[ConversationsList] No conversations to display');
       return {}; // Return empty groups object
     }
     
@@ -90,7 +89,6 @@ export function ConversationsList() {
             
             return dateB.getTime() - dateA.getTime(); // Sort newest first
           } catch (error) {
-            console.error('[ConversationsList] Error comparing dates:', error);
             return 0; // Keep original order if comparison fails
           }
         })
@@ -115,7 +113,6 @@ export function ConversationsList() {
                   dateStr = new Date(conv.createdAt).toISOString();
                 }
               } catch (e) {
-                console.warn('[ConversationsList] Invalid date, using current time:', e);
               }
             }
             
@@ -130,11 +127,9 @@ export function ConversationsList() {
             // Add conversation to group
             groups[dateLabel].push(conv);
           } catch (error) {
-            console.error('[ConversationsList] Error processing conversation:', error, conv);
           }
         });
     } catch (error) {
-      console.error('[ConversationsList] Error grouping conversations:', error);
       return {}; // Return empty groups in case of error
     }
     
@@ -143,14 +138,12 @@ export function ConversationsList() {
   }, [conversations]);
 
   async function loadConversations() {
-    console.log('[loadConversations] Fetching conversations from API');
     setIsLoading(true);
     
     try {
       const response = await fetch("/api/conversations");
       
       if (!response.ok) {
-        console.error(`[loadConversations] Error: ${response.status} ${response.statusText}`);
         setConversations([]);
         setIsLoading(false);
         return;
@@ -161,16 +154,13 @@ export function ConversationsList() {
       // Check if the result contains the data property (standard API response format)
       const conversationsData = result.data || result;
       
-      console.log('[loadConversations] Conversations loaded:', conversationsData);
       
       if (Array.isArray(conversationsData)) {
         setConversations(conversationsData);
       } else {
-        console.warn('[loadConversations] Invalid conversations data format');
         setConversations([]);
       }
     } catch (error) {
-      console.error('[loadConversations] Error:', error);
       setConversations([]);
     } finally {
       setIsLoading(false);
@@ -188,7 +178,6 @@ export function ConversationsList() {
       // Set timeout to prevent hanging delete request
       timeoutId = setTimeout(() => {
         abortController.abort();
-        console.warn(`[handleDelete] Delete request for conversation ${id} timed out`);
       }, 8000); // 8 second timeout
       
       const response = await fetch(`/api/conversations/${id}`, {
@@ -208,7 +197,6 @@ export function ConversationsList() {
       // Handle non-200 responses with detailed error info
       if (!response.ok) {
         const errorText = await response.text().catch(() => "Unknown error");
-        console.error(`[handleDelete] HTTP error ${response.status} deleting conversation ${id}: ${errorText}`);
         throw new Error(`Failed to delete conversation: ${response.status} ${response.statusText}`);
       }
       
@@ -228,7 +216,6 @@ export function ConversationsList() {
     } catch (error) {
       // Only show error toast if it wasn't an abort
       if (error.name !== 'AbortError') {
-        console.error(`[handleDelete] Error deleting conversation ${id}:`, error);
         toast({
           title: "Error",
           description: "Failed to delete conversation",
@@ -278,7 +265,6 @@ export function ConversationsList() {
       // Set timeout to prevent hanging save request
       timeoutId = setTimeout(() => {
         abortController.abort();
-        console.warn(`[handleSaveEdit] Edit request for conversation ${editingId} timed out`);
       }, 8000); // 8 second timeout
       
       const response = await fetch(`/api/conversations/${editingId}`, {
@@ -298,7 +284,6 @@ export function ConversationsList() {
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "Unknown error");
-        console.error(`[handleSaveEdit] HTTP error ${response.status} updating conversation ${editingId}: ${errorText}`);
         throw new Error(`Failed to update conversation: ${response.status} ${response.statusText}`);
       }
 
@@ -306,7 +291,6 @@ export function ConversationsList() {
       try {
         await response.json();
       } catch (parseError) {
-        console.warn('[handleSaveEdit] Could not parse response JSON, but continuing anyway:', parseError);
       }
 
       // Update local state
@@ -325,7 +309,6 @@ export function ConversationsList() {
     } catch (error) {
       // Only show error toast if it wasn't an abort
       if (error.name !== 'AbortError') {
-        console.error(`[handleSaveEdit] Error updating conversation ${editingId}:`, error);
         toast({
           title: "Error",
           description: "Failed to rename conversation",

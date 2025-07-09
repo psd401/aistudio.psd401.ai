@@ -27,8 +27,6 @@ export default function AmplifyProvider({ children }: PropsWithChildren) {
 
     // Listen for auth events
     const hubListener = Hub.listen("auth", ({ payload }) => {
-      console.log("[AmplifyProvider] Auth event:", payload.event)
-      
       switch (payload.event) {
         case "signedIn":
         case "signIn":
@@ -40,7 +38,6 @@ export default function AmplifyProvider({ children }: PropsWithChildren) {
           setUser(null)
           break
         case "signIn_failure":
-          console.error("[AmplifyProvider] Sign in failed:", payload.data)
           setUser(null)
           break
       }

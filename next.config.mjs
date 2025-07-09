@@ -4,15 +4,7 @@ const nextConfig = {
   output: 'standalone', // Required for AWS Amplify hosting
   images: {
     remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'img.clerk.com',
-      },
-      {
-        protocol: 'https',
-        hostname: 'images.clerk.dev',
-      },
-      // Add specific trusted domains instead of wildcard
+      // Add specific trusted domains for user avatars
       {
         protocol: 'https',
         hostname: 'avatars.githubusercontent.com',
@@ -20,12 +12,6 @@ const nextConfig = {
       {
         protocol: 'https',
         hostname: 'lh3.googleusercontent.com',
-      },
-      // Supabase storage if used for images
-      {
-        protocol: 'https',
-        hostname: '*.supabase.co',
-        pathname: '/storage/v1/object/public/**',
       }
     ]
   },

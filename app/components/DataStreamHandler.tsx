@@ -16,13 +16,13 @@ export function DataStreamHandler({ id }: { id: string }) {
     dataStream.forEach((delta: DataStreamDelta) => {
       switch (delta.type) {
         case 'text-delta':
-          console.log('Text update:', delta.content);
+          // Text update
           break;
         case 'user-message-id':
-          console.log('Message ID:', delta.content);
+          // Message ID
           break;
         case 'finish':
-          console.log('Stream finished');
+          // Stream finished
           break;
       }
     });

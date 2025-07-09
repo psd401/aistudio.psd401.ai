@@ -73,9 +73,14 @@ aws amplify update-app \
 - AWS-prefixed variables cannot be set in the Amplify console but are provided automatically by Amplify at runtime
 
 ### AWS Credentials
-- AWS Amplify WEB_COMPUTE platform automatically provides AWS credentials through IAM roles
+- AWS Amplify WEB_COMPUTE platform requires **two IAM roles**:
+  1. **Service Role**: For build/deploy operations
+  2. **SSR Compute Role**: For runtime AWS access (CRITICAL for database connectivity)
 - The application uses the AWS SDK credential provider chain to authenticate
-- Ensure the Amplify service role has proper permissions for RDS Data API and Secrets Manager
+- The SSR Compute role must have permissions for:
+  - RDS Data API (`rds-data:*`)
+  - Secrets Manager (`secretsmanager:GetSecretValue`)
+- Without the SSR Compute role, you'll get "Could not load credentials from any providers" errors
 
 ### Region Configuration
 - The AWS SDK needs region configuration to make API calls
@@ -97,10 +102,12 @@ aws amplify update-app \
    - Ensure variables are properly set in Amplify console
    - Redeploy after adding/updating variables
 
-3. **AWS Credentials Error**
-   - Verify the Amplify service role has RDS Data API permissions
-   - Check if NEXT_PUBLIC_AWS_REGION is properly set (AWS_REGION is provided by Amplify)
-   - Review IAM policies attached to the Amplify role
+3. **AWS Credentials Error: "Could not load credentials from any providers"**
+   - **Most likely cause**: Missing SSR Compute role
+   - Go to Amplify Console → App settings → IAM roles
+   - Ensure an SSR Compute role is attached (not just a service role)
+   - The SSR Compute role needs RDS Data API and Secrets Manager permissions
+   - See `/docs/FIX_SSR_COMPUTE_ROLE.md` for detailed fix instructions
 
 ### Health Check
 Use the `/api/health` endpoint to verify:

@@ -146,7 +146,15 @@ cdk destroy --all --context baseDomain=yourdomain.com
 
 See `OPERATIONS.md` for ongoing management and monitoring.
 
-## 10. NextAuth v5 Environment Variables
+## 10. Configure SSR Compute Role
+AWS Amplify WEB_COMPUTE requires an SSR Compute role for runtime AWS access:
+
+1. The CDK automatically creates this role during deployment
+2. Check the stack outputs for `SSRComputeRoleArn`
+3. Verify in Amplify Console → App settings → IAM roles that the SSR Compute role is attached
+4. Without this role, you'll get "Could not load credentials from any providers" errors
+
+## 11. NextAuth v5 Environment Variables
 After deploying the stacks, you must set these environment variables in AWS Amplify console:
 
 ### Critical for Authentication:

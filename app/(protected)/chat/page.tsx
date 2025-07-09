@@ -10,8 +10,6 @@ interface ChatPageProps {
 }
 
 export default async function ChatPage({ searchParams }: ChatPageProps) {
-  console.log("[ChatPage] Starting auth check")
-  
   // Get current session and user
   const session = await getServerSession()
   if (!session) {
@@ -33,7 +31,6 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
   let conversationTitle = "New Chat"; // Default title
 
   if (conversationId) {
-    console.log(`[ChatPage] Attempting to load conversation ID: ${conversationId}`);
     // Step 1: Verify conversation exists and belongs to the user
     const conversationQuery = `
       SELECT id, title
@@ -49,7 +46,6 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
     const conversation = await executeSQL(conversationQuery, conversationParams);
 
     if (conversation && conversation.length > 0) {
-      console.log(`[ChatPage] Found conversation: ${JSON.stringify(conversation[0])}`);
       conversationTitle = conversation[0].title; // Set title from fetched conversation
 
       // Step 2: Fetch messages for the verified conversation
@@ -64,20 +60,17 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
       ];
       const messages = await executeSQL(messagesQuery, messagesParams);
       
-      console.log(`[ChatPage] Fetched ${messages.length} messages for conversation ${conversationId}`);
-
       initialMessages = messages.map(msg => ({
         id: msg.id.toString(), // Convert serial ID to string if needed by Chat component
         content: msg.content,
         role: msg.role as "user" | "assistant"
       }));
     } else {
-      console.log(`[ChatPage] Conversation ID: ${conversationId} not found or not owned by user: ${userId}`);
       // Optionally redirect or show an error if the conversation is not accessible
       // For now, it will just proceed with an empty initialMessages array and default title
     }
   } else {
-    console.log("[ChatPage] No conversation ID provided, starting new chat.");
+    // No conversation ID provided, starting new chat
   }
 
   return (

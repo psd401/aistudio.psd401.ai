@@ -1,8 +1,10 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as amplify from '@aws-cdk/aws-amplify-alpha';
+import * as amplifyL1 from 'aws-cdk-lib/aws-amplify';
 import * as codebuild from 'aws-cdk-lib/aws-codebuild';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as cr from 'aws-cdk-lib/custom-resources';
 
 export interface FrontendStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
@@ -14,8 +16,7 @@ export class FrontendStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: FrontendStackProps) {
     super(scope, id, props);
 
-
-    // Amplify App
+    // Keep the existing L2 construct to avoid recreating the app
     const amplifyApp = new amplify.App(this, 'AmplifyApp', {
       appName: `aistudio-${props.environment}`,
       sourceCodeProvider: new amplify.GitHubSourceCodeProvider({
@@ -23,40 +24,37 @@ export class FrontendStack extends cdk.Stack {
         repository: 'aistudio.psd401.ai',
         oauthToken: props.githubToken,
       }),
-      platform: amplify.Platform.WEB_COMPUTE, // Required for Next.js SSR
-      // Remove environmentVariables from here - they should be set manually after deployment
-      // to avoid overwriting existing values on CDK updates
+      platform: amplify.Platform.WEB_COMPUTE,
       autoBranchDeletion: true,
       buildSpec: codebuild.BuildSpec.fromObject({
         version: 1,
-        frontend: {
-          phases: {
-            preBuild: {
-              commands: [
-                'npm ci --legacy-peer-deps'
-              ]
+        applications: [{
+          frontend: {
+            phases: {
+              preBuild: {
+                commands: [
+                  'npm ci --legacy-peer-deps'
+                ]
+              },
+              build: {
+                commands: [
+                  'env | grep -E "^AUTH_|^NEXT_PUBLIC_|^RDS_|^SQL_" >> .env',
+                  'npm run build'
+                ]
+              }
             },
-            build: {
-              commands: [
-                // Write all required environment variables to .env file
-                // AWS-prefixed variables are not allowed in Amplify console, so we only use NEXT_PUBLIC_AWS_REGION
-                'env | grep -E "^AUTH_|^NEXT_PUBLIC_|^RDS_|^SQL_" >> .env',
-                // Build the Next.js application
-                'npm run build'
+            artifacts: {
+              baseDirectory: '.next',
+              files: ['**/*']
+            },
+            cache: {
+              paths: [
+                'node_modules/**/*',
+                '.next/cache/**/*'
               ]
             }
-          },
-          artifacts: {
-            baseDirectory: '.next',
-            files: ['**/*']
-          },
-          cache: {
-            paths: [
-              'node_modules/**/*',
-              '.next/cache/**/*'
-            ]
           }
-        }
+        }]
       })
     });
 
@@ -64,11 +62,48 @@ export class FrontendStack extends cdk.Stack {
     const branchName = props.environment === 'prod' ? 'main' : 'dev';
     const branch = amplifyApp.addBranch(branchName);
 
-    // Grant permissions to access RDS Data API and Secrets Manager
-    // Get the role from the Amplify app
-    const amplifyRole = amplifyApp.node.findChild('Role') as iam.Role;
-    
-    // Add permissions for RDS Data API
+    // Create SSR Compute Role
+    const ssrComputeRole = new iam.Role(this, 'SSRComputeRole', {
+      assumedBy: new iam.ServicePrincipal('amplify.amazonaws.com'),
+      description: `SSR Compute role for Amplify app ${props.environment}`,
+      roleName: `amplify-ssr-compute-${props.environment}-${cdk.Stack.of(this).account}`,
+      inlinePolicies: {
+        'RDSDataAPIAccess': new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'rds-data:ExecuteStatement',
+                'rds-data:BatchExecuteStatement',
+                'rds-data:BeginTransaction',
+                'rds-data:CommitTransaction',
+                'rds-data:RollbackTransaction'
+              ],
+              resources: ['*']
+            }),
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'secretsmanager:GetSecretValue',
+                'secretsmanager:DescribeSecret'
+              ],
+              resources: ['*']
+            })
+          ]
+        })
+      }
+    });
+
+    // Create service role
+    const amplifyRole = new iam.Role(this, 'AmplifyServiceRole', {
+      assumedBy: new iam.ServicePrincipal('amplify.amazonaws.com'),
+      description: `Service role for Amplify app ${props.environment}`,
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AdministratorAccess-Amplify')
+      ]
+    });
+
+    // Add RDS permissions to service role too
     amplifyRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
@@ -78,18 +113,69 @@ export class FrontendStack extends cdk.Stack {
         'rds-data:CommitTransaction',
         'rds-data:RollbackTransaction'
       ],
-      resources: ['*'] // You could restrict this to specific cluster ARNs
+      resources: ['*']
     }));
-    
-    // Add permissions for Secrets Manager
+
     amplifyRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         'secretsmanager:GetSecretValue',
         'secretsmanager:DescribeSecret'
       ],
-      resources: ['*'] // You could restrict this to specific secret ARNs
+      resources: ['*']
     }));
+
+    // Override the service role
+    const cfnApp = amplifyApp.node.defaultChild as amplifyL1.CfnApp;
+    cfnApp.iamServiceRole = amplifyRole.roleArn;
+
+    // Use Custom Resource to update the existing app with compute role
+    const updateAppComputeRole = new cr.AwsCustomResource(this, 'UpdateAppComputeRole', {
+      onCreate: {
+        service: 'Amplify',
+        action: 'updateApp',
+        parameters: {
+          appId: amplifyApp.appId,
+          computeRoleArn: ssrComputeRole.roleArn
+        },
+        physicalResourceId: cr.PhysicalResourceId.of(`${amplifyApp.appId}-compute-role-update`)
+      },
+      onUpdate: {
+        service: 'Amplify',
+        action: 'updateApp',
+        parameters: {
+          appId: amplifyApp.appId,
+          computeRoleArn: ssrComputeRole.roleArn
+        }
+      },
+      policy: cr.AwsCustomResourcePolicy.fromStatements([
+        new iam.PolicyStatement({
+          actions: ['amplify:UpdateApp', 'amplify:GetApp'],
+          resources: [`arn:aws:amplify:${this.region}:${this.account}:apps/*`]
+        }),
+        new iam.PolicyStatement({
+          actions: ['iam:PassRole'],
+          resources: [ssrComputeRole.roleArn],
+          conditions: {
+            StringEquals: {
+              'iam:PassedToService': 'amplify.amazonaws.com'
+            }
+          }
+        })
+      ])
+    });
+
+    // Ensure custom resource runs after the app exists
+    updateAppComputeRole.node.addDependency(amplifyApp);
+    updateAppComputeRole.node.addDependency(ssrComputeRole);
+
+    // Add domain
+    amplifyApp.addDomain(props.baseDomain, { 
+      subDomains: [{ 
+        branch, 
+        prefix: props.environment 
+      }] 
+    });
 
     // Outputs
     new cdk.CfnOutput(this, 'AmplifyAppId', {
@@ -102,11 +188,13 @@ export class FrontendStack extends cdk.Stack {
       description: 'Amplify Default Domain',
       exportName: `${props.environment}-AmplifyDefaultDomain`,
     });
+    new cdk.CfnOutput(this, 'SSRComputeRoleArn', {
+      value: ssrComputeRole.roleArn,
+      description: 'SSR Compute Role ARN',
+      exportName: `${props.environment}-SSRComputeRoleArn`,
+    });
 
-    // Add custom domain using the correct Amplify CDK method
-    amplifyApp.addDomain(props.baseDomain, { subDomains: [{ branch, prefix: props.environment }] });
-
-    // Output instructions for setting environment variables
+    // Environment variables instructions
     new cdk.CfnOutput(this, 'EnvironmentVariablesInstructions', {
       value: `After deployment, set the following environment variables in the AWS Amplify console:
       AUTH_URL=https://${props.environment}.${props.baseDomain}

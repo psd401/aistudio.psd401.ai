@@ -10,14 +10,11 @@ interface AiModelsClientProps {
 }
 
 export const AiModelsClient = memo(function AiModelsClient({ initialModels = [] }: AiModelsClientProps) {
-  console.log('AiModelsClient received initialModels:', initialModels.slice(0, 2));
-  
   const [models, setModels] = useState(initialModels);
   const { toast } = useToast();
 
   const handleAddModel = useCallback(async (model: Omit<SelectAiModel, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
-      console.info('Sending model data to API:', model);
       const response = await fetch('/api/admin/models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -26,12 +23,10 @@ export const AiModelsClient = memo(function AiModelsClient({ initialModels = [] 
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('API error:', response.status, errorText);
         throw new Error(errorText || 'Failed to add model');
       }
 
       const newModel = await response.json();
-      console.info('Received new model from API:', newModel);
       setModels([...models, newModel.data]);
       toast({
         title: 'Success',
@@ -39,7 +34,6 @@ export const AiModelsClient = memo(function AiModelsClient({ initialModels = [] 
         variant: 'default',
       });
     } catch (error) {
-      console.error('Error adding model:', error);
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to add AI model',
@@ -50,7 +44,6 @@ export const AiModelsClient = memo(function AiModelsClient({ initialModels = [] 
 
   const handleUpdateModel = useCallback(async (modelId: number, updates: Partial<SelectAiModel>) => {
     try {
-      console.info('Sending update data to API:', { id: modelId, ...updates });
       const response = await fetch('/api/admin/models', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -59,12 +52,10 @@ export const AiModelsClient = memo(function AiModelsClient({ initialModels = [] 
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('API error:', response.status, errorText);
         throw new Error(errorText || 'Failed to update model');
       }
 
       const updatedModel = await response.json();
-      console.info('Received updated model from API:', updatedModel);
       setModels(models.map(model => 
         model.id === modelId ? updatedModel.data : model
       ));
@@ -74,7 +65,6 @@ export const AiModelsClient = memo(function AiModelsClient({ initialModels = [] 
         variant: 'default',
       });
     } catch (error) {
-      console.error('Error updating model:', error);
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to update AI model',
@@ -85,18 +75,15 @@ export const AiModelsClient = memo(function AiModelsClient({ initialModels = [] 
 
   const handleDeleteModel = useCallback(async (modelId: number) => {
     try {
-      console.info('Sending delete request for model:', modelId);
       const response = await fetch(`/api/admin/models?id=${modelId}`, {
         method: 'DELETE',
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('API error:', response.status, errorText);
         throw new Error(errorText || 'Failed to delete model');
       }
 
-      console.info('Model deleted successfully');
       setModels(models.filter(model => model.id !== modelId));
       toast({
         title: 'Success',
@@ -104,7 +91,6 @@ export const AiModelsClient = memo(function AiModelsClient({ initialModels = [] 
         variant: 'default',
       });
     } catch (error) {
-      console.error('Error deleting model:', error);
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to delete AI model',

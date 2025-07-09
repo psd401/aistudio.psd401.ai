@@ -135,23 +135,18 @@ export default function IdeasPage() {
   };
 
   const handleVote = async (ideaId: number) => {
-    console.log('Attempting to vote for idea:', ideaId);
     try {
-      console.log('Got auth token');
       
       const response = await fetch(`/api/ideas/${ideaId}/vote`, {
         method: 'POST',
       });
-      console.log('Vote response status:', response.status);
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.log('Vote error:', errorText);
         throw new Error(errorText || 'Failed to vote');
       }
       
       const data = await response.json();
-      console.log('Vote success:', data);
       
       await fetchIdeas();
       toast({
@@ -160,7 +155,6 @@ export default function IdeasPage() {
         variant: 'default',
       });
     } catch (error) {
-      console.error('Vote error:', error);
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to vote',
