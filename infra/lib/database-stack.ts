@@ -4,6 +4,10 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as logs from 'aws-cdk-lib/aws-logs';
+import * as cr from 'aws-cdk-lib/custom-resources';
+import * as path from 'path';
 
 export interface DatabaseStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
@@ -102,6 +106,56 @@ export class DatabaseStack extends cdk.Stack {
       requireTLS: true,
       debugLogging: props.environment !== 'prod',
     });
+
+    // Database initialization Lambda
+    const dbInitLambda = new lambda.Function(this, 'DbInitLambda', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../database/lambda'), {
+        bundling: {
+          image: lambda.Runtime.NODEJS_20_X.bundlingImage,
+          command: [
+            'bash', '-c',
+            'npm install && npm run build && cp -r ../schema dist/ && cp -r dist/* /asset-output/'
+          ],
+        },
+      }),
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+      securityGroups: [dbSg],
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 1024,
+      environment: {
+        NODE_OPTIONS: '--enable-source-maps',
+      },
+      logRetention: logs.RetentionDays.ONE_WEEK,
+    });
+
+    // Grant the Lambda permission to use the Data API
+    cluster.grantDataApiAccess(dbInitLambda);
+    dbSecret.grantRead(dbInitLambda);
+
+    // Create Custom Resource Provider
+    const dbInitProvider = new cr.Provider(this, 'DbInitProvider', {
+      onEventHandler: dbInitLambda,
+      logRetention: logs.RetentionDays.ONE_WEEK,
+    });
+
+    // Create Custom Resource
+    const dbInit = new cdk.CustomResource(this, 'DbInit', {
+      serviceToken: dbInitProvider.serviceToken,
+      properties: {
+        ClusterArn: cluster.clusterArn,
+        SecretArn: dbSecret.secretArn,
+        DatabaseName: 'aistudio',
+        Environment: props.environment,
+        // Add a timestamp to force update on stack updates if needed
+        Timestamp: new Date().toISOString(),
+      },
+    });
+
+    // Ensure the database is created before initialization
+    dbInit.node.addDependency(cluster);
 
     // Outputs
     new cdk.CfnOutput(this, 'RdsProxyEndpoint', {
