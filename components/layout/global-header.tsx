@@ -16,14 +16,13 @@ import {
 } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Textarea } from "@/components/ui/textarea"
-import { useAuth } from "@clerk/nextjs"
 import { useState } from "react"
 import { createGithubIssueAction } from "@/actions/create-github-issue-action"
 // ... rest of imports ...
 
 export function GlobalHeader() {
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="fixed top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 max-w-screen-2xl items-center">
         {/* Left Section: Logo and Title */}
         <div className="mr-4 flex items-center">
@@ -67,12 +66,8 @@ export function GlobalHeader() {
           <Button variant="ghost" size="icon" aria-label="Notifications">
             <Bell className="h-5 w-5" />
           </Button>
-          {/* Bug Report Dropdown - Only show if authenticated */}
-          {(() => {
-            const { isLoaded, userId } = useAuth();
-            if (!isLoaded || !userId) return null;
-            return <BugReportPopover />
-          })()}
+          {/* Bug Report Dropdown - Always show for now, or add auth check if needed */}
+          <BugReportPopover />
           <UserButton />
         </div>
       </div>
@@ -87,7 +82,6 @@ function BugReportPopover() {
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState<{ url: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const { userId } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -100,7 +94,6 @@ function BugReportPopover() {
       '---',
       '**Debug Info**',
       `- Page: ${typeof window !== 'undefined' ? window.location.href : ''}`,
-      `- User ID: ${userId || ''}`,
       `- User Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : ''}`,
       `- Platform: ${typeof navigator !== 'undefined' ? navigator.platform : ''}`,
       `- Screen: ${typeof window !== 'undefined' ? `${window.screen.width}x${window.screen.height}` : ''}`,

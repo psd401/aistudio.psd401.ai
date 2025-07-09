@@ -1,80 +1,40 @@
 import { NextResponse } from "next/server"
-import { db } from "@/db/db"
-import { usersTable, userRolesTable, rolesTable } from "@/db/schema"
-import { getAuth } from "@clerk/nextjs/server"
-import { hasRole } from "@/utils/roles"
-import { eq, asc } from "drizzle-orm"
-import type { InsertUser } from "@/types"
+import { getUsers, getUserRoles, createUser, updateUser, deleteUser } from "@/lib/db/data-api-adapter"
+import { requireAdmin } from "@/lib/auth/admin-check"
+import logger from "@/lib/logger"
 
 export async function GET(request: Request) {
   try {
-    // Check authorization
-    const { userId } = getAuth(request);
-    if (!userId) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
-    const isAdmin = await hasRole(userId, "administrator");
-    if (!isAdmin) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Forbidden - Admin access required" },
-        { status: 403 }
-      );
-    }
-
-    // Get users from database
-    const dbUsers = await db
-      .select({
-        id: usersTable.id,
-        clerkId: usersTable.clerkId,
-        firstName: usersTable.firstName,
-        lastName: usersTable.lastName,
-        email: usersTable.email,
-        lastSignInAt: usersTable.lastSignInAt,
-        createdAt: usersTable.createdAt,
-        updatedAt: usersTable.updatedAt
-      })
-      .from(usersTable)
-      .orderBy(asc(usersTable.createdAt));
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
     
-    // Get all roles
-    const userRoles = await db
-      .select({
-        userId: userRolesTable.userId,
-        roleName: rolesTable.name
-      })
-      .from(userRolesTable)
-      .innerJoin(rolesTable, eq(rolesTable.id, userRolesTable.roleId))
-      .orderBy(asc(rolesTable.name));
+    // Get users from database via Data API
+    const dbUsers = await getUsers();
+    
+    // Get all user roles
+    const userRoles = await getUserRoles();
     
     // Group roles by userId
     const rolesByUser = userRoles.reduce((acc, role) => {
-      acc[role.userId] = acc[role.userId] || [];
-      acc[role.userId].push(role.roleName);
+      acc[role.user_id] = acc[role.user_id] || [];
+      acc[role.user_id].push(role.role_name);
       return acc;
     }, {} as Record<number, string[]>);
     
     // Map to the format expected by the UI
     const users = dbUsers.map(dbUser => {
-      const userRolesList = rolesByUser[dbUser.id] || [];
-      
+      const userRolesList = rolesByUser[dbUser.id] || []
+
       return {
         ...dbUser,
-        id: dbUser.id,
-        clerkId: dbUser.clerkId || '',
-        firstName: dbUser.firstName || '',
-        lastName: dbUser.lastName || '',
-        email: dbUser.email || '',
-        lastSignInAt: dbUser.lastSignInAt || null,
-        createdAt: dbUser.createdAt || new Date(),
-        updatedAt: dbUser.updatedAt || new Date(),
-        role: userRolesList[0] || '',
+        firstName: dbUser.first_name,
+        lastName: dbUser.last_name,
+        lastSignInAt: dbUser.last_sign_in_at,
+        role: userRolesList[0] || "",
         roles: userRolesList.map(name => ({ name }))
-      };
-    });
+      }
+    })
 
     return NextResponse.json({
       isSuccess: true,
@@ -82,7 +42,7 @@ export async function GET(request: Request) {
       data: users
     });
   } catch (error) {
-    console.error("Error fetching users:", error);
+    logger.error("Error fetching users:", error);
     return NextResponse.json(
       { isSuccess: false, message: "Failed to fetch users" },
       { status: 500 }
@@ -92,23 +52,19 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { userId } = getAuth(request)
-    if (!userId) {
-      return new NextResponse("Unauthorized", { status: 401 })
-    }
-
-    const isAdmin = await hasRole(userId, "administrator")
-    if (!isAdmin) {
-      return new NextResponse("Forbidden", { status: 403 })
-    }
-
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
+    
     const body = await request.json()
-    const userData: InsertUser = {
-      ...body,
-      clerkId: body.clerkId || userId,
+    const userData = {
+      cognitoSub: body.cognitoSub,
+      firstName: body.firstName,
+      lastName: body.lastName,
+      email: body.email
     }
 
-    const [user] = await db.insert(usersTable).values(userData).returning()
+    const user = await createUser(userData)
 
     return NextResponse.json({
       isSuccess: true,
@@ -116,7 +72,7 @@ export async function POST(request: Request) {
       data: user
     })
   } catch (error) {
-    console.error("Error creating user:", error)
+    logger.error("Error creating user:", error)
     return NextResponse.json(
       { isSuccess: false, message: "Failed to create user" },
       { status: 500 }
@@ -126,24 +82,14 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const { userId } = getAuth(request)
-    if (!userId) {
-      return new NextResponse("Unauthorized", { status: 401 })
-    }
-
-    const isAdmin = await hasRole(userId, "administrator")
-    if (!isAdmin) {
-      return new NextResponse("Forbidden", { status: 403 })
-    }
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
     const body = await request.json()
     const { id, ...updates } = body
 
-    const [user] = await db
-      .update(usersTable)
-      .set(updates)
-      .where(eq(usersTable.id, id))
-      .returning()
+    const user = await updateUser(String(id), updates)
 
     return NextResponse.json({
       isSuccess: true,
@@ -151,7 +97,7 @@ export async function PUT(request: Request) {
       data: user
     })
   } catch (error) {
-    console.error("Error updating user:", error)
+    logger.error("Error updating user:", error)
     return NextResponse.json(
       { isSuccess: false, message: "Failed to update user" },
       { status: 500 }
@@ -161,15 +107,9 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const { userId } = getAuth(request)
-    if (!userId) {
-      return new NextResponse("Unauthorized", { status: 401 })
-    }
-
-    const isAdmin = await hasRole(userId, "administrator")
-    if (!isAdmin) {
-      return new NextResponse("Forbidden", { status: 403 })
-    }
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")
@@ -181,10 +121,7 @@ export async function DELETE(request: Request) {
       )
     }
 
-    const [user] = await db
-      .delete(usersTable)
-      .where(eq(usersTable.id, parseInt(id)))
-      .returning()
+    const user = await deleteUser(id)
 
     return NextResponse.json({
       isSuccess: true,
@@ -192,7 +129,7 @@ export async function DELETE(request: Request) {
       data: user
     })
   } catch (error) {
-    console.error("Error deleting user:", error)
+    logger.error("Error deleting user:", error)
     return NextResponse.json(
       { isSuccess: false, message: "Failed to delete user" },
       { status: 500 }

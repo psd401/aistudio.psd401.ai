@@ -1,92 +1,60 @@
-import { auth } from '@clerk/nextjs/server';
+import { getServerSession } from '@/lib/auth/server-session';
 import { NextResponse } from 'next/server';
-import { db } from '@/db/db';
-import { ideasTable, ideaVotesTable } from '@/db/schema';
-import { and, eq, sql } from 'drizzle-orm';
+import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
 
 export async function POST(request: Request, context: { params: { id: string } }) {
-  console.log('Vote route called with params:', context.params);
-  
-  // Protect route from unauthenticated users
-  const { userId } = await auth.protect();
-  console.log('Authenticated userId:', userId);
+  const session = await getServerSession();
+  if (!session?.sub) {
+    return new NextResponse('Unauthorized', { status: 401 });
+  }
 
-  // Only staff or admin can vote
   const [isStaff, isAdmin] = await Promise.all([
-    hasRole(userId, 'staff'),
-    hasRole(userId, 'administrator')
+    hasRole('staff'),
+    hasRole('administrator')
   ]);
-  console.log('Role check:', { isStaff, isAdmin });
   
   if (!isStaff && !isAdmin) {
-    console.log('User not authorized to vote');
     return new NextResponse('Forbidden', { status: 403 });
   }
 
   try {
     const { id } = await Promise.resolve(context.params);
     const ideaId = parseInt(id);
-    console.log('Processing vote for ideaId:', ideaId);
     
     if (isNaN(ideaId)) {
-      console.log('Invalid idea ID:', id);
       return new NextResponse('Invalid idea ID', { status: 400 });
     }
 
-    // First check if the idea exists
-    const idea = await db.select()
-      .from(ideasTable)
-      .where(eq(ideasTable.id, ideaId))
-      .limit(1);
-    console.log('Found idea:', idea);
-
-    if (idea.length === 0) {
-      console.log('Idea not found for id:', ideaId);
-      return new NextResponse('Idea not found', { status: 404 });
+    // First get the user's numeric ID from their cognito_sub
+    const userSql = 'SELECT id FROM users WHERE cognito_sub = :cognitoSub';
+    const userResult = await executeSQL(userSql, [{ name: 'cognitoSub', value: { stringValue: session.sub } }]);
+    
+    if (!userResult || userResult.length === 0) {
+      return new NextResponse('User not found', { status: 404 });
     }
+    
+    const userId = userResult[0].id;
 
-    // Check if user has already voted
-    const existingVote = await db.select()
-      .from(ideaVotesTable)
-      .where(and(
-        eq(ideaVotesTable.ideaId, ideaId),
-        eq(ideaVotesTable.userId, userId)
-      ))
-      .limit(1);
-    console.log('Existing vote check:', existingVote);
+    // Check if the user has already voted
+    const existingVoteSql = 'SELECT id FROM idea_votes WHERE idea_id = :ideaId AND user_id = :userId';
+    const existingVoteParams = [
+      { name: 'ideaId', value: { longValue: ideaId } },
+      { name: 'userId', value: { longValue: userId } }
+    ];
+    const existingVotes = await executeSQL(existingVoteSql, existingVoteParams);
 
-    if (existingVote.length > 0) {
-      console.log('User has already voted');
-      return new NextResponse('You have already voted on this idea', { status: 400 });
+    if (existingVotes.length > 0) {
+      // User has voted, so remove the vote (un-vote)
+      const deleteVoteSql = 'DELETE FROM idea_votes WHERE id = :voteId';
+      await executeSQL(deleteVoteSql, [{ name: 'voteId', value: { longValue: existingVotes[0].id } }]);
+      return NextResponse.json({ success: true, message: 'Vote removed' });
+    } else {
+      // User has not voted, so add the vote
+      const addVoteSql = 'INSERT INTO idea_votes (idea_id, user_id, created_at) VALUES (:ideaId, :userId, NOW())';
+      await executeSQL(addVoteSql, existingVoteParams);
+      return NextResponse.json({ success: true, message: 'Vote recorded' });
     }
-
-    // Create vote and increment vote count in a transaction
-    console.log('Starting vote transaction');
-    await db.transaction(async (tx) => {
-      // Create vote
-      await tx.insert(ideaVotesTable).values({
-        ideaId,
-        userId,
-        createdAt: new Date()
-      });
-      console.log('Vote inserted');
-
-      // Increment vote count
-      await tx.update(ideasTable)
-        .set({ votes: sql`${ideasTable.votes} + 1` })
-        .where(eq(ideasTable.id, ideaId));
-      console.log('Vote count incremented');
-    });
-
-    // Get updated idea with new vote count
-    const [updatedIdea] = await db.select()
-      .from(ideasTable)
-      .where(eq(ideasTable.id, ideaId))
-      .limit(1);
-    console.log('Updated idea:', updatedIdea);
-
-    return NextResponse.json(updatedIdea);
   } catch (error) {
     console.error('Error voting on idea:', error);
     return new NextResponse(

@@ -1,71 +1,54 @@
 import { NextResponse } from 'next/server';
-import { auth, clerkClient } from '@clerk/nextjs/server';
-import { db } from '@/db/db';
-import { usersTable } from '@/db/schema';
-import { eq } from 'drizzle-orm';
-import { withErrorHandling, unauthorized, forbidden, notFound, badRequest } from '@/lib/api-utils';
-import { z } from 'zod';
-import { createError } from '@/lib/error-utils';
-
-// Route parameter validation schema
-const ParamsSchema = z.object({
-  userId: z.string().regex(/^\d+$/, 'User ID must be a positive integer').transform(Number)
-});
+import { deleteUser } from '@/lib/db/data-api-adapter';
+import { requireAdmin } from '@/lib/auth/admin-check';
 
 export async function DELETE(
   _request: Request,
   context: { params: Promise<{ userId: string }> }
 ) {
-  const { userId: adminId } = auth();
-  
-  if (!adminId) {
-    return unauthorized('User not authenticated');
-  }
+  try {
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
-  // Check if user is admin
-  const [adminUser] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.clerkId, adminId));
-
-  if (!adminUser || adminUser.role !== 'Admin') {
-    return forbidden('Only administrators can delete users');
-  }
-
-  return withErrorHandling(async () => {
     // Await and validate the params object
     const params = await context.params;
-    const validationResult = ParamsSchema.safeParse(params);
+    const targetUserId = params.userId;
     
-    if (!validationResult.success) {
-      throw createError('Invalid user ID parameter', {
-        code: 'VALIDATION',
-        level: 'warn',
-        details: { 
-          userId: params.userId,
-          errors: validationResult.error.errors 
-        }
-      });
-    }
-    
-    const targetUserId = validationResult.data.userId;
-
-    // Get user from our database
-    const [targetUser] = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, targetUserId));
-
-    if (!targetUser) {
-      return notFound('User not found');
+    if (!targetUserId) {
+      return NextResponse.json(
+        { isSuccess: false, message: 'Invalid user ID' },
+        { status: 400 }
+      );
     }
 
-    // Delete from Clerk first
-    await clerkClient.users.deleteUser(targetUser.clerkId);
+    // Delete the user via Data API
+    const deletedUser = await deleteUser(targetUserId);
 
-    // Then delete from our database
-    await db.delete(usersTable).where(eq(usersTable.id, targetUserId));
+    if (!deletedUser) {
+      return NextResponse.json(
+        { isSuccess: false, message: 'User not found' },
+        { status: 404 }
+      );
+    }
 
-    return null;
-  });
+    // TODO: Also delete from Cognito when we have proper integration
+
+    return NextResponse.json({
+      isSuccess: true,
+      message: 'User deleted successfully',
+      data: deletedUser
+    });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    return NextResponse.json(
+      { 
+        isSuccess: false, 
+        message: error instanceof Error 
+          ? `Failed to delete user: ${error.message}` 
+          : 'Failed to delete user'
+      },
+      { status: 500 }
+    );
+  }
 } 

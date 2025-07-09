@@ -17,7 +17,7 @@ import {
 } from "@/actions/db/assistant-architect-actions"
 import { Textarea } from "@/components/ui/textarea"
 import { Check, X, Edit } from "lucide-react"
-import { SelectAssistantArchitect } from "@/db/schema"
+import { SelectAssistantArchitect } from "@/types/db-types"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { PreviewPageClient } from "@/app/utilities/assistant-architect/[id]/edit/preview/_components/preview-page-client"

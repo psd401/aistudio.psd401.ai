@@ -1,17 +1,23 @@
-import { db } from '@/db/db';
-import { conversationsTable, messagesTable } from '@/db/schema';
-import { eq } from 'drizzle-orm';
-import { getAuth } from '@clerk/nextjs/server';
 import { NextRequest } from 'next/server';
+import { getServerSession } from '@/lib/auth/server-session';
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
+import { executeSQL } from '@/lib/db/data-api-adapter';
 
 export async function DELETE(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { userId } = getAuth(req);
-  if (!userId) {
+  const session = await getServerSession();
+  if (!session) {
     return new Response('Unauthorized', { status: 401 });
   }
+  
+  const currentUser = await getCurrentUserAction();
+  if (!currentUser.isSuccess) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+  
+  const userId = currentUser.data.user.id;
 
   // Await the params object
   const params = await context.params;
@@ -22,27 +28,50 @@ export async function DELETE(
 
   try {
     // Verify ownership
-    const conversation = await db
-      .select()
-      .from(conversationsTable)
-      .where(eq(conversationsTable.id, conversationId))
-      .limit(1);
+    const checkQuery = `
+      SELECT id, user_id 
+      FROM conversations 
+      WHERE id = :conversationId
+    `;
+    const checkParams = [
+      { name: 'conversationId', value: { longValue: conversationId } }
+    ];
+    const conversation = await executeSQL(checkQuery, checkParams);
 
-    if (!conversation.length || conversation[0].clerkId !== userId) {
+    if (!conversation.length || conversation[0].user_id !== userId) {
       return new Response('Not found', { status: 404 });
     }
 
-    await db.transaction(async (tx) => {
-      // Delete all messages first
-      await tx
-        .delete(messagesTable)
-        .where(eq(messagesTable.conversationId, conversationId));
+    // Delete document chunks first (they reference documents)
+    const deleteChunksQuery = `
+      DELETE FROM document_chunks 
+      WHERE document_id IN (
+        SELECT id FROM documents 
+        WHERE conversation_id = :conversationId
+      )
+    `;
+    await executeSQL(deleteChunksQuery, checkParams);
 
-      // Then delete the conversation
-      await tx
-        .delete(conversationsTable)
-        .where(eq(conversationsTable.id, conversationId));
-    });
+    // Delete documents
+    const deleteDocumentsQuery = `
+      DELETE FROM documents 
+      WHERE conversation_id = :conversationId
+    `;
+    await executeSQL(deleteDocumentsQuery, checkParams);
+
+    // Delete all messages
+    const deleteMessagesQuery = `
+      DELETE FROM messages 
+      WHERE conversation_id = :conversationId
+    `;
+    await executeSQL(deleteMessagesQuery, checkParams);
+
+    // Finally delete the conversation
+    const deleteConversationQuery = `
+      DELETE FROM conversations 
+      WHERE id = :conversationId
+    `;
+    await executeSQL(deleteConversationQuery, checkParams);
 
     return new Response(null, { status: 204 });
   } catch (error) {
@@ -58,10 +87,17 @@ export async function PATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { userId } = getAuth(req);
-  if (!userId) {
+  const session = await getServerSession();
+  if (!session) {
     return new Response('Unauthorized', { status: 401 });
   }
+  
+  const currentUser = await getCurrentUserAction();
+  if (!currentUser.isSuccess) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+  
+  const userId = currentUser.data.user.id;
 
   // Await the params object
   const params = await context.params;
@@ -72,13 +108,17 @@ export async function PATCH(
 
   try {
     // Verify ownership
-    const conversation = await db
-      .select()
-      .from(conversationsTable)
-      .where(eq(conversationsTable.id, conversationId))
-      .limit(1);
+    const checkQuery = `
+      SELECT id, user_id 
+      FROM conversations 
+      WHERE id = :conversationId
+    `;
+    const checkParams = [
+      { name: 'conversationId', value: { longValue: conversationId } }
+    ];
+    const conversation = await executeSQL(checkQuery, checkParams);
 
-    if (!conversation.length || conversation[0].clerkId !== userId) {
+    if (!conversation.length || conversation[0].user_id !== userId) {
       return new Response('Not found', { status: 404 });
     }
 
@@ -87,13 +127,16 @@ export async function PATCH(
       return new Response('Invalid title', { status: 400 });
     }
 
-    await db
-      .update(conversationsTable)
-      .set({ 
-        title: body.title.slice(0, 100),
-        updatedAt: new Date()
-      })
-      .where(eq(conversationsTable.id, conversationId));
+    const updateQuery = `
+      UPDATE conversations 
+      SET title = :title, updated_at = NOW() 
+      WHERE id = :conversationId
+    `;
+    const updateParams = [
+      { name: 'title', value: { stringValue: body.title.slice(0, 100) } },
+      { name: 'conversationId', value: { longValue: conversationId } }
+    ];
+    await executeSQL(updateQuery, updateParams);
 
     return new Response(null, { status: 204 });
   } catch (error) {

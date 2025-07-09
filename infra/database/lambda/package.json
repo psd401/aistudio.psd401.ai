@@ -1,0 +1,17 @@
+{
+  "name": "db-init-lambda",
+  "version": "1.0.0",
+  "description": "Database initialization Lambda for AIStudio",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "package": "npm run build && cp -r ../schema dist/"
+  },
+  "dependencies": {
+    "@aws-sdk/client-rds-data": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

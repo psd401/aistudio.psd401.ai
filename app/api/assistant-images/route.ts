@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server"
 import fs from "fs"
 import path from "path"
+import logger from "@/lib/logger"
 
 export async function GET() {
   try {
@@ -12,7 +13,7 @@ export async function GET() {
     
     return NextResponse.json({ images })
   } catch (error) {
-    console.error("Error reading assistant images:", error)
+    logger.error("Error reading assistant images:", error)
     return NextResponse.json({ error: "Failed to load images" }, { status: 500 })
   }
 } 

@@ -1,33 +1,34 @@
-import { getAuth } from '@clerk/nextjs/server';
-import { eq } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
-
 import { withErrorHandling, unauthorized } from '@/lib/api-utils';
-import { createError } from '@/lib/error-utils';
-import { db } from '@/db/db';
-import { aiModelsTable } from '@/db/schema';
+import { getServerSession } from '@/lib/auth/server-session';
+import { executeSQL } from '@/lib/db/data-api-adapter';
 
 export async function GET(req: NextRequest) {
-  console.log('[GET /api/models] Starting request');
+  const session = await getServerSession();
   
-  const { userId } = getAuth(req);
-  console.log('[GET /api/models] Auth:', { userId });
-  
-  if (!userId) {
-    console.log('[GET /api/models] Unauthorized - no userId');
+  if (!session) {
     return unauthorized('User not authenticated');
   }
 
   return withErrorHandling(async () => {
-    console.log('[GET /api/models] Fetching models from database...');
-    const models = await db
-      .select()
-      .from(aiModelsTable)
-      .where(eq(aiModelsTable.provider, 'amazon-bedrock'))
-      .where(eq(aiModelsTable.active, true))
-      .where(eq(aiModelsTable.chatEnabled, true));
+    const query = `
+      SELECT id, name, provider, model_id, description, capabilities, 
+             max_tokens, active, chat_enabled, created_at, updated_at
+      FROM ai_models 
+      WHERE provider = :provider 
+        AND active = :active 
+        AND chat_enabled = :chatEnabled
+      ORDER BY name ASC
+    `;
     
-    console.log('[GET /api/models] Found chat-enabled models:', models);
+    const parameters = [
+      { name: 'provider', value: { stringValue: 'amazon-bedrock' } },
+      { name: 'active', value: { booleanValue: true } },
+      { name: 'chatEnabled', value: { booleanValue: true } }
+    ];
+    
+    const models = await executeSQL(query, parameters);
+    
     return models;
   });
 }

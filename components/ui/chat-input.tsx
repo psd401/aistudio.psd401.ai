@@ -48,8 +48,14 @@ export function ChatInput({
     }
   }
 
+  const onFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    handleSubmit(e)
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="relative flex-1">
+    <form onSubmit={onFormSubmit} className="relative flex-1">
       <Textarea
         ref={textareaRef}
         id={inputId}

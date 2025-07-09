@@ -52,7 +52,6 @@ export default function PdfUploadButton({
         throw new Error(`Failed to check status: ${res.status}`)
       }
       const data = await res.json()
-      console.log('[PdfUploadButton] Poll response:', data);
       
       if (data.status === 'completed') {
         // Stop polling
@@ -64,7 +63,6 @@ export default function PdfUploadButton({
         // Process the result
         if (data.markdown) {
           const docTag = `<pdf-document title="${data.fileName || fileName}">\n${data.markdown}\n</pdf-document>`
-          console.log('[PdfUploadButton] Adding markdown to context:', docTag.substring(0, 200) + '...');
           onMarkdown(docTag)
           setUploadedFileName(data.fileName || fileName)
           toast.success("PDF content added to system context.")
@@ -94,7 +92,6 @@ export default function PdfUploadButton({
         setProcessingStatus("Processing PDF...")
       }
     } catch (error: any) {
-      console.error('[PdfUploadButton] Polling error:', error);
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current)
         pollingIntervalRef.current = null
@@ -155,7 +152,6 @@ export default function PdfUploadButton({
       
       // Handle job-based processing
       if (data.jobId && data.status === 'processing') {
-        console.log('[PdfUploadButton] Job created:', data.jobId);
         setProcessingStatus("Processing PDF...")
         
         // Start polling for job status

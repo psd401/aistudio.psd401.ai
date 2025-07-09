@@ -18,9 +18,9 @@ interface AssistantArchitectListProps {
 export function AssistantArchitectList({ tools }: AssistantArchitectListProps) {
   const { toast } = useToast()
   const router = useRouter()
-  const [isDeleting, setIsDeleting] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState<number | null>(null)
 
-  async function handleDelete(id: string) {
+  async function handleDelete(id: number) {
     try {
       setIsDeleting(id)
       const result = await deleteAssistantArchitectAction(id)

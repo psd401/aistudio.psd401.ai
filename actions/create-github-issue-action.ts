@@ -1,6 +1,7 @@
 "use server"
 
 import { ActionState } from "@/types"
+import { Settings } from "@/lib/settings-manager"
 
 interface CreateGithubIssueInput {
   title: string
@@ -9,9 +10,9 @@ interface CreateGithubIssueInput {
 
 export async function createGithubIssueAction({ title, description }: CreateGithubIssueInput): Promise<ActionState<{ html_url: string }>> {
   try {
-    const token = process.env.GITHUB_ISSUE_TOKEN
+    const token = await Settings.getGitHub()
     if (!token) {
-      return { isSuccess: false, message: "GitHub token not configured" }
+      return { isSuccess: false, message: "GitHub token not configured. Please set GITHUB_ISSUE_TOKEN in the admin panel." }
     }
     const res = await fetch("https://api.github.com/repos/psd401/aistudio.psd401.ai/issues", {
       method: "POST",

@@ -84,9 +84,11 @@ const ModelForm = React.memo(function ModelForm({
               <SelectValue placeholder="Select a provider" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="openai">OpenAI</SelectItem>
               <SelectItem value="azure">Azure OpenAI</SelectItem>
               <SelectItem value="amazon-bedrock">Amazon Bedrock</SelectItem>
               <SelectItem value="google">Google AI</SelectItem>
+              <SelectItem value="google-vertex">Google Vertex AI</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -324,7 +326,7 @@ export const AiModelsTable = React.memo(function AiModelsTable({
   );
 
   const table = useReactTable({
-    data: models,
+    data: models || [],
     columns,
     state: {
       sorting,

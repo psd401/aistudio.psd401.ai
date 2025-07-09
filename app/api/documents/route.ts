@@ -1,18 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuth } from '@clerk/nextjs/server';
-import { supabaseAdmin } from '@/lib/supabase/client';
+import { getDocumentSignedUrl, deleteDocument } from '@/lib/aws/s3-client';
 import { 
   getDocumentsByConversationId, 
   getDocumentById, 
   deleteDocumentById 
 } from '@/lib/db/queries/documents';
+import { getServerSession } from '@/lib/auth/server-session';
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
+import logger from '@/lib/logger';
 
 export async function GET(request: NextRequest) {
   // Check authentication
-  const { userId } = getAuth(request);
-  if (!userId) {
+  const session = await getServerSession();
+  if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  
+  const currentUser = await getCurrentUserAction();
+  if (!currentUser.isSuccess) {
+    return NextResponse.json({ error: 'User not found' }, { status: 401 });
+  }
+  
+  const userId = currentUser.data.user.id;
 
   // Get URL parameters
   const searchParams = request.nextUrl.searchParams;
@@ -32,7 +41,7 @@ export async function GET(request: NextRequest) {
       }
       
       // Check if the document belongs to the authenticated user
-      if (document.userId !== userId) {
+      if (document.user_id !== userId) {
         return NextResponse.json({ 
           success: false, 
           error: 'Unauthorized access to document' 
@@ -40,12 +49,14 @@ export async function GET(request: NextRequest) {
       }
 
       // Get a fresh signed URL for the document
-      const filePath = document.url.split('documents/')[1]; // Extract path from URL
-      const { data: urlData } = await supabaseAdmin.storage
-        .from('documents')
-        .createSignedUrl(filePath, 60); // URL valid for 60 seconds
-
-      if (!urlData?.signedUrl) {
+      // document.url now contains the S3 key
+      let signedUrl;
+      try {
+        signedUrl = await getDocumentSignedUrl({
+          key: document.url,
+          expiresIn: 3600 // 1 hour
+        });
+      } catch (error) {
         return NextResponse.json({
           success: false,
           error: 'Failed to generate document access URL'
@@ -57,7 +68,7 @@ export async function GET(request: NextRequest) {
         success: true,
         document: {
           ...document,
-          url: urlData.signedUrl
+          url: signedUrl
         }
       });
     }
@@ -80,15 +91,19 @@ export async function GET(request: NextRequest) {
       // Get fresh signed URLs for all documents
       const documentsWithSignedUrls = await Promise.all(
         documents.map(async (doc) => {
-          const filePath = doc.url.split('documents/')[1];
-          const { data: urlData } = await supabaseAdmin.storage
-            .from('documents')
-            .createSignedUrl(filePath, 60);
-          
-          return {
-            ...doc,
-            url: urlData?.signedUrl || doc.url
-          };
+          try {
+            const signedUrl = await getDocumentSignedUrl({
+              key: doc.url,
+              expiresIn: 3600 // 1 hour
+            });
+            return {
+              ...doc,
+              url: signedUrl
+            };
+          } catch (error) {
+            // If we can't generate a signed URL, return the document without it
+            return doc;
+          }
         })
       );
       
@@ -117,10 +132,17 @@ export async function GET(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   // Check authentication
-  const { userId } = getAuth(request);
-  if (!userId) {
+  const session = await getServerSession();
+  if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  
+  const currentUser = await getCurrentUserAction();
+  if (!currentUser.isSuccess) {
+    return NextResponse.json({ error: 'User not found' }, { status: 401 });
+  }
+  
+  const userId = currentUser.data.user.id;
 
   // Get URL parameters
   const searchParams = request.nextUrl.searchParams;
@@ -133,9 +155,17 @@ export async function DELETE(request: NextRequest) {
     }, { status: 400 });
   }
 
+  const docId = parseInt(documentId, 10);
+  if (isNaN(docId)) {
+    return NextResponse.json({ 
+      success: false, 
+      error: 'Invalid document ID' 
+    }, { status: 400 });
+  }
+
   try {
     // First check if the document exists and belongs to the user
-    const document = await getDocumentById({ id: documentId });
+    const document = await getDocumentById({ id: docId });
     
     if (!document) {
       return NextResponse.json({ 
@@ -145,27 +175,25 @@ export async function DELETE(request: NextRequest) {
     }
     
     // Check if the document belongs to the authenticated user
-    if (document.userId !== userId) {
+    if (document.user_id !== userId) {
       return NextResponse.json({ 
         success: false, 
         error: 'Unauthorized access to document' 
       }, { status: 403 });
     }
 
-    // Delete the file from Supabase storage
-    const filePath = document.url.split('documents/')[1]; // Extract path from URL
-    if (filePath) {
-      const { error: storageError } = await supabaseAdmin.storage
-        .from('documents')
-        .remove([filePath]);
-
-      if (storageError) {
+    // Delete the file from S3
+    if (document.url) {
+      try {
+        await deleteDocument(document.url);
+      } catch (storageError) {
         // Continue with database deletion even if storage deletion fails
+        logger.error('Failed to delete from S3:', storageError);
       }
     }
     
     // Delete the document from the database
-    await deleteDocumentById({ id: documentId });
+    await deleteDocumentById({ id: docId });
     
     return NextResponse.json({
       success: true,

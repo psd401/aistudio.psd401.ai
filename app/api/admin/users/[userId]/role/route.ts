@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuth } from '@clerk/nextjs/server';
-import { db } from '@/db/db';
-import { userRolesTable, rolesTable } from '@/db/schema';
-import { eq } from 'drizzle-orm';
-import { hasRole } from '@/utils/roles';
-import { badRequest, unauthorized, forbidden, notFound } from '@/lib/api-utils';
+import { updateUserRole } from '@/lib/db/data-api-adapter';
+import { requireAdmin } from '@/lib/auth/admin-check';
+import { validateRequest, updateUserRoleSchema } from '@/lib/validations/api-schemas';
 
 export async function PUT(
   request: NextRequest,
@@ -15,70 +12,29 @@ export async function PUT(
     const params = await context.params;
     const userIdString = params.userId;
     
-    const { userId: adminId } = getAuth(request);
-    if (!adminId) {
-      return NextResponse.json(
-        { isSuccess: false, message: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
-    const isAdmin = await hasRole(adminId, 'administrator');
-    if (!isAdmin) {
+    // Validate request body
+    const { data: validatedData, error } = await validateRequest(request, updateUserRoleSchema);
+    if (error) {
       return NextResponse.json(
-        { isSuccess: false, message: 'Forbidden - Admin access required' },
-        { status: 403 }
-      );
-    }
-
-    const body = await request.json();
-    const { role: newRole } = body;
-    
-    console.log('Role update request:', { userId: userIdString, newRole, body });
-    
-    if (!newRole || typeof newRole !== 'string') {
-      return NextResponse.json(
-        { isSuccess: false, message: 'Invalid role' },
+        { isSuccess: false, message: error },
         { status: 400 }
       );
     }
+    const { role: newRole } = validatedData!;
     
-    // Ensure we have a numeric user ID
-    const userId = parseInt(userIdString);
+    // Update the user's role via Data API
+    const userId = parseInt(userIdString, 10);
     if (isNaN(userId)) {
       return NextResponse.json(
         { isSuccess: false, message: 'Invalid user ID' },
         { status: 400 }
       );
     }
-
-    // Get the role ID for the new role
-    const [roleRecord] = await db
-      .select()
-      .from(rolesTable)
-      .where(eq(rolesTable.name, newRole));
-
-    console.log('Found role record:', roleRecord);
-
-    if (!roleRecord) {
-      return NextResponse.json(
-        { isSuccess: false, message: 'Invalid role' },
-        { status: 400 }
-      );
-    }
-
-    // Delete existing roles for the user
-    await db
-      .delete(userRolesTable)
-      .where(eq(userRolesTable.userId, userId));
-
-    // Insert the new role
-    await db
-      .insert(userRolesTable)
-      .values({
-        userId: userId,
-        roleId: roleRecord.id
-      });
+    await updateUserRole(userId, newRole);
 
     return NextResponse.json({
       isSuccess: true,

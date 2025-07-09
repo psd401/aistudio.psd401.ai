@@ -1,72 +1,59 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server"
-import { NextResponse } from "next/server"
+import { auth } from "@/auth";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 
-// Create route matchers for protected routes
-const isPublicRoute = createRouteMatcher([
+// Public paths that don't require authentication
+const PUBLIC_PATHS = [
   "/",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-  "/api/public(.*)",
-  "/api/users/sync",
-  "/api/webhooks(.*)"
-])
+  "/signout",
+  "/api/auth",
+  "/api/public",
+  "/api/health",
+  "/api/ping",
+  "/api/auth/federated-signout",
+  "/auth/error",
+];
 
-// Corrected list of protected routes
-const isProtectedRoute = createRouteMatcher([
-  "/dashboard(.*)", 
-  "/admin(.*)",
-  "/utilities/assistant-architect(.*)" 
-])
+export default auth((req) => {
+  const { nextUrl, auth } = req;
+  const isLoggedIn = !!auth;
 
-// Add matcher for long-running operations
-const isLongRunningRoute = createRouteMatcher([
-  "/tools/assistant-architect/(.*)"
-])
+  // Check if path is public
+  const isPublicPath = PUBLIC_PATHS.some(path => 
+    nextUrl.pathname === path || nextUrl.pathname.startsWith(path + "/")
+  );
 
-export default clerkMiddleware(async (auth, req) => {
-  // Create response
-  const response = NextResponse.next()
-
-  // Add security headers to all responses
-  response.headers.set('X-Frame-Options', 'DENY')
-  response.headers.set('X-Content-Type-Options', 'nosniff')
-  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
-  response.headers.set('X-XSS-Protection', '1; mode=block')
-  
-  // TODO: Add Content Security Policy after thorough testing
-  // CSP temporarily disabled to prevent UI breakage - will re-enable after proper testing
-  // const csp = [
-  //   "default-src 'self'",
-  //   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://clerk.com https://*.clerk.com",
-  //   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  //   "font-src 'self' https://fonts.gstatic.com",
-  //   "img-src 'self' data: https: blob:",
-  //   "connect-src 'self' https://*.clerk.com https://*.supabase.co wss://*.clerk.com",
-  //   "frame-src 'self' https://*.clerk.com",
-  //   "object-src 'none'",
-  //   "base-uri 'self'",
-  //   "form-action 'self'",
-  //   "frame-ancestors 'none'"
-  // ].join('; ')
-  // response.headers.set('Content-Security-Policy', csp)
-
-  // Set longer timeout headers for long-running routes
-  if (isLongRunningRoute(req)) {
-    response.headers.set('Connection', 'keep-alive')
-    response.headers.set('Keep-Alive', 'timeout=300')
+  // Allow public paths
+  if (isPublicPath) {
+    return NextResponse.next();
   }
 
-  if (isProtectedRoute(req) || !isPublicRoute(req)) {
-    // Protect all non-public routes and explicitly protected routes
-    await auth.protect()
+  // Allow static assets
+  if (
+    nextUrl.pathname.startsWith("/_next") ||
+    nextUrl.pathname.startsWith("/static") ||
+    nextUrl.pathname.match(/\.(jpg|jpeg|png|gif|ico|css|js)$/i)
+  ) {
+    return NextResponse.next();
   }
-  
-  return response
-})
+
+  // Redirect unauthenticated users to sign-in
+  if (!isLoggedIn) {
+    return NextResponse.redirect(new URL(`/api/auth/signin?callbackUrl=${encodeURIComponent(nextUrl.pathname)}`, nextUrl));
+  }
+
+  return NextResponse.next();
+});
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico).*)",
-    "/"
-  ]
-} 
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api/auth (NextAuth routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
+    "/((?!api/auth|_next/static|_next/image|favicon.ico).*)",
+  ],
+};

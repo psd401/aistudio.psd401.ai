@@ -1,3 +1,4 @@
+import { NextRequest, NextResponse } from 'next/server';
 import logger from "@/lib/logger"
 
 // Limit request body size to 25MB for uploads
@@ -8,16 +9,12 @@ export const config = {
     }
   }
 }
-
-console.log('[Upload API Module] Loading route.ts file...'); // Log module load
-logger.info('[Upload API Module] Winston logger test: route.ts file loaded');
-
-import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getAuth } from '@clerk/nextjs/server';
-import { supabaseAdmin } from '@/lib/supabase/client';
+import { uploadDocument, getDocumentSignedUrl } from '@/lib/aws/s3-client';
 import { saveDocument, batchInsertDocumentChunks } from '@/lib/db/queries/documents';
 import { extractTextFromDocument, chunkText, getFileTypeFromFileName } from '@/lib/document-processing';
+import { getServerSession } from '@/lib/auth/server-session';
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 // import * as fs from 'fs'; // No longer needed if text processing is out
 // import * as path from 'path'; // No longer needed if text processing is out
 
@@ -33,64 +30,33 @@ const ALLOWED_MIME_TYPES = [
 ];
 
 // Enhanced file validation schema
+// Using z.any() since File/Blob classes are not available during SSR/build
 const FileSchema = z.object({
-  file: z.instanceof(Blob)
+  file: z.any()
+    .refine((file) => {
+      // Runtime check for file-like object
+      return file && typeof file === 'object' && 'size' in file && 'name' in file && 'type' in file;
+    }, {
+      message: 'Invalid file object',
+    })
     .refine((file) => file.size <= MAX_FILE_SIZE, {
       message: `File size must be less than ${MAX_FILE_SIZE / (1024 * 1024)}MB`,
     })
     .refine((file) => {
-      const fileName = (file as File).name || '';
+      const fileName = file.name || '';
       const fileExtension = `.${fileName.split('.').pop()?.toLowerCase()}`;
       return ALLOWED_FILE_EXTENSIONS.includes(fileExtension);
     }, {
       message: `Unsupported file extension. Allowed file types are: ${ALLOWED_FILE_EXTENSIONS.join(', ')}`,
     })
     .refine((file) => {
-      const mimeType = (file as File).type;
+      const mimeType = file.type;
       return ALLOWED_MIME_TYPES.includes(mimeType);
     }, {
       message: `Unsupported file type. Allowed MIME types are: ${ALLOWED_MIME_TYPES.join(', ')}`,
     })
 });
 
-// Helper function to ensure the documents bucket exists
-async function ensureDocumentsBucket() {
-  try {
-    // Check if the bucket exists
-    const { data: buckets, error } = await supabaseAdmin.storage.listBuckets();
-    
-    if (error) {
-      logger.error('Error listing buckets:', error);
-      throw new Error(`Failed to list storage buckets: ${error.message}`);
-    }
-    
-    const documentsBucketExists = buckets.some(bucket => bucket.name === 'documents');
-    logger.info('Checking for documents bucket:', documentsBucketExists ? 'exists' : 'does not exist');
-    
-    if (!documentsBucketExists) {
-      logger.info('Documents bucket does not exist, creating it...');
-      const { error: createError } = await supabaseAdmin.storage.createBucket('documents', {
-        public: false, // Make the bucket private for security
-        allowedMimeTypes: ALLOWED_MIME_TYPES,
-        fileSizeLimit: MAX_FILE_SIZE
-      });
-      
-      if (createError) {
-        logger.error('Error creating documents bucket:', createError);
-        throw new Error(`Failed to create documents bucket: ${createError.message}`);
-      }
-      
-      logger.info('Documents bucket created successfully');
-    } else {
-      logger.info('Documents bucket already exists');
-    }
-    
-    return true;
-  } catch (error) {
-    logger.error('Error in ensureDocumentsBucket:', error);
-    throw error;
-  }
-}
 
 // Ensure this route is built for the Node.js runtime so that Node-only   
 // dependencies such as `pdf-parse` and `mammoth` (which rely on the FS   
@@ -108,17 +74,29 @@ export async function POST(request: NextRequest) {
   };
   
   // Check authentication first
-  logger.info('[Upload API] Attempting getAuth...');
-  const { userId } = getAuth(request);
-  logger.info(`[Upload API] getAuth completed. userId: ${userId}`);
+  logger.info('[Upload API] Attempting getServerSession...');
+  const session = await getServerSession();
+  logger.info(`[Upload API] getServerSession completed. session exists: ${!!session}`);
 
-  if (!userId) {
-    logger.info('Unauthorized - No userId');
+  if (!session) {
+    logger.info('Unauthorized - No session');
     return new NextResponse(
       JSON.stringify({ error: 'Unauthorized' }), 
       { status: 401, headers }
     );
   }
+  
+  const currentUser = await getCurrentUserAction();
+  if (!currentUser.isSuccess) {
+    logger.info('Unauthorized - User not found');
+    return new NextResponse(
+      JSON.stringify({ error: 'User not found' }), 
+      { status: 401, headers }
+    );
+  }
+  
+  const userId = currentUser.data.user.id;
+  logger.info(`Current user ID: ${userId}, type: ${typeof userId}`);
 
   // Add more checks before the main try block if needed
 
@@ -142,19 +120,6 @@ export async function POST(request: NextRequest) {
     // ...
     */
     
-    // Ensure documents bucket exists
-    try {
-      await ensureDocumentsBucket(); // Assuming ensureDocumentsBucket is defined above
-    } catch (bucketError) {
-      logger.error('[Upload API] Step failed: Ensuring Bucket', bucketError);
-      return new NextResponse(
-        JSON.stringify({ 
-          success: false,
-          error: `Failed to ensure storage is configured properly: ${bucketError instanceof Error ? bucketError.message : String(bucketError)}` 
-        }), 
-        { status: 500, headers }
-      );
-    }
     
     // Parse the form data
     let formData;
@@ -228,13 +193,13 @@ export async function POST(request: NextRequest) {
 
     // Extract file type from file name
     const fileType = getFileTypeFromFileName(file.name);
-    logger.info('File type (using file name):', fileType);
+    logger.info(`File type (using file name): ${fileType}`);
     
     // Convert File to Buffer for processing (still needed for storage and non-PDF extraction)
     let fileBuffer: Buffer;
     try {
       fileBuffer = Buffer.from(await file.arrayBuffer());
-      logger.info('File converted to buffer, size:', fileBuffer.length);
+      logger.info(`File converted to buffer, size: ${fileBuffer.length}`);
     } catch (bufferError) {
       logger.error('[Upload API] Step failed: Converting to Buffer', bufferError);
       return new NextResponse(
@@ -249,50 +214,37 @@ export async function POST(request: NextRequest) {
     // Sanitize file name to prevent path traversal
     const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9_.-]/g, '_');
     
-    // Create a safe, unique file path
-    const filePath = `${userId}/${Date.now()}-${sanitizedFileName}`;
-    logger.info('File path for storage:', filePath);
     
-    // Upload file to Supabase Storage
-    logger.info('Uploading to Supabase Storage...');
-    const { error: uploadError, data: uploadData } = await supabaseAdmin.storage
-      .from('documents')
-      .upload(filePath, fileBuffer, {
+    // Upload file to AWS S3
+    logger.info('Uploading to AWS S3...');
+    let uploadResult;
+    try {
+      uploadResult = await uploadDocument({
+        userId: String(userId),
+        fileName: sanitizedFileName,
+        fileContent: fileBuffer,
         contentType: file.type,
-        upsert: true // Use upsert to overwrite if file exists
+        metadata: {
+          originalName: file.name,
+          uploadedBy: String(userId),
+        }
       });
-
-    if (uploadError) {
-      logger.error('[Upload API] Step failed: Uploading to Storage', uploadError);
+      logger.info('File uploaded successfully to S3:', uploadResult);
+    } catch (uploadError) {
+      logger.error('[Upload API] Step failed: Uploading to S3', uploadError);
       return new NextResponse(
         JSON.stringify({ 
           success: false,
-          error: `Failed to upload file to storage: ${uploadError.message}` 
+          error: `Failed to upload file to storage: ${uploadError instanceof Error ? uploadError.message : String(uploadError)}` 
         }), 
         { status: 500, headers }
       );
     }
 
-    logger.info('File uploaded successfully to Supabase Storage:', uploadData);
-
-    // Get signed URL for the uploaded file (valid for 1 hour)
-    const { data: urlData, error: urlError } = await supabaseAdmin.storage
-      .from('documents')
-      .createSignedUrl(filePath, 3600); // 1 hour expiration
-
-    if (urlError || !urlData || !urlData.signedUrl) {
-      logger.error('[Upload API] Step failed: Getting Signed URL', urlError);
-      return new NextResponse(
-        JSON.stringify({ 
-          success: false,
-          error: 'Failed to get access URL for file' 
-        }), 
-        { status: 500, headers }
-      );
-    }
-
-    const fileUrl = urlData.signedUrl;
-    logger.info('Signed URL:', fileUrl);
+    const fileUrl = uploadResult.url;
+    const s3Key = uploadResult.key;
+    logger.info(`S3 key: ${s3Key}`);
+    logger.info(`Signed URL: ${fileUrl}`);
 
     // Process document content for text extraction
     logger.info('Extracting text from document...');
@@ -302,7 +254,7 @@ export async function POST(request: NextRequest) {
       const extracted = await extractTextFromDocument(fileBuffer, fileType);
       text = extracted.text;
       metadata = extracted.metadata;
-      logger.info('Text extracted, length:', text?.length ?? 0);
+      logger.info(`Text extracted, length: ${text?.length ?? 0}`);
     } catch (extractError) {
       logger.error('[Upload API] Step failed: Text Extraction', extractError);
       logger.error('Error extracting text from document:', extractError);
@@ -337,13 +289,10 @@ export async function POST(request: NextRequest) {
         name: sanitizedFileName, // Use the sanitized name
         type: fileType,
         size: file.size,
-        url: fileUrl, // Use the signed URL
-        // Ensure metadata is stringified if needed by DB schema (jsonb should handle objects)
-        metadata: metadata, 
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        url: s3Key, // Store S3 key, we'll generate signed URLs on demand
+        metadata: metadata || {}, // Ensure metadata is not undefined
       });
-      logger.info('Document saved to database:', document.id);
+      logger.info(`Document saved to database: ${document.id}`);
     } catch (saveError) {
       logger.error('[Upload API] Step failed: Saving Document Metadata', saveError);
       logger.error('Error saving document to database:', saveError);
@@ -361,7 +310,7 @@ export async function POST(request: NextRequest) {
     let chunks;
     try {
       chunks = chunkText(text);
-      logger.info('Created', chunks.length, 'chunks');
+      logger.info(`Created ${chunks.length} chunks`);
       
       if (chunks.length === 0) {
         logger.warn('[Upload API] Chunking resulted in 0 chunks. Document might be empty or processing failed silently.');
@@ -372,13 +321,11 @@ export async function POST(request: NextRequest) {
           content: chunk,
           chunkIndex: index,
           metadata: { position: index }, // Simple metadata for chunk
-          createdAt: new Date(),
-          updatedAt: new Date(),
         }));
 
         logger.info('Saving chunks to database...');
         const savedChunks = await batchInsertDocumentChunks(documentChunks);
-        logger.info('Saved', savedChunks.length, 'chunks to database');
+        logger.info(`Saved ${savedChunks.length} chunks to database`);
       }
     } catch (chunkError) {
       logger.error('[Upload API] Step failed: Chunking/Saving Chunks', chunkError);

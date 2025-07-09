@@ -19,7 +19,7 @@ import { useState, useEffect, useCallback, memo } from "react"
 import { useToast } from "@/components/ui/use-toast"
 import { executeAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { getJobAction } from "@/actions/db/jobs-actions"
-import { SelectJob, SelectToolInputField } from "@/db/schema"
+import { SelectJob, SelectToolInputField } from "@/types/db-types"
 import { ExecutionResultDetails, JobOutput, JobPromptResult } from "@/types/assistant-architect-types"
 import { Loader2, Bot, User, Terminal, AlertCircle, ChevronDown, ChevronRight, Copy, ThumbsUp, ThumbsDown, Sparkles } from "lucide-react"
 import ReactMarkdown from "react-markdown"
@@ -27,7 +27,7 @@ import ErrorBoundary from "@/components/utilities/error-boundary"
 import type { AssistantArchitectWithRelations } from "@/types/assistant-architect-types"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AssistantArchitectChat } from "./assistant-architect-chat"
-import type { SelectPromptResult } from "@/db/schema"
+import type { SelectPromptResult } from "@/types/db-types"
 import Image from "next/image"
 import PdfUploadButton from "@/components/ui/pdf-upload-button"
 import { updatePromptResultAction } from "@/actions/db/assistant-architect-actions"
@@ -47,6 +47,11 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   const [expandedPrompts, setExpandedPrompts] = useState<Record<string, boolean>>({})
   const [expandedInputs, setExpandedInputs] = useState<Record<string, boolean>>({})
   const [conversationId, setConversationId] = useState<number | null>(null)
+
+  // Debug: Log when component renders
+  useEffect(() => {
+    // Removed verbose logging
+  })
 
   // Define base types for fields first
   const stringSchema = z.string();
@@ -86,9 +91,27 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   })
 
   const onSubmit = useCallback(async (values: z.infer<typeof formSchema>) => {
-    setIsLoading(true)
-    setResults(null)
-    setError(null)
+    // Only clear results if we're not already processing
+    if (!isLoading && !isPolling) {
+      // Don't clear results if we already have completed results - user might be using chat
+      if (!results || results.status !== 'completed') {
+        setIsLoading(true)
+        setResults(null)
+        setError(null)
+      } else {
+        // If we have completed results, confirm before re-running
+        const confirmRerun = window.confirm("You have existing results. Do you want to run the assistant again? This will clear your current results and chat.")
+        if (!confirmRerun) {
+          return;
+        }
+        setIsLoading(true)
+        setResults(null)
+        setError(null)
+        setConversationId(null) // Reset conversation when re-running
+      }
+    } else {
+      return; // Prevent double submission
+    }
 
     try {
       const result = await executeAssistantArchitectAction({
@@ -97,7 +120,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
       })
 
       if (result.isSuccess && result.data?.jobId) {
-        setJobId(result.data.jobId)
+        setJobId(String(result.data.jobId))
         setIsPolling(true)
         toast({ title: "Execution Started", description: "The tool is now running" })
       } else {
@@ -121,7 +144,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
       })
       setIsLoading(false)
     }
-  }, [setIsLoading, setResults, setError, tool.id, toast])
+  }, [isLoading, isPolling, setIsLoading, setResults, setError, tool.id, toast, results, setConversationId])
 
   // Update the form values type
   const safeJsonParse = useCallback((jsonString: string | null | undefined): Record<string, unknown> | null => {
@@ -469,19 +492,29 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                               <SelectValue placeholder={`Select ${field.label || field.name}...`} />
                             </SelectTrigger>
                             <SelectContent>
-                              {Array.isArray(field.options)
-                                ? field.options.map((option: any) => (
-                                    <SelectItem key={option.value} value={option.value}>
-                                      {option.label}
-                                    </SelectItem>
-                                  ))
-                                : typeof field.options === "string"
-                                  ? field.options.split(",").map((option: string) => (
-                                      <SelectItem key={option.trim()} value={option.trim()}>
-                                        {option.trim()}
-                                      </SelectItem>
-                                    ))
-                                  : null}
+                              {(() => {
+                                let options: Array<{ label: string, value: string }> = []
+                                if (typeof field.options === "string") {
+                                  try {
+                                    const parsed = JSON.parse(field.options)
+                                    if (Array.isArray(parsed)) {
+                                      options = parsed
+                                    }
+                                  } catch (e) {
+                                    options = field.options.split(",").map(s => ({
+                                      value: s.trim(),
+                                      label: s.trim()
+                                    }))
+                                  }
+                                } else if (Array.isArray(field.options)) {
+                                  options = field.options
+                                }
+                                return options.map(option => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))
+                              })()}
                             </SelectContent>
                           </Select>
                         ) : field.fieldType === "file_upload" ? (

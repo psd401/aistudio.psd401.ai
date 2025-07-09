@@ -1,11 +1,22 @@
 export interface User {
-  id: number;
-  clerkId: string;
-  role: string;
-  createdAt: string;
-  // Clerk user data
+  id: string;
+  email: string;
+  name?: string;
   firstName?: string;
   lastName?: string;
-  email?: string;
+  role?: string;
   lastSignInAt?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface Role {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface UserWithRoles {
+  user: User;
+  roles: Role[];
 } 

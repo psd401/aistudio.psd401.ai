@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/db/db'
-import { aiModelsTable, SelectAiModel } from '@/db/schema/core-schema'
-import { jobsTable } from '@/db/schema/jobs-schema'
-import { eq } from 'drizzle-orm'
 import { generateCompletion } from '@/lib/ai-helpers'
-import { getAuth } from '@clerk/nextjs/server'
+import { getServerSession } from '@/lib/auth/server-session'
+import { executeSQL } from '@/lib/db/data-api-adapter'
 import logger from "@/lib/logger"
 
 // Easily change the model id here
@@ -30,8 +27,8 @@ export async function POST(req: NextRequest) {
   };
   
   // Get user authentication
-  const { userId } = getAuth(req);
-  if (!userId) {
+  const session = await getServerSession();
+  if (!session || !session.sub) {
     return new NextResponse(
       JSON.stringify({ error: 'Unauthorized' }), 
       { status: 401, headers }
@@ -83,27 +80,30 @@ export async function POST(req: NextRequest) {
       modelId: PDF_TO_MARKDOWN_MODEL_ID
     };
     
-    const [job] = await db
-      .insert(jobsTable)
-      .values({
-        userId,
-        type: 'pdf-to-markdown',
-        status: 'pending',
-        input: JSON.stringify(jobInput)
-      })
-      .returning();
+    const jobResult = await executeSQL(`
+      INSERT INTO jobs (id, user_id, type, status, input, created_at, updated_at)
+      VALUES (gen_random_uuid(), :userId, 'pdf-to-markdown', 'pending', :input, NOW(), NOW())
+      RETURNING id, user_id, type, status, input, output, error, created_at, updated_at
+    `, [
+      { name: 'userId', value: { stringValue: session.sub } },
+      { name: 'input', value: { stringValue: JSON.stringify(jobInput) } }
+    ]);
+    
+    const job = jobResult[0];
     
     logger.info(`[PDF-to-Markdown] Job created with ID: ${job.id}`);
     
     // Ensure job is committed and visible before returning
     let committedJob = null;
     for (let i = 0; i < 5; i++) {
-      const [found] = await db
-        .select()
-        .from(jobsTable)
-        .where(eq(jobsTable.id, job.id));
-      if (found) {
-        committedJob = found;
+      const foundJobs = await executeSQL(`
+        SELECT id, user_id, type, status, input, output, error, created_at, updated_at
+        FROM jobs
+        WHERE id = :jobId::uuid
+      `, [{ name: 'jobId', value: { stringValue: job.id } }]);
+      
+      if (foundJobs && foundJobs.length > 0) {
+        committedJob = foundJobs[0];
         break;
       }
       await new Promise(res => setTimeout(res, 100)); // wait 100ms
@@ -150,16 +150,20 @@ async function processPdfInBackground(jobId: string, jobInput: any) {
     logger.info(`[PDF-to-Markdown Background] Starting processing for job ${jobId}`);
     
     // Update job status to running
-    await db
-      .update(jobsTable)
-      .set({ status: 'running' })
-      .where(eq(jobsTable.id, jobId));
+    await executeSQL(`
+      UPDATE jobs
+      SET status = 'running', updated_at = NOW()
+      WHERE id = :jobId::uuid
+    `, [{ name: 'jobId', value: { stringValue: jobId } }]);
     
     // Get model config from DB
-    const [model]: SelectAiModel[] = await db
-      .select()
-      .from(aiModelsTable)
-      .where(eq(aiModelsTable.id, jobInput.modelId));
+    const modelResult = await executeSQL(`
+      SELECT id, name, provider, model_id, description, capabilities, max_tokens, active, chat_enabled
+      FROM ai_models
+      WHERE id = :modelId
+    `, [{ name: 'modelId', value: { longValue: jobInput.modelId } }]);
+    
+    const model = modelResult && modelResult.length > 0 ? modelResult[0] : null;
     
     if (!model) {
       throw new Error('AI model not found');
@@ -193,7 +197,7 @@ async function processPdfInBackground(jobId: string, jobInput: any) {
     logger.info(`[PDF-to-Markdown Background] Calling LLM for job ${jobId}...`);
     const startTime = Date.now();
     const markdown = await generateCompletion(
-      { provider: model.provider, modelId: model.modelId },
+      { provider: model.provider, modelId: model.model_id },
       messages
     );
     
@@ -217,13 +221,14 @@ async function processPdfInBackground(jobId: string, jobInput: any) {
       fileName: jobInput.fileName
     });
     
-    await db
-      .update(jobsTable)
-      .set({ 
-        status: 'completed',
-        output: JSON.stringify(outputData)
-      })
-      .where(eq(jobsTable.id, jobId));
+    await executeSQL(`
+      UPDATE jobs
+      SET status = 'completed', output = :output, updated_at = NOW()
+      WHERE id = :jobId::uuid
+    `, [
+      { name: 'output', value: { stringValue: JSON.stringify(outputData) } },
+      { name: 'jobId', value: { stringValue: jobId } }
+    ]);
     
     logger.info(`[PDF-to-Markdown Background] Job ${jobId} successfully saved to database`);
       
@@ -232,12 +237,13 @@ async function processPdfInBackground(jobId: string, jobInput: any) {
     logger.error(`[PDF-to-Markdown Background] Error details:`, error.stack);
     
     // Update job with error
-    await db
-      .update(jobsTable)
-      .set({ 
-        status: 'failed',
-        error: error.message || 'Unknown error'
-      })
-      .where(eq(jobsTable.id, jobId));
+    await executeSQL(`
+      UPDATE jobs
+      SET status = 'failed', error = :error, updated_at = NOW()
+      WHERE id = :jobId::uuid
+    `, [
+      { name: 'error', value: { stringValue: error.message || 'Unknown error' } },
+      { name: 'jobId', value: { stringValue: jobId } }
+    ]);
   }
 }

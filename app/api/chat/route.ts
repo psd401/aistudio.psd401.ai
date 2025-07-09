@@ -1,26 +1,25 @@
 "use server"
 
-import { getAuth } from "@clerk/nextjs/server"
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/db/db"
-import { conversationsTable, messagesTable, aiModelsTable } from "@/db/schema"
-import { eq } from "drizzle-orm"
 import { generateCompletion } from "@/lib/ai-helpers"
 import { CoreMessage } from "ai"
 import { withErrorHandling, unauthorized, badRequest } from "@/lib/api-utils"
 import { createError } from "@/lib/error-utils"
-import { getDocumentsByConversationId, getDocumentChunksByDocumentId } from "@/lib/db/queries/documents"
+import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents"
 import logger from "@/lib/logger"
+import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
+import { getServerSession } from "@/lib/auth/server-session"
+import { executeSQL } from "@/lib/db/data-api-adapter"
 
 export async function POST(req: NextRequest) {
-  const { userId } = getAuth(req)
-  if (!userId) {
+  const session = await getServerSession()
+  if (!session) {
     return unauthorized('User not authenticated')
   }
 
   return withErrorHandling(async () => {
     // Destructure conversationId from body
-    const { messages, modelId: textModelId, source, executionId, context, conversationId: existingConversationId } = await req.json()
+    const { messages, modelId: textModelId, source, executionId, context, conversationId: existingConversationId, documentId } = await req.json()
 
     if (!textModelId) {
       throw createError('Model ID is required', {
@@ -38,83 +37,135 @@ export async function POST(req: NextRequest) {
     }
 
     // Find the AI model record using the text modelId to get the provider
-    const [aiModel] = await db
-      .select()
-      .from(aiModelsTable)
-      .where(eq(aiModelsTable.modelId, textModelId))
-
-    if (!aiModel) {
+    const modelQuery = `
+      SELECT id, name, provider, model_id
+      FROM ai_models
+      WHERE model_id = :modelId
+      LIMIT 1
+    `;
+    const modelParams = [
+      { name: 'modelId', value: { stringValue: textModelId } }
+    ];
+    const modelResult = await executeSQL(modelQuery, modelParams);
+    
+    if (!modelResult.length) {
       throw createError(`AI Model with identifier '${textModelId}' not found`, {
         code: 'NOT_FOUND',
         level: 'error',
         details: { modelId: textModelId }
       });
     }
+    
+    const aiModel = modelResult[0];
+    
+    // Ensure id is a number
+    if (!aiModel.id) {
+      throw createError('AI Model record missing id field', {
+        code: 'INVALID_DATA',
+        level: 'error',
+        details: { model: aiModel }
+      });
+    }
 
-    let conversationIdToUse: number;
+    let conversationId: number | undefined;
     let title = "Follow-up Conversation";
 
-    // Check if conversation exists
+    // If an existing conversation ID is provided, use it
     if (existingConversationId) {
-      const [existingConversation] = await db
-        .select()
-        .from(conversationsTable)
-        .where(eq(conversationsTable.id, existingConversationId))
-      
-      if (!existingConversation || existingConversation.clerkId !== userId) {
-        throw createError("Conversation not found or access denied", {
-          code: 'FORBIDDEN',
-          level: 'warn',
-          details: { conversationId: existingConversationId }
-        });
+      const checkQuery = `
+        SELECT id FROM conversations
+        WHERE id = :conversationId
+      `;
+      const checkParams = [
+        { name: 'conversationId', value: { longValue: existingConversationId } }
+      ];
+      const conversations = await executeSQL(checkQuery, checkParams);
+
+      if (conversations.length > 0) {
+        conversationId = conversations[0].id
+        // Update the updated_at timestamp
+        const updateQuery = `
+          UPDATE conversations
+          SET updated_at = NOW()
+          WHERE id = :conversationId
+        `;
+        await executeSQL(updateQuery, checkParams);
       }
-      
-      conversationIdToUse = existingConversationId;
-      title = existingConversation.title;
-      // Update timestamp
-      await db
-        .update(conversationsTable)
-        .set({ updatedAt: new Date() })
-        .where(eq(conversationsTable.id, existingConversationId));
-        
-    } else {
-      // Create a new conversation
-      title = messages[0].content.slice(0, 100); // Use first message for title
-      const [newConversation] = await db
-        .insert(conversationsTable)
-        .values({
-          clerkId: userId,
-          title: title,
-          modelId: textModelId, // Use the text model_id for the foreign key
-          source: source || "chat",
-          executionId: executionId || null,
-          context: context || null
-        })
-        .returning();
-      conversationIdToUse = newConversation.id;
+    }
+
+    // If no conversation ID is provided or found, create a new conversation
+    if (!conversationId) {
+      const currentUser = await getCurrentUserAction()
+      if (!currentUser.isSuccess) {
+        return new Response("Unauthorized", { status: 401 })
+      }
+
+      const insertQuery = `
+        INSERT INTO conversations (title, user_id, model_id, source, execution_id, context)
+        VALUES (:title, :userId, :modelId, :source, :executionId, :context::jsonb)
+        RETURNING id
+      `;
+      const insertParams = [
+        { name: 'title', value: { stringValue: messages[0].content.substring(0, 100) } },
+        { name: 'userId', value: { longValue: currentUser.data.user.id } },
+        { name: 'modelId', value: { longValue: aiModel.id } },
+        { name: 'source', value: { stringValue: source || "chat" } },
+        { name: 'executionId', value: executionId ? { longValue: executionId } : { isNull: true } },
+        { name: 'context', value: context ? { stringValue: JSON.stringify(context) } : { isNull: true } }
+      ];
+      const newConversation = await executeSQL(insertQuery, insertParams);
+      conversationId = newConversation[0].id
     }
 
     // Insert only the NEW user message
     const userMessage = messages[messages.length - 1];
-    await db.insert(messagesTable).values({
-      conversationId: conversationIdToUse,
-      role: userMessage.role,
-      content: userMessage.content
-    });
+    const insertMessageQuery = `
+      INSERT INTO messages (conversation_id, role, content)
+      VALUES (:conversationId, :role, :content)
+    `;
+    const insertMessageParams = [
+      { name: 'conversationId', value: { longValue: conversationId } },
+      { name: 'role', value: { stringValue: userMessage.role } },
+      { name: 'content', value: { stringValue: userMessage.content } }
+    ];
+    await executeSQL(insertMessageQuery, insertMessageParams);
 
     // --- Fetch previous messages for AI context --- 
-    const previousMessages = await db
-      .select({ role: messagesTable.role, content: messagesTable.content })
-      .from(messagesTable)
-      .where(eq(messagesTable.conversationId, conversationIdToUse))
-      .orderBy(messagesTable.createdAt);
+    const messagesQuery = `
+      SELECT role, content
+      FROM messages
+      WHERE conversation_id = :conversationId
+      ORDER BY created_at ASC
+    `;
+    const messagesParams = [
+      { name: 'conversationId', value: { longValue: conversationId } }
+    ];
+    const previousMessages = await executeSQL(messagesQuery, messagesParams);
 
     // --- Fetch documents and relevant content for AI context ---
     let documentContext = "";
     try {
-      const documents = await getDocumentsByConversationId({ conversationId: conversationIdToUse });
+      let documents = [];
+      
+      // If we have a conversationId, get documents linked to it
+      if (conversationId) {
+        documents = await getDocumentsByConversationId({ conversationId: conversationId });
+      }
+      
+      // If a documentId was provided, also fetch that specific document
+      // This ensures we include it even if linking hasn't completed yet
+      if (documentId) {
+        const singleDoc = await getDocumentById({ id: documentId });
+        if (singleDoc && !documents.find(d => d.id === documentId)) {
+          documents.push(singleDoc);
+          logger.info(`Added document ${documentId} to context (total documents: ${documents.length})`);
+        }
+      }
+      
+      // Processing chat request
       
       if (documents.length > 0) {
+        logger.info(`Found ${documents.length} documents for conversation ${conversationId}`);
         // Get the user's latest message for context search
         const latestUserMessage = userMessage.content;
         
@@ -123,29 +174,53 @@ export async function POST(req: NextRequest) {
           getDocumentChunksByDocumentId({ documentId: doc.id })
         );
         const documentChunksArrays = await Promise.all(documentChunksPromises);
-        const allDocumentChunks = documentChunksArrays.flat();
+        let allDocumentChunks = documentChunksArrays.flat();
+        
+        // If no chunks found and we just uploaded a document, wait a bit and retry
+        if (allDocumentChunks.length === 0 && documentId) {
+          logger.info("No chunks found immediately, waiting 500ms for chunks to be saved...");
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          const retryChunksPromises = documents.map(doc => 
+            getDocumentChunksByDocumentId({ documentId: doc.id })
+          );
+          const retryChunksArrays = await Promise.all(retryChunksPromises);
+          allDocumentChunks = retryChunksArrays.flat();
+        }
+        
+        logger.info(`Found ${allDocumentChunks.length} total chunks`);
 
         // Simple keyword matching to find relevant chunks
         // In production, you'd use embedding-based semantic search
-        const relevantChunks = allDocumentChunks
-          .filter(chunk => {
-            const content = chunk.content.toLowerCase();
-            const message = latestUserMessage.toLowerCase();
-            // Look for common words (3+ characters) from the user message in the chunks
-            const keywords = message.split(/\s+/).filter(word => word.length > 2);
-            return keywords.some(keyword => content.includes(keyword));
-          })
-          .sort((a, b) => {
-            // Simple scoring by keyword frequency
-            const aScore = allDocumentChunks.filter(chunk => 
-              chunk.content.toLowerCase().includes(latestUserMessage.toLowerCase())
-            ).length;
-            const bScore = allDocumentChunks.filter(chunk => 
-              chunk.content.toLowerCase().includes(latestUserMessage.toLowerCase())
-            ).length;
-            return bScore - aScore;
-          })
-          .slice(0, 3); // Top 3 most relevant chunks
+        
+        // Check if user is asking about "this" or the document in general
+        const generalDocumentQueries = ['this', 'document', 'file', 'pdf', 'uploaded', 'attachment'];
+        const isGeneralDocumentQuery = generalDocumentQueries.some(term => 
+          latestUserMessage.toLowerCase().includes(term)
+        );
+        
+        let relevantChunks = [];
+        
+        if (isGeneralDocumentQuery || latestUserMessage.toLowerCase().includes('summar')) {
+          // If asking about the document in general, include all chunks
+          relevantChunks = allDocumentChunks.slice(0, 5); // Limit to first 5 chunks
+        } else {
+          // Otherwise, do keyword matching
+          relevantChunks = allDocumentChunks
+            .filter(chunk => {
+              const content = chunk.content.toLowerCase();
+              const message = latestUserMessage.toLowerCase();
+              // Look for common words (3+ characters) from the user message in the chunks
+              const keywords = message.split(/\s+/).filter(word => word.length > 2);
+              return keywords.some(keyword => content.includes(keyword));
+            })
+            .slice(0, 3); // Top 3 most relevant chunks
+        }
+
+        // If no chunks matched but we have documents, include at least the first chunk
+        if (relevantChunks.length === 0 && allDocumentChunks.length > 0) {
+          relevantChunks = allDocumentChunks.slice(0, 3);
+        }
 
         if (relevantChunks.length > 0) {
           const documentNames = documents.map(doc => doc.name).join(", ");
@@ -154,13 +229,20 @@ export async function POST(req: NextRequest) {
               `[Document Excerpt ${index + 1}]:\n${chunk.content}`
             ).join('\n\n')
           }\n\nPlease use this document content to answer the user's questions when relevant.`;
+          logger.info(`Including ${relevantChunks.length} relevant chunks in AI context`);
+        } else if (allDocumentChunks.length === 0 && documents.length > 0) {
+          // Document exists but no chunks were found
+          documentContext = `\n\nNote: A document was uploaded but its content could not be extracted or is still being processed. The document name is: ${documents.map(d => d.name).join(", ")}`;
+          logger.warn(`Document exists but no chunks found for documents: ${documents.map(d => d.id).join(", ")}`);
+        } else {
+          logger.info(`No relevant chunks found for message: "${latestUserMessage}"`);
         }
       }
     } catch (docError) {
       logger.error("Error fetching document context", { 
         error: docError instanceof Error ? docError.message : String(docError),
-        conversationId: conversationIdToUse,
-        userId 
+        conversationId: conversationId,
+        documentId
       });
       // Continue without document context if there's an error
     }
@@ -190,25 +272,37 @@ export async function POST(req: NextRequest) {
     );
 
     // Save the assistant's response
-    await db.insert(messagesTable).values({
-      conversationId: conversationIdToUse,
-      role: "assistant",
-      content: aiResponseContent
-    });
+    const saveAssistantQuery = `
+      INSERT INTO messages (conversation_id, role, content)
+      VALUES (:conversationId, :role, :content)
+    `;
+    const saveAssistantParams = [
+      { name: 'conversationId', value: { longValue: conversationId } },
+      { name: 'role', value: { stringValue: "assistant" } },
+      { name: 'content', value: { stringValue: aiResponseContent } }
+    ];
+    await executeSQL(saveAssistantQuery, saveAssistantParams);
 
     // Return data that will be wrapped in the standard response format
     return {
       text: aiResponseContent,
-      conversationId: conversationIdToUse
+      conversationId: conversationId
     };
   });
 }
 
 export async function GET(req: NextRequest) {
-  const { userId } = getAuth(req)
-  if (!userId) {
+  const session = await getServerSession()
+  if (!session) {
     return unauthorized('User not authenticated')
   }
+  
+  const currentUser = await getCurrentUserAction()
+  if (!currentUser.isSuccess) {
+    return unauthorized('User not found')
+  }
+  
+  const userId = currentUser.data.user.id
 
   const { searchParams } = new URL(req.url)
   const conversationId = searchParams.get('conversationId')
@@ -217,20 +311,31 @@ export async function GET(req: NextRequest) {
   }
 
   // Check that the conversation belongs to the user
-  const [conversation] = await db
-    .select()
-    .from(conversationsTable)
-    .where(eq(conversationsTable.id, conversationId))
-  if (!conversation || conversation.clerkId !== userId) {
+  const checkQuery = `
+    SELECT id, user_id
+    FROM conversations
+    WHERE id = :conversationId
+  `;
+  const checkParams = [
+    { name: 'conversationId', value: { longValue: parseInt(conversationId) } }
+  ];
+  const conversationResult = await executeSQL(checkQuery, checkParams);
+  
+  if (!conversationResult.length || conversationResult[0].user_id !== userId) {
     return NextResponse.json({ error: 'Conversation not found or access denied' }, { status: 403 })
   }
 
   // Fetch all messages for the conversation, ordered by creation time
-  const messages = await db
-    .select({ id: messagesTable.id, role: messagesTable.role, content: messagesTable.content })
-    .from(messagesTable)
-    .where(eq(messagesTable.conversationId, conversationId))
-    .orderBy(messagesTable.createdAt)
+  const messagesQuery = `
+    SELECT id, role, content
+    FROM messages
+    WHERE conversation_id = :conversationId
+    ORDER BY created_at ASC
+  `;
+  const messagesParams = [
+    { name: 'conversationId', value: { longValue: parseInt(conversationId) } }
+  ];
+  const messages = await executeSQL(messagesQuery, messagesParams);
 
   return NextResponse.json({ messages })
 } 

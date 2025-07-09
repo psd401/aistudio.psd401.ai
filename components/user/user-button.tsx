@@ -1,18 +1,61 @@
 'use client';
 
-import { UserButton as ClerkUserButton, useAuth } from '@clerk/nextjs';
-import { useUser } from '@clerk/nextjs';
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useSession, signIn } from 'next-auth/react';
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
 
 export function UserButton() {
-  const { isLoaded, userId } = useAuth();
+  const router = useRouter();
+  const { data: session, status } = useSession();
+  const loading = status === 'loading';
 
-  if (!isLoaded || !userId) {
-    // You can return a loading state or null
-    return null;
+  if (loading) {
+    return (
+      <Button size="sm" variant="outline" disabled>
+        ...
+      </Button>
+    );
   }
 
-  // Render the Clerk UserButton when the user is loaded
-  return <ClerkUserButton afterSignOutUrl="/" />;
+  if (!session) {
+    return (
+      <Button size="sm" variant="outline" onClick={() => signIn('cognito')}>
+        Sign in
+      </Button>
+    );
+  }
+
+  // Extract first name from user info
+  const getDisplayName = () => {
+    if (session.user?.name) {
+      // If we have a full name, extract the first name
+      return session.user.name.split(' ')[0];
+    }
+    if (session.user?.email) {
+      // If only email, use the part before @
+      return session.user.email.split('@')[0];
+    }
+    return "User";
+  };
+  
+  const displayName = getDisplayName();
+
+  return (
+    <div className="flex items-center gap-2">
+      <Avatar>
+        <AvatarFallback>
+          {displayName.charAt(0).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      <span className="text-sm font-medium">{displayName}</span>
+      <Button 
+        size="sm" 
+        variant="outline"
+        onClick={() => router.push('/signout')}
+      >
+        Sign out
+      </Button>
+    </div>
+  );
 } 

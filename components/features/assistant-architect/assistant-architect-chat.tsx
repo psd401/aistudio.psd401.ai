@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useRef, useEffect, useCallback, memo } from "react"
+import { useState, useRef, useEffect, memo } from "react"
+import { useChat } from 'ai/react'
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/components/ui/use-toast"
@@ -23,13 +24,63 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
   onConversationCreated,
   isPreview = false 
 }: AssistantArchitectChatProps) {
-  const [messages, setMessages] = useState<Array<{ id: string; content: string; role: "user" | "assistant" }>>([])
-  const [input, setInput] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [actualModelId, setActualModelId] = useState<string | null>(null) // Store the text model_id
+  const [actualModelId, setActualModelId] = useState<string | null>(null)
   const [currentConversationId, setCurrentConversationId] = useState<number | null>(conversationId)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
+
+  // Use Vercel AI SDK's useChat hook
+  const { 
+    messages, 
+    input, 
+    handleInputChange, 
+    handleSubmit: handleChatSubmit, 
+    isLoading, 
+    stop,
+    setMessages 
+  } = useChat({
+    api: '/api/chat/stream-final',
+    body: {
+      modelId: actualModelId,
+      conversationId: currentConversationId,
+      source: "assistant_execution",
+      executionId: isPreview ? null : execution.id,
+      context: currentConversationId === null ? {
+        promptResults: execution.promptResults.map(result => ({
+          input: result.inputData,
+          output: result.outputData
+        }))
+      } : null
+    },
+    onResponse: (response) => {
+      // Get conversation ID from header if this is a new conversation
+      const conversationIdHeader = response.headers.get('X-Conversation-Id')
+      if (!currentConversationId && conversationIdHeader) {
+        const newConvId = parseInt(conversationIdHeader)
+        if (!isNaN(newConvId)) {
+          setCurrentConversationId(newConvId)
+          onConversationCreated?.(newConvId)
+        }
+      }
+    },
+    onError: (error) => {
+      console.error("Error sending message", error)
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send message",
+        variant: "destructive"
+      })
+    },
+    onFinish: () => {
+      // Scroll to bottom when message is complete
+      if (scrollRef.current) {
+        scrollRef.current.scrollTo({
+          top: scrollRef.current.scrollHeight,
+          behavior: "smooth"
+        })
+      }
+    }
+  })
 
   // Update internal conversation ID when prop changes
   useEffect(() => {
@@ -75,7 +126,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
           const data = await response.json();
           if (Array.isArray(data.messages)) {
             setMessages(data.messages.map((msg: any) => ({
-              id: msg.id,
+              id: msg.id.toString(),
               role: msg.role,
               content: msg.content
             })));
@@ -88,92 +139,16 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
       }
     };
     fetchConversationHistory();
-  }, [currentConversationId]);
+  }, [currentConversationId, setMessages]);
 
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value)
-  }, [])
-
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    e.stopPropagation()
     if (!input.trim() || isLoading || !actualModelId) return
+    handleChatSubmit(e)
+  }
 
-    const currentInput = input
-    setInput("")
-    setIsLoading(true)
-
-    // Create user message
-    const userMessage = {
-      id: crypto.randomUUID(),
-      role: "user" as const,
-      content: currentInput
-    }
-    // Optimistically update UI
-    const newMessages = [...messages, userMessage]
-    setMessages(newMessages)
-
-    try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [userMessage],
-          conversationId: currentConversationId,
-          modelId: actualModelId,
-          source: "assistant_execution",
-          executionId: isPreview ? null : execution.id,
-          context: currentConversationId === null ? {
-            promptResults: execution.promptResults.map(result => ({
-              input: result.inputData,
-              output: result.outputData
-            }))
-          } : null
-        })
-      })
-
-      if (!response.ok) {
-        throw new Error(response.statusText || "Failed to get response")
-      }
-
-      const data = await response.json()
-      
-      // If this was the first message and we got a new conversation ID
-      if (!currentConversationId && data.data?.conversationId) {
-        setCurrentConversationId(data.data.conversationId)
-        onConversationCreated?.(data.data.conversationId)
-      }
-
-      const assistantMessage = {
-        id: crypto.randomUUID(),
-        role: "assistant" as const,
-        content: data.data?.text || data.text || "" // Handle both wrapped and unwrapped responses
-      }
-      setMessages(prev => [...prev, assistantMessage])
-    } catch (error) {
-      console.error("Error sending message", error)
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to send message",
-        variant: "destructive"
-      })
-      setMessages(messages)
-      setInput(currentInput)
-    } finally {
-      setIsLoading(false)
-      if (scrollRef.current) {
-        scrollRef.current.scrollTo({
-          top: scrollRef.current.scrollHeight,
-          behavior: "smooth"
-        })
-      }
-    }
-  }, [actualModelId, currentConversationId, input, isLoading, messages, execution, isPreview, toast, onConversationCreated])
-
-  const handleStopGeneration = useCallback(() => {
-    setIsLoading(false);
-  }, []);
-
-  const MessageList = memo(function MessageList({ messages, isLoading }: { messages: Array<{ id: string; content: string; role: "user" | "assistant" }>, isLoading: boolean }) {
+  const MessageList = memo(function MessageList({ messages, isLoading }: { messages: Array<{ id: string; content: string; role: "user" | "assistant" | "system" | "function" | "data" | "tool" }>, isLoading: boolean }) {
     return (
       <div className="space-y-4">
         {messages.map((message) => (
@@ -227,7 +202,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
             <Button
               variant="outline"
               size="icon"
-              onClick={handleStopGeneration}
+              onClick={() => stop()}
               aria-label="Stop generation"
             >
               <IconPlayerStop className="h-4 w-4" />

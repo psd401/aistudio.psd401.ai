@@ -1,38 +1,20 @@
 import { NextResponse } from "next/server"
-import { getAuth } from "@clerk/nextjs/server"
-import { db } from "@/db/db"
-import { navigationItemsTable } from "@/db/schema"
-import { eq } from "drizzle-orm"
-import { hasRole } from "@/utils/roles"
+import { requireAdmin } from "@/lib/auth/admin-check"
+import { deleteNavigationItem } from "@/lib/db/data-api-adapter"
 
 export async function DELETE(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    const { userId } = getAuth(request)
-    if (!userId) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Unauthorized" },
-        { status: 401 }
-      )
-    }
-
-    // Check if user is admin
-    const isAdmin = await hasRole(userId, 'administrator')
-    if (!isAdmin) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Forbidden - Admin access required" },
-        { status: 403 }
-      )
-    }
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
     const { id } = params
 
     // Delete the navigation item
-    await db
-      .delete(navigationItemsTable)
-      .where(eq(navigationItemsTable.id, id))
+    await deleteNavigationItem(parseInt(id, 10))
 
     return NextResponse.json({
       isSuccess: true,

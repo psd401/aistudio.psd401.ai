@@ -1,9 +1,6 @@
-import { NextResponse } from "next/server"
-import { getAuth } from "@clerk/nextjs/server"
-import { db } from "@/db/db"
-import { navigationItemsTable, toolsTable } from "@/db/schema"
-import { eq, isNull, inArray, asc } from "drizzle-orm"
-import { getUserTools, hasRole } from "@/utils/roles"
+import { NextResponse, NextRequest } from "next/server"
+import { getServerSession } from "@/lib/auth/server-session"
+import { getNavigationItems as getNavigationItemsViaDataAPI } from "@/lib/db/data-api-adapter"
 
 /**
  * Navigation API
@@ -32,82 +29,132 @@ import { getUserTools, hasRole } from "@/utils/roles"
  *   ]
  * }
  */
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const { userId } = getAuth(request)
-    if (!userId) {
+    // Check if user is authenticated using NextAuth
+    const session = await getServerSession()
+    
+    if (!session) {
       return NextResponse.json(
         { isSuccess: false, message: "Unauthorized" },
         { status: 401 }
       )
     }
-
-    // Get all navigation items
-    const navItems = await db
-      .select()
-      .from(navigationItemsTable)
-      .where(eq(navigationItemsTable.isActive, true))
-      .orderBy(asc(navigationItemsTable.position))
-
-    // Get user's tools by identifier
-    const userTools = await getUserTools(userId)
     
-    // Get tool IDs that correspond to the tool identifiers
-    const toolsWithIds = await db
-      .select({
-        id: toolsTable.id,
-        identifier: toolsTable.identifier
-      })
-      .from(toolsTable)
-      .where(eq(toolsTable.isActive, true))
+    // Check if Data API is configured
+    const missingEnvVars = [];
+    if (!process.env.RDS_RESOURCE_ARN) missingEnvVars.push('RDS_RESOURCE_ARN');
+    if (!process.env.RDS_SECRET_ARN) missingEnvVars.push('RDS_SECRET_ARN');
     
-    // Create a mapping of tool IDs to identifiers
-    const toolIdentifiersById = {} as Record<string, string>
-    toolsWithIds.forEach(tool => {
-      toolIdentifiersById[tool.id] = tool.identifier
-    })
+    // AWS Amplify provides AWS_REGION and AWS_DEFAULT_REGION at runtime
+    // We should check NEXT_PUBLIC_AWS_REGION as a fallback
+    const region = process.env.AWS_REGION || 
+                   process.env.AWS_DEFAULT_REGION || 
+                   process.env.NEXT_PUBLIC_AWS_REGION;
     
-    // Check if user is admin
-    const isAdmin = await hasRole(userId, 'administrator')
+    if (!region) missingEnvVars.push('NEXT_PUBLIC_AWS_REGION');
     
-    // Process each nav item for display 
-    const formattedNavItems = navItems.map(item => {
-      // Skip admin items for non-admins
-      if (item.id === 'admin' && !isAdmin) {
-        return null
-      }
+    if (missingEnvVars.length > 0) {
+      console.error("Missing required environment variables:", {
+        missing: missingEnvVars,
+        RDS_RESOURCE_ARN: process.env.RDS_RESOURCE_ARN ? 'set' : 'missing',
+        RDS_SECRET_ARN: process.env.RDS_SECRET_ARN ? 'set' : 'missing',
+        AWS_REGION: process.env.AWS_REGION || 'not set (provided by Amplify)',
+        AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION || 'not set (provided by Amplify)',
+        NEXT_PUBLIC_AWS_REGION: process.env.NEXT_PUBLIC_AWS_REGION || 'not set',
+        availableEnvVars: Object.keys(process.env).filter(k => 
+          k.includes('AWS') || k.includes('RDS')).join(', ')
+      });
       
-      // If item requires a tool, check access
-      if (item.toolId) {
-        const toolIdentifier = toolIdentifiersById[item.toolId]
-        // Skip if user doesn't have access to this tool
-        if (!toolIdentifier || !userTools.includes(toolIdentifier)) {
-          return null
-        }
-      }
-      
-      // Include the item with all necessary properties for the UI
-      return {
+      return NextResponse.json(
+        {
+          isSuccess: false,
+          message: `Database configuration incomplete. Missing: ${missingEnvVars.join(', ')}`,
+          debug: process.env.NODE_ENV !== 'production' ? {
+            missing: missingEnvVars,
+            availableEnvVars: Object.keys(process.env).filter(k => 
+              k.includes('AWS') || k.includes('RDS'))
+          } : undefined
+        },
+        { status: 500 }
+      )
+    }
+    
+    try {
+      const navItems = await getNavigationItemsViaDataAPI();
+
+      // Format the navigation items
+      const formattedNavItems = navItems.map(item => ({
         id: item.id,
         label: item.label,
         icon: item.icon,
         link: item.link,
-        parent_id: item.parentId,
-        parent_label: item.parentLabel,
-        tool_id: item.toolId,
-        position: item.position
+        parent_id: item.parent_id,
+        parent_label: null, // This column doesn't exist in the table
+        tool_id: item.tool_id,
+        position: item.position,
+        type: item.type || 'link',
+        description: item.description || null,
+        color: null // This column doesn't exist in the current table
+      }))
+
+      return NextResponse.json({
+        isSuccess: true,
+        data: formattedNavItems
+      })
+      
+    } catch (error) {
+      console.error("Data API error:", error);
+      
+      // Enhanced error logging for debugging
+      const errorDetails: any = {
+        timestamp: new Date().toISOString(),
+        endpoint: '/api/navigation',
+        error: error instanceof Error ? {
+          name: error.name,
+          message: error.message,
+          stack: error.stack?.split('\n').slice(0, 5).join('\n')
+        } : error
+      };
+      
+      // Check if it's an AWS SDK error
+      if (error instanceof Error && 'name' in error) {
+        if (error.name === 'CredentialsProviderError' || 
+            error.message?.includes('Could not load credentials')) {
+          errorDetails.credentialIssue = true;
+          errorDetails.hint = 'AWS credentials not properly configured';
+        } else if (error.name === 'AccessDeniedException') {
+          errorDetails.permissionIssue = true;
+          errorDetails.hint = 'IAM permissions insufficient for RDS Data API';
+        }
       }
-    }).filter(Boolean)
+      
+      console.error("Enhanced error details:", errorDetails);
+      
+      return NextResponse.json(
+        {
+          isSuccess: false,
+          message: "Failed to fetch navigation items",
+          error: error instanceof Error ? error.message : "Unknown error",
+          debug: process.env.NODE_ENV !== 'production' ? errorDetails : undefined
+        },
+        { status: 500 }
+      )
+    }
     
-    return NextResponse.json({
-      isSuccess: true,
-      data: formattedNavItems
-    })
   } catch (error) {
-    console.error("Error fetching navigation:", error)
+    console.error("Error in navigation API:", error)
+    // Log more details about the error
+    if (error instanceof Error) {
+      console.error("Outer error details:", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack?.split('\n').slice(0, 5).join('\n')
+      });
+    }
     return NextResponse.json(
-      { 
-        isSuccess: false, 
+      {
+        isSuccess: false,
         message: error instanceof Error ? error.message : "Failed to fetch navigation"
       },
       { status: 500 }

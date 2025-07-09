@@ -1,17 +1,10 @@
 /** @type {import('next').NextConfig} */
 
 const nextConfig = {
+  output: 'standalone', // Required for AWS Amplify hosting
   images: {
     remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'img.clerk.com',
-      },
-      {
-        protocol: 'https',
-        hostname: 'images.clerk.dev',
-      },
-      // Add specific trusted domains instead of wildcard
+      // Add specific trusted domains for user avatars
       {
         protocol: 'https',
         hostname: 'avatars.githubusercontent.com',
@@ -19,18 +12,14 @@ const nextConfig = {
       {
         protocol: 'https',
         hostname: 'lh3.googleusercontent.com',
-      },
-      // Supabase storage if used for images
-      {
-        protocol: 'https',
-        hostname: '*.supabase.co',
-        pathname: '/storage/v1/object/public/**',
       }
     ]
   },
   experimental: {
     serverComponentsExternalPackages: ['mammoth', 'pdf-parse'], // Include pdf-parse for externalization
   },
+  // Don't embed environment variables at build time for Amplify WEB_COMPUTE
+  // They will be available at runtime from the Lambda environment
   // webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
   //   // Add rule for wasm files
   //   config.resolve.extensions.push('.wasm');

@@ -1,17 +1,29 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/db/db';
-import { aiModelsTable } from '@/db/schema';
-import { eq, asc } from 'drizzle-orm';
-import { getAuth } from '@clerk/nextjs/server';
-import { hasRole } from '~/utils/roles';
-import type { InsertAiModel } from '@/types';
+import { getAIModels, createAIModel, updateAIModel, deleteAIModel } from '@/lib/db/data-api-adapter';
+import { requireAdmin } from '@/lib/auth/admin-check';
 
 export async function GET() {
   try {
-    const models = await db
-      .select()
-      .from(aiModelsTable)
-      .orderBy(asc(aiModelsTable.name));
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
+    
+    const modelsData = await getAIModels();
+    
+    // Transform snake_case to camelCase for consistency
+    const models = modelsData.map(model => ({
+      id: model.id,
+      name: model.name,
+      provider: model.provider,
+      modelId: model.model_id,
+      description: model.description,
+      capabilities: model.capabilities,
+      maxTokens: model.max_tokens,
+      active: model.active,
+      chatEnabled: model.chat_enabled,
+      createdAt: model.created_at,
+      updatedAt: model.updated_at
+    }));
 
     return NextResponse.json({
       isSuccess: true,
@@ -29,28 +41,43 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const { userId } = getAuth(request);
-    if (!userId) {
-      return new NextResponse('Unauthorized', { status: 401 });
-    }
-
-    const isAdmin = await hasRole(userId, 'administrator');
-    if (!isAdmin) {
-      return new NextResponse('Forbidden', { status: 403 });
-    }
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
     const body = await request.json();
-    const modelData: InsertAiModel = {
-      ...body,
-      capabilities: body.capabilities ? JSON.stringify(body.capabilities) : null,
+    const modelData = {
+      name: body.name,
+      modelId: body.modelId,
+      provider: body.provider,
+      description: body.description,
+      capabilities: body.capabilities,
+      maxTokens: body.maxTokens ? parseInt(body.maxTokens) : null,
+      isActive: body.active ?? true,
+      chatEnabled: body.chatEnabled ?? false
     };
 
-    const [model] = await db.insert(aiModelsTable).values(modelData).returning();
+    const model = await createAIModel(modelData);
+    
+    // Transform the response to camelCase
+    const transformedModel = {
+      id: model.id,
+      name: model.name,
+      provider: model.provider,
+      modelId: model.model_id,
+      description: model.description,
+      capabilities: model.capabilities,
+      maxTokens: model.max_tokens,
+      active: model.active,
+      chatEnabled: model.chat_enabled,
+      createdAt: model.created_at,
+      updatedAt: model.updated_at
+    };
 
     return NextResponse.json({
       isSuccess: true,
       message: 'Model created successfully',
-      data: model
+      data: transformedModel
     });
   } catch (error) {
     console.error('Error creating model:', error);
@@ -63,33 +90,39 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const { userId } = getAuth(request);
-    if (!userId) {
-      return new NextResponse('Unauthorized', { status: 401 });
-    }
-
-    const isAdmin = await hasRole(userId, 'administrator');
-    if (!isAdmin) {
-      return new NextResponse('Forbidden', { status: 403 });
-    }
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
     const body = await request.json();
     const { id, ...updates } = body;
-
-    if (updates.capabilities) {
-      updates.capabilities = JSON.stringify(updates.capabilities);
+    
+    // Convert maxTokens to number if present
+    if (updates.maxTokens !== undefined) {
+      updates.maxTokens = updates.maxTokens ? parseInt(updates.maxTokens) : null;
     }
 
-    const [model] = await db
-      .update(aiModelsTable)
-      .set(updates)
-      .where(eq(aiModelsTable.id, id))
-      .returning();
+    const model = await updateAIModel(id, updates);
+    
+    // Transform the response to camelCase
+    const transformedModel = {
+      id: model.id,
+      name: model.name,
+      provider: model.provider,
+      modelId: model.model_id,
+      description: model.description,
+      capabilities: model.capabilities,
+      maxTokens: model.max_tokens,
+      active: model.active,
+      chatEnabled: model.chat_enabled,
+      createdAt: model.created_at,
+      updatedAt: model.updated_at
+    };
 
     return NextResponse.json({
       isSuccess: true,
       message: 'Model updated successfully',
-      data: model
+      data: transformedModel
     });
   } catch (error) {
     console.error('Error updating model:', error);
@@ -102,15 +135,9 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const { userId } = getAuth(request);
-    if (!userId) {
-      return new NextResponse('Unauthorized', { status: 401 });
-    }
-
-    const isAdmin = await hasRole(userId, 'administrator');
-    if (!isAdmin) {
-      return new NextResponse('Forbidden', { status: 403 });
-    }
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -122,10 +149,7 @@ export async function DELETE(request: Request) {
       );
     }
 
-    const [model] = await db
-      .delete(aiModelsTable)
-      .where(eq(aiModelsTable.id, parseInt(id)))
-      .returning();
+    const model = await deleteAIModel(parseInt(id));
 
     return NextResponse.json({
       isSuccess: true,

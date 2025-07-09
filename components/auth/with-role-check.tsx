@@ -1,12 +1,12 @@
 "use client"
 
-import { useUser } from "@clerk/nextjs"
-import { useEffect, useState } from "react"
-import { hasRole } from "@/utils/roles"
-import { redirect } from "next/navigation"
+import { ReactNode } from "react"
+import { useUser } from "@/components/auth/user-provider"
+import { useRouter } from "next/navigation"
+import { useEffect } from "react"
 
 interface WithRoleCheckProps {
-  children: React.ReactNode
+  children: ReactNode
   role: string
   redirectTo?: string
 }
@@ -16,39 +16,34 @@ export function WithRoleCheck({
   role,
   redirectTo = "/"
 }: WithRoleCheckProps) {
-  const { user } = useUser()
-  const [hasAccess, setHasAccess] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
+  const { user, roles, loading } = useUser()
+  const router = useRouter()
 
   useEffect(() => {
-    async function checkAccess() {
+    if (!loading) {
       if (!user) {
-        setHasAccess(false)
-        setIsLoading(false)
-        return
-      }
-
-      try {
-        const access = await hasRole(user.id, role)
-        setHasAccess(access)
-      } catch (error) {
-        console.error("Error checking role access", error)
-        setHasAccess(false)
-      } finally {
-        setIsLoading(false)
+        router.push(redirectTo)
+      } else {
+        const hasRole = roles.some(r => r.name === role)
+        if (!hasRole) {
+          router.push(redirectTo)
+        }
       }
     }
+  }, [loading, user, roles, role, redirectTo, router])
 
-    checkAccess()
-  }, [user, role])
-
-  if (isLoading) {
+  if (loading) {
     return <div>Loading...</div>
   }
 
-  if (!hasAccess) {
-    redirect(redirectTo)
+  if (!user) {
+    return null
   }
 
-  return children
+  const hasRole = roles.some(r => r.name === role)
+  if (!hasRole) {
+    return null
+  }
+
+  return <>{children}</>
 } 
