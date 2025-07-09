@@ -87,7 +87,8 @@
     "tailwindcss-animate": "^1.0.7",
     "uuid": "^11.1.0",
     "winston": "^3.17.0",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "escape-html": "^1.0.3"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.4.2",

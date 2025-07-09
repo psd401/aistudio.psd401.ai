@@ -8,6 +8,7 @@ import { getCurrentUserAction } from "@/actions/db/get-current-user-action";
 import { executeSQL } from "@/lib/db/data-api-adapter";
 import { Settings } from "@/lib/settings-manager";
 import logger from "@/lib/logger";
+import escapeHtml from "escape-html";
 
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents";
 
@@ -31,7 +32,7 @@ export async function POST(req: Request) {
   ]);
   
   if (!modelResult.length) {
-    return new Response(`Model not found: ${textModelId}`, { status: 404 });
+    return new Response(`Model not found: ${escapeHtml(textModelId)}`, { status: 404 });
   }
   
   const aiModel = modelResult[0];
