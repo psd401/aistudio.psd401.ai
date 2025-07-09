@@ -227,7 +227,7 @@ describe('S3 Client', () => {
       const url = getDocumentUrl(key);
 
       expect(url).toContain(key);
-      expect(url).toMatch(/^https:\/\/.+\.amazonaws\.com\/.+/);
+      expect(url).toMatch(/^https:\/\/[a-zA-Z0-9-]+\.amazonaws\.com\/.+/);
     });
   });
 
