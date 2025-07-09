@@ -80,7 +80,9 @@ export class DatabaseStack extends cdk.Stack {
         // We'll keep it in private subnets and use Data API instead
       }),
       readers: props.environment === 'prod'
-        ? [rds.ClusterInstance.serverlessV2('Reader', {})]
+        ? [rds.ClusterInstance.serverlessV2('Reader', {
+            scaleWithWriter: true,
+          })]
         : [],
       serverlessV2MinCapacity: props.environment === 'prod' ? 2 : 0.5,
       serverlessV2MaxCapacity: props.environment === 'prod' ? 8 : 2,
