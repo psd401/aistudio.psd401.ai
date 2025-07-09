@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { updateRole, deleteRole } from "@/lib/db/data-api-adapter"
-import { requireRole } from "@/lib/auth/role-helpers"
+import { requireAdmin } from "@/lib/auth/admin-check"
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ roleId: string }> }
 ) {
   try {
-    await requireRole("administrator")
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
     
     const { roleId } = await params
     const body = await request.json()
@@ -28,7 +30,9 @@ export async function DELETE(
   { params }: { params: Promise<{ roleId: string }> }
 ) {
   try {
-    await requireRole("administrator")
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
     
     const { roleId } = await params
     const role = await deleteRole(roleId)

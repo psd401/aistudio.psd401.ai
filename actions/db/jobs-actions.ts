@@ -145,7 +145,17 @@ export async function updateJobAction(
       return { isSuccess: false, message: "Invalid job ID" };
     }
 
+    // Define allowed columns to prevent SQL injection
+    const ALLOWED_COLUMNS: Record<string, boolean> = {
+      'status': true,
+      'output': true,
+      'error': true,
+      'type': true,
+      'input': true
+    };
+
     const setClauses = Object.entries(data)
+      .filter(([key, _]) => ALLOWED_COLUMNS[key]) // Only allow whitelisted columns
       .map(([key, value]) => {
         const dbKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
         if (dbKey === 'status') {
@@ -154,6 +164,10 @@ export async function updateJobAction(
         return `${dbKey} = :${key}`;
       })
       .join(', ');
+      
+    if (!setClauses) {
+      return { isSuccess: false, message: "No valid fields to update" };
+    }
 
     const parameters = Object.entries(data).map(([key, value]) => ({
       name: key,

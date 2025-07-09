@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
+import { requireAdmin } from "@/lib/auth/admin-check"
 import { getServerSession } from "@/lib/auth/server-session"
-import { checkUserRoleByCognitoSub, executeSQL } from "@/lib/db/data-api-adapter"
+import { executeSQL } from "@/lib/db/data-api-adapter"
 import { validateImportFile, mapModelsForImport, type ExportFormat } from "@/lib/assistant-export-import"
 // UUID import removed - using auto-increment IDs
 import logger from "@/lib/logger"
@@ -8,21 +9,16 @@ import logger from "@/lib/logger"
 export async function POST(request: NextRequest) {
 
   try {
-    // Check authentication
-    const session = await getServerSession()
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
+
+    // Get session for user ID
+    const session = await getServerSession();
     if (!session || !session.sub) {
       return NextResponse.json(
-        { isSuccess: false, message: "Unauthorized" },
-        { status: 401 }
-      )
-    }
-
-    // Check if user is admin
-    const isAdmin = await checkUserRoleByCognitoSub(session.sub, 'administrator')
-    if (!isAdmin) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Forbidden - Admin access required" },
-        { status: 403 }
+        { isSuccess: false, message: "Session error" },
+        { status: 500 }
       )
     }
 

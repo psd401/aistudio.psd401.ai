@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "@/lib/auth/server-session"
-import { hasRole } from "@/lib/auth/role-helpers"
+import { requireAdmin } from "@/lib/auth/admin-check"
 import { 
   getSettingsAction, 
   upsertSettingAction, 
@@ -11,15 +10,9 @@ import { withErrorHandling, unauthorized, forbidden } from "@/lib/api-utils"
 // GET /api/admin/settings - Get all settings
 export async function GET(req: NextRequest) {
   return withErrorHandling(async () => {
-    const session = await getServerSession()
-    if (!session) {
-      return unauthorized("User not authenticated")
-    }
-
-    const isAdmin = await hasRole("administrator")
-    if (!isAdmin) {
-      return forbidden("Only administrators can view settings")
-    }
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
     const result = await getSettingsAction()
     return NextResponse.json(result)
@@ -29,15 +22,9 @@ export async function GET(req: NextRequest) {
 // POST /api/admin/settings - Create or update a setting
 export async function POST(req: NextRequest) {
   return withErrorHandling(async () => {
-    const session = await getServerSession()
-    if (!session) {
-      return unauthorized("User not authenticated")
-    }
-
-    const isAdmin = await hasRole("administrator")
-    if (!isAdmin) {
-      return forbidden("Only administrators can manage settings")
-    }
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
     const body = await req.json()
     const result = await upsertSettingAction(body)
@@ -48,15 +35,9 @@ export async function POST(req: NextRequest) {
 // DELETE /api/admin/settings?key=SETTING_KEY - Delete a setting
 export async function DELETE(req: NextRequest) {
   return withErrorHandling(async () => {
-    const session = await getServerSession()
-    if (!session) {
-      return unauthorized("User not authenticated")
-    }
-
-    const isAdmin = await hasRole("administrator")
-    if (!isAdmin) {
-      return forbidden("Only administrators can delete settings")
-    }
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
     const key = req.nextUrl.searchParams.get("key")
     if (!key) {

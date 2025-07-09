@@ -1,21 +1,12 @@
 import { NextResponse } from "next/server"
-import { getUsers, getUserRoles, createUser, updateUser, deleteUser, hasUserRole } from "@/lib/db/data-api-adapter"
-import { getServerSession } from "@/lib/auth/server-session"
+import { getUsers, getUserRoles, createUser, updateUser, deleteUser } from "@/lib/db/data-api-adapter"
+import { requireAdmin } from "@/lib/auth/admin-check"
 
 export async function GET(request: Request) {
   try {
-    // Check authorization
-    const session = await getServerSession()
-    
-    if (!session) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
-    // TODO: Implement proper admin check with Amplify
-    // For now, we'll skip the admin check to test the functionality
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
     
     // Get users from database via Data API
     const dbUsers = await getUsers();
@@ -60,17 +51,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    // Check authorization
-    const session = await getServerSession()
-    
-    if (!session) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
-    // TODO: Implement proper admin check
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
     
     const body = await request.json()
     const userData = {
@@ -98,17 +81,9 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    // Check authorization
-    const session = await getServerSession()
-    
-    if (!session) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
-    // TODO: Implement proper admin check
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
     const body = await request.json()
     const { id, ...updates } = body
@@ -131,17 +106,9 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    // Check authorization
-    const session = await getServerSession()
-    
-    if (!session) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
-    // TODO: Implement proper admin check
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")

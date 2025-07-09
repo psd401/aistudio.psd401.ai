@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
+import { requireAdmin } from "@/lib/auth/admin-check"
 import { getServerSession } from "@/lib/auth/server-session"
-import { checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter"
 import { 
   getAssistantArchitects, 
   createAssistantArchitect, 
@@ -12,21 +12,16 @@ import {
 
 export async function GET() {
   try {
-    // Check authentication using AWS Cognito
-    const session = await getServerSession()
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
+
+    // Get session for user ID
+    const session = await getServerSession();
     if (!session || !session.sub) {
       return NextResponse.json(
-        { isSuccess: false, message: "Unauthorized" },
-        { status: 401 }
-      )
-    }
-
-    // Check if user is admin
-    const isAdmin = await checkUserRoleByCognitoSub(session.sub, 'administrator')
-    if (!isAdmin) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Forbidden - Admin access required" },
-        { status: 403 }
+        { isSuccess: false, message: "Session error" },
+        { status: 500 }
       )
     }
 
@@ -49,21 +44,16 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    // Check authentication using AWS Cognito
-    const session = await getServerSession()
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
+
+    // Get session for user ID
+    const session = await getServerSession();
     if (!session || !session.sub) {
       return NextResponse.json(
-        { isSuccess: false, message: "Unauthorized" },
-        { status: 401 }
-      )
-    }
-
-    // Check if user is admin
-    const isAdmin = await checkUserRoleByCognitoSub(session.sub, 'administrator')
-    if (!isAdmin) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Forbidden - Admin access required" },
-        { status: 403 }
+        { isSuccess: false, message: "Session error" },
+        { status: 500 }
       )
     }
 
@@ -111,21 +101,16 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    // Check authentication using AWS Cognito
-    const session = await getServerSession()
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
+
+    // Get session for user ID
+    const session = await getServerSession();
     if (!session || !session.sub) {
       return NextResponse.json(
-        { isSuccess: false, message: "Unauthorized" },
-        { status: 401 }
-      )
-    }
-
-    // Check if user is admin
-    const isAdmin = await checkUserRoleByCognitoSub(session.sub, 'administrator')
-    if (!isAdmin) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Forbidden - Admin access required" },
-        { status: 403 }
+        { isSuccess: false, message: "Session error" },
+        { status: 500 }
       )
     }
 
@@ -150,21 +135,16 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    // Check authentication using AWS Cognito
-    const session = await getServerSession()
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
+
+    // Get session for user ID
+    const session = await getServerSession();
     if (!session || !session.sub) {
       return NextResponse.json(
-        { isSuccess: false, message: "Unauthorized" },
-        { status: 401 }
-      )
-    }
-
-    // Check if user is admin
-    const isAdmin = await checkUserRoleByCognitoSub(session.sub, 'administrator')
-    if (!isAdmin) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Forbidden - Admin access required" },
-        { status: 403 }
+        { isSuccess: false, message: "Session error" },
+        { status: 500 }
       )
     }
 
