@@ -80,12 +80,14 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
 
   // Initialize component state
   useEffect(() => {
+    const abortController = new AbortController()
+    
     setCurrentConversationId(initialConversationId)
     
     if (initialConversationId) {
       // Load existing conversation
       setMessages(initialMessages)
-      fetchDocuments(initialConversationId)
+      fetchDocuments(initialConversationId, abortController.signal)
     } else {
       // New chat - ensure everything is cleared
       setMessages([])
@@ -94,6 +96,10 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       setShowDocuments(false)
       setPendingDocument(null)
       setProcessingDocumentId(null)
+    }
+    
+    return () => {
+      abortController.abort()
     }
   }, []) // Empty deps since this runs once on mount
 
@@ -146,7 +152,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
 
   const forceDocumentRefresh = () => {
     if (currentConversationId) {
-      fetchDocuments(currentConversationId)
+      const abortController = new AbortController()
+      fetchDocuments(currentConversationId, abortController.signal)
     }
   }
 
@@ -176,7 +183,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
           throw new Error('Failed to link document to conversation')
         }
         
-        fetchDocuments()
+        fetchDocuments(currentConversationId)
       } catch (error) {
         // console.error("[handleDocumentUpload] Error linking document:", error)
         toast({
@@ -227,7 +234,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       }
     }
     
-    fetchDocuments(conversationId)
+    const abortController = new AbortController()
+    fetchDocuments(conversationId, abortController.signal)
   }
 
   const handleDocumentDelete = async (documentId: string) => {
@@ -275,9 +283,13 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   }
 
   useEffect(() => {
+    const abortController = new AbortController()
+    
     async function loadModels() {
       try {
-        const response = await fetch("/api/chat/models")
+        const response = await fetch("/api/chat/models", {
+          signal: abortController.signal
+        })
         
         if (!response.ok) {
           // console.error(`[loadModels] Error: ${response.status} ${response.statusText}`)
@@ -299,6 +311,10 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
           setSelectedModel(chatModels[0])
         }
       } catch (error) {
+        // Don't show toast if the request was aborted
+        if (error instanceof Error && error.name === 'AbortError') {
+          return
+        }
         // console.error('[loadModels] Error:', error)
         toast({
           title: "Error",
@@ -309,6 +325,10 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     }
     
     loadModels()
+    
+    return () => {
+      abortController.abort()
+    }
   }, [toast])
 
   useEffect(() => {
@@ -406,7 +426,10 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                 conversationId={currentConversationId}
                 documents={documents}
                 onDeleteDocument={handleDocumentDelete}
-                onRefresh={() => fetchDocuments()}
+                onRefresh={() => {
+                  const abortController = new AbortController()
+                  fetchDocuments(currentConversationId, abortController.signal)
+                }}
               />
             </div>
           </div>

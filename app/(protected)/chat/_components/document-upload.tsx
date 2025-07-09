@@ -131,9 +131,11 @@ export function DocumentUpload({
     formData.append('file', fileToUpload)
     
     
+    let progressInterval: NodeJS.Timeout | null = null
+    
     try {
       // Simulate upload progress
-      const progressInterval = setInterval(() => {
+      progressInterval = setInterval(() => {
         setUploadProgress(prev => {
           const newProgress = Math.min(prev + 10, 95)
           return newProgress
@@ -146,6 +148,7 @@ export function DocumentUpload({
       })
       
       clearInterval(progressInterval)
+      progressInterval = null
       
       if (!response.ok) {
         let errMsg = `Server error (${response.status})`
@@ -201,6 +204,9 @@ export function DocumentUpload({
       })
       hasAttemptedUpload.current = false;
     } finally {
+      if (progressInterval) {
+        clearInterval(progressInterval)
+      }
       setIsUploading(false)
       if (fileInputRef.current) {
         fileInputRef.current.value = ''

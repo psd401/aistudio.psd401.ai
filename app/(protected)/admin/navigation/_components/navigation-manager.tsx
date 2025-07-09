@@ -75,10 +75,14 @@ export function NavigationManager() {
 
   // Fetch initial navigation items
   useEffect(() => {
+    const abortController = new AbortController()
+    
     const fetchNavigation = async () => {
       try {
         setError(null)
-        const response = await fetch("/api/admin/navigation")
+        const response = await fetch("/api/admin/navigation", {
+          signal: abortController.signal
+        })
         const data = await response.json()
         if (data.isSuccess) {
           setItems(data.data)
@@ -86,6 +90,10 @@ export function NavigationManager() {
           setError(data.message || "Failed to fetch navigation items")
         }
       } catch (error) {
+        // Don't set error if the request was aborted
+        if (error instanceof Error && error.name === 'AbortError') {
+          return
+        }
         console.error("Failed to fetch navigation:", error)
         setError("Failed to fetch navigation items")
       } finally {
@@ -94,6 +102,10 @@ export function NavigationManager() {
     }
 
     fetchNavigation()
+    
+    return () => {
+      abortController.abort()
+    }
   }, [])
 
   const handleDragStart = (event: DragStartEvent) => {

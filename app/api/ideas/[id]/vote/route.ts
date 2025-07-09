@@ -40,7 +40,7 @@ export async function POST(request: Request, context: { params: { id: string } }
     const existingVoteSql = 'SELECT id FROM idea_votes WHERE idea_id = :ideaId AND user_id = :userId';
     const existingVoteParams = [
       { name: 'ideaId', value: { longValue: ideaId } },
-      { name: 'userId', value: { stringValue: userId.toString() } }
+      { name: 'userId', value: { longValue: userId } }
     ];
     const existingVotes = await executeSQL(existingVoteSql, existingVoteParams);
 

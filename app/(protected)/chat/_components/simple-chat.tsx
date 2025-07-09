@@ -65,27 +65,41 @@ export function SimpleChat({ conversationId, initialMessages = [] }: SimpleChatP
   });
 
   useEffect(() => {
+    const abortController = new AbortController();
+    
+    async function loadConversation() {
+      if (!conversationId) return;
+      
+      try {
+        const response = await fetch(`/api/conversations/${conversationId}/messages`, {
+          signal: abortController.signal
+        });
+        if (!response.ok) {
+          throw new Error('Failed to load conversation');
+        }
+        const messages = await response.json();
+        reload(messages);
+      } catch (error) {
+        // Don't show toast if the request was aborted
+        if (error instanceof Error && error.name === 'AbortError') {
+          return;
+        }
+        toast({
+          title: 'Error',
+          description: 'Failed to load conversation history',
+          variant: 'destructive',
+        });
+      }
+    }
+    
     if (conversationId) {
       loadConversation();
     }
-  }, [conversationId]);
-
-  async function loadConversation() {
-    try {
-      const response = await fetch(`/api/conversations/${conversationId}/messages`);
-      if (!response.ok) {
-        throw new Error('Failed to load conversation');
-      }
-      const messages = await response.json();
-      reload(messages);
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to load conversation history',
-        variant: 'destructive',
-      });
-    }
-  }
+    
+    return () => {
+      abortController.abort();
+    };
+  }, [conversationId, reload, toast]);
 
   const handleSubmit = useCallback(async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
