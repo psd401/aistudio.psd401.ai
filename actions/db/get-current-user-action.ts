@@ -11,6 +11,7 @@ import {
 import { getServerSession } from "@/lib/auth/server-session"
 import { ActionState } from "@/types"
 import { SelectUser } from "@/types/db-types"
+import logger from "@/lib/logger"
 
 interface CurrentUserWithRoles {
   user: SelectUser
@@ -106,7 +107,7 @@ export async function getCurrentUserAction(): Promise<
       data: { user, roles: roles.filter(Boolean) }
     }
   } catch (err) {
-    console.error("getCurrentUserAction error", err)
+    logger.error("getCurrentUserAction error", err)
     return { isSuccess: false, message: "DB error" }
   }
 } 

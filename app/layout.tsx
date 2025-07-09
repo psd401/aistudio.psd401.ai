@@ -5,17 +5,18 @@ import AuthSessionProvider from "@/components/utilities/session-provider"
 import { fontSans } from "@/lib/fonts"
 import { cn } from "@/lib/utils"
 import { validateEnv } from "@/lib/env-validation";
+import logger from "@/lib/logger";
 
 // Validate environment variables on app startup
 if (process.env.NODE_ENV === 'production') {
   const { isValid, missing, warnings } = validateEnv();
   if (!isValid) {
-    console.error('CRITICAL: Missing required environment variables:', missing);
+    logger.error('CRITICAL: Missing required environment variables:', missing);
     // In production, we log but don't throw to avoid breaking the app
     // The individual services will handle missing env vars appropriately
   }
   if (warnings.length > 0) {
-    console.warn('Environment validation warnings:', warnings);
+    logger.warn('Environment validation warnings:', warnings);
   }
 }
 

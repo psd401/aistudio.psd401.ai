@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { getUsers, getUserRoles, createUser, updateUser, deleteUser } from "@/lib/db/data-api-adapter"
 import { requireAdmin } from "@/lib/auth/admin-check"
+import logger from "@/lib/logger"
 
 export async function GET(request: Request) {
   try {
@@ -41,7 +42,7 @@ export async function GET(request: Request) {
       data: users
     });
   } catch (error) {
-    console.error("Error fetching users:", error);
+    logger.error("Error fetching users:", error);
     return NextResponse.json(
       { isSuccess: false, message: "Failed to fetch users" },
       { status: 500 }
@@ -71,7 +72,7 @@ export async function POST(request: Request) {
       data: user
     })
   } catch (error) {
-    console.error("Error creating user:", error)
+    logger.error("Error creating user:", error)
     return NextResponse.json(
       { isSuccess: false, message: "Failed to create user" },
       { status: 500 }
@@ -96,7 +97,7 @@ export async function PUT(request: Request) {
       data: user
     })
   } catch (error) {
-    console.error("Error updating user:", error)
+    logger.error("Error updating user:", error)
     return NextResponse.json(
       { isSuccess: false, message: "Failed to update user" },
       { status: 500 }
@@ -128,7 +129,7 @@ export async function DELETE(request: Request) {
       data: user
     })
   } catch (error) {
-    console.error("Error deleting user:", error)
+    logger.error("Error deleting user:", error)
     return NextResponse.json(
       { isSuccess: false, message: "Failed to delete user" },
       { status: 500 }

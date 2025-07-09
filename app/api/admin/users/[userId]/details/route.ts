@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/admin-check';
 import { executeSQL } from '@/lib/db/data-api-adapter';
+import logger from '@/lib/logger';
 
 export async function GET(
   request: NextRequest,
@@ -36,7 +37,7 @@ export async function GET(
       emailAddresses: [{ emailAddress: user.email }]
     });
   } catch (error) {
-    console.error('Error fetching user details:', error);
+    logger.error('Error fetching user details:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 } 

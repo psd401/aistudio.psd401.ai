@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createRole, executeSQL } from "@/lib/db/data-api-adapter"
 import { requireAdmin } from "@/lib/auth/admin-check"
+import logger from "@/lib/logger"
 
 export async function GET() {
   try {
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
     
     return NextResponse.json({ role })
   } catch (error: any) {
-    console.error("Error creating role:", error)
+    logger.error("Error creating role:", error)
     return NextResponse.json(
       { error: error.message || "Failed to create role" },
       { status: 500 }

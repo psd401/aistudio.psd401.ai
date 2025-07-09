@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { updateUserRole } from '@/lib/db/data-api-adapter';
 import { requireAdmin } from '@/lib/auth/admin-check';
+import { validateRequest, updateUserRoleSchema } from '@/lib/validations/api-schemas';
 
 export async function PUT(
   request: NextRequest,
@@ -15,15 +16,15 @@ export async function PUT(
     const authError = await requireAdmin();
     if (authError) return authError;
 
-    const body = await request.json();
-    const { role: newRole } = body;
-    
-    if (!newRole || typeof newRole !== 'string') {
+    // Validate request body
+    const { data: validatedData, error } = await validateRequest(request, updateUserRoleSchema);
+    if (error) {
       return NextResponse.json(
-        { isSuccess: false, message: 'Invalid role' },
+        { isSuccess: false, message: error },
         { status: 400 }
       );
     }
+    const { role: newRole } = validatedData!;
     
     // Update the user's role via Data API
     const userId = parseInt(userIdString, 10);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { requireAdmin } from "@/lib/auth/admin-check"
 import { getServerSession } from "@/lib/auth/server-session"
+import logger from "@/lib/logger"
 import { 
   getAssistantArchitects, 
   createAssistantArchitect, 
@@ -34,7 +35,7 @@ export async function GET() {
       data: assistants
     })
   } catch (error) {
-    console.error("Error fetching assistants:", error)
+    logger.error("Error fetching assistants:", error)
     return NextResponse.json(
       { isSuccess: false, message: "Failed to fetch assistants" },
       { status: 500 }
@@ -91,7 +92,7 @@ export async function POST(request: Request) {
       data: assistant
     })
   } catch (error) {
-    console.error('Error creating assistant:', error)
+    logger.error('Error creating assistant:', error)
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to create assistant' },
       { status: 500 }
@@ -125,7 +126,7 @@ export async function PUT(request: Request) {
       data: assistant
     })
   } catch (error) {
-    console.error('Error updating assistant:', error)
+    logger.error('Error updating assistant:', error)
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to update assistant' },
       { status: 500 }
@@ -173,7 +174,7 @@ export async function DELETE(request: Request) {
       message: 'Assistant deleted successfully'
     })
   } catch (error) {
-    console.error('Error deleting assistant:', error)
+    logger.error('Error deleting assistant:', error)
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to delete assistant' },
       { status: 500 }

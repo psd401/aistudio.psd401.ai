@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "@/lib/auth/server-session"
+import logger from "@/lib/logger"
 
 export async function GET(request: Request) {
   try {
@@ -17,7 +18,7 @@ export async function GET(request: Request) {
       email: session.email 
     })
   } catch (error) {
-    console.error("Error in auth/me endpoint:", error)
+    logger.error("Error in auth/me endpoint:", error)
     return NextResponse.json(
       { error: "Authentication error" },
       { status: 500 }

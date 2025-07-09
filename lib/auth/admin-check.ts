@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
 import { hasRole } from '@/utils/roles';
+import logger from '@/lib/logger';
 
 /**
  * Middleware to check if the current user has admin privileges
@@ -18,8 +19,8 @@ export async function requireAdmin(): Promise<NextResponse | null> {
       );
     }
 
-    // Check if user has Admin role
-    const isAdmin = await hasRole('Admin');
+    // Check if user has administrator role
+    const isAdmin = await hasRole('administrator');
     
     if (!isAdmin) {
       return NextResponse.json(
@@ -31,7 +32,7 @@ export async function requireAdmin(): Promise<NextResponse | null> {
     // User is authenticated and has admin role
     return null;
   } catch (error) {
-    console.error('Error checking admin authorization:', error);
+    logger.error('Error checking admin authorization:', error);
     return NextResponse.json(
       { isSuccess: false, message: 'Authorization check failed' },
       { status: 500 }

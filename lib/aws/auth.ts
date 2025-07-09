@@ -1,6 +1,7 @@
 import { CognitoJwtVerifier } from "aws-jwt-verify"
 import { NextRequest } from "next/server"
 import { cookies } from "next/headers"
+import logger from '@/lib/logger'
 
 // Initialize the verifier with your Cognito User Pool details
 const userPoolId = process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID!
@@ -29,7 +30,7 @@ export const getAuthenticatedUser = async (request: NextRequest) => {
       username: idTokenCookie.value
     }
   } catch (error) {
-    console.error("getAuthenticatedUser error:", error)
+    logger.error("getAuthenticatedUser error:", error)
     return null
   }
 }
@@ -40,7 +41,7 @@ export const verifyToken = async (token: string) => {
     const payload = await verifier.verify(token)
     return payload
   } catch (error) {
-    console.error("Token verification failed:", error)
+    logger.error("Token verification failed:", error)
     return null
   }
 } 

@@ -12,7 +12,7 @@ export async function GET(
     if (authError) return authError;
     
     const { roleId } = await params
-    const tools = await getRoleTools(roleId)
+    const tools = await getRoleTools(parseInt(roleId, 10))
     
     return NextResponse.json({ tools })
   } catch (error: any) {

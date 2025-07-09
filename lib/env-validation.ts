@@ -3,6 +3,8 @@
  * Ensures all required environment variables are set before the application starts
  */
 
+import logger from '@/lib/logger';
+
 interface EnvVar {
   name: string;
   required: boolean;
@@ -93,8 +95,8 @@ export function requireValidEnv(): void {
   
   // Log warnings in development
   if (process.env.NODE_ENV === 'development' && warnings.length > 0) {
-    console.warn('Environment validation warnings:');
-    warnings.forEach(warning => console.warn(`  - ${warning}`));
+    logger.warn('Environment validation warnings:');
+    warnings.forEach(warning => logger.warn(`  - ${warning}`));
   }
 }
 

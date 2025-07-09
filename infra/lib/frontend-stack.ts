@@ -5,6 +5,8 @@ import * as amplifyL1 from 'aws-cdk-lib/aws-amplify';
 import * as codebuild from 'aws-cdk-lib/aws-codebuild';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as cr from 'aws-cdk-lib/custom-resources';
+import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 
 export interface FrontendStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
@@ -175,6 +177,150 @@ export class FrontendStack extends cdk.Stack {
         branch, 
         prefix: props.environment 
       }] 
+    });
+
+    // Configure AWS WAF for Amplify
+    const webAcl = new wafv2.CfnWebACL(this, 'AmplifyWAF', {
+      scope: 'CLOUDFRONT',
+      defaultAction: { allow: {} },
+      description: `WAF for AIStudio ${props.environment} environment`,
+      rules: [
+        // Rate limiting rule
+        {
+          name: 'RateLimitRule',
+          priority: 1,
+          statement: {
+            rateBasedStatement: {
+              limit: 2000, // 2000 requests per 5 minutes per IP
+              aggregateKeyType: 'IP'
+            }
+          },
+          action: { 
+            block: {
+              customResponse: {
+                responseCode: 429,
+                customResponseBodyKey: 'RateLimitBody'
+              }
+            }
+          },
+          visibilityConfig: {
+            sampledRequestsEnabled: true,
+            cloudWatchMetricsEnabled: true,
+            metricName: 'RateLimitRule'
+          }
+        },
+        // AWS Managed Core Rule Set
+        {
+          name: 'AWSManagedRulesCommonRuleSet',
+          priority: 2,
+          overrideAction: { none: {} },
+          statement: {
+            managedRuleGroupStatement: {
+              vendorName: 'AWS',
+              name: 'AWSManagedRulesCommonRuleSet',
+              excludedRules: [
+                // Exclude rules that might block legitimate AI/document operations
+                { name: 'SizeRestrictions_BODY' }, // Allow larger payloads for documents
+                { name: 'GenericRFI_BODY' } // May trigger on AI prompts
+              ]
+            }
+          },
+          visibilityConfig: {
+            sampledRequestsEnabled: true,
+            cloudWatchMetricsEnabled: true,
+            metricName: 'CommonRuleSet'
+          }
+        },
+        // Known bad inputs
+        {
+          name: 'AWSManagedRulesKnownBadInputsRuleSet',
+          priority: 3,
+          overrideAction: { none: {} },
+          statement: {
+            managedRuleGroupStatement: {
+              vendorName: 'AWS',
+              name: 'AWSManagedRulesKnownBadInputsRuleSet'
+            }
+          },
+          visibilityConfig: {
+            sampledRequestsEnabled: true,
+            cloudWatchMetricsEnabled: true,
+            metricName: 'KnownBadInputs'
+          }
+        },
+        // SQL injection protection
+        {
+          name: 'AWSManagedRulesSQLiRuleSet',
+          priority: 4,
+          overrideAction: { none: {} },
+          statement: {
+            managedRuleGroupStatement: {
+              vendorName: 'AWS',
+              name: 'AWSManagedRulesSQLiRuleSet'
+            }
+          },
+          visibilityConfig: {
+            sampledRequestsEnabled: true,
+            cloudWatchMetricsEnabled: true,
+            metricName: 'SQLiRuleSet'
+          }
+        },
+        // Custom rule for large file uploads
+        {
+          name: 'AllowLargeUploads',
+          priority: 5,
+          statement: {
+            andStatement: {
+              statements: [
+                {
+                  byteMatchStatement: {
+                    searchString: '/api/documents/upload',
+                    fieldToMatch: { uriPath: {} },
+                    textTransformations: [{ priority: 0, type: 'NONE' }],
+                    positionalConstraint: 'CONTAINS'
+                  }
+                },
+                {
+                  sizeConstraintStatement: {
+                    fieldToMatch: { body: {} },
+                    comparisonOperator: 'LE',
+                    size: 26214400, // 25MB in bytes
+                    textTransformations: [{ priority: 0, type: 'NONE' }]
+                  }
+                }
+              ]
+            }
+          },
+          action: { allow: {} },
+          visibilityConfig: {
+            sampledRequestsEnabled: true,
+            cloudWatchMetricsEnabled: true,
+            metricName: 'AllowLargeUploads'
+          }
+        }
+      ],
+      visibilityConfig: {
+        sampledRequestsEnabled: true,
+        cloudWatchMetricsEnabled: true,
+        metricName: `AmplifyWAF-${props.environment}`
+      },
+      customResponseBodies: {
+        RateLimitBody: {
+          contentType: 'APPLICATION_JSON',
+          content: '{"error": "Too many requests. Please try again later."}'
+        }
+      }
+    });
+
+    // Note: WAF association with Amplify CloudFront distribution requires
+    // the distribution ID which is not directly available from L2 construct.
+    // This would typically be done via a custom resource or post-deployment step.
+    
+    // Output WAF ARN for manual association if needed
+    new cdk.CfnOutput(this, 'WAFArn', {
+      value: webAcl.attrArn,
+      description: 'WAF WebACL ARN for Amplify app',
+      exportName: `${props.environment}-WAFArn`
     });
 
     // Outputs

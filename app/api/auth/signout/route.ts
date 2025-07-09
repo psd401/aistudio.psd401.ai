@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth, signOut } from "@/auth";
+import logger from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
     // If no session, just redirect to home
     return NextResponse.redirect(new URL("/", request.url));
   } catch (error) {
-    console.error("[Sign Out Route] Error:", error);
+    logger.error("[Sign Out Route] Error:", error);
     
     // On error, redirect home
     return NextResponse.redirect(new URL("/", request.url));

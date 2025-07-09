@@ -3,6 +3,8 @@
  * Define allowed columns for each table that can be updated dynamically
  */
 
+import logger from '@/lib/logger';
+
 export const ALLOWED_UPDATE_COLUMNS = {
   users: [
     'email', 'first_name', 'last_name', 'avatar_url', 
@@ -72,7 +74,7 @@ export function validateColumns(tableName: keyof typeof ALLOWED_UPDATE_COLUMNS, 
   if (process.env.NODE_ENV === 'development') {
     const rejected = columns.filter(col => !allowedColumns.includes(col as any));
     if (rejected.length > 0) {
-      console.warn(`Rejected columns for ${tableName}:`, rejected);
+      logger.warn(`Rejected columns for ${tableName}:`, rejected);
     }
   }
   

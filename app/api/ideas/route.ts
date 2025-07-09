@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
+import logger from '@/lib/logger';
 
 export async function GET() {
   const session = await getServerSession();
@@ -60,7 +61,7 @@ export async function GET() {
     
     return NextResponse.json(ideasWithVotes);
   } catch (error) {
-    console.error('Error fetching ideas:', error);
+    logger.error('Error fetching ideas:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 }
@@ -116,7 +117,7 @@ export async function POST(request: Request) {
       createdAt: newIdea.created_at
     });
   } catch (error) {
-    console.error('Error creating idea:', error);
+    logger.error('Error creating idea:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 } 
