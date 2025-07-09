@@ -1,4 +1,5 @@
 import { RDSDataClient, ExecuteStatementCommand } from "@aws-sdk/client-rds-data";
+import logger from '@/lib/logger';
 
 // Initialize the RDS Data API client
 const client = new RDSDataClient({ 
@@ -38,7 +39,7 @@ export async function executeStatement(
     const response = await client.send(command);
     return response;
   } catch (error) {
-    console.error('Data API Error:', error);
+    logger.error('Data API Error:', error);
     throw error;
   }
 }

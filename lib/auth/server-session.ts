@@ -1,6 +1,7 @@
 "use server"
 
 import { auth } from "@/auth";
+import logger from "@/lib/logger";
 
 export interface CognitoSession {
   sub: string;
@@ -27,7 +28,7 @@ export async function getServerSession(): Promise<CognitoSession | null> {
       ...session.user
     };
   } catch (error) {
-    console.error("Session retrieval failed:", error);
+    logger.error("Session retrieval failed:", error);
     return null;
   }
 }

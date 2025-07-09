@@ -7,6 +7,7 @@ import {
 } from '@/lib/db/queries/documents';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
+import logger from '@/lib/logger';
 
 export async function GET(request: NextRequest) {
   // Check authentication
@@ -187,7 +188,7 @@ export async function DELETE(request: NextRequest) {
         await deleteDocument(document.url);
       } catch (storageError) {
         // Continue with database deletion even if storage deletion fails
-        console.error('Failed to delete from S3:', storageError);
+        logger.error('Failed to delete from S3:', storageError);
       }
     }
     

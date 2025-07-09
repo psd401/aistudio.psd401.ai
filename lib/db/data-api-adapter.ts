@@ -68,13 +68,7 @@ function getDataApiConfig() {
     throw new Error(errorMsg);
   }
   
-  // Log successful configuration
-  logger.debug('Data API configuration validated', {
-    hasResourceArn: true,
-    hasSecretArn: true,
-    region,
-    database: 'aistudio'
-  });
+  // Configuration validated successfully
   
   return {
     resourceArn: process.env.RDS_RESOURCE_ARN,
@@ -132,14 +126,7 @@ export async function executeSQL(sql: string, parameters: any[] = []) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const config = getDataApiConfig();
-      if (process.env.SQL_LOGGING !== 'false') {
-        logger.debug('Executing SQL', { 
-          hasResourceArn: !!config.resourceArn,
-          hasSecretArn: !!config.secretArn,
-          database: config.database,
-          attempt
-        });
-      }
+      // SQL execution logging removed for security
       
       const command = new ExecuteStatementCommand({
         ...config,
@@ -149,9 +136,7 @@ export async function executeSQL(sql: string, parameters: any[] = []) {
       });
 
       const response = await getRDSClient().send(command);
-      if (process.env.SQL_LOGGING !== 'false') {
-        logger.debug('SQL executed successfully');
-      }
+      // SQL success logging removed for security
       return formatDataApiResponse(response);
     } catch (error: any) {
       logger.error(`Data API Error (attempt ${attempt}/${maxRetries}):`, error);
@@ -925,7 +910,7 @@ export async function getRoleTools(roleId: number) {
   `;
   
   const parameters = [
-    { name: 'roleId', value: { stringValue: roleId } }
+    { name: 'roleId', value: { longValue: roleId } }
   ];
   
   const result = await executeSQL(sql, parameters);
@@ -952,8 +937,8 @@ export async function assignToolToRole(roleId: string, toolId: string) {
   `;
   
   const checkParams = [
-    { name: 'roleId', value: { stringValue: roleId } },
-    { name: 'toolId', value: { stringValue: toolId } }
+    { name: 'roleId', value: { longValue: parseInt(roleId, 10) } },
+    { name: 'toolId', value: { longValue: parseInt(toolId, 10) } }
   ];
   
   const existing = await executeSQL(checkSql, checkParams);
@@ -970,8 +955,8 @@ export async function assignToolToRole(roleId: string, toolId: string) {
   `;
   
   const insertParams = [
-    { name: 'roleId', value: { stringValue: roleId } },
-    { name: 'toolId', value: { stringValue: toolId } }
+    { name: 'roleId', value: { longValue: parseInt(roleId, 10) } },
+    { name: 'toolId', value: { longValue: parseInt(toolId, 10) } }
   ];
   
   const result = await executeSQL(insertSql, insertParams);
@@ -989,8 +974,8 @@ export async function removeToolFromRole(roleId: string, toolId: string) {
   `;
   
   const parameters = [
-    { name: 'roleId', value: { stringValue: roleId } },
-    { name: 'toolId', value: { stringValue: toolId } }
+    { name: 'roleId', value: { longValue: parseInt(roleId, 10) } },
+    { name: 'toolId', value: { longValue: parseInt(toolId, 10) } }
   ];
   
   const result = await executeSQL(sql, parameters);

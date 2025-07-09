@@ -1,24 +1,15 @@
 import { NextResponse } from 'next/server';
-import { deleteUser, hasUserRole } from '@/lib/db/data-api-adapter';
-import { getServerSession } from '@/lib/auth/server-session';
+import { deleteUser } from '@/lib/db/data-api-adapter';
+import { requireAdmin } from '@/lib/auth/admin-check';
 
 export async function DELETE(
   _request: Request,
   context: { params: Promise<{ userId: string }> }
 ) {
   try {
-    // Check authorization
-    const session = await getServerSession()
-    
-    if (!session) {
-      return NextResponse.json(
-        { isSuccess: false, message: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    // TODO: Implement proper admin check with Amplify
-    // For now, we'll skip the admin check to test functionality
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
     // Await and validate the params object
     const params = await context.params;

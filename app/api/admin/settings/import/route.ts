@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "@/lib/auth/server-session"
-import { hasRole } from "@/lib/auth/role-helpers"
+import { requireAdmin } from "@/lib/auth/admin-check"
 import { upsertSettingAction } from "@/actions/db/settings-actions"
 import { withErrorHandling, unauthorized, forbidden } from "@/lib/api-utils"
 
@@ -26,15 +25,9 @@ const IMPORTABLE_SETTINGS = [
 // POST /api/admin/settings/import - Import settings from environment variables
 export async function POST(req: NextRequest) {
   return withErrorHandling(async () => {
-    const session = await getServerSession()
-    if (!session) {
-      return unauthorized("User not authenticated")
-    }
-
-    const isAdmin = await hasRole("administrator")
-    if (!isAdmin) {
-      return forbidden("Only administrators can import settings")
-    }
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
     let imported = 0
     const errors: string[] = []

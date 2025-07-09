@@ -8,6 +8,7 @@ import {
   getUserRolesByCognitoSub as dbGetUserRolesByCognitoSub
 } from "@/lib/db/data-api-adapter";
 import { getServerSession } from "@/lib/auth/server-session";
+import logger from "@/lib/logger";
 import type { Role } from '@/types';
 
 const roleHierarchy: Record<Role, number> = {
@@ -62,7 +63,7 @@ export async function getUserRoles(userId: string): Promise<string[]> {
     // For now, assuming userId is the cognito sub (this may need adjustment based on usage)
     return await dbGetUserRolesByCognitoSub(userId);
   } catch (error) {
-    console.error("Error getting user roles:", error)
+    logger.error("Error getting user roles:", error)
     return []
   }
 }
@@ -75,7 +76,7 @@ export async function hasAnyRole(userId: string, roles: string[]): Promise<boole
     const userRoles = await getUserRoles(userId)
     return roles.some(role => userRoles.includes(role))
   } catch (error) {
-    console.error("Error checking if user has any role:", error)
+    logger.error("Error checking if user has any role:", error)
     return false
   }
 }
@@ -102,7 +103,7 @@ export async function getHighestUserRole(userId: string): Promise<string | null>
     
     return highestRole
   } catch (error) {
-    console.error("Error getting highest user role:", error)
+    logger.error("Error getting highest user role:", error)
     return null
   }
 }

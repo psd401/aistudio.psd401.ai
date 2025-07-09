@@ -22,10 +22,10 @@ export async function GET(request: Request, context: { params: { id: string } })
         COALESCE(
           TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))),
           u.email,
-          n.user_id
+          n.user_id::text
         ) as creator_name
       FROM idea_notes n
-      LEFT JOIN users u ON n.user_id = u.id::text
+      LEFT JOIN users u ON n.user_id = u.id
       WHERE n.idea_id = :ideaId
       ORDER BY n.created_at ASC
     `;
@@ -86,7 +86,7 @@ export async function POST(request: Request, context: { params: { id: string } }
     const params = [
       { name: 'ideaId', value: { longValue: ideaId } },
       { name: 'content', value: { stringValue: content } },
-      { name: 'userId', value: { stringValue: userId.toString() } }
+      { name: 'userId', value: { longValue: userId } }
     ];
     const result = await executeSQL(sql, params);
     const newNote = result[0];

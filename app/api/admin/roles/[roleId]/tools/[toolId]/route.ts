@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { assignToolToRole, removeToolFromRole } from "@/lib/db/data-api-adapter"
-import { requireRole } from "@/lib/auth/role-helpers"
+import { requireAdmin } from "@/lib/auth/admin-check"
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ roleId: string; toolId: string }> }
 ) {
   try {
-    await requireRole("administrator")
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
     
     const { roleId, toolId } = await params
     const success = await assignToolToRole(roleId, toolId)
@@ -27,7 +29,9 @@ export async function DELETE(
   { params }: { params: Promise<{ roleId: string; toolId: string }> }
 ) {
   try {
-    await requireRole("administrator")
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
     
     const { roleId, toolId } = await params
     const success = await removeToolFromRole(roleId, toolId)

@@ -117,7 +117,7 @@ export async function getDocumentsByConversationId({
 }: { 
   conversationId: number 
 }): Promise<SelectDocument[]> {
-  logger.info("Fetching documents by conversation ID", { conversationId });
+  // Fetching documents
   try {
     const query = `
       SELECT id, name, type, url, size, user_id, conversation_id, created_at
@@ -129,7 +129,7 @@ export async function getDocumentsByConversationId({
     ];
     
     const results = await executeSQL(query, parameters);
-    logger.info("Documents query completed", { conversationId, resultCount: results.length });
+    // Documents fetched
     return results as SelectDocument[];
   } catch (error) {
     logger.error("Error fetching documents by conversation ID", { conversationId, error });

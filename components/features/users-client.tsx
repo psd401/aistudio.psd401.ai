@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,9 +22,9 @@ export function UsersClient() {
   const [userToDelete, setUserToDelete] = useState<{ id: number | string } | null>(null)
   const { toast } = useToast()
 
-  const fetchUsers = async () => {
+  const fetchUsers = async (signal?: AbortSignal) => {
     try {
-      const response = await fetch("/api/admin/users")
+      const response = await fetch("/api/admin/users", { signal })
       
       // Handle status codes
       if (response.status === 401) {
@@ -44,6 +43,10 @@ export function UsersClient() {
       
       setUsers(result.data || [])
     } catch (error) {
+      // Don't show toast if the request was aborted
+      if (error instanceof Error && error.name === 'AbortError') {
+        return
+      }
       console.error("Error fetching users:", error)
       toast({
         title: "Error",
@@ -56,8 +59,13 @@ export function UsersClient() {
   }
 
   useEffect(() => {
-    fetchUsers()
-  }, [])
+    const abortController = new AbortController()
+    fetchUsers(abortController.signal)
+    
+    return () => {
+      abortController.abort()
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRoleChange = async (userId: number | string, newRole: string) => {
     try {

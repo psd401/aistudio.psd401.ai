@@ -43,8 +43,17 @@ export async function PATCH(
       updateFields.push('status = :status');
       params.push({ name: 'status', value: { stringValue: body.status } });
       if (body.status === 'completed') {
+        // Get the user's numeric ID from their cognito_sub
+        const userSql = 'SELECT id FROM users WHERE cognito_sub = :cognitoSub';
+        const userResult = await executeSQL(userSql, [{ name: 'cognitoSub', value: { stringValue: session.sub } }]);
+        
+        if (!userResult || userResult.length === 0) {
+          return NextResponse.json({ error: 'User not found' }, { status: 404 });
+        }
+        
+        const userId = userResult[0].id;
         updateFields.push('completed_by = :completedBy', 'completed_at = NOW()');
-        params.push({ name: 'completedBy', value: { stringValue: session.sub } });
+        params.push({ name: 'completedBy', value: { stringValue: userId.toString() } });
       }
     }
 

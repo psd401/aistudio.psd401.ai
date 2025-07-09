@@ -42,15 +42,23 @@ export function ToolAssignments({
   
   // Fetch assigned tools on mount
   useEffect(() => {
+    const abortController = new AbortController()
+    
     const fetchAssignedTools = async () => {
       try {
-        const response = await fetch(`/api/admin/roles/${role.id}/tools`)
+        const response = await fetch(`/api/admin/roles/${role.id}/tools`, {
+          signal: abortController.signal
+        })
         if (!response.ok) {
           throw new Error('Failed to fetch assigned tools')
         }
         const data = await response.json()
         setAssignedTools(data.tools || [])
       } catch (error) {
+        // Don't show toast if the request was aborted
+        if (error instanceof Error && error.name === 'AbortError') {
+          return
+        }
         console.error("Error fetching assigned tools:", error)
         toast({
           title: "Error",
@@ -63,6 +71,10 @@ export function ToolAssignments({
     }
     
     fetchAssignedTools()
+    
+    return () => {
+      abortController.abort()
+    }
   }, [role.id, toast])
   
   const handleToggleAssignment = async (tool: Tool) => {

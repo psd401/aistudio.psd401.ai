@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getRoleTools } from "@/lib/db/data-api-adapter"
-import { requireRole } from "@/lib/auth/role-helpers"
+import { requireAdmin } from "@/lib/auth/admin-check"
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ roleId: string }> }
 ) {
   try {
-    await requireRole("administrator")
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
     
     const { roleId } = await params
-    const tools = await getRoleTools(roleId)
+    const tools = await getRoleTools(parseInt(roleId, 10))
     
     return NextResponse.json({ tools })
   } catch (error: any) {

@@ -162,7 +162,7 @@ export async function POST(req: NextRequest) {
         }
       }
       
-      logger.info(`Processing chat with conversationId: ${conversationId}, documentId: ${documentId}, found ${documents.length} documents`);
+      // Processing chat request
       
       if (documents.length > 0) {
         logger.info(`Found ${documents.length} documents for conversation ${conversationId}`);

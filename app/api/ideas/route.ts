@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
+import logger from '@/lib/logger';
 
 export async function GET() {
   const session = await getServerSession();
@@ -16,7 +17,7 @@ export async function GET() {
         COALESCE(
           TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))),
           u.email,
-          i.user_id
+          i.user_id::text
         ) as creator_name,
         COALESCE(
           TRIM(CONCAT(COALESCE(cu.first_name, ''), ' ', COALESCE(cu.last_name, ''))),
@@ -26,8 +27,13 @@ export async function GET() {
         COUNT(DISTINCT v.id)::int as votes,
         COUNT(DISTINCT n.id)::int as notes
       FROM ideas i
-      LEFT JOIN users u ON i.user_id = u.id::text
-      LEFT JOIN users cu ON i.completed_by = cu.id::text
+      LEFT JOIN users u ON i.user_id = u.id
+      LEFT JOIN users cu ON (
+        CASE 
+          WHEN i.completed_by ~ '^[0-9]+$' THEN i.completed_by::integer = cu.id
+          ELSE cu.old_clerk_id = i.completed_by
+        END
+      )
       LEFT JOIN idea_votes v ON i.id = v.idea_id
       LEFT JOIN idea_notes n ON i.id = n.idea_id
       GROUP BY i.id, u.first_name, u.last_name, u.email, cu.first_name, cu.last_name, cu.email
@@ -43,7 +49,7 @@ export async function GET() {
     let userVotedIdeaIds = new Set();
     if (currentUserId) {
       const userVotesSql = 'SELECT idea_id FROM idea_votes WHERE user_id = :userId';
-      const userVotes = await executeSQL(userVotesSql, [{ name: 'userId', value: { stringValue: currentUserId.toString() } }]);
+      const userVotes = await executeSQL(userVotesSql, [{ name: 'userId', value: { longValue: currentUserId } }]);
       userVotedIdeaIds = new Set(userVotes.map((vote: any) => vote.idea_id));
     }
 
@@ -60,7 +66,7 @@ export async function GET() {
     
     return NextResponse.json(ideasWithVotes);
   } catch (error) {
-    console.error('Error fetching ideas:', error);
+    logger.error('Error fetching ideas:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 }
@@ -104,7 +110,7 @@ export async function POST(request: Request) {
       { name: 'title', value: { stringValue: title } },
       { name: 'description', value: { stringValue: description } },
       { name: 'priorityLevel', value: { stringValue: priorityLevel } },
-      { name: 'userId', value: { stringValue: userId.toString() } }
+      { name: 'userId', value: { longValue: userId } }
     ];
     const result = await executeSQL(sql, params);
     const newIdea = result[0];
@@ -116,7 +122,7 @@ export async function POST(request: Request) {
       createdAt: newIdea.created_at
     });
   } catch (error) {
-    console.error('Error creating idea:', error);
+    logger.error('Error creating idea:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 } 

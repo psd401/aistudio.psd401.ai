@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import {
   Dialog,
   DialogContent,
@@ -41,6 +41,7 @@ export function ImportDialog({
   const [importResults, setImportResults] = useState<ImportResult[] | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const { toast } = useToast()
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -136,7 +137,7 @@ export function ImportDialog({
 
         // Refresh the table after successful import
         if (result.data.successful > 0) {
-          setTimeout(() => {
+          timeoutRef.current = setTimeout(() => {
             onImportComplete()
             // Reset dialog state before closing
             resetDialog()
@@ -164,6 +165,15 @@ export function ImportDialog({
     setDragActive(false)
     setIsImporting(false)
   }
+
+  // Clean up timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+    }
+  }, [])
 
   return (
     <Dialog 

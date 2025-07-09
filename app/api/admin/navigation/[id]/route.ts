@@ -1,30 +1,15 @@
 import { NextResponse } from "next/server"
-import { getServerSession } from "@/lib/auth/server-session"
+import { requireAdmin } from "@/lib/auth/admin-check"
 import { deleteNavigationItem } from "@/lib/db/data-api-adapter"
-import { checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter"
 
 export async function DELETE(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    // Check authentication using AWS Cognito
-    const session = await getServerSession()
-    if (!session || !session.sub) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Unauthorized" },
-        { status: 401 }
-      )
-    }
-
-    // Check if user is admin
-    const isAdmin = await checkUserRoleByCognitoSub(session.sub, 'administrator')
-    if (!isAdmin) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Forbidden - Admin access required" },
-        { status: 403 }
-      )
-    }
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
     const { id } = params
 

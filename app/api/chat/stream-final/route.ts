@@ -244,7 +244,7 @@ export async function POST(req: Request) {
             { name: 'content', value: { stringValue: text } }
           ]
         );
-        logger.info('[stream-final] Saved assistant response');
+        // Assistant response saved
       } catch (error) {
         logger.error('[stream-final] Error saving response:', error);
       }

@@ -1,27 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
-import { createRole, executeSQL, checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter"
-import { requireRole } from "@/lib/auth/role-helpers"
-import { getServerSession } from "@/lib/auth/server-session"
+import { createRole, executeSQL } from "@/lib/db/data-api-adapter"
+import { requireAdmin } from "@/lib/auth/admin-check"
+import logger from "@/lib/logger"
 
 export async function GET() {
   try {
-    // Check authentication using AWS Cognito
-    const session = await getServerSession()
-    if (!session || !session.sub) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Unauthorized" },
-        { status: 401 }
-      )
-    }
-
-    // Check if user is admin
-    const isAdmin = await checkUserRoleByCognitoSub(session.sub, 'administrator')
-    if (!isAdmin) {
-      return NextResponse.json(
-        { isSuccess: false, message: "Forbidden - Admin access required" },
-        { status: 403 }
-      )
-    }
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
 
     // Get all roles
     const result = await executeSQL({
@@ -53,14 +39,16 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    await requireRole("administrator")
+    // Check admin authorization
+    const authError = await requireAdmin();
+    if (authError) return authError;
     
     const body = await request.json()
     const role = await createRole(body)
     
     return NextResponse.json({ role })
   } catch (error: any) {
-    console.error("Error creating role:", error)
+    logger.error("Error creating role:", error)
     return NextResponse.json(
       { error: error.message || "Failed to create role" },
       { status: 500 }

@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { executeSQL } from '@/lib/db/data-api-adapter';
+import logger from '@/lib/logger';
 
 export async function GET(
   req: NextRequest,
@@ -65,7 +66,7 @@ export async function GET(
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Failed to fetch messages:', error);
+    logger.error('Failed to fetch messages:', error);
     return new Response(
       JSON.stringify({ error: 'Failed to fetch messages' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }

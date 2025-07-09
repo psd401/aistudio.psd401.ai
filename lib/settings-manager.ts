@@ -10,7 +10,7 @@ export async function getSetting(key: string): Promise<string | null> {
   // Check cache first
   const cached = settingsCache.get(key)
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    logger.debug(`[SettingsManager] Cache hit for ${key}`)
+    // Cache hit
     return cached.value
   }
 
@@ -22,7 +22,7 @@ export async function getSetting(key: string): Promise<string | null> {
     settingsCache.set(key, { value: dbValue, timestamp: Date.now() })
     
     if (dbValue !== null) {
-      logger.debug(`[SettingsManager] Database value found for ${key}`)
+      // Database value found
       return dbValue
     }
   } catch (error) {
@@ -32,9 +32,9 @@ export async function getSetting(key: string): Promise<string | null> {
   // Fall back to environment variable
   const envValue = process.env[key] || null
   if (envValue) {
-    logger.debug(`[SettingsManager] Falling back to env var for ${key}`)
+    // Falling back to env var
   } else {
-    logger.debug(`[SettingsManager] No value found for ${key}`)
+    // No value found
   }
   
   return envValue
@@ -57,10 +57,10 @@ export async function getSettings(keys: string[]): Promise<Record<string, string
 export async function revalidateSettingsCache(key?: string) {
   if (key) {
     settingsCache.delete(key)
-    logger.debug(`[SettingsManager] Cache cleared for ${key}`)
+    // Cache cleared for key
   } else {
     settingsCache.clear()
-    logger.debug(`[SettingsManager] Cache cleared`)
+    // Cache cleared
   }
   
   // Also clear S3 cache when settings are updated

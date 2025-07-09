@@ -1,24 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from '@/lib/auth/server-session';
-import { hasRole } from '~/utils/roles';
+import { requireAdmin } from '@/lib/auth/admin-check';
 import { executeSQL } from '@/lib/db/data-api-adapter';
+import logger from '@/lib/logger';
 
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ userId: string }> }
 ) {
   const params = await context.params;
-  const session = await getServerSession();
-  
-  if (!session) {
-    return new NextResponse('Unauthorized', { status: 401 });
-  }
-
-  // Check if user is administrator
-  const isAdmin = await hasRole('administrator');
-  if (!isAdmin) {
-    return new NextResponse('Forbidden', { status: 403 });
-  }
+  // Check admin authorization
+  const authError = await requireAdmin();
+  if (authError) return authError;
 
   try {
     // Get user details from database
@@ -45,7 +37,7 @@ export async function GET(
       emailAddresses: [{ emailAddress: user.email }]
     });
   } catch (error) {
-    console.error('Error fetching user details:', error);
+    logger.error('Error fetching user details:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 } 
