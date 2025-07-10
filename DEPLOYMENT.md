@@ -173,4 +173,35 @@ These are output by the CDK stacks and must be set in Amplify:
 - `NEXT_PUBLIC_AWS_REGION`
 - `RDS_RESOURCE_ARN`
 - `RDS_SECRET_ARN`
-- `SQL_LOGGING` - Set to `false` for production 
+- `SQL_LOGGING` - Set to `false` for production
+
+## 12. First Administrator Setup
+After deploying the application, the first user who signs up needs to be granted administrator privileges:
+
+1. **Sign up as the first user** through the web interface
+2. **Connect to your RDS database** using AWS Query Editor or a PostgreSQL client
+3. **Find your user ID** by running:
+   ```sql
+   SELECT id, email, cognito_sub FROM users WHERE email = 'your-email@example.com';
+   ```
+4. **Check if admin role exists**:
+   ```sql
+   SELECT id FROM roles WHERE name = 'admin';
+   ```
+   If it doesn't exist, create it:
+   ```sql
+   INSERT INTO roles (name, description) VALUES ('admin', 'Administrator role with full access');
+   ```
+5. **Assign the admin role** to your user:
+   ```sql
+   INSERT INTO user_roles (user_id, role_id) 
+   SELECT u.id, r.id 
+   FROM users u, roles r 
+   WHERE u.email = 'your-email@example.com' AND r.name = 'admin';
+   ```
+
+Alternatively, you can use the RDS Query Editor in AWS Console:
+1. Navigate to RDS → Query Editor
+2. Connect using your cluster ARN and secret ARN
+3. Select the `aistudio` database
+4. Run the SQL commands above

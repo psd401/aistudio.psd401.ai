@@ -133,18 +133,15 @@ CREATE TABLE IF NOT EXISTS chain_prompts (
 
 -- Tool input fields table: Dynamic form fields for tools
 CREATE TABLE IF NOT EXISTS tool_input_fields (
-    id SERIAL PRIMARY KEY,
+    id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
     assistant_architect_id INTEGER NOT NULL,
-    field_name VARCHAR(100) NOT NULL,
-    field_label VARCHAR(255) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    label VARCHAR(255) NOT NULL,
     field_type field_type NOT NULL,
-    field_options JSONB,
-    is_required BOOLEAN DEFAULT false,
-    order_index INTEGER DEFAULT 0,
+    position INTEGER DEFAULT 0,
+    options JSONB,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    placeholder VARCHAR(255),
-    default_value TEXT,
-    validation_rules JSONB
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
 -- Tool executions table: Track tool usage
