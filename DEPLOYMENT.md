@@ -186,18 +186,18 @@ After deploying the application, the first user who signs up needs to be granted
    ```
 4. **Check if admin role exists**:
    ```sql
-   SELECT id FROM roles WHERE name = 'admin';
+   SELECT id FROM roles WHERE name = 'administrator';
    ```
    If it doesn't exist, create it:
    ```sql
-   INSERT INTO roles (name, description) VALUES ('admin', 'Administrator role with full access');
+   INSERT INTO roles (name, description) VALUES ('administrator', 'Administrator role with full access');
    ```
 5. **Assign the admin role** to your user:
    ```sql
    INSERT INTO user_roles (user_id, role_id) 
    SELECT u.id, r.id 
    FROM users u, roles r 
-   WHERE u.email = 'your-email@example.com' AND r.name = 'admin';
+   WHERE u.email = 'your-email@example.com' AND r.name = 'administrator';
    ```
 
 Alternatively, you can use the RDS Query Editor in AWS Console:

@@ -6,22 +6,22 @@ CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     cognito_sub VARCHAR(255) UNIQUE NOT NULL,
     email VARCHAR(255),
-    first_name VARCHAR(100),
-    last_name VARCHAR(100),
+    first_name VARCHAR(255),
+    last_name VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_login TIMESTAMP,
-    old_clerk_id VARCHAR(255) UNIQUE, -- For migration from Clerk
-    is_active BOOLEAN DEFAULT true NOT NULL,
-    last_active_at TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_sign_in_at TIMESTAMP,
+    old_clerk_id VARCHAR(255) UNIQUE -- For migration from Clerk
 );
 
 -- Roles table: Define user roles for authorization
 CREATE TABLE IF NOT EXISTS roles (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(50) NOT NULL,
+    name VARCHAR(100) NOT NULL,
     description TEXT,
+    is_system BOOLEAN DEFAULT false,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    is_active BOOLEAN DEFAULT true NOT NULL
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- User roles junction table: Many-to-many relationship between users and roles
@@ -30,22 +30,23 @@ CREATE TABLE IF NOT EXISTS user_roles (
     user_id INTEGER NOT NULL,
     role_id INTEGER NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, role_id)
 );
 
 -- AI Models table: Available AI models for conversations
 CREATE TABLE IF NOT EXISTS ai_models (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    model_id VARCHAR(100) UNIQUE NOT NULL,
-    provider VARCHAR(50) NOT NULL,
-    active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    input_price_per_1k NUMERIC(10, 6),
-    output_price_per_1k NUMERIC(10, 6),
+    name TEXT NOT NULL,
+    model_id TEXT UNIQUE NOT NULL,
+    provider TEXT NOT NULL,
+    description TEXT,
+    capabilities TEXT,
     max_tokens INTEGER,
-    supports_tools BOOLEAN DEFAULT false,
-    supports_vision BOOLEAN DEFAULT false
+    active BOOLEAN DEFAULT true,
+    chat_enabled BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Tools table: Define available tools/features in the system
@@ -58,6 +59,7 @@ CREATE TABLE IF NOT EXISTS tools (
     icon VARCHAR(100),
     is_active BOOLEAN DEFAULT true NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     prompt_chain_tool_id INTEGER,
     parent_navigation_id INTEGER,
     display_order INTEGER DEFAULT 0
@@ -75,17 +77,17 @@ CREATE TABLE IF NOT EXISTS role_tools (
 -- Navigation items table: Menu structure and navigation hierarchy
 CREATE TABLE IF NOT EXISTS navigation_items (
     id SERIAL PRIMARY KEY,
-    label VARCHAR(100) NOT NULL,
-    link VARCHAR(255),
-    icon VARCHAR(50),
-    position INTEGER DEFAULT 0,
+    label TEXT NOT NULL,
+    icon TEXT NOT NULL,
+    link TEXT,
     parent_id INTEGER,
     tool_id INTEGER,
-    requires_role VARCHAR(50),
-    is_active BOOLEAN DEFAULT true NOT NULL,
+    requires_role TEXT,
+    position INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    type navigation_type DEFAULT 'link',
-    description TEXT
+    description TEXT,
+    type navigation_type DEFAULT 'link'
 );
 
 -- Assistant architects table: AI assistant configurations
@@ -281,13 +283,13 @@ CREATE TABLE IF NOT EXISTS idea_notes (
 -- Settings table: System configuration key-value pairs
 CREATE TABLE IF NOT EXISTS settings (
     id SERIAL PRIMARY KEY,
-    key VARCHAR(100) UNIQUE NOT NULL,
-    value JSONB NOT NULL,
-    category VARCHAR(50),
+    key VARCHAR(255) UNIQUE NOT NULL,
+    value TEXT NOT NULL,
     description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    is_sensitive BOOLEAN DEFAULT false
+    category VARCHAR(100),
+    is_secret BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Migration log table: Track database migrations
