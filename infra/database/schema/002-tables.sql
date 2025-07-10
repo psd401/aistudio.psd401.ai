@@ -75,16 +75,16 @@ CREATE TABLE IF NOT EXISTS role_tools (
 -- Navigation items table: Menu structure and navigation hierarchy
 CREATE TABLE IF NOT EXISTS navigation_items (
     id SERIAL PRIMARY KEY,
-    title VARCHAR(100) NOT NULL,
-    url VARCHAR(255),
+    label VARCHAR(100) NOT NULL,
+    link VARCHAR(255),
     icon VARCHAR(50),
     position INTEGER DEFAULT 0,
     parent_id INTEGER,
     tool_id INTEGER,
-    role_required VARCHAR(50),
+    requires_role VARCHAR(50),
     is_active BOOLEAN DEFAULT true NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    navigation_type navigation_type DEFAULT 'link',
+    type navigation_type DEFAULT 'link',
     description TEXT
 );
 
