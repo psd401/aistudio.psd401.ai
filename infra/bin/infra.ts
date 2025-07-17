@@ -39,22 +39,25 @@ function getCallbackAndLogoutUrls(environment: string, baseDomain?: string): { c
         baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : undefined,
       ].filter(Boolean) as string[],
     };
-  } else {
-    return {
-      callbackUrls: [
-        baseDomain ? `https://prod.${baseDomain}/` : undefined,
-        baseDomain ? `https://dev.${baseDomain}/` : undefined,
-        baseDomain ? `https://prod.${baseDomain}/api/auth/callback/cognito` : undefined,
-        baseDomain ? `https://dev.${baseDomain}/api/auth/callback/cognito` : undefined,
-      ].filter(Boolean) as string[],
-      logoutUrls: [
-        baseDomain ? `https://prod.${baseDomain}/` : undefined,
-        baseDomain ? `https://dev.${baseDomain}/` : undefined,
-        baseDomain ? `https://prod.${baseDomain}/oauth2/idpresponse` : undefined,
-        baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : undefined,
-      ].filter(Boolean) as string[],
-    };
   }
+  return {
+    callbackUrls: [
+      baseDomain ? `https://${baseDomain}/` : undefined,
+      baseDomain ? `https://${baseDomain}/api/auth/callback/cognito` : undefined,
+      baseDomain ? `https://prod.${baseDomain}/` : undefined,
+      baseDomain ? `https://prod.${baseDomain}/api/auth/callback/cognito` : undefined,
+      baseDomain ? `https://dev.${baseDomain}/` : undefined,
+      baseDomain ? `https://dev.${baseDomain}/api/auth/callback/cognito` : undefined,
+    ].filter(Boolean) as string[],
+    logoutUrls: [
+      baseDomain ? `https://${baseDomain}/` : undefined,
+      baseDomain ? `https://${baseDomain}/oauth2/idpresponse` : undefined,
+      baseDomain ? `https://prod.${baseDomain}/` : undefined,
+      baseDomain ? `https://prod.${baseDomain}/oauth2/idpresponse` : undefined,
+      baseDomain ? `https://dev.${baseDomain}/` : undefined,
+      baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : undefined,
+    ].filter(Boolean) as string[],
+  };
 }
 
 // Dev environment

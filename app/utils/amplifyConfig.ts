@@ -12,16 +12,16 @@ export const config = {
           scopes: ["openid", "email", "profile"],
           redirectSignIn: [
             "http://localhost:3000/",
-            "https://dev.aistudio.psd401.ai/",
             "http://localhost:3000",
-            "https://dev.aistudio.psd401.ai"
-          ],
+            process.env.AUTH_URL ? `${process.env.AUTH_URL}/` : '',
+            process.env.AUTH_URL || ''
+          ].filter(Boolean),
           redirectSignOut: [
             "http://localhost:3000/",
-            "https://dev.aistudio.psd401.ai/",
             "http://localhost:3000",
-            "https://dev.aistudio.psd401.ai"
-          ],
+            process.env.AUTH_URL ? `${process.env.AUTH_URL}/` : '',
+            process.env.AUTH_URL || ''
+          ].filter(Boolean),
           responseType: "code"
         }
       }
