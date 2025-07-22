@@ -60,29 +60,17 @@ export async function POST(req: Request) {
       WHERE cp.assistant_architect_id = :toolId
       ORDER BY cp.position ASC
     `;
-    const promptsRaw = await executeSQL(promptsQuery, [
+    const prompts = await executeSQL(promptsQuery, [
       { name: 'toolId', value: { longValue: toolId } }
     ]);
 
-    // Transform the raw results into proper objects
-    const prompts = promptsRaw.map(row => ({
-      id: row[0],
-      name: row[1],
-      prompt: row[2],
-      chain_order: row[3],
-      ai_model_id: row[4],
-      system_context: row[5],
-      model_id: row[6],
-      provider: row[7],
-      model_name: row[8]
-    }));
-
     logger.info(`[STREAM] Raw prompts query result count:`, prompts.length);
     if (prompts.length > 0) {
+      logger.info(`[STREAM] First prompt raw data:`, JSON.stringify(prompts[0]));
       logger.info(`[STREAM] First prompt structure:`, Object.keys(prompts[0]));
       logger.info(`[STREAM] First prompt id:`, prompts[0].id);
       logger.info(`[STREAM] First prompt name:`, prompts[0].name);
-      logger.info(`[STREAM] First prompt content/prompt field:`, prompts[0].prompt || prompts[0].content);
+      logger.info(`[STREAM] First prompt content field:`, prompts[0].prompt?.substring(0, 100));
     }
 
     if (!prompts.length) {
@@ -132,14 +120,17 @@ export async function POST(req: Request) {
 
             try {
               logger.info(`[STREAM] Processing prompt ${i + 1}/${prompts.length} - ID: ${prompt.id}`);
-              logger.info(`[STREAM] Prompt object keys:`, Object.keys(prompt));
-              logger.info(`[STREAM] Prompt id:`, prompt.id, 'name:', prompt.name);
-              logger.info(`[STREAM] Prompt content fields - prompt:`, prompt.prompt, 'content:', prompt.content);
-              logger.info(`[STREAM] Prompt system_context:`, prompt.system_context);
+              logger.info(`[STREAM] Prompt data:`, {
+                id: prompt.id,
+                name: prompt.name,
+                promptLength: prompt.prompt?.length || 0,
+                systemContextLength: prompt.system_context?.length || 0,
+                provider: prompt.provider,
+                modelId: prompt.model_id
+              });
               
               // Process prompt template with inputs
-              // The SQL aliases 'content as prompt', but check both fields
-              let processedPrompt = prompt.prompt || prompt.content;
+              let processedPrompt = prompt.prompt;
               
               if (!processedPrompt) {
                 logger.error(`[STREAM] Prompt content is empty! Prompt object keys:`, Object.keys(prompt));
