@@ -64,18 +64,6 @@ export async function POST(req: Request) {
       { name: 'toolId', value: { longValue: toolId } }
     ]);
 
-    logger.info(`[STREAM] Raw prompts query result count:`, prompts.length);
-    logger.info(`[STREAM] Raw prompts type:`, typeof prompts, Array.isArray(prompts));
-    if (prompts.length > 0) {
-      logger.info(`[STREAM] First prompt type:`, typeof prompts[0]);
-      logger.info(`[STREAM] First prompt keys:`, Object.keys(prompts[0]));
-      // Try different ways to access the data
-      logger.info(`[STREAM] Trying different access methods:`);
-      logger.info(`[STREAM] - prompts[0].id:`, prompts[0].id);
-      logger.info(`[STREAM] - prompts[0]['id']:`, prompts[0]['id']);
-      logger.info(`[STREAM] - prompts[0][0]:`, prompts[0][0]);
-      logger.info(`[STREAM] - Full first prompt:`, prompts[0]);
-    }
 
     if (!prompts.length) {
       return new Response('No prompts configured for this tool', { status: 400 });
@@ -123,15 +111,6 @@ export async function POST(req: Request) {
             ));
 
             try {
-              logger.info(`[STREAM] Processing prompt ${i + 1}/${prompts.length} - ID: ${prompt.id}`);
-              logger.info(`[STREAM] Prompt data:`, {
-                id: prompt.id,
-                name: prompt.name,
-                contentLength: prompt.content?.length || 0,
-                systemContextLength: prompt.system_context?.length || 0,
-                provider: prompt.provider,
-                modelId: prompt.model_id
-              });
               
               // Process prompt template with inputs
               let processedPrompt = prompt.content;
@@ -201,15 +180,6 @@ export async function POST(req: Request) {
                 }
               ];
 
-              logger.info(`[STREAM] Using model: ${prompt.provider}/${prompt.model_id}`);
-              logger.info(`[STREAM] Prompt content length: ${processedPrompt.length} chars`);
-              logger.info(`[STREAM] Processed prompt preview:`, processedPrompt.substring(0, 500));
-              logger.info(`[STREAM] System context:`, prompt.system_context || 'None');
-              logger.info(`[STREAM] Messages count:`, messages.length);
-              messages.forEach((msg, idx) => {
-                logger.info(`[STREAM] Message ${idx} - role:`, msg.role, 'content length:', msg.content?.length || 0);
-                logger.info(`[STREAM] Message ${idx} content preview:`, msg.content?.substring(0, 200));
-              });
               
               // Check if model config is valid
               if (!prompt.provider || !prompt.model_id) {
@@ -218,68 +188,45 @@ export async function POST(req: Request) {
               }
               
               try {
-                logger.info(`[STREAM] Starting streamCompletion call...`);
                 const streamResult = await streamCompletion(
                   {
                     provider: prompt.provider,
                     modelId: prompt.model_id
                   },
-                  messages,
-                  {
-                  onToken: (token) => {
-                    fullResponse += token;
-                    tokenCount++;
-                    
-                    if (tokenCount === 1) {
-                      logger.info(`[STREAM] First token received for prompt ${i + 1}`);
-                    }
-                    
-                    // Send token to client
-                    controller.enqueue(encoder.encode(
-                      `data: ${JSON.stringify({
-                        type: 'token',
-                        promptIndex: i,
-                        token: token
-                      })}\n\n`
-                    ));
-                  },
-                  onFinish: async () => {
-                    logger.info(`[STREAM] onFinish called for prompt ${i + 1}. Total response length: ${fullResponse.length}`);
-                    // Update prompt result with full response
-                    await executeSQL(
-                      `UPDATE prompt_results 
-                       SET output_data = :result, status = 'completed'::execution_status, completed_at = NOW() 
-                       WHERE id = :id`,
-                      [
-                        { name: 'result', value: { stringValue: fullResponse } },
-                        { name: 'id', value: { longValue: promptResultId } }
-                      ]
-                    );
-                  },
-                  onError: (error) => {
-                    logger.error(`[STREAM] onError called for prompt ${i + 1}:`, error);
-                  }
-                  }
+                  messages
                 );
 
-                logger.info(`[STREAM] streamCompletion returned, waiting for textPromise...`);
-                // Let the stream complete naturally through onFinish
-              // The textPromise will resolve when streaming is done
-              const finalText = await streamResult.textPromise;
-              logger.info(`[STREAM] textPromise resolved with length: ${finalText?.length || 'undefined'}`);
-              
-              // Only override if we got a valid response
-              if (finalText !== undefined && finalText !== null) {
-                fullResponse = finalText;
-              }
+                // Actually consume the stream
+                for await (const chunk of streamResult.textStream) {
+                  fullResponse += chunk;
+                  tokenCount++;
+                  
+                  // Send token to client
+                  controller.enqueue(encoder.encode(
+                    `data: ${JSON.stringify({
+                      type: 'token',
+                      promptIndex: i,
+                      token: chunk
+                    })}\n\n`
+                  ));
+                }
+
+                // Update prompt result with full response
+                await executeSQL(
+                  `UPDATE prompt_results 
+                   SET output_data = :result, status = 'completed'::execution_status, completed_at = NOW() 
+                   WHERE id = :id`,
+                  [
+                    { name: 'result', value: { stringValue: fullResponse } },
+                    { name: 'id', value: { longValue: promptResultId } }
+                  ]
+                );
               
               // If no response was generated, log error
               if (!fullResponse) {
-                logger.error(`[STREAM] No response generated for prompt ${i + 1}. Model: ${prompt.provider}/${prompt.model_id}`);
+                logger.error(`[STREAM] No response generated for prompt ${i + 1}`);
                 throw new Error('No response generated from AI model');
               }
-              
-              logger.info(`[STREAM] Prompt ${i + 1} completed. Tokens: ${tokenCount}, Length: ${fullResponse?.length || 0}`);
 
               // Send prompt complete event
               controller.enqueue(encoder.encode(

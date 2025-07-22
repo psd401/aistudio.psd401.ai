@@ -40,8 +40,6 @@ export interface ToolDefinition {
 
 // Get the appropriate model client based on provider
 async function getModelClient(modelConfig: ModelConfig) {
-  logger.info(`[getModelClient] Getting client for provider '${modelConfig.provider}' with model '${modelConfig.modelId}'`);
-
   switch (modelConfig.provider) {
     case 'amazon-bedrock': {
       const bedrockConfig = await Settings.getBedrock();
@@ -77,8 +75,6 @@ async function getModelClient(modelConfig: ModelConfig) {
     case 'google': {
       const googleApiKey = await Settings.getGoogleAI();
       
-      logger.info(`[getModelClient] Google API key status: ${googleApiKey ? 'Found' : 'Not found'}`);
-      
       if (!googleApiKey) {
         throw new Error('Google API key is not configured. Please set GOOGLE_API_KEY in the admin panel.');
       }
@@ -86,7 +82,6 @@ async function getModelClient(modelConfig: ModelConfig) {
       // Manually set the environment variable that the Google AI SDK is looking for
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = googleApiKey;
       
-      logger.info(`[getModelClient] Creating Google model client for: ${modelConfig.modelId}`);
       return google(modelConfig.modelId);
     }
 
@@ -156,63 +151,23 @@ export async function streamCompletion(
   options?: StreamingOptions,
   tools?: Record<string, CoreTool>
 ): Promise<StreamTextResult<Record<string, CoreTool>>> {
-  logger.info('[streamCompletion] Starting stream for:', modelConfig);
-  logger.info('[streamCompletion] Messages count:', messages.length);
-  messages.forEach((msg, idx) => {
-    logger.info(`[streamCompletion] Message ${idx}:`, {
-      role: msg.role,
-      contentLength: typeof msg.content === 'string' ? msg.content.length : 0,
-      contentPreview: typeof msg.content === 'string' ? msg.content.substring(0, 100) : 'not a string'
-    });
-  });
   
-  let model;
-  try {
-    model = await getModelClient(modelConfig);
-    logger.info('[streamCompletion] Model client created successfully');
-  } catch (error) {
-    logger.error('[streamCompletion] Failed to create model client:', error);
-    throw error;
-  }
+  const model = await getModelClient(modelConfig);
   
   try {
-    logger.info('[streamCompletion] Calling streamText with options:', {
-      hasModel: !!model,
-      hasMessages: !!messages,
-      messageCount: messages.length,
-      hasTools: !!tools,
-      hasOnToken: !!options?.onToken,
-      hasOnFinish: !!options?.onFinish
-    });
-    
     const result = await streamText({
       model,
       messages,
       tools,
       maxSteps: tools ? 5 : undefined,
       onChunk: ({ chunk }) => {
-        logger.info('[streamCompletion] onChunk called with chunk type:', chunk.type);
         if (chunk.type === 'text-delta' && options?.onToken) {
-          logger.info('[streamCompletion] Text delta:', chunk.textDelta);
           options.onToken(chunk.textDelta);
-        } else if (chunk.type === 'error') {
-          logger.error('[streamCompletion] Chunk error:', chunk);
         }
       },
-      onFinish: (result) => {
-        logger.info('[streamCompletion] onFinish called, text length:', result.text?.length || 0);
-        logger.info('[streamCompletion] onFinish result:', {
-          text: result.text?.substring(0, 100),
-          usage: result.usage,
-          finishReason: result.finishReason
-        });
-        if (options?.onFinish) {
-          options.onFinish(result);
-        }
-      }
+      onFinish: options?.onFinish
     });
 
-    logger.info('[streamCompletion] streamText returned successfully');
     return result;
   } catch (error) {
     logger.error('[streamCompletion] Error during streaming:', error);
