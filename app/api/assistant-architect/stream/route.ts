@@ -60,9 +60,22 @@ export async function POST(req: Request) {
       WHERE cp.assistant_architect_id = :toolId
       ORDER BY cp.position ASC
     `;
-    const prompts = await executeSQL(promptsQuery, [
+    const promptsRaw = await executeSQL(promptsQuery, [
       { name: 'toolId', value: { longValue: toolId } }
     ]);
+
+    // Transform the raw results into proper objects
+    const prompts = promptsRaw.map(row => ({
+      id: row[0],
+      name: row[1],
+      prompt: row[2],
+      chain_order: row[3],
+      ai_model_id: row[4],
+      system_context: row[5],
+      model_id: row[6],
+      provider: row[7],
+      model_name: row[8]
+    }));
 
     logger.info(`[STREAM] Raw prompts query result count:`, prompts.length);
     if (prompts.length > 0) {
@@ -121,7 +134,7 @@ export async function POST(req: Request) {
               logger.info(`[STREAM] Processing prompt ${i + 1}/${prompts.length} - ID: ${prompt.id}`);
               logger.info(`[STREAM] Prompt object keys:`, Object.keys(prompt));
               logger.info(`[STREAM] Prompt id:`, prompt.id, 'name:', prompt.name);
-              logger.info(`[STREAM] Prompt content fields - prompt:', prompt.prompt, 'content:', prompt.content);
+              logger.info(`[STREAM] Prompt content fields - prompt:`, prompt.prompt, 'content:', prompt.content);
               logger.info(`[STREAM] Prompt system_context:`, prompt.system_context);
               
               // Process prompt template with inputs
