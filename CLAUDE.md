@@ -27,9 +27,9 @@ npx cdk diff            # Show changes
 npx cdk deploy          # Deploy stack
 npx cdk deploy --all    # Deploy all stacks
 
-# Utility Scripts
-npm run find-users       # Find Cognito user by email
-npm run assign-admin     # Assign admin role to user
+# User Management
+# Use AWS RDS Query Editor for user management tasks
+# See docs/DEPLOYMENT.md section "First Administrator Setup"
 ```
 
 ## High-Level Architecture
@@ -148,7 +148,7 @@ Required environment variables are documented in `/docs/ENVIRONMENT_VARIABLES.md
 1. Deploy infrastructure: `cd infra && npx cdk deploy --all`
 2. Configure Amplify environment variables in console
 3. Push code to trigger Amplify build
-4. First user setup: Run `npm run assign-admin` after first sign-in
+4. First user setup: Follow "First Administrator Setup" in docs/DEPLOYMENT.md
 
 ### Database Schema Management
 - Schema defined in `/infra/database/schema/*.sql`

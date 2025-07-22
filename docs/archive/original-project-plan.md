@@ -1,5 +1,10 @@
 # Enterprise Next.js 14+ Template Specification (Revised)
 
+> **⚠️ ARCHIVED DOCUMENT - OUTDATED**  
+> This document reflects the original project plan using Clerk authentication and Supabase.  
+> The current implementation uses AWS Cognito + NextAuth v5 and AWS RDS Aurora Serverless v2.  
+> See `/docs/SPECIFICATION.md` for current architecture.
+
   
 
 This is a detailed spec for building an internal enterprise Next.js 14+ template with Clerk authentication, Drizzle ORM + Supabase, AWS Amplify hosting, role-based access, automatic user creation at sign-in (with lowest permissions), and a test-driven approach to ensure stability.

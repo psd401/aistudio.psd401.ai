@@ -47,7 +47,7 @@ This guide covers ongoing operations, monitoring, and management for the AWS inf
   - The client secret in Secrets Manager matches the Google Cloud Console value
   - Redirect URIs in Google Cloud Console match the deployed environment
 - If stack deployment fails due to missing parameters, provide the required client ID(s) with `--parameters`
-- For missing secrets, create them in AWS Secrets Manager as documented in `DEPLOYMENT.md`
+- For missing secrets, create them in AWS Secrets Manager as documented in `DEPLOYMENT.md` (in this directory)
 
 ## Disaster Recovery
 - Restore RDS from automated or manual snapshots as needed.
@@ -58,4 +58,4 @@ This guide covers ongoing operations, monitoring, and management for the AWS inf
 - Update infrastructure via CDK and redeploy as needed.
 - Review CloudFormation stack events for errors or drift.
 
-For deployment instructions, see `DEPLOYMENT.md`. For development, see `DEVELOPER_GUIDE.md`. 
+For deployment instructions, see `DEPLOYMENT.md` (in this directory). For development, see `../DEVELOPER_GUIDE.md` (in the root directory). 

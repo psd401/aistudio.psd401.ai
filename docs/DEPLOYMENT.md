@@ -144,7 +144,7 @@ To remove all resources (dev only):
 cdk destroy --all --context baseDomain=yourdomain.com
 ```
 
-See `OPERATIONS.md` for ongoing management and monitoring.
+See `OPERATIONS.md` (in this directory) for ongoing management and monitoring.
 
 ## 10. Configure SSR Compute Role
 AWS Amplify WEB_COMPUTE requires an SSR Compute role for runtime AWS access:
