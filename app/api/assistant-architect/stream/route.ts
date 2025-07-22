@@ -10,6 +10,10 @@ interface StreamRequest {
   inputs: Record<string, unknown>;
 }
 
+// Constants
+const STREAM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const PROMPT_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes per prompt
+
 // Add a function to decode HTML entities and remove escapes for variable placeholders
 function decodePromptVariables(content: string): string {
   // Replace HTML entity for $ with $
@@ -82,9 +86,9 @@ export async function POST(req: Request) {
       return new Response('No prompts configured for this tool', { status: 400 });
     }
 
-    // Get tool executions record
+    // Get tool executions record and check if it's already being processed
     const executionQuery = `
-      SELECT id FROM tool_executions 
+      SELECT id, status FROM tool_executions 
       WHERE id = :executionId
     `;
     const executionResult = await executeSQL(executionQuery, [
@@ -93,6 +97,27 @@ export async function POST(req: Request) {
 
     if (!executionResult.length) {
       return new Response('Execution not found', { status: 404 });
+    }
+
+    // Check if execution is already in progress
+    if (executionResult[0].status === 'in_progress') {
+      return new Response('Execution is already in progress', { status: 409 });
+    }
+
+    // Mark execution as in_progress to prevent concurrent processing
+    try {
+      await executeSQL(
+        `UPDATE tool_executions 
+         SET status = 'in_progress'::execution_status,
+             started_at = NOW()
+         WHERE id = :executionId AND status = 'pending'::execution_status`,
+        [
+          { name: 'executionId', value: { longValue: executionId } }
+        ]
+      );
+    } catch (error) {
+      logger.error('Failed to mark execution as in_progress:', error);
+      return new Response('Failed to start execution', { status: 500 });
     }
 
     // Create a ReadableStream for the response
@@ -112,6 +137,7 @@ export async function POST(req: Request) {
           // Execute prompts sequentially
           for (let i = 0; i < prompts.length; i++) {
             const prompt = prompts[i];
+            let promptResultId: number | undefined;
             
             // Send prompt start event
             controller.enqueue(encoder.encode(
@@ -145,17 +171,21 @@ export async function POST(req: Request) {
               // If this is not the first prompt, include previous results
               if (i > 0) {
                 const previousResultsQuery = `
-                  SELECT pr.output_data as result 
+                  SELECT pr.output_data as result, cp.position
                   FROM prompt_results pr
+                  JOIN chain_prompts cp ON pr.prompt_id = cp.id
                   WHERE pr.execution_id = :executionId
-                  ORDER BY pr.started_at ASC
+                    AND pr.status = 'completed'::execution_status
+                    AND cp.position < :currentPosition
+                  ORDER BY cp.position ASC
                 `;
                 const previousResults = await executeSQL(previousResultsQuery, [
-                  { name: 'executionId', value: { longValue: executionId } }
+                  { name: 'executionId', value: { longValue: executionId } },
+                  { name: 'currentPosition', value: { longValue: i + 1 } }
                 ]);
 
-                previousResults.forEach((result, index) => {
-                  const resultPlaceholder = `{{result_${index + 1}}}`;
+                previousResults.forEach((result) => {
+                  const resultPlaceholder = `{{result_${result.position}}}`;
                   processedPrompt = processedPrompt.replace(
                     new RegExp(resultPlaceholder, 'g'),
                     result.result
@@ -176,7 +206,7 @@ export async function POST(req: Request) {
                 { name: 'promptId', value: { longValue: prompt.id } },
                 { name: 'inputData', value: { stringValue: JSON.stringify({ prompt: processedPrompt }) } }
               ]);
-              const promptResultId = promptResultInsert[0].id;
+              promptResultId = promptResultInsert[0].id;
 
               // Stream the AI response
               let fullResponse = '';
@@ -255,6 +285,25 @@ export async function POST(req: Request) {
 
             } catch (promptError) {
               logger.error('Error executing prompt:', promptError);
+              
+              // Update prompt result status to failed if we have an ID
+              if (typeof promptResultId !== 'undefined') {
+                try {
+                  await executeSQL(
+                    `UPDATE prompt_results 
+                     SET status = 'failed'::execution_status, 
+                         completed_at = NOW(),
+                         error_message = :error
+                     WHERE id = :id`,
+                    [
+                      { name: 'id', value: { longValue: promptResultId } },
+                      { name: 'error', value: { stringValue: promptError instanceof Error ? promptError.message : 'Unknown error' } }
+                    ]
+                  );
+                } catch (updateError) {
+                  logger.error('Failed to update prompt result status:', updateError);
+                }
+              }
               
               // Send error event
               controller.enqueue(encoder.encode(

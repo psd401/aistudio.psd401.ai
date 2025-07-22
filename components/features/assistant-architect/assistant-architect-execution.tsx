@@ -1,5 +1,8 @@
 "use client"
 
+// Constants
+const STREAM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes timeout for streaming
+
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
@@ -317,29 +320,44 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
             // Store reader for cleanup
             setStreamReader(reader)
 
-            // Process the stream
-            let buffer = ''
-            while (true) {
-              const { done, value } = await reader.read()
-              if (done) break
+            // Set up timeout
+            const timeoutId = setTimeout(() => {
+              controller.abort()
+              toast({
+                title: "Stream Timeout",
+                description: "The streaming operation took too long and was cancelled.",
+                variant: "destructive"
+              })
+            }, STREAM_TIMEOUT_MS)
 
-              buffer += decoder.decode(value, { stream: true })
-              const lines = buffer.split('\n')
-              buffer = lines.pop() || ''
+            try {
+              // Process the stream
+              let buffer = ''
+              while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
 
-              for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                  try {
-                    const data = JSON.parse(line.slice(6))
-                    handleStreamEvent(data, values)
-                  } catch (parseError) {
-                    // Log parse errors for debugging but don't break the stream
-                    if (process.env.NODE_ENV === 'development') {
-                      console.warn('[SSE] Failed to parse event data:', line, parseError)
+                buffer += decoder.decode(value, { stream: true })
+                const lines = buffer.split('\n')
+                buffer = lines.pop() || ''
+
+                for (const line of lines) {
+                  if (line.startsWith('data: ')) {
+                    try {
+                      const data = JSON.parse(line.slice(6))
+                      handleStreamEvent(data, values)
+                    } catch (parseError) {
+                      // Log parse errors for debugging but don't break the stream
+                      if (process.env.NODE_ENV === 'development') {
+                        console.warn('[SSE] Failed to parse event data:', line, parseError)
+                      }
                     }
                   }
                 }
               }
+            } finally {
+              // Clear timeout on completion or error
+              clearTimeout(timeoutId)
             }
             
             // Clean up reader after successful streaming
