@@ -165,7 +165,14 @@ export async function POST(req: Request) {
               logger.info(`[STREAM] System context:`, prompt.system_context || 'None');
               logger.info(`[STREAM] Messages being sent:`, JSON.stringify(messages, null, 2));
               
+              // Check if model config is valid
+              if (!prompt.provider || !prompt.model_id) {
+                logger.error(`[STREAM] Invalid model config - Provider: ${prompt.provider}, Model ID: ${prompt.model_id}`);
+                throw new Error('Invalid model configuration');
+              }
+              
               try {
+                logger.info(`[STREAM] Starting streamCompletion call...`);
                 const streamResult = await streamCompletion(
                   {
                     provider: prompt.provider,
@@ -202,13 +209,18 @@ export async function POST(req: Request) {
                         { name: 'id', value: { longValue: promptResultId } }
                       ]
                     );
+                  },
+                  onError: (error) => {
+                    logger.error(`[STREAM] onError called for prompt ${i + 1}:`, error);
                   }
                   }
                 );
 
+                logger.info(`[STREAM] streamCompletion returned, waiting for textPromise...`);
                 // Let the stream complete naturally through onFinish
               // The textPromise will resolve when streaming is done
               const finalText = await streamResult.textPromise;
+              logger.info(`[STREAM] textPromise resolved with length: ${finalText?.length || 'undefined'}`);
               
               // Only override if we got a valid response
               if (finalText !== undefined && finalText !== null) {
@@ -234,6 +246,8 @@ export async function POST(req: Request) {
               
               } catch (streamError) {
                 logger.error(`[STREAM] Error during streaming:`, streamError);
+                logger.error(`[STREAM] Error stack:`, streamError instanceof Error ? streamError.stack : 'No stack');
+                logger.error(`[STREAM] Error details:`, JSON.stringify(streamError, null, 2));
                 throw streamError;
               }
 
