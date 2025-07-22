@@ -154,23 +154,29 @@ export async function streamCompletion(
   tools?: Record<string, CoreTool>
 ): Promise<StreamTextResult<Record<string, CoreTool>>> {
   logger.info('[streamCompletion] Starting stream for:', modelConfig);
+  logger.info('[streamCompletion] Messages:', JSON.stringify(messages, null, 2));
   
   const model = await getModelClient(modelConfig);
   
-  const result = await streamText({
-    model,
-    messages,
-    tools,
-    maxSteps: tools ? 5 : undefined,
-    onChunk: options?.onToken ? ({ chunk }) => {
-      if (chunk.type === 'text-delta') {
-        options.onToken!(chunk.textDelta);
-      }
-    } : undefined,
-    onFinish: options?.onFinish
-  });
+  try {
+    const result = await streamText({
+      model,
+      messages,
+      tools,
+      maxSteps: tools ? 5 : undefined,
+      onChunk: options?.onToken ? ({ chunk }) => {
+        if (chunk.type === 'text-delta') {
+          options.onToken!(chunk.textDelta);
+        }
+      } : undefined,
+      onFinish: options?.onFinish
+    });
 
-  return result;
+    return result;
+  } catch (error) {
+    logger.error('[streamCompletion] Error during streaming:', error);
+    throw error;
+  }
 }
 
 // Generate a structured object

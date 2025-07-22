@@ -161,35 +161,37 @@ export async function POST(req: Request) {
 
               logger.info(`[STREAM] Using model: ${prompt.provider}/${prompt.model_id}`);
               logger.info(`[STREAM] Prompt content length: ${processedPrompt.length} chars`);
+              logger.info(`[STREAM] Processed prompt preview:`, processedPrompt.substring(0, 200) + '...');
+              logger.info(`[STREAM] System context:`, prompt.system_context || 'None');
+              logger.info(`[STREAM] Messages being sent:`, JSON.stringify(messages, null, 2));
               
-              const streamResult = await streamCompletion(
-                {
-                  provider: prompt.provider,
-                  modelId: prompt.model_id
-                },
-                messages,
-                {
-                  onChunk: ({ chunk }) => {
-                    if (chunk.type === 'text-delta') {
-                      const token = chunk.textDelta;
-                      fullResponse += token;
-                      tokenCount++;
-                      
-                      if (tokenCount === 1) {
-                        logger.info(`[STREAM] First token received for prompt ${i + 1}`);
-                      }
-                      
-                      // Send token to client
-                      controller.enqueue(encoder.encode(
-                        `data: ${JSON.stringify({
-                          type: 'token',
-                          promptIndex: i,
-                          token: token
-                        })}\n\n`
-                      ));
+              try {
+                const streamResult = await streamCompletion(
+                  {
+                    provider: prompt.provider,
+                    modelId: prompt.model_id
+                  },
+                  messages,
+                  {
+                  onToken: (token) => {
+                    fullResponse += token;
+                    tokenCount++;
+                    
+                    if (tokenCount === 1) {
+                      logger.info(`[STREAM] First token received for prompt ${i + 1}`);
                     }
+                    
+                    // Send token to client
+                    controller.enqueue(encoder.encode(
+                      `data: ${JSON.stringify({
+                        type: 'token',
+                        promptIndex: i,
+                        token: token
+                      })}\n\n`
+                    ));
                   },
                   onFinish: async () => {
+                    logger.info(`[STREAM] onFinish called for prompt ${i + 1}. Total response length: ${fullResponse.length}`);
                     // Update prompt result with full response
                     await executeSQL(
                       `UPDATE prompt_results 
@@ -201,15 +203,25 @@ export async function POST(req: Request) {
                       ]
                     );
                   }
-                }
-              );
+                  }
+                );
 
-              // Let the stream complete naturally through onFinish
+                // Let the stream complete naturally through onFinish
               // The textPromise will resolve when streaming is done
               const finalText = await streamResult.textPromise;
-              fullResponse = finalText; // Ensure we have the complete response
               
-              logger.info(`[STREAM] Prompt ${i + 1} completed. Tokens: ${tokenCount}, Length: ${fullResponse.length}`);
+              // Only override if we got a valid response
+              if (finalText !== undefined && finalText !== null) {
+                fullResponse = finalText;
+              }
+              
+              // If no response was generated, log error
+              if (!fullResponse) {
+                logger.error(`[STREAM] No response generated for prompt ${i + 1}. Model: ${prompt.provider}/${prompt.model_id}`);
+                throw new Error('No response generated from AI model');
+              }
+              
+              logger.info(`[STREAM] Prompt ${i + 1} completed. Tokens: ${tokenCount}, Length: ${fullResponse?.length || 0}`);
 
               // Send prompt complete event
               controller.enqueue(encoder.encode(
@@ -219,6 +231,11 @@ export async function POST(req: Request) {
                   result: fullResponse
                 })}\n\n`
               ));
+              
+              } catch (streamError) {
+                logger.error(`[STREAM] Error during streaming:`, streamError);
+                throw streamError;
+              }
 
             } catch (promptError) {
               logger.error('Error executing prompt:', promptError);
