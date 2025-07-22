@@ -52,7 +52,7 @@ export async function POST(req: Request) {
 
     // Get prompts for this tool
     const promptsQuery = `
-      SELECT cp.id, cp.name, cp.content as prompt, cp.position as chain_order, cp.model_id as ai_model_id,
+      SELECT cp.id, cp.name, cp.content, cp.position, cp.model_id as ai_model_id,
              cp.system_context,
              am.model_id, am.provider, am.name as model_name
       FROM chain_prompts cp
@@ -65,12 +65,16 @@ export async function POST(req: Request) {
     ]);
 
     logger.info(`[STREAM] Raw prompts query result count:`, prompts.length);
+    logger.info(`[STREAM] Raw prompts type:`, typeof prompts, Array.isArray(prompts));
     if (prompts.length > 0) {
-      logger.info(`[STREAM] First prompt raw data:`, JSON.stringify(prompts[0]));
-      logger.info(`[STREAM] First prompt structure:`, Object.keys(prompts[0]));
-      logger.info(`[STREAM] First prompt id:`, prompts[0].id);
-      logger.info(`[STREAM] First prompt name:`, prompts[0].name);
-      logger.info(`[STREAM] First prompt content field:`, prompts[0].prompt?.substring(0, 100));
+      logger.info(`[STREAM] First prompt type:`, typeof prompts[0]);
+      logger.info(`[STREAM] First prompt keys:`, Object.keys(prompts[0]));
+      // Try different ways to access the data
+      logger.info(`[STREAM] Trying different access methods:`);
+      logger.info(`[STREAM] - prompts[0].id:`, prompts[0].id);
+      logger.info(`[STREAM] - prompts[0]['id']:`, prompts[0]['id']);
+      logger.info(`[STREAM] - prompts[0][0]:`, prompts[0][0]);
+      logger.info(`[STREAM] - Full first prompt:`, prompts[0]);
     }
 
     if (!prompts.length) {
@@ -123,14 +127,14 @@ export async function POST(req: Request) {
               logger.info(`[STREAM] Prompt data:`, {
                 id: prompt.id,
                 name: prompt.name,
-                promptLength: prompt.prompt?.length || 0,
+                contentLength: prompt.content?.length || 0,
                 systemContextLength: prompt.system_context?.length || 0,
                 provider: prompt.provider,
                 modelId: prompt.model_id
               });
               
               // Process prompt template with inputs
-              let processedPrompt = prompt.prompt;
+              let processedPrompt = prompt.content;
               
               if (!processedPrompt) {
                 logger.error(`[STREAM] Prompt content is empty! Prompt object keys:`, Object.keys(prompt));
