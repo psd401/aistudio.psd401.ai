@@ -1033,16 +1033,27 @@ export async function createAssistantArchitect(data: {
   userId: string;
   status?: string;
 }) {
+  // First get the user's database ID from their Cognito sub
+  const userResult = await executeSQL(`
+    SELECT id FROM users WHERE cognito_sub = :cognitoSub
+  `, [{ name: 'cognitoSub', value: { stringValue: data.userId } }]);
+  
+  if (!userResult || userResult.length === 0) {
+    throw new Error('User not found');
+  }
+  
+  const userDbId = userResult[0].id;
+  
   const sql = `
-    INSERT INTO assistant_architects (id, name, description, user_id, status, created_at, updated_at)
-    VALUES (gen_random_uuid(), :name, :description, :userId, :status, NOW(), NOW())
+    INSERT INTO assistant_architects (name, description, user_id, status, created_at, updated_at)
+    VALUES (:name, :description, :userId, :status::tool_status, NOW(), NOW())
     RETURNING *
   `;
   
   const parameters = [
     { name: 'name', value: { stringValue: data.name } },
     { name: 'description', value: data.description ? { stringValue: data.description } : { isNull: true } },
-    { name: 'userId', value: { stringValue: data.userId } },
+    { name: 'userId', value: { longValue: userDbId } },
     { name: 'status', value: { stringValue: data.status || 'draft' } }
   ];
   
@@ -1169,9 +1180,8 @@ export async function approveAssistantArchitect(id: number) {
   
   // Also create the tool entry if needed
   await executeSQL(`
-    INSERT INTO tools (id, identifier, name, description, prompt_chain_tool_id, is_active, created_at, updated_at)
-    SELECT gen_random_uuid(), 
-           LOWER(REPLACE(name, ' ', '-')), 
+    INSERT INTO tools (identifier, name, description, prompt_chain_tool_id, is_active, created_at, updated_at)
+    SELECT LOWER(REPLACE(name, ' ', '-')), 
            name, 
            description, 
            id, 
@@ -1179,11 +1189,11 @@ export async function approveAssistantArchitect(id: number) {
            NOW(), 
            NOW()
     FROM assistant_architects
-    WHERE id = :id
+    WHERE id = :assistantId
     AND NOT EXISTS (
-      SELECT 1 FROM tools WHERE prompt_chain_tool_id = :id
+      SELECT 1 FROM tools WHERE prompt_chain_tool_id = :assistantId
     )
-  `, parameters);
+  `, [{ name: 'assistantId', value: { longValue: assistant.id } }]);
   
   return {
     id: assistant.id,

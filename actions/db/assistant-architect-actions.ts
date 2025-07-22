@@ -403,6 +403,46 @@ export async function deleteAssistantArchitectAction(
   id: string
 ): Promise<ActionState<void>> {
   try {
+    // First delete all related records in the correct order
+    // Delete prompt_results (references chain_prompts)
+    await executeSQL(`
+      DELETE FROM prompt_results
+      WHERE prompt_id IN (
+        SELECT id FROM chain_prompts WHERE assistant_architect_id = :id
+      )
+    `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
+    
+    // Delete tool_executions (which might have prompt_results)
+    await executeSQL(`
+      DELETE FROM tool_executions
+      WHERE assistant_architect_id = :id
+    `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
+    
+    // Delete chain_prompts
+    await executeSQL(`
+      DELETE FROM chain_prompts
+      WHERE assistant_architect_id = :id
+    `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
+    
+    // Delete tool_input_fields
+    await executeSQL(`
+      DELETE FROM tool_input_fields
+      WHERE assistant_architect_id = :id
+    `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
+    
+    // Delete from tools table (using prompt_chain_tool_id which references assistant_architect)
+    await executeSQL(`
+      DELETE FROM tools
+      WHERE prompt_chain_tool_id = :id
+    `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
+    
+    // Delete from navigation_items
+    await executeSQL(`
+      DELETE FROM navigation_items
+      WHERE link = :link
+    `, [{ name: 'link', value: { stringValue: `/tools/assistant-architect/${id}` } }]);
+    
+    // Finally delete the assistant architect
     await executeSQL(`
       DELETE FROM assistant_architects
       WHERE id = :id
