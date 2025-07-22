@@ -48,10 +48,22 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   const [expandedInputs, setExpandedInputs] = useState<Record<string, boolean>>({})
   const [conversationId, setConversationId] = useState<number | null>(null)
 
-  // Debug: Log when component renders
+  // Cleanup effect for stream resources on unmount
   useEffect(() => {
-    // Removed verbose logging
-  })
+    return () => {
+      // Cleanup on component unmount
+      if (abortController) {
+        abortController.abort()
+        setAbortController(null)
+      }
+      if (streamReader) {
+        streamReader.cancel().catch(() => {
+          // Ignore cancellation errors
+        })
+        setStreamReader(null)
+      }
+    }
+  }, [abortController, streamReader])
 
   // Define base types for fields first
   const stringSchema = z.string();
@@ -91,6 +103,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   })
 
   const [abortController, setAbortController] = useState<AbortController | null>(null)
+  const [streamReader, setStreamReader] = useState<ReadableStreamDefaultReader<Uint8Array> | null>(null)
   const [streamingPromptIndex, setStreamingPromptIndex] = useState<number>(-1)
   const [promptTexts, setPromptTexts] = useState<Record<string, string>>({})
 
@@ -303,6 +316,9 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
               throw new Error('No reader available')
             }
 
+            // Store reader for cleanup
+            setStreamReader(reader)
+
             // Process the stream
             let buffer = ''
             while (true) {
@@ -318,12 +334,19 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                   try {
                     const data = JSON.parse(line.slice(6))
                     handleStreamEvent(data, values)
-                  } catch {
-                    // Silently ignore parse errors
+                  } catch (parseError) {
+                    // Log parse errors for debugging but don't break the stream
+                    if (process.env.NODE_ENV === 'development') {
+                      console.warn('[SSE] Failed to parse event data:', line, parseError)
+                    }
                   }
                 }
               }
             }
+            
+            // Clean up reader after successful streaming
+            reader.releaseLock()
+            setStreamReader(null)
           } catch (streamError) {
             if (streamError instanceof Error && streamError.name === 'AbortError') {
               // Stream aborted
@@ -331,6 +354,10 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
             }
             // Fall back to polling for this execution
             setIsPolling(true)
+          } finally {
+            // Clean up resources
+            setAbortController(null)
+            setStreamReader(null)
           }
         } else {
           // Use polling for older executions without executionId
@@ -767,6 +794,12 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                     onClick={() => {
                       abortController.abort()
                       setAbortController(null)
+                      if (streamReader) {
+                        streamReader.cancel().catch(() => {
+                          // Ignore cancellation errors
+                        })
+                        setStreamReader(null)
+                      }
                       setIsLoading(false)
                       setStreamingPromptIndex(-1)
                       setPromptTexts({})

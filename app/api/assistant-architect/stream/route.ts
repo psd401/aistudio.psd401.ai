@@ -2,6 +2,7 @@ import { getServerSession } from "@/lib/auth/server-session";
 import { executeSQL } from "@/lib/db/data-api-adapter";
 import { streamCompletion } from "@/lib/ai-helpers";
 import logger from "@/lib/logger";
+import { rateLimit } from "@/lib/rate-limit";
 
 interface StreamRequest {
   toolId: number;
@@ -24,7 +25,20 @@ function decodePromptVariables(content: string): string {
   return decoded;
 }
 
+// Configure rate limiting: 5 requests per minute per user
+const limiter = rateLimit({
+  interval: 60 * 1000, // 1 minute
+  uniqueTokenPerInterval: 5, // 5 requests per minute
+  skipAuth: false // Apply rate limiting to authenticated users
+});
+
 export async function POST(req: Request) {
+  // Apply rate limiting
+  const rateLimitResponse = await limiter(req as any);
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   const session = await getServerSession();
   if (!session) {
     return new Response('Unauthorized', { status: 401 });
