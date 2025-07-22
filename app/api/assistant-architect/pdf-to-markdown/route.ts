@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { generateCompletion } from '@/lib/ai-helpers'
 import { getServerSession } from '@/lib/auth/server-session'
 import { executeSQL } from '@/lib/db/data-api-adapter'
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action'
 import logger from "@/lib/logger"
 
 // Easily change the model id here
@@ -31,6 +32,15 @@ export async function POST(req: NextRequest) {
   if (!session || !session.sub) {
     return new NextResponse(
       JSON.stringify({ error: 'Unauthorized' }), 
+      { status: 401, headers }
+    );
+  }
+  
+  // Get the current user's database ID
+  const currentUser = await getCurrentUserAction();
+  if (!currentUser.isSuccess || !currentUser.data) {
+    return new NextResponse(
+      JSON.stringify({ error: 'User not found' }), 
       { status: 401, headers }
     );
   }
@@ -81,11 +91,11 @@ export async function POST(req: NextRequest) {
     };
     
     const jobResult = await executeSQL(`
-      INSERT INTO jobs (id, user_id, type, status, input, created_at, updated_at)
-      VALUES (gen_random_uuid(), :userId, 'pdf-to-markdown', 'pending', :input, NOW(), NOW())
+      INSERT INTO jobs (user_id, type, status, input, created_at, updated_at)
+      VALUES (:userId, 'pdf-to-markdown', 'pending'::job_status, :input, NOW(), NOW())
       RETURNING id, user_id, type, status, input, output, error, created_at, updated_at
     `, [
-      { name: 'userId', value: { stringValue: session.sub } },
+      { name: 'userId', value: { longValue: currentUser.data.user.id } },
       { name: 'input', value: { stringValue: JSON.stringify(jobInput) } }
     ]);
     
@@ -99,8 +109,8 @@ export async function POST(req: NextRequest) {
       const foundJobs = await executeSQL(`
         SELECT id, user_id, type, status, input, output, error, created_at, updated_at
         FROM jobs
-        WHERE id = :jobId::uuid
-      `, [{ name: 'jobId', value: { stringValue: job.id } }]);
+        WHERE id = :jobId
+      `, [{ name: 'jobId', value: { longValue: job.id } }]);
       
       if (foundJobs && foundJobs.length > 0) {
         committedJob = foundJobs[0];
@@ -145,16 +155,16 @@ export async function POST(req: NextRequest) {
 }
 
 // Background processing function
-async function processPdfInBackground(jobId: string, jobInput: any) {
+async function processPdfInBackground(jobId: number, jobInput: any) {
   try {
     logger.info(`[PDF-to-Markdown Background] Starting processing for job ${jobId}`);
     
     // Update job status to running
     await executeSQL(`
       UPDATE jobs
-      SET status = 'running', updated_at = NOW()
-      WHERE id = :jobId::uuid
-    `, [{ name: 'jobId', value: { stringValue: jobId } }]);
+      SET status = 'running'::job_status, updated_at = NOW()
+      WHERE id = :jobId
+    `, [{ name: 'jobId', value: { longValue: jobId } }]);
     
     // Get model config from DB
     const modelResult = await executeSQL(`
@@ -223,11 +233,11 @@ async function processPdfInBackground(jobId: string, jobInput: any) {
     
     await executeSQL(`
       UPDATE jobs
-      SET status = 'completed', output = :output, updated_at = NOW()
-      WHERE id = :jobId::uuid
+      SET status = 'completed'::job_status, output = :output, updated_at = NOW()
+      WHERE id = :jobId
     `, [
       { name: 'output', value: { stringValue: JSON.stringify(outputData) } },
-      { name: 'jobId', value: { stringValue: jobId } }
+      { name: 'jobId', value: { longValue: jobId } }
     ]);
     
     logger.info(`[PDF-to-Markdown Background] Job ${jobId} successfully saved to database`);
@@ -239,11 +249,11 @@ async function processPdfInBackground(jobId: string, jobInput: any) {
     // Update job with error
     await executeSQL(`
       UPDATE jobs
-      SET status = 'failed', error = :error, updated_at = NOW()
-      WHERE id = :jobId::uuid
+      SET status = 'failed'::job_status, error = :error, updated_at = NOW()
+      WHERE id = :jobId
     `, [
       { name: 'error', value: { stringValue: error.message || 'Unknown error' } },
-      { name: 'jobId', value: { stringValue: jobId } }
+      { name: 'jobId', value: { longValue: jobId } }
     ]);
   }
 }
