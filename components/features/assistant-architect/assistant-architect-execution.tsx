@@ -156,7 +156,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
             ...prev,
             [event.promptIndex]: isWaitingMessage ? event.token : currentText + event.token
           }
-          console.log(`[STREAM] Token for prompt ${event.promptIndex}:`, event.token, 'Total length:', updated[event.promptIndex]?.length || 0)
           return updated
         })
         break
@@ -280,7 +279,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
           setPromptTexts({})
           
           try {
-            console.log('[STREAM] Starting streaming request for execution:', result.data.executionId)
             const response = await fetch('/api/assistant-architect/stream', {
               method: 'POST',
               headers: {
@@ -319,10 +317,9 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                 if (line.startsWith('data: ')) {
                   try {
                     const data = JSON.parse(line.slice(6))
-                    console.log('[STREAM] Received event:', data.type, data)
                     handleStreamEvent(data, values)
                   } catch (e) {
-                    console.error('Failed to parse stream event:', line, e)
+                    // Silently ignore parse errors
                   }
                 }
               }
@@ -332,7 +329,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
               // Stream aborted
               return
             }
-            console.error('Streaming error:', streamError)
             // Fall back to polling for this execution
             setIsPolling(true)
           }

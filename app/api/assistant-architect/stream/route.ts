@@ -32,7 +32,6 @@ export async function POST(req: Request) {
 
   try {
     const { toolId, executionId, inputs }: StreamRequest = await req.json();
-    logger.info(`[STREAM] Request received - Tool: ${toolId}, Execution: ${executionId}`);
 
     // Get tool configuration and prompts
     const toolQuery = `
@@ -116,8 +115,7 @@ export async function POST(req: Request) {
               let processedPrompt = prompt.content;
               
               if (!processedPrompt) {
-                logger.error(`[STREAM] Prompt content is empty! Prompt object keys:`, Object.keys(prompt));
-                logger.error(`[STREAM] Prompt values - prompt:`, prompt.prompt, 'content:', prompt.content);
+                logger.error(`[STREAM] Prompt content is empty for prompt ${i + 1}`);
                 throw new Error('Prompt content is empty');
               }
               
@@ -188,7 +186,6 @@ export async function POST(req: Request) {
               }
               
               try {
-                logger.info(`[STREAM] Calling streamCompletion for prompt ${i + 1}`);
                 const streamResult = await streamCompletion(
                   {
                     provider: prompt.provider,
@@ -196,17 +193,12 @@ export async function POST(req: Request) {
                   },
                   messages
                 );
-
-                logger.info(`[STREAM] Stream created, starting to consume tokens...`);
                 
                 // Actually consume the stream
                 for await (const chunk of streamResult.textStream) {
                   fullResponse += chunk;
                   tokenCount++;
                   
-                  if (tokenCount % 10 === 1) {
-                    logger.info(`[STREAM] Received ${tokenCount} tokens so far...`);
-                  }
                   
                   // Send token to client
                   controller.enqueue(encoder.encode(
@@ -218,7 +210,6 @@ export async function POST(req: Request) {
                   ));
                 }
                 
-                logger.info(`[STREAM] Stream completed with ${tokenCount} tokens, response length: ${fullResponse.length}`);
 
                 // Update prompt result with full response
                 await executeSQL(
@@ -248,8 +239,6 @@ export async function POST(req: Request) {
               
               } catch (streamError) {
                 logger.error(`[STREAM] Error during streaming:`, streamError);
-                logger.error(`[STREAM] Error stack:`, streamError instanceof Error ? streamError.stack : 'No stack');
-                logger.error(`[STREAM] Error details:`, JSON.stringify(streamError, null, 2));
                 throw streamError;
               }
 

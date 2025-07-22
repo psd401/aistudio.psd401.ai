@@ -110,8 +110,6 @@ export async function generateCompletion(
   messages: CoreMessage[],
   tools?: Record<string, CoreTool>
 ) {
-  logger.info('[generateCompletion] SENDING TO LLM:', messages.map(m => `\n[${m.role}]\n${m.content}`).join('\n---\n'));
-  
   const model = await getModelClient(modelConfig);
   
   try {
@@ -151,19 +149,6 @@ export async function streamCompletion(
   options?: StreamingOptions,
   tools?: Record<string, CoreTool>
 ): Promise<StreamTextResult<Record<string, CoreTool>>> {
-  logger.info('[streamCompletion] Starting stream with config:', {
-    provider: modelConfig.provider,
-    modelId: modelConfig.modelId,
-    messageCount: messages.length,
-    hasTools: !!tools
-  });
-  
-  logger.info('[streamCompletion] Messages:', messages.map(m => ({
-    role: m.role,
-    contentLength: typeof m.content === 'string' ? m.content.length : 'complex',
-    contentPreview: typeof m.content === 'string' ? m.content.substring(0, 100) + '...' : 'complex content'
-  })));
-  
   const model = await getModelClient(modelConfig);
   
   try {
@@ -183,11 +168,6 @@ export async function streamCompletion(
     return result;
   } catch (error) {
     logger.error('[streamCompletion] Error during streaming:', error);
-    logger.error('[streamCompletion] Error details:', {
-      name: error instanceof Error ? error.name : 'Unknown',
-      message: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
     throw error;
   }
 }
@@ -198,8 +178,6 @@ export async function generateStructuredOutput<T>(
   messages: CoreMessage[],
   schema: z.ZodType<T>
 ): Promise<T> {
-  logger.info('[generateStructuredOutput] Generating structured output');
-  
   const model = await getModelClient(modelConfig);
   
   const result = await generateObject({
