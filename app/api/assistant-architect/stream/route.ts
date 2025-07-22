@@ -96,9 +96,15 @@ export async function POST(req: Request) {
 
             try {
               logger.info(`[STREAM] Processing prompt ${i + 1}/${prompts.length} - ID: ${prompt.id}`);
+              logger.info(`[STREAM] Prompt object:`, JSON.stringify(prompt, null, 2));
               
               // Process prompt template with inputs
               let processedPrompt = prompt.prompt;
+              
+              if (!processedPrompt) {
+                logger.error(`[STREAM] Prompt content is empty! Prompt object keys:`, Object.keys(prompt));
+                throw new Error('Prompt content is empty');
+              }
               
               // Replace placeholders with actual values
               Object.entries(inputs).forEach(([key, value]) => {
@@ -161,9 +167,9 @@ export async function POST(req: Request) {
 
               logger.info(`[STREAM] Using model: ${prompt.provider}/${prompt.model_id}`);
               logger.info(`[STREAM] Prompt content length: ${processedPrompt.length} chars`);
-              logger.info(`[STREAM] Processed prompt preview:`, processedPrompt.substring(0, 200) + '...');
+              logger.info(`[STREAM] Processed prompt preview:`, processedPrompt.substring(0, 500));
               logger.info(`[STREAM] System context:`, prompt.system_context || 'None');
-              logger.info(`[STREAM] Messages being sent:`, JSON.stringify(messages, null, 2));
+              logger.info(`[STREAM] Full messages being sent:`, JSON.stringify(messages, null, 2));
               
               // Check if model config is valid
               if (!prompt.provider || !prompt.model_id) {

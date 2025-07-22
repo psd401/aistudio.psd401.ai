@@ -183,17 +183,26 @@ export async function streamCompletion(
       messages,
       tools,
       maxSteps: tools ? 5 : undefined,
-      onChunk: options?.onToken ? ({ chunk }) => {
+      onChunk: ({ chunk }) => {
         logger.info('[streamCompletion] onChunk called with chunk type:', chunk.type);
-        if (chunk.type === 'text-delta') {
+        if (chunk.type === 'text-delta' && options?.onToken) {
           logger.info('[streamCompletion] Text delta:', chunk.textDelta);
-          options.onToken!(chunk.textDelta);
+          options.onToken(chunk.textDelta);
+        } else if (chunk.type === 'error') {
+          logger.error('[streamCompletion] Chunk error:', chunk);
         }
-      } : undefined,
-      onFinish: options?.onFinish ? (result) => {
+      },
+      onFinish: (result) => {
         logger.info('[streamCompletion] onFinish called, text length:', result.text?.length || 0);
-        options.onFinish!(result);
-      } : undefined
+        logger.info('[streamCompletion] onFinish result:', {
+          text: result.text?.substring(0, 100),
+          usage: result.usage,
+          finishReason: result.finishReason
+        });
+        if (options?.onFinish) {
+          options.onFinish(result);
+        }
+      }
     });
 
     logger.info('[streamCompletion] streamText returned successfully');
