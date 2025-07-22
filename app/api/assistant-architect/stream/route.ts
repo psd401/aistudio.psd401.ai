@@ -64,7 +64,13 @@ export async function POST(req: Request) {
       { name: 'toolId', value: { longValue: toolId } }
     ]);
 
-    logger.info(`[STREAM] Raw prompts query result:`, JSON.stringify(prompts, null, 2));
+    logger.info(`[STREAM] Raw prompts query result count:`, prompts.length);
+    if (prompts.length > 0) {
+      logger.info(`[STREAM] First prompt structure:`, Object.keys(prompts[0]));
+      logger.info(`[STREAM] First prompt id:`, prompts[0].id);
+      logger.info(`[STREAM] First prompt name:`, prompts[0].name);
+      logger.info(`[STREAM] First prompt content/prompt field:`, prompts[0].prompt || prompts[0].content);
+    }
 
     if (!prompts.length) {
       return new Response('No prompts configured for this tool', { status: 400 });
@@ -113,7 +119,10 @@ export async function POST(req: Request) {
 
             try {
               logger.info(`[STREAM] Processing prompt ${i + 1}/${prompts.length} - ID: ${prompt.id}`);
-              logger.info(`[STREAM] Prompt object:`, JSON.stringify(prompt, null, 2));
+              logger.info(`[STREAM] Prompt object keys:`, Object.keys(prompt));
+              logger.info(`[STREAM] Prompt id:`, prompt.id, 'name:', prompt.name);
+              logger.info(`[STREAM] Prompt content fields - prompt:', prompt.prompt, 'content:', prompt.content);
+              logger.info(`[STREAM] Prompt system_context:`, prompt.system_context);
               
               // Process prompt template with inputs
               // The SQL aliases 'content as prompt', but check both fields
@@ -188,7 +197,11 @@ export async function POST(req: Request) {
               logger.info(`[STREAM] Prompt content length: ${processedPrompt.length} chars`);
               logger.info(`[STREAM] Processed prompt preview:`, processedPrompt.substring(0, 500));
               logger.info(`[STREAM] System context:`, prompt.system_context || 'None');
-              logger.info(`[STREAM] Full messages being sent:`, JSON.stringify(messages, null, 2));
+              logger.info(`[STREAM] Messages count:`, messages.length);
+              messages.forEach((msg, idx) => {
+                logger.info(`[STREAM] Message ${idx} - role:`, msg.role, 'content length:', msg.content?.length || 0);
+                logger.info(`[STREAM] Message ${idx} content preview:`, msg.content?.substring(0, 200));
+              });
               
               // Check if model config is valid
               if (!prompt.provider || !prompt.model_id) {

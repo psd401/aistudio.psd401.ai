@@ -157,7 +157,14 @@ export async function streamCompletion(
   tools?: Record<string, CoreTool>
 ): Promise<StreamTextResult<Record<string, CoreTool>>> {
   logger.info('[streamCompletion] Starting stream for:', modelConfig);
-  logger.info('[streamCompletion] Messages:', JSON.stringify(messages, null, 2));
+  logger.info('[streamCompletion] Messages count:', messages.length);
+  messages.forEach((msg, idx) => {
+    logger.info(`[streamCompletion] Message ${idx}:`, {
+      role: msg.role,
+      contentLength: typeof msg.content === 'string' ? msg.content.length : 0,
+      contentPreview: typeof msg.content === 'string' ? msg.content.substring(0, 100) : 'not a string'
+    });
+  });
   
   let model;
   try {
