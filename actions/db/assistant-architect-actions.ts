@@ -72,7 +72,7 @@ export async function createAssistantArchitectAction(
 
     const [architect] = await executeSQL(`
       INSERT INTO assistant_architects (name, description, status, image_path, user_id, created_at, updated_at)
-      VALUES (:name, :description, :status, :imagePath, :userId, NOW(), NOW())
+      VALUES (:name, :description, :status::tool_status, :imagePath, :userId, NOW(), NOW())
       RETURNING id, name, description, status, image_path, user_id, created_at, updated_at
     `, [
       { name: 'name', value: { stringValue: assistant.name } },
@@ -353,7 +353,12 @@ export async function updateAssistantArchitectAction(
     for (const [key, value] of Object.entries(data)) {
       if (value !== undefined) {
         const snakeKey = key === 'imagePath' ? 'image_path' : key === 'userId' ? 'user_id' : key;
-        updateFields.push(`${snakeKey} = :param${paramIndex}`);
+        // Add type cast for status field
+        if (key === 'status') {
+          updateFields.push(`${snakeKey} = :param${paramIndex}::tool_status`);
+        } else {
+          updateFields.push(`${snakeKey} = :param${paramIndex}`);
+        }
         
         let paramValue: any;
         if (value === null) {
@@ -428,8 +433,8 @@ export async function addToolInputFieldAction(
 ): Promise<ActionState<void>> {
   try {
     await executeSQL(`
-      INSERT INTO tool_input_fields (id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at)
-      VALUES (gen_random_uuid(), :toolId, :name, :label, :fieldType::field_type, :position, :options, NOW(), NOW())
+      INSERT INTO tool_input_fields (assistant_architect_id, name, label, field_type, position, options, created_at, updated_at)
+      VALUES (:toolId, :name, :label, :fieldType::field_type, :position, :options, NOW(), NOW())
     `, [
       { name: 'toolId', value: { longValue: parseInt(architectId, 10) } },
       { name: 'name', value: { stringValue: data.name } },
@@ -691,8 +696,8 @@ export async function addChainPromptAction(
 ): Promise<ActionState<void>> {
   try {
     await executeSQL(`
-      INSERT INTO chain_prompts (id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at)
-      VALUES (gen_random_uuid(), :toolId, :name, :content, :systemContext, :modelId, :position, :inputMapping, NOW(), NOW())
+      INSERT INTO chain_prompts (assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at)
+      VALUES (:toolId, :name, :content, :systemContext, :modelId, :position, :inputMapping, NOW(), NOW())
     `, [
       { name: 'toolId', value: { longValue: parseInt(architectId, 10) } },
       { name: 'name', value: { stringValue: data.name } },
@@ -1066,7 +1071,7 @@ export async function approveAssistantArchitectAction(
     // Update the tool status to approved
     const updatedToolResult = await executeSQL(`
       UPDATE assistant_architects
-      SET status = 'approved', updated_at = NOW()
+      SET status = 'approved'::tool_status, updated_at = NOW()
       WHERE id = :id
       RETURNING id, name, description, status, image_path, user_id, created_at, updated_at
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
@@ -1211,7 +1216,7 @@ export async function rejectAssistantArchitectAction(
 
     await executeSQL(`
       UPDATE assistant_architects
-      SET status = 'rejected', updated_at = NOW()
+      SET status = 'rejected'::tool_status, updated_at = NOW()
       WHERE id = :id
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
 
@@ -1637,7 +1642,7 @@ export async function submitAssistantArchitectForApprovalAction(
 
     await executeSQL(`
       UPDATE assistant_architects
-      SET status = 'pending_approval', updated_at = NOW()
+      SET status = 'pending_approval'::tool_status, updated_at = NOW()
       WHERE id = :id
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
 
