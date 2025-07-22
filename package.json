@@ -86,7 +86,8 @@
     "uuid": "^11.1.0",
     "winston": "^3.17.0",
     "zod": "^3.24.2",
-    "escape-html": "^1.0.3"
+    "escape-html": "^1.0.3",
+    "lodash": "^4.17.21"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.4.2",

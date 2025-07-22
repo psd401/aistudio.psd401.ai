@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import _ from 'lodash';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId } from '@/lib/db/queries/documents';
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest) {
           chunkIndex: chunk.chunkIndex,
           content: chunk.content,
           // Calculate a simple relevance score based on occurrence count
-          relevance: (chunk.content.toLowerCase().match(new RegExp(query.toLowerCase(), 'g')) || []).length
+          relevance: (chunk.content.toLowerCase().match(new RegExp(_.escapeRegExp(query.toLowerCase()), 'g')) || []).length
         };
       })
       .sort((a, b) => b.relevance - a.relevance) // Sort by relevance
