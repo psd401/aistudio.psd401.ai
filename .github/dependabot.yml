@@ -1,0 +1,62 @@
+# Dependabot configuration for automated dependency updates
+# Helps keep dependencies up-to-date and secure
+version: 2
+updates:
+  # JavaScript/TypeScript dependencies (root package.json)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 10
+    groups:
+      # Group all minor and patch updates together
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    # Security updates are always created immediately
+    # regardless of schedule
+    
+  # CDK Infrastructure dependencies
+  - package-ecosystem: "npm"
+    directory: "/infra"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 5
+    groups:
+      # Group AWS CDK related updates
+      aws-cdk:
+        patterns:
+          - "aws-cdk*"
+          - "@aws-cdk/*"
+          - "constructs"
+        update-types:
+          - "minor"
+          - "patch"
+      # Group other minor and patch updates
+      minor-and-patch:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "aws-cdk*"
+          - "@aws-cdk/*"
+          - "constructs"
+        update-types:
+          - "minor"
+          - "patch"
+  
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
