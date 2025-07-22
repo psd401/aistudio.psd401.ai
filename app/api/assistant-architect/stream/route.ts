@@ -17,6 +17,7 @@ export async function POST(req: Request) {
 
   try {
     const { toolId, executionId, inputs }: StreamRequest = await req.json();
+    logger.info(`[STREAM] Request received - Tool: ${toolId}, Execution: ${executionId}`);
 
     // Get tool configuration and prompts
     const toolQuery = `
@@ -94,6 +95,8 @@ export async function POST(req: Request) {
             ));
 
             try {
+              logger.info(`[STREAM] Processing prompt ${i + 1}/${prompts.length} - ID: ${prompt.id}`);
+              
               // Process prompt template with inputs
               let processedPrompt = prompt.prompt;
               
@@ -144,6 +147,7 @@ export async function POST(req: Request) {
 
               // Stream the AI response
               let fullResponse = '';
+              let tokenCount = 0;
               const messages = [
                 ...(prompt.system_context ? [{ 
                   role: 'system' as const, 
@@ -155,6 +159,9 @@ export async function POST(req: Request) {
                 }
               ];
 
+              logger.info(`[STREAM] Using model: ${prompt.provider}/${prompt.model_id}`);
+              logger.info(`[STREAM] Prompt content length: ${processedPrompt.length} chars`);
+              
               const streamResult = await streamCompletion(
                 {
                   provider: prompt.provider,
@@ -162,16 +169,25 @@ export async function POST(req: Request) {
                 },
                 messages,
                 {
-                  onToken: (token) => {
-                    fullResponse += token;
-                    // Send token to client
-                    controller.enqueue(encoder.encode(
-                      `data: ${JSON.stringify({
-                        type: 'token',
-                        promptIndex: i,
-                        token: token
-                      })}\n\n`
-                    ));
+                  onChunk: ({ chunk }) => {
+                    if (chunk.type === 'text-delta') {
+                      const token = chunk.textDelta;
+                      fullResponse += token;
+                      tokenCount++;
+                      
+                      if (tokenCount === 1) {
+                        logger.info(`[STREAM] First token received for prompt ${i + 1}`);
+                      }
+                      
+                      // Send token to client
+                      controller.enqueue(encoder.encode(
+                        `data: ${JSON.stringify({
+                          type: 'token',
+                          promptIndex: i,
+                          token: token
+                        })}\n\n`
+                      ));
+                    }
                   },
                   onFinish: async () => {
                     // Update prompt result with full response
@@ -188,8 +204,12 @@ export async function POST(req: Request) {
                 }
               );
 
-              // Wait for streaming to complete
-              await streamResult.textPromise;
+              // Let the stream complete naturally through onFinish
+              // The textPromise will resolve when streaming is done
+              const finalText = await streamResult.textPromise;
+              fullResponse = finalText; // Ensure we have the complete response
+              
+              logger.info(`[STREAM] Prompt ${i + 1} completed. Tokens: ${tokenCount}, Length: ${fullResponse.length}`);
 
               // Send prompt complete event
               controller.enqueue(encoder.encode(

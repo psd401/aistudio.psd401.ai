@@ -142,10 +142,14 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         break
 
       case 'token':
-        setPromptTexts(prev => ({
-          ...prev,
-          [event.promptIndex]: (prev[event.promptIndex] || '') + event.token
-        }))
+        setPromptTexts(prev => {
+          const updated = {
+            ...prev,
+            [event.promptIndex]: (prev[event.promptIndex] || '') + event.token
+          }
+          console.log(`[STREAM] Token for prompt ${event.promptIndex}:`, event.token, 'Total length:', updated[event.promptIndex]?.length || 0)
+          return updated
+        })
         break
 
       case 'prompt_complete':
@@ -267,6 +271,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
           setPromptTexts({})
           
           try {
+            console.log('[STREAM] Starting streaming request for execution:', result.data.executionId)
             const response = await fetch('/api/assistant-architect/stream', {
               method: 'POST',
               headers: {
@@ -305,9 +310,10 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                 if (line.startsWith('data: ')) {
                   try {
                     const data = JSON.parse(line.slice(6))
+                    console.log('[STREAM] Received event:', data.type, data)
                     handleStreamEvent(data, values)
-                  } catch {
-                    console.error('Failed to parse stream event')
+                  } catch (e) {
+                    console.error('Failed to parse stream event:', line, e)
                   }
                 }
               }
