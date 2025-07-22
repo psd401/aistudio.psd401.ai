@@ -48,23 +48,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   const [expandedInputs, setExpandedInputs] = useState<Record<string, boolean>>({})
   const [conversationId, setConversationId] = useState<number | null>(null)
 
-  // Cleanup effect for stream resources on unmount
-  useEffect(() => {
-    return () => {
-      // Cleanup on component unmount
-      if (abortController) {
-        abortController.abort()
-        setAbortController(null)
-      }
-      if (streamReader) {
-        streamReader.cancel().catch(() => {
-          // Ignore cancellation errors
-        })
-        setStreamReader(null)
-      }
-    }
-  }, [abortController, streamReader])
-
   // Define base types for fields first
   const stringSchema = z.string();
 
@@ -106,6 +89,21 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   const [streamReader, setStreamReader] = useState<ReadableStreamDefaultReader<Uint8Array> | null>(null)
   const [streamingPromptIndex, setStreamingPromptIndex] = useState<number>(-1)
   const [promptTexts, setPromptTexts] = useState<Record<string, string>>({})
+
+  // Cleanup effect for stream resources on unmount
+  useEffect(() => {
+    return () => {
+      // Cleanup on component unmount
+      if (abortController) {
+        abortController.abort()
+      }
+      if (streamReader) {
+        streamReader.cancel().catch(() => {
+          // Ignore cancellation errors
+        })
+      }
+    }
+  }, [abortController, streamReader])
 
   const handleStreamEvent = useCallback((event: { type: string; totalPrompts?: number; promptIndex?: number; promptId?: number; modelName?: string; token?: string; result?: string; error?: string; executionId?: number }, inputs: Record<string, unknown>) => {
     switch (event.type) {
