@@ -128,6 +128,21 @@ Parameter types: `stringValue`, `longValue`, `booleanValue`, `doubleValue`, `isN
     └── database/         # DB schema and migrations
 ```
 
+### Architectural Patterns
+This codebase follows a **Layered Architecture** with Domain-Driven Design influences:
+
+**Layer Separation:**
+- **Presentation Layer**: `/app` (pages), `/components` (UI)
+- **Application Layer**: `/actions` (server-side business logic) 
+- **Infrastructure Layer**: `/lib` (adapters, utilities), `/infra` (AWS CDK)
+
+**Key Principles:**
+- Server-first approach with React Server Components
+- Business logic isolated in server actions
+- Infrastructure details abstracted behind adapters
+- Consistent interfaces (`ActionState<T>`) between layers
+- Direct SQL with parameterized queries (no ORM)
+
 ### Key Conventions
 - **File Naming**: kebab-case (e.g., `user-role-form.tsx`)
 - **Component Export**: File name matches component name

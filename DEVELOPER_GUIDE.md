@@ -39,6 +39,29 @@ This guide covers local development, coding standards, and testing for this proj
 - Never expose secrets to the frontend.
 - Update `.env.example` when adding/changing environment variables.
 
+## Architecture Overview
+This project follows a **Layered Architecture** pattern:
+
+1. **Presentation Layer** (`/app`, `/components`)
+   - React Server Components by default
+   - Client components only when necessary (`"use client"`)
+   - No business logic in components
+
+2. **Application Layer** (`/actions`)
+   - All business logic in server actions
+   - Consistent `ActionState<T>` return pattern
+   - Authorization checks via `hasToolAccess()`
+
+3. **Infrastructure Layer** (`/lib`, `/infra`)
+   - Database adapter pattern (`executeSQL`)
+   - External service integrations
+   - AWS CDK infrastructure definitions
+
+When adding new features:
+- Start with server actions in `/actions`
+- Keep UI components thin and focused on presentation
+- Abstract infrastructure details behind functions in `/lib`
+
 ### Import Optimization
 For better build performance, import specific components rather than entire libraries:
 ```typescript

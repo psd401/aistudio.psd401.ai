@@ -81,6 +81,13 @@ Thank you for contributing to this project! Please follow these standards to ens
 
 ## Code Patterns & Architecture
 
+### Architectural Principles
+- **Separation of Concerns**: Keep presentation, business logic, and infrastructure in separate layers
+- **Server-First**: Prefer server components and server actions over client-side logic
+- **Consistency**: All server actions must return `ActionState<T>` for uniform error handling
+- **No Business Logic in Components**: Business rules belong in `/actions`, not in UI components
+- **Infrastructure Abstraction**: Database and external services accessed only through adapters in `/lib`
+
 ### Server Actions
 Follow the consistent `ActionState<T>` pattern for all server actions:
 ```typescript
