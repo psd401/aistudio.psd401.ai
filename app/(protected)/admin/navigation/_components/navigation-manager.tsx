@@ -94,7 +94,6 @@ export function NavigationManager() {
         if (error instanceof Error && error.name === 'AbortError') {
           return
         }
-        console.error("Failed to fetch navigation:", error)
         setError("Failed to fetch navigation items")
       } finally {
         setIsLoading(false)
@@ -166,7 +165,6 @@ export function NavigationManager() {
           setItems(data.data)
         }
       } catch (error) {
-        console.error('Failed to update positions:', error)
         setError("Failed to update item positions")
         // Revert the optimistic update
         setItems(items)

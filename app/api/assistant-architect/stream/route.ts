@@ -166,7 +166,6 @@ export async function POST(req: Request) {
 
               // Stream the AI response
               let fullResponse = '';
-              let tokenCount = 0;
               const messages = [
                 ...(prompt.system_context ? [{ 
                   role: 'system' as const, 
@@ -197,8 +196,6 @@ export async function POST(req: Request) {
                 // Actually consume the stream
                 for await (const chunk of streamResult.textStream) {
                   fullResponse += chunk;
-                  tokenCount++;
-                  
                   
                   // Send token to client
                   controller.enqueue(encoder.encode(

@@ -198,7 +198,7 @@ export async function validateRequest<T>(
     }
     
     return { data: result.data, error: null };
-  } catch (error) {
+  } catch {
     return { data: null, error: 'Invalid JSON body' };
   }
 }

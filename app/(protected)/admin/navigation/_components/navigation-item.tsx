@@ -89,8 +89,7 @@ export function NavigationItem({
           const data = await response.json()
           alert(data.message || "Failed to delete navigation item")
         }
-      } catch (error) {
-        console.error("Error deleting navigation item:", error)
+      } catch {
         alert("Failed to delete navigation item")
       } finally {
         setIsDeleting(false)

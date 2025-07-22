@@ -318,7 +318,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                   try {
                     const data = JSON.parse(line.slice(6))
                     handleStreamEvent(data, values)
-                  } catch (e) {
+                  } catch {
                     // Silently ignore parse errors
                   }
                 }
@@ -349,7 +349,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         setIsLoading(false)
       }
     } catch (submitError) {
-      console.error("Error executing tool:", submitError)
       const errorMessage = submitError instanceof Error ? submitError.message : "Failed to start execution"
       setError(errorMessage)
       toast({
@@ -359,7 +358,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
       })
       setIsLoading(false)
     }
-  }, [isLoading, isPolling, setIsLoading, setResults, setError, tool.id, toast, results, setConversationId])
+  }, [isLoading, isPolling, setIsLoading, setResults, setError, tool.id, toast, results, setConversationId, handleStreamEvent])
 
   // Update the form values type
   const safeJsonParse = useCallback((jsonString: string | null | undefined): Record<string, unknown> | null => {

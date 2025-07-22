@@ -14,7 +14,6 @@ import { SelectNavigationItem } from "@/types/db-types"
 import { iconMap, IconName } from "@/components/navigation/icon-map"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useRouter } from "next/navigation"
-import { createNavigationItemAction, updateNavigationItemAction } from "@/actions/db/navigation-actions"
 import { toast } from "sonner"
 import React from "react"
 import { generateToolIdentifier } from "@/lib/utils"
@@ -55,8 +54,7 @@ export function NavigationItemForm({
   open,
   onOpenChange,
   onSubmit,
-  initialData,
-  items = []
+  initialData
 }: NavigationItemFormProps) {
   const router = useRouter()
   const [parents, setParents] = useState<SelectNavigationItem[]>([])
@@ -121,7 +119,7 @@ export function NavigationItemForm({
     if (open) {
       fetchData()
     }
-  }, [open, initialData?.id, form.getValues("type")])
+  }, [open, initialData?.id, form])
 
   const onFormSubmit = async (values: FormValues) => {
     try {
@@ -161,7 +159,7 @@ export function NavigationItemForm({
       } else {
         toast.error(result.message)
       }
-    } catch (error) {
+    } catch {
       toast.error("Something went wrong")
     }
   }

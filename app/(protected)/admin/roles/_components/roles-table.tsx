@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/table"
 import {
   ColumnDef,
+  Column,
   flexRender,
   getCoreRowModel,
   getSortedRowModel,
@@ -32,9 +33,17 @@ interface Role {
   updated_at?: string;
 }
 
+interface Tool {
+  id: string;
+  name: string;
+  identifier: string;
+  description?: string;
+  isActive: boolean;
+}
+
 interface RolesTableProps {
   roles: Role[];
-  tools?: any[];
+  tools?: Tool[];
 }
 
 export function RolesTable({ roles, tools = [] }: RolesTableProps) {
@@ -51,7 +60,7 @@ export function RolesTable({ roles, tools = [] }: RolesTableProps) {
     title,
     className = ""
   }: {
-    column: any;
+    column: Column<Role>;
     title: string;
     className?: string;
   }) => (
@@ -106,11 +115,10 @@ export function RolesTable({ roles, tools = [] }: RolesTableProps) {
       
       // Refresh the page to update the table
       window.location.reload()
-    } catch (error: any) {
-      console.error("Error deleting role:", error)
+    } catch (error) {
       toast({
         title: "Error",
-        description: error.message || "Failed to delete role",
+        description: error instanceof Error ? error.message : "Failed to delete role",
         variant: "destructive"
       })
     }
