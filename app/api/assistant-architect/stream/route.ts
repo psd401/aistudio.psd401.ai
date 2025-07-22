@@ -9,6 +9,21 @@ interface StreamRequest {
   inputs: Record<string, unknown>;
 }
 
+// Add a function to decode HTML entities and remove escapes for variable placeholders
+function decodePromptVariables(content: string): string {
+  // Replace HTML entity for $ with $
+  let decoded = content.replace(/&#x24;|&\#36;/g, '$');
+  // Remove backslash escapes before $
+  decoded = decoded.replace(/\\\$/g, '$');
+  // Remove backslash escapes before {
+  decoded = decoded.replace(/\\\{/g, '{');
+  // Remove backslash escapes before }
+  decoded = decoded.replace(/\\\}/g, '}');
+  // Remove backslash escapes before _
+  decoded = decoded.replace(/\\_/g, '_');
+  return decoded;
+}
+
 export async function POST(req: Request) {
   const session = await getServerSession();
   if (!session) {
@@ -48,6 +63,8 @@ export async function POST(req: Request) {
     const prompts = await executeSQL(promptsQuery, [
       { name: 'toolId', value: { longValue: toolId } }
     ]);
+
+    logger.info(`[STREAM] Raw prompts query result:`, JSON.stringify(prompts, null, 2));
 
     if (!prompts.length) {
       return new Response('No prompts configured for this tool', { status: 400 });
@@ -99,20 +116,22 @@ export async function POST(req: Request) {
               logger.info(`[STREAM] Prompt object:`, JSON.stringify(prompt, null, 2));
               
               // Process prompt template with inputs
-              let processedPrompt = prompt.prompt;
+              // The SQL aliases 'content as prompt', but check both fields
+              let processedPrompt = prompt.prompt || prompt.content;
               
               if (!processedPrompt) {
                 logger.error(`[STREAM] Prompt content is empty! Prompt object keys:`, Object.keys(prompt));
+                logger.error(`[STREAM] Prompt values - prompt:`, prompt.prompt, 'content:', prompt.content);
                 throw new Error('Prompt content is empty');
               }
               
-              // Replace placeholders with actual values
-              Object.entries(inputs).forEach(([key, value]) => {
-                const placeholder = `{{${key}}}`;
-                processedPrompt = processedPrompt.replace(
-                  new RegExp(placeholder, 'g'),
-                  String(value)
-                );
+              // Decode HTML entities and escapes
+              processedPrompt = decodePromptVariables(processedPrompt);
+              
+              // Replace placeholders with actual values using ${key} format like the working code
+              processedPrompt = processedPrompt.replace(/\${([\w-]+)}/g, (_match: string, key: string) => {
+                const value = inputs[key];
+                return value !== undefined ? String(value) : `[Missing value for ${key}]`;
               });
 
               // If this is not the first prompt, include previous results
