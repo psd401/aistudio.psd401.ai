@@ -178,3 +178,7 @@ Required environment variables are documented in `/docs/ENVIRONMENT_VARIABLES.md
 - SQL injection protection via parameterized queries
 - Secrets managed in AWS Secrets Manager
 - No direct database connections (Data API only)
+
+### Commit Process
+- You are never to attribute commits to yourself, DO NOT ever add yourself as the author
+- Always write very detailed intricate commit messages to document fully what was changed in the code you were working on.
