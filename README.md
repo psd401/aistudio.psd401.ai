@@ -115,7 +115,7 @@ cdk deploy --all \
 4. Configure environment variables in AWS Amplify Console
 5. Push code to trigger Amplify deployment
 
-See `DEPLOYMENT.md` for full deployment instructions and `OPERATIONS.md` for operational best practices.
+See `docs/DEPLOYMENT.md` for full deployment instructions and `docs/OPERATIONS.md` for operational best practices.
 
 ## Project Structure
 
@@ -132,11 +132,15 @@ See `DEPLOYMENT.md` for full deployment instructions and `OPERATIONS.md` for ope
 
 ## Key Documentation
 
-- [DEPLOYMENT.md](./DEPLOYMENT.md) - Detailed deployment guide
-- [OPERATIONS.md](./OPERATIONS.md) - Operational procedures
-- [CLAUDE.md](./CLAUDE.md) - Development guidelines
-- [DEVELOPER_GUIDE.md](./DEVELOPER_GUIDE.md) - Development setup
-- [docs/ENVIRONMENT_VARIABLES.md](./docs/ENVIRONMENT_VARIABLES.md) - Environment variable reference
+- [Deployment Guide](./docs/DEPLOYMENT.md) - Detailed deployment instructions
+- [Operations Guide](./docs/OPERATIONS.md) - Operational procedures
+- [Developer Guide](./DEVELOPER_GUIDE.md) - Development setup and workflow
+- [Environment Variables](./docs/ENVIRONMENT_VARIABLES.md) - Required environment variables
+- [Technical Specification](./docs/SPECIFICATION.md) - Architecture and design
+- [Navigation System](./docs/navigation.md) - Dynamic navigation documentation
+- [AI Features](./docs/AI_IMPROVEMENTS.md) - AI capabilities and improvements
+- [S3 Uploads](./docs/project-plan-s3-large-uploads.md) - Large file upload implementation
+- [CLAUDE.md](./CLAUDE.md) - Development guidelines for AI assistants
 
 ## Contributing
 

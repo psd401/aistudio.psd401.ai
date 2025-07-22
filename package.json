@@ -9,9 +9,7 @@
     "lint": "next lint",
     "test": "jest",
     "test:watch": "jest --watch",
-    "ts-node": "tsx",
-    "find-users": "tsx scripts/find-my-cognito-sub.ts",
-    "assign-admin": "tsx scripts/check-and-assign-admin-role.ts"
+    "ts-node": "tsx"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^2.0.3",

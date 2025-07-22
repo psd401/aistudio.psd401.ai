@@ -17,9 +17,16 @@ This guide covers local development, coding standards, and testing for this proj
    cp .env.example .env.local
    # Edit .env.local with your local/test values
    ```
-4. Run the development server:
+4. Configure SSR environment (required for authentication):
+   ```sh
+   # Add to .env.local
+   AMPLIFY_APP_ORIGIN=http://localhost:3000  # Use HTTPS in production
+   ```
+5. Run the development server:
    ```sh
    npm run dev
+   # For faster development with Turbopack:
+   npm run dev --turbo
    ```
 
 ## Coding Standards
@@ -28,8 +35,19 @@ This guide covers local development, coding standards, and testing for this proj
 - Prefer interfaces over type aliases.
 - Use kebab-case for files and folders.
 - Use the `@` alias for imports.
+- Use type-only imports: `import type { ... }` for types.
 - Never expose secrets to the frontend.
 - Update `.env.example` when adding/changing environment variables.
+
+### Import Optimization
+For better build performance, import specific components rather than entire libraries:
+```typescript
+// ✅ Good - specific import
+import TriangleIcon from '@phosphor-icons/react/dist/csr/Triangle'
+
+// ❌ Bad - imports entire library
+import { TriangleIcon } from '@phosphor-icons/react'
+```
 
 ## Configuration Management
 - **Public config** (e.g., Google OAuth client IDs, frontend base domain) is provided as CloudFormation parameters at deploy time. Never hardcode or store these in Secrets Manager.
@@ -54,19 +72,69 @@ cdk deploy FrontendStack-Prod --parameters FrontendStack-Prod:BaseDomain=yourdom
 - **Never hardcode secrets or public config in code.**
 - Use CloudFormation parameters for public config that may change per deployment (e.g., OAuth client IDs, callback URLs, base domain).
 - Use AWS Secrets Manager for all sensitive values (e.g., client secrets, API keys).
-- Document all required parameters and secrets in `DEPLOYMENT.md`.
+- Document all required parameters and secrets in `docs/DEPLOYMENT.md`.
 - Do not use environment variables for stack configuration—prefer parameters and secrets for reproducibility and security.
+
+## Database Development
+
+### RDS Data API Usage
+All database operations must use the RDS Data API with parameterized queries:
+```typescript
+// ✅ Correct - parameterized query
+await executeSQL(
+  "SELECT * FROM users WHERE id = :id",
+  [{ name: "id", value: { longValue: userId } }]
+)
+
+// ❌ Never use string concatenation
+await executeSQL(`SELECT * FROM users WHERE id = ${userId}`)
+```
+
+### Transaction Management
+For operations that modify multiple tables, use transactions:
+```typescript
+await executeTransaction(async (transactionId) => {
+  await executeSQL("INSERT INTO ...", params, transactionId)
+  await executeSQL("UPDATE ...", params, transactionId)
+})
+```
+
+## Server Actions Pattern
+All server actions must follow the `ActionState<T>` pattern:
+```typescript
+export async function actionName(): Promise<ActionState<ReturnType>> {
+  const session = await getServerSession()
+  if (!session) return { isSuccess: false, message: "Unauthorized" }
+  
+  const hasAccess = await hasToolAccess(session.user.sub, "toolName")
+  if (!hasAccess) return { isSuccess: false, message: "Access denied" }
+  
+  try {
+    const result = await executeSQL(...)
+    return { isSuccess: true, message: "Success", data: result }
+  } catch (error) {
+    return handleError(error, "Operation failed")
+  }
+}
+```
 
 ## Testing
 - Run all tests before submitting a PR:
   ```sh
   npm test
+  npm run lint
+  npm run typecheck  # Check TypeScript types
   ```
 - Watch mode:
   ```sh
   npm run test:watch
   ```
 - Add or update tests for new features and bug fixes.
+- Include tests for:
+  - Authentication flows
+  - Protected routes
+  - Server-side rendering
+  - Error scenarios
 - Do not break existing tests.
 - Use `cdk synth` to validate templates before deploying
 - Use `cdk diff` to preview changes
@@ -79,8 +147,16 @@ cdk deploy FrontendStack-Prod --parameters FrontendStack-Prod:BaseDomain=yourdom
 
 ## AWS/CDK Development
 - Infrastructure code is in `/infra` and uses AWS CDK (TypeScript).
-- See `DEPLOYMENT.md` for deployment instructions.
-- See `OPERATIONS.md` for operational best practices.
+- See `docs/DEPLOYMENT.md` for deployment instructions.
+- See `docs/OPERATIONS.md` for operational best practices.
+
+### Security Best Practices
+- **Security Groups**: Apply least-privilege principles. Never allow 0.0.0.0/0.
+- **Encryption**: Enable encryption at rest for RDS, S3, and other data stores.
+- **SSL/TLS**: Enforce SSL on S3 buckets with minimum TLS version 1.2.
+- **IAM Policies**: Follow least-privilege. Enable `ConfirmPermissionsBroadening` in pipelines.
+- **Secrets**: Use AWS Secrets Manager exclusively. Never hardcode secrets.
+- **Cross-Account**: Enable `crossAccountKeys: true` for cross-account deployments.
 
 ## Updating Infrastructure (CDK Workflow)
 As you make changes to the infrastructure code (add/modify resources, parameters, etc.), follow this workflow:
@@ -123,6 +199,48 @@ As you make changes to the infrastructure code (add/modify resources, parameters
    - List stacks: `cdk list`
    - Destroy a stack: `cdk destroy AIStudio-FrontendStack-Dev --context baseDomain=yourdomain.com`
 
-See `DEPLOYMENT.md` for more details and examples.
+See `docs/DEPLOYMENT.md` for more details and examples.
+
+## Authentication & SSR Development
+
+### Amplify Configuration
+When using Amplify in Next.js, always configure with SSR enabled:
+```typescript
+import { Amplify } from 'aws-amplify'
+import config from '@/amplifyconfiguration.json'
+
+Amplify.configure(config, { ssr: true })
+```
+
+### Server-Side Operations
+Use `runWithAmplifyServerContext` for server-side Amplify operations:
+```typescript
+import { runWithAmplifyServerContext } from '@/utils/amplify-utils'
+
+const result = await runWithAmplifyServerContext({
+  nextServerContext: { request, response },
+  operation: async (contextSpec) => {
+    // Your Amplify operation here
+  }
+})
+```
+
+### Protected Routes
+Implement middleware for authentication:
+```typescript
+// middleware.ts
+export const config = {
+  matcher: [
+    '/((?!api|_next/static|_next/image|favicon.ico|sign-in).*)'
+  ]
+}
+```
+
+## Performance Monitoring
+- Use `node --heap-prof` for memory profiling during builds
+- Monitor bundle sizes with `npm run analyze` (if configured)
+- Enable `serverComponentsHmrCache` for better development performance
+
+See `docs/DEPLOYMENT.md` for more details and examples.
 
 For more, see `CONTRIBUTING.md`. 

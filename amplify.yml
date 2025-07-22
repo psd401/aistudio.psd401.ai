@@ -10,9 +10,15 @@ applications:
             - npm ci --legacy-peer-deps
         build:
           commands:
+            # Create .env file
+            - touch .env
             # Write all required environment variables to .env file
-            # AWS-prefixed variables are not allowed in Amplify console, so we only use NEXT_PUBLIC_AWS_REGION
-            - env | grep -E '^AUTH_|^NEXT_PUBLIC_|^RDS_|^SQL_' >> .env
+            # Use printenv to ensure we get all variables
+            - |
+              echo "Writing environment variables to .env file..."
+              printenv | grep -E '^AUTH_|^NEXT_PUBLIC_|^RDS_|^SQL_' > .env || echo "No matching env vars found"
+              echo "Contents of .env:"
+              cat .env || echo ".env is empty"
             # Build the Next.js application
             - npm run build
       artifacts:
