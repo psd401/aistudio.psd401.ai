@@ -188,6 +188,7 @@ export async function POST(req: Request) {
               }
               
               try {
+                logger.info(`[STREAM] Calling streamCompletion for prompt ${i + 1}`);
                 const streamResult = await streamCompletion(
                   {
                     provider: prompt.provider,
@@ -196,10 +197,16 @@ export async function POST(req: Request) {
                   messages
                 );
 
+                logger.info(`[STREAM] Stream created, starting to consume tokens...`);
+                
                 // Actually consume the stream
                 for await (const chunk of streamResult.textStream) {
                   fullResponse += chunk;
                   tokenCount++;
+                  
+                  if (tokenCount % 10 === 1) {
+                    logger.info(`[STREAM] Received ${tokenCount} tokens so far...`);
+                  }
                   
                   // Send token to client
                   controller.enqueue(encoder.encode(
@@ -210,6 +217,8 @@ export async function POST(req: Request) {
                     })}\n\n`
                   ));
                 }
+                
+                logger.info(`[STREAM] Stream completed with ${tokenCount} tokens, response length: ${fullResponse.length}`);
 
                 // Update prompt result with full response
                 await executeSQL(

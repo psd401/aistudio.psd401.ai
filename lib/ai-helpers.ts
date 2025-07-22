@@ -151,6 +151,18 @@ export async function streamCompletion(
   options?: StreamingOptions,
   tools?: Record<string, CoreTool>
 ): Promise<StreamTextResult<Record<string, CoreTool>>> {
+  logger.info('[streamCompletion] Starting stream with config:', {
+    provider: modelConfig.provider,
+    modelId: modelConfig.modelId,
+    messageCount: messages.length,
+    hasTools: !!tools
+  });
+  
+  logger.info('[streamCompletion] Messages:', messages.map(m => ({
+    role: m.role,
+    contentLength: typeof m.content === 'string' ? m.content.length : 'complex',
+    contentPreview: typeof m.content === 'string' ? m.content.substring(0, 100) + '...' : 'complex content'
+  })));
   
   const model = await getModelClient(modelConfig);
   

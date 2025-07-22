@@ -125,6 +125,11 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
 
       case 'prompt_start':
         setStreamingPromptIndex(event.promptIndex)
+        // Initialize with a waiting message
+        setPromptTexts(prev => ({
+          ...prev,
+          [event.promptIndex]: 'Waiting for AI response...'
+        }))
         setResults(prev => {
           if (!prev) return null
           const updated = { ...prev }
@@ -143,9 +148,13 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
 
       case 'token':
         setPromptTexts(prev => {
+          // If this is the first token, clear the waiting message
+          const currentText = prev[event.promptIndex] || ''
+          const isWaitingMessage = currentText === 'Waiting for AI response...'
+          
           const updated = {
             ...prev,
-            [event.promptIndex]: (prev[event.promptIndex] || '') + event.token
+            [event.promptIndex]: isWaitingMessage ? event.token : currentText + event.token
           }
           console.log(`[STREAM] Token for prompt ${event.promptIndex}:`, event.token, 'Total length:', updated[event.promptIndex]?.length || 0)
           return updated
@@ -891,7 +900,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                             </div>
                           )}
 
-                          {(promptResult.outputData || (streamingPromptIndex === index && promptTexts[index])) && (
+                          {(promptResult.outputData || promptTexts[index] || (streamingPromptIndex === index)) && (
                             <div className="mt-3 border border-border/50 rounded-md overflow-hidden">
                               <div className="px-3 py-2 bg-muted/40 flex items-center justify-between">
                                 <div className="flex items-center text-xs font-medium text-foreground">
@@ -997,9 +1006,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                       h3: (props) => <h4 {...props} />,
                                     }}
                                   >
-                                    {(streamingPromptIndex === index && promptTexts[index]) 
-                                      ? promptTexts[index] 
-                                      : (promptResult.outputData || "")}
+                                    {promptTexts[index] || promptResult.outputData || ""}
                                   </ReactMarkdown>
                                 </div>
                                 <div className="flex items-center gap-2 justify-end mt-4">
@@ -1009,9 +1016,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                     className="h-7 w-7"
                                     title="Copy output"
                                     onClick={() => copyToClipboard(
-                                      (streamingPromptIndex === index && promptTexts[index]) 
-                                        ? promptTexts[index] 
-                                        : promptResult.outputData
+                                      promptTexts[index] || promptResult.outputData || ""
                                     )}
                                   >
                                     <Copy className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground transition-colors" />
