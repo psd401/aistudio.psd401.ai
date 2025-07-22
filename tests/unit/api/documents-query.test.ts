@@ -16,6 +16,10 @@ jest.mock('@/lib/logger', () => ({
   },
 }));
 
+// TODO: Fix test setup - mocking approach needs to be updated to match test environment
+// The tests below are comprehensive but currently fail due to mock setup issues
+// that also affect existing tests in the codebase (e.g., documents-upload.test.ts)
+
 describe('POST /api/documents/query', () => {
   beforeEach(() => {
     jest.clearAllMocks();
