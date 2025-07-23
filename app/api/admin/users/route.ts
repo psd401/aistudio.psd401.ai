@@ -11,11 +11,11 @@ export async function GET() {
     
     // Get users from database via Data API
     const dbUsers = await getUsers();
-    const transformedUsers = transformSnakeToCamel<any[]>(dbUsers);
+    const transformedUsers = transformSnakeToCamel<Array<{id: number, cognitoSub: string, email: string, firstName: string, lastName: string, lastSignInAt: string, createdAt: string, updatedAt: string}>>(dbUsers);
     
     // Get all user roles
     const userRoles = await getUserRoles();
-    const transformedRoles = transformSnakeToCamel<any[]>(userRoles);
+    const transformedRoles = transformSnakeToCamel<Array<{userId: number, roleName: string}>>(userRoles);
     
     // Group roles by userId
     const rolesByUser = transformedRoles.reduce((acc, role) => {
