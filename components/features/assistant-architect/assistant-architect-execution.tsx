@@ -92,18 +92,8 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   const [streamingPromptIndex, setStreamingPromptIndex] = useState<number>(-1)
   const [promptTexts, setPromptTexts] = useState<Record<string, string>>({})
 
-  // Cleanup effect for stream resources on unmount
-  useEffect(() => {
-    return () => {
-      // Cleanup on component unmount
-      if (abortController) {
-        abortController.abort()
-      }
-      // Don't try to cancel streamReader - it causes issues
-    }
-  }, [abortController])
 
-  const handleStreamEvent = useCallback((event: { type: string; totalPrompts?: number; promptIndex?: number; promptId?: number; modelName?: string; token?: string; result?: string; error?: string; executionId?: number }, inputs: Record<string, unknown>) => {
+  const handleStreamEvent = useCallback((event: { type: string; totalPrompts?: number; promptIndex?: number; promptId?: number; modelName?: string; token?: string; result?: string; error?: string; executionId?: number; message?: string }, inputs: Record<string, unknown>) => {
     switch (event.type) {
       case 'metadata':
         // Initialize results structure
@@ -221,6 +211,16 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
           title: "Execution Completed",
           description: "All prompts have been executed successfully"
         })
+        break
+
+      case 'status':
+        // Update the prompt text with status message
+        if (event.promptIndex !== undefined) {
+          setPromptTexts(prev => ({
+            ...prev,
+            [event.promptIndex]: event.message || 'Processing...'
+          }))
+        }
         break
 
       case 'error':

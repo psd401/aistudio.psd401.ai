@@ -230,6 +230,15 @@ export async function POST(req: Request) {
               }
               
               try {
+                // Send AI initialization event
+                controller.enqueue(encoder.encode(
+                  `data: ${JSON.stringify({
+                    type: 'status',
+                    message: 'Initializing AI model...',
+                    promptIndex: i
+                  })}\n\n`
+                ));
+                
                 const streamResult = await streamCompletion(
                   {
                     provider: prompt.provider,
@@ -237,6 +246,15 @@ export async function POST(req: Request) {
                   },
                   messages
                 );
+                
+                // Send first token event to indicate streaming has started
+                controller.enqueue(encoder.encode(
+                  `data: ${JSON.stringify({
+                    type: 'status',
+                    message: 'AI is responding...',
+                    promptIndex: i
+                  })}\n\n`
+                ));
                 
                 // Actually consume the stream
                 for await (const chunk of streamResult.textStream) {
