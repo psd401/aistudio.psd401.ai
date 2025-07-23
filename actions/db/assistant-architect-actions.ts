@@ -28,7 +28,7 @@ import logger from "@/lib/logger"
 import { getServerSession } from "@/lib/auth/server-session";
 import { executeSQL, checkUserRoleByCognitoSub, type FormattedRow } from "@/lib/db/data-api-adapter";
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action";
-import { RDSDataClient, BeginTransactionCommand, ExecuteStatementCommand, CommitTransactionCommand, RollbackTransactionCommand } from "@aws-sdk/client-rds-data";
+import { RDSDataClient, BeginTransactionCommand, ExecuteStatementCommand, CommitTransactionCommand, RollbackTransactionCommand, SqlParameter } from "@aws-sdk/client-rds-data";
 
 // Use inline type for architect with relations
 type ArchitectWithRelations = SelectAssistantArchitect & {
@@ -70,19 +70,19 @@ export async function createAssistantArchitectAction(
       return { isSuccess: false, message: "User not found" };
     }
 
-    const [architect] = await executeSQL(`
+    const [architect] = await executeSQL<SelectAssistantArchitect>(`
       INSERT INTO assistant_architects (name, description, status, image_path, user_id, created_at, updated_at)
       VALUES (:name, :description, :status::tool_status, :imagePath, :userId, NOW(), NOW())
       RETURNING id, name, description, status, image_path, user_id, created_at, updated_at
     `, [
       { name: 'name', value: { stringValue: assistant.name } },
-      { name: 'description', value: { stringValue: assistant.description } },
-      { name: 'status', value: { stringValue: assistant.status } },
-      { name: 'imagePath', value: { stringValue: assistant.imagePath } },
+      { name: 'description', value: { stringValue: assistant.description || '' } },
+      { name: 'status', value: { stringValue: assistant.status || 'draft' } },
+      { name: 'imagePath', value: assistant.imagePath ? { stringValue: assistant.imagePath } : { isNull: true } },
       { name: 'userId', value: { longValue: currentUser.data.user.id } }
     ]);
 
-    return createSuccess(architect, "Assistant architect created successfully");
+    return createSuccess(architect as SelectAssistantArchitect, "Assistant architect created successfully");
   } catch (error) {
     return handleError(error, "Failed to create assistant architect", {
       context: "createAssistantArchitectAction"
@@ -99,7 +99,12 @@ export async function getAssistantArchitectsAction(): Promise<
   })[]>
 > {
   try {
-    const architects = await executeSQL(`
+    const architects = await executeSQL<SelectAssistantArchitect & {
+      creator_first_name: string;
+      creator_last_name: string;
+      creator_email: string;
+      cognito_sub: string;
+    }>(`
       SELECT a.id, a.name, a.description, a.status, a.image_path, a.user_id, a.created_at, a.updated_at,
              u.first_name AS creator_first_name, u.last_name AS creator_last_name, u.email AS creator_email,
              u.cognito_sub
@@ -110,13 +115,13 @@ export async function getAssistantArchitectsAction(): Promise<
     const architectsWithRelations = await Promise.all(
       architects.map(async (architect) => {
         const [inputFields, prompts] = await Promise.all([
-          executeSQL(`
+          executeSQL<SelectToolInputField>(`
             SELECT id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at
             FROM tool_input_fields
             WHERE assistant_architect_id = :toolId
             ORDER BY position ASC
           `, [{ name: 'toolId', value: { longValue: architect.id } }]),
-          executeSQL(`
+          executeSQL<SelectChainPrompt>(`
             SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at
             FROM chain_prompts
             WHERE assistant_architect_id = :toolId
@@ -126,8 +131,8 @@ export async function getAssistantArchitectsAction(): Promise<
 
         return {
           ...architect,
-          inputFields,
-          prompts,
+          inputFields: inputFields as SelectToolInputField[],
+          prompts: prompts as SelectChainPrompt[],
           creator: architect.creator_first_name && architect.creator_last_name && architect.creator_email
             ? {
                 firstName: architect.creator_first_name,
@@ -161,7 +166,7 @@ export async function getAssistantArchitectByIdAction(
       });
     }
 
-    const architectResult = await executeSQL(`
+    const architectResult = await executeSQL<SelectAssistantArchitect>(`
       SELECT id, name, description, status, image_path, user_id, created_at, updated_at
       FROM assistant_architects
       WHERE id = :id
@@ -179,13 +184,13 @@ export async function getAssistantArchitectByIdAction(
     
     // Get input fields and prompts using data API
     const [inputFields, prompts] = await Promise.all([
-      executeSQL(`
+      executeSQL<SelectToolInputField>(`
         SELECT id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at
         FROM tool_input_fields
         WHERE assistant_architect_id = :toolId
         ORDER BY position ASC
       `, [{ name: 'toolId', value: { longValue: idInt } }]),
-      executeSQL(`
+      executeSQL<SelectChainPrompt>(`
         SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at
         FROM chain_prompts
         WHERE assistant_architect_id = :toolId
@@ -219,7 +224,7 @@ export async function getAssistantArchitectByIdAction(
       updatedAt: prompt.updated_at
     }));
 
-    const architectWithRelations = {
+    const architectWithRelations: ArchitectWithRelations = {
       id: architect.id,
       name: architect.name,
       description: architect.description,
@@ -228,8 +233,8 @@ export async function getAssistantArchitectByIdAction(
       userId: architect.user_id,
       createdAt: architect.created_at,
       updatedAt: architect.updated_at,
-      inputFields: transformedInputFields,
-      prompts: transformedPrompts
+      inputFields: transformedInputFields as SelectToolInputField[],
+      prompts: transformedPrompts as SelectChainPrompt[]
     };
 
     return createSuccess(architectWithRelations, "Assistant architect retrieved successfully");
@@ -256,7 +261,7 @@ export async function getPendingAssistantArchitectsAction(): Promise<
     }
 
     // Get pending tools using data API
-    const pendingTools = await executeSQL(`
+    const pendingTools = await executeSQL<SelectAssistantArchitect>(`
       SELECT id, name, description, status, image_path, user_id, created_at, updated_at
       FROM assistant_architects
       WHERE status = 'pending_approval'
@@ -265,15 +270,15 @@ export async function getPendingAssistantArchitectsAction(): Promise<
 
     // For each tool, get its input fields and prompts
     const toolsWithRelations = await Promise.all(
-      pendingTools.map(async (tool: any) => {
+      pendingTools.map(async (tool) => {
         const [inputFields, prompts] = await Promise.all([
-          executeSQL(`
+          executeSQL<SelectToolInputField>(`
             SELECT id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at
             FROM tool_input_fields
             WHERE assistant_architect_id = :toolId
             ORDER BY position ASC
           `, [{ name: 'toolId', value: { longValue: tool.id } }]),
-          executeSQL(`
+          executeSQL<SelectChainPrompt>(`
             SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at
             FROM chain_prompts
             WHERE assistant_architect_id = :toolId
@@ -311,7 +316,7 @@ export async function updateAssistantArchitectAction(
     }
     
     // Get the current tool using data API
-    const currentToolResult = await executeSQL(`
+    const currentToolResult = await executeSQL<SelectAssistantArchitect>(`
       SELECT id, name, description, status, image_path, user_id, created_at, updated_at
       FROM assistant_architects
       WHERE id = :id
@@ -338,7 +343,7 @@ export async function updateAssistantArchitectAction(
     // If the tool was approved and is being edited, set status to pending_approval and deactivate it in the tools table
     if (currentTool.status === "approved") {
       data.status = "pending_approval"
-      await executeSQL(`
+      await executeSQL<never>(`
         UPDATE tools 
         SET is_active = false 
         WHERE assistant_architect_id = :id
@@ -347,7 +352,7 @@ export async function updateAssistantArchitectAction(
     
     // Build update query dynamically
     const updateFields = [];
-    const parameters = [{ name: 'id', value: { longValue: parseInt(id, 10) } }];
+    const parameters: SqlParameter[] = [{ name: 'id', value: { longValue: parseInt(id, 10) } }];
     let paramIndex = 0;
     
     for (const [key, value] of Object.entries(data)) {
@@ -381,7 +386,7 @@ export async function updateAssistantArchitectAction(
       return { isSuccess: false, message: "No fields to update" }
     }
     
-    const updatedToolResult = await executeSQL(`
+    const updatedToolResult = await executeSQL<SelectAssistantArchitect>(`
       UPDATE assistant_architects 
       SET ${updateFields.join(', ')}, updated_at = NOW()
       WHERE id = :id
@@ -391,7 +396,7 @@ export async function updateAssistantArchitectAction(
     return {
       isSuccess: true,
       message: "Assistant updated successfully",
-      data: updatedToolResult[0]
+      data: updatedToolResult[0] as unknown as SelectAssistantArchitect
     }
   } catch (error) {
     logger.error("Error updating assistant:", error)
@@ -405,7 +410,7 @@ export async function deleteAssistantArchitectAction(
   try {
     // First delete all related records in the correct order
     // Delete prompt_results (references chain_prompts)
-    await executeSQL(`
+    await executeSQL<never>(`
       DELETE FROM prompt_results
       WHERE prompt_id IN (
         SELECT id FROM chain_prompts WHERE assistant_architect_id = :id
@@ -413,37 +418,37 @@ export async function deleteAssistantArchitectAction(
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
     
     // Delete tool_executions (which might have prompt_results)
-    await executeSQL(`
+    await executeSQL<never>(`
       DELETE FROM tool_executions
       WHERE assistant_architect_id = :id
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
     
     // Delete chain_prompts
-    await executeSQL(`
+    await executeSQL<never>(`
       DELETE FROM chain_prompts
       WHERE assistant_architect_id = :id
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
     
     // Delete tool_input_fields
-    await executeSQL(`
+    await executeSQL<never>(`
       DELETE FROM tool_input_fields
       WHERE assistant_architect_id = :id
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
     
     // Delete from tools table (using prompt_chain_tool_id which references assistant_architect)
-    await executeSQL(`
+    await executeSQL<never>(`
       DELETE FROM tools
       WHERE prompt_chain_tool_id = :id
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
     
     // Delete from navigation_items
-    await executeSQL(`
+    await executeSQL<never>(`
       DELETE FROM navigation_items
       WHERE link = :link
     `, [{ name: 'link', value: { stringValue: `/tools/assistant-architect/${id}` } }]);
     
     // Finally delete the assistant architect
-    await executeSQL(`
+    await executeSQL<never>(`
       DELETE FROM assistant_architects
       WHERE id = :id
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
@@ -472,7 +477,7 @@ export async function addToolInputFieldAction(
   }
 ): Promise<ActionState<void>> {
   try {
-    await executeSQL(`
+    await executeSQL<never>(`
       INSERT INTO tool_input_fields (assistant_architect_id, name, label, field_type, position, options, created_at, updated_at)
       VALUES (:toolId, :name, :label, :fieldType::field_type, :position, :options, NOW(), NOW())
     `, [
@@ -505,7 +510,7 @@ export async function deleteInputFieldAction(
     }
 
     // Get the field to find its tool using data API
-    const fieldResult = await executeSQL(`
+    const fieldResult = await executeSQL<{ id: number; assistant_architect_id: number }>(`
       SELECT id, assistant_architect_id
       FROM tool_input_fields
       WHERE id = :fieldId
@@ -518,7 +523,7 @@ export async function deleteInputFieldAction(
     const field = fieldResult[0];
 
     // Check if user is the creator of the tool
-    const toolResult = await executeSQL(`
+    const toolResult = await executeSQL<{ user_id: number }>(`
       SELECT user_id
       FROM assistant_architects
       WHERE id = :toolId
@@ -541,7 +546,7 @@ export async function deleteInputFieldAction(
     }
 
     // Delete the field
-    await executeSQL(`
+    await executeSQL<never>(`
       DELETE FROM tool_input_fields
       WHERE id = :fieldId
     `, [{ name: 'fieldId', value: { longValue: parseInt(fieldId, 10) } }]);
@@ -568,7 +573,7 @@ export async function updateInputFieldAction(
     }
 
     // Find the field using data API
-    const fieldResult = await executeSQL(`
+    const fieldResult = await executeSQL<SelectToolInputField>(`
       SELECT id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at
       FROM tool_input_fields
       WHERE id = :id
@@ -581,7 +586,7 @@ export async function updateInputFieldAction(
     const field = fieldResult[0];
 
     // Get the tool to check permissions
-    const toolResult = await executeSQL(`
+    const toolResult = await executeSQL<{ user_id: number }>(`
       SELECT user_id
       FROM assistant_architects
       WHERE id = :toolId
@@ -605,7 +610,7 @@ export async function updateInputFieldAction(
 
     // Build update query dynamically
     const updateFields = [];
-    const parameters = [{ name: 'id', value: { longValue: parseInt(id, 10) } }];
+    const parameters: SqlParameter[] = [{ name: 'id', value: { longValue: parseInt(id, 10) } }];
     let paramIndex = 0;
     
     for (const [key, value] of Object.entries(data)) {
@@ -636,14 +641,14 @@ export async function updateInputFieldAction(
     // Always ensure label is set
     if (!data.label && data.name) {
       updateFields.push(`label = :labelParam`);
-      parameters.push({ name: 'labelParam', value: { stringValue: data.name } });
+      parameters.push({ name: 'labelParam', value: { stringValue: String(data.name) } });
     }
     
     if (updateFields.length === 0) {
       return { isSuccess: false, message: "No fields to update" }
     }
 
-    const updatedFieldResult = await executeSQL(`
+    const updatedFieldResult = await executeSQL<SelectToolInputField>(`
       UPDATE tool_input_fields 
       SET ${updateFields.join(', ')}, updated_at = NOW()
       WHERE id = :id
@@ -653,7 +658,7 @@ export async function updateInputFieldAction(
     return {
       isSuccess: true,
       message: "Input field updated successfully",
-      data: updatedFieldResult[0]
+      data: updatedFieldResult[0] as unknown as SelectToolInputField
     }
   } catch (error) {
     logger.error("Error updating input field:", error)
@@ -672,7 +677,7 @@ export async function reorderInputFieldsAction(
     }
 
     // Get the tool to check permissions
-    const toolResult = await executeSQL(`
+    const toolResult = await executeSQL<{ user_id: number }>(`
       SELECT user_id
       FROM assistant_architects
       WHERE id = :toolId
@@ -697,7 +702,7 @@ export async function reorderInputFieldsAction(
     // Update each field's position
     const updatedFields = await Promise.all(
       fieldOrders.map(async ({ id, position }) => {
-        const result = await executeSQL(`
+        const result = await executeSQL<SelectToolInputField>(`
           UPDATE tool_input_fields
           SET position = :position, updated_at = NOW()
           WHERE id = :id
@@ -706,7 +711,7 @@ export async function reorderInputFieldsAction(
           { name: 'position', value: { longValue: position } },
           { name: 'id', value: { longValue: parseInt(id, 10) } }
         ]);
-        return result[0];
+        return result[0] as unknown as SelectToolInputField;
       })
     )
 
@@ -735,7 +740,7 @@ export async function addChainPromptAction(
   }
 ): Promise<ActionState<void>> {
   try {
-    await executeSQL(`
+    await executeSQL<never>(`
       INSERT INTO chain_prompts (assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at)
       VALUES (:toolId, :name, :content, :systemContext, :modelId, :position, :inputMapping, NOW(), NOW())
     `, [
@@ -770,7 +775,7 @@ export async function updatePromptAction(
     }
 
     // Find the prompt using data API
-    const promptResult = await executeSQL(`
+    const promptResult = await executeSQL<SelectChainPrompt>(`
       SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at
       FROM chain_prompts
       WHERE id = :id
@@ -783,7 +788,7 @@ export async function updatePromptAction(
     const prompt = promptResult[0];
 
     // Get the tool to check permissions
-    const toolResult = await executeSQL(`
+    const toolResult = await executeSQL<{ user_id: number }>(`
       SELECT user_id
       FROM assistant_architects
       WHERE id = :toolId
@@ -807,7 +812,7 @@ export async function updatePromptAction(
 
     // Build update query dynamically
     const updateFields = [];
-    const parameters = [{ name: 'id', value: { longValue: parseInt(id, 10) } }];
+    const parameters: SqlParameter[] = [{ name: 'id', value: { longValue: parseInt(id, 10) } }];
     let paramIndex = 0;
     
     for (const [key, value] of Object.entries(data)) {
@@ -839,7 +844,7 @@ export async function updatePromptAction(
       return { isSuccess: false, message: "No fields to update" }
     }
 
-    const updatedPromptResult = await executeSQL(`
+    const updatedPromptResult = await executeSQL<SelectChainPrompt>(`
       UPDATE chain_prompts 
       SET ${updateFields.join(', ')}, updated_at = NOW()
       WHERE id = :id
@@ -849,7 +854,7 @@ export async function updatePromptAction(
     return {
       isSuccess: true,
       message: "Prompt updated successfully",
-      data: updatedPromptResult[0]
+      data: updatedPromptResult[0] as unknown as SelectChainPrompt
     }
   } catch (error) {
     logger.error("Error updating prompt:", error)
@@ -867,7 +872,7 @@ export async function deletePromptAction(
     }
 
     // Find the prompt using data API
-    const promptResult = await executeSQL(`
+    const promptResult = await executeSQL<{ assistant_architect_id: number }>(`
       SELECT assistant_architect_id
       FROM chain_prompts
       WHERE id = :id
@@ -880,7 +885,7 @@ export async function deletePromptAction(
     const prompt = promptResult[0];
 
     // Get the tool to check permissions
-    const toolResult = await executeSQL(`
+    const toolResult = await executeSQL<{ user_id: number }>(`
       SELECT user_id
       FROM assistant_architects
       WHERE id = :toolId
@@ -903,7 +908,7 @@ export async function deletePromptAction(
     }
 
     // Delete the prompt
-    await executeSQL(`
+    await executeSQL<never>(`
       DELETE FROM chain_prompts
       WHERE id = :id
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
@@ -935,7 +940,7 @@ export async function updatePromptPositionAction(
     }
 
     // Find the prompt
-    const promptResult = await executeSQL(
+    const promptResult = await executeSQL<{ assistant_architect_id: number; [key: string]: any }>(
       `SELECT * FROM chain_prompts WHERE id = :id`,
       [{ name: 'id', value: { longValue: parseInt(id, 10) } }]
     )
@@ -948,7 +953,7 @@ export async function updatePromptPositionAction(
     const toolId = prompt[1]?.stringValue // toolId is at index 1
 
     // Get the tool to check permissions
-    const toolResult = await executeSQL(
+    const toolResult = await executeSQL<{ user_id: number; [key: string]: any }>(
       `SELECT * FROM assistant_architects WHERE id = :id`,
       [{ name: 'id', value: { longValue: parseInt(toolId, 10) } }]
     )
@@ -967,7 +972,7 @@ export async function updatePromptPositionAction(
     }
 
     // Update the prompt's position
-    await executeSQL(
+    await executeSQL<never>(
       `UPDATE chain_prompts SET position = :position WHERE id = :id`,
       [
         { name: 'position', value: { longValue: position } },
@@ -1004,7 +1009,7 @@ export async function createToolExecutionAction(
 
     execution.userId = userId
 
-    const [executionResult] = await executeSQL(
+    const [executionResult] = await executeSQL<{ id: string }>(
       `INSERT INTO tool_executions (assistant_architect_id, user_id, input_data, status, started_at) 
        VALUES (:toolId, :userId, :inputData, :status, NOW())
        RETURNING id`,
@@ -1016,7 +1021,7 @@ export async function createToolExecutionAction(
       ]
     )
     
-    const executionId = executionResult.id
+    const executionId = executionResult[0].id as string
 
     return {
       isSuccess: true,
@@ -1071,10 +1076,10 @@ export async function updatePromptResultAction(
 
     updates.push(
       { name: 'executionId', value: { longValue: parseInt(executionId, 10) } },
-      { name: 'promptId', value: { longValue: parseInt(promptId, 10) } }
+      { name: 'promptId', value: { longValue: promptId } }
     )
 
-    await executeSQL(
+    await executeSQL<never>(
       `UPDATE prompt_results SET ${setClauses.join(', ')} 
        WHERE execution_id = :executionId AND prompt_id = :promptId`,
       updates
@@ -1109,7 +1114,7 @@ export async function approveAssistantArchitectAction(
     }
 
     // Update the tool status to approved
-    const updatedToolResult = await executeSQL(`
+    const updatedToolResult = await executeSQL<SelectAssistantArchitect>(`
       UPDATE assistant_architects
       SET status = 'approved'::tool_status, updated_at = NOW()
       WHERE id = :id
@@ -1123,7 +1128,7 @@ export async function approveAssistantArchitectAction(
     const updatedTool = updatedToolResult[0];
     
     // Check if tool already exists in tools table
-    const existingToolResult = await executeSQL(`
+    const existingToolResult = await executeSQL<{ id: string }>(`
       SELECT id FROM tools WHERE assistant_architect_id = :id
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
     
@@ -1132,7 +1137,7 @@ export async function approveAssistantArchitectAction(
     
     if (existingToolResult && existingToolResult.length > 0) {
       // Update existing tool
-      await executeSQL(`
+      await executeSQL<never>(`
         UPDATE tools
         SET identifier = :identifier, name = :name, description = :description, is_active = true, updated_at = NOW()
         WHERE assistant_architect_id = :id
@@ -1142,10 +1147,10 @@ export async function approveAssistantArchitectAction(
         { name: 'description', value: { stringValue: updatedTool.description } },
         { name: 'id', value: { longValue: parseInt(id, 10) } }
       ]);
-      finalToolId = existingToolResult[0].id;
+      finalToolId = existingToolResult[0].id as string;
     } else {
       // Check for duplicate identifier
-      const duplicateResult = await executeSQL(`
+      const duplicateResult = await executeSQL<{ id: string }>(`
         SELECT id FROM tools WHERE identifier = :identifier
       `, [{ name: 'identifier', value: { stringValue: identifier } }]);
       
@@ -1154,7 +1159,7 @@ export async function approveAssistantArchitectAction(
       }
       
       // Create new tool
-      const newToolResult = await executeSQL(`
+      const newToolResult = await executeSQL<{ id: string }>(`
         INSERT INTO tools (id, identifier, name, description, is_active, assistant_architect_id, created_at, updated_at)
         VALUES (:identifier, :identifier, :name, :description, true, :assistantArchitectId, NOW(), NOW())
         RETURNING id
@@ -1164,12 +1169,12 @@ export async function approveAssistantArchitectAction(
         { name: 'description', value: { stringValue: updatedTool.description } },
         { name: 'assistantArchitectId', value: { longValue: parseInt(id, 10) } }
       ]);
-      finalToolId = newToolResult[0].id;
+      finalToolId = newToolResult[0].id as string;
     }
     
     // Create navigation item if it doesn't exist
     const navLink = `/tools/assistant-architect/${id}`;
-    const existingNavResult = await executeSQL(`
+    const existingNavResult = await executeSQL<{ id: string }>(`
       SELECT id FROM navigation_items WHERE parent_id = 'experiments' AND link = :link
     `, [{ name: 'link', value: { stringValue: navLink } }]);
     
@@ -1181,7 +1186,7 @@ export async function approveAssistantArchitectAction(
       // Check for unique navigation ID
       let navExists = true;
       while (navExists) {
-        const navCheckResult = await executeSQL(`
+        const navCheckResult = await executeSQL<{ id: string }>(`
           SELECT id FROM navigation_items WHERE id = :navId
         `, [{ name: 'navId', value: { stringValue: navId } }]);
         
@@ -1192,7 +1197,7 @@ export async function approveAssistantArchitectAction(
         }
       }
       
-      await executeSQL(`
+      await executeSQL<never>(`
         INSERT INTO navigation_items (id, label, icon, link, type, parent_id, tool_id, is_active, created_at)
         VALUES (:navId, :label, 'IconWand', :link, 'link', 'experiments', :toolId, true, NOW())
       `, [
@@ -1204,13 +1209,13 @@ export async function approveAssistantArchitectAction(
     }
     
     // Assign tool to staff and administrator roles
-    const rolesResult = await executeSQL(`
+    const rolesResult = await executeSQL<{ id: string; name: string }>(`
       SELECT id, name FROM roles WHERE name IN ('staff', 'administrator')
     `);
     
     for (const role of rolesResult) {
       // Check if assignment already exists
-      const existingAssignmentResult = await executeSQL(`
+      const existingAssignmentResult = await executeSQL<{ '?column?': number }>(`
         SELECT 1 FROM role_tools WHERE role_id = :roleId AND tool_id = :toolId
       `, [
         { name: 'roleId', value: { stringValue: role.id } },
@@ -1218,7 +1223,7 @@ export async function approveAssistantArchitectAction(
       ]);
       
       if (!existingAssignmentResult || existingAssignmentResult.length === 0) {
-        await executeSQL(`
+        await executeSQL<never>(`
           INSERT INTO role_tools (role_id, tool_id, created_at)
           VALUES (:roleId, :toolId, NOW())
         `, [
@@ -1231,7 +1236,7 @@ export async function approveAssistantArchitectAction(
     return {
       isSuccess: true,
       message: "Tool approved successfully",
-      data: updatedTool
+      data: updatedTool as unknown as SelectAssistantArchitect
     }
   } catch (error) {
     logger.error("Error approving tool:", error)
@@ -1254,7 +1259,7 @@ export async function rejectAssistantArchitectAction(
       return { isSuccess: false, message: "Only administrators can reject tools" }
     }
 
-    await executeSQL(`
+    await executeSQL<never>(`
       UPDATE assistant_architects
       SET status = 'rejected'::tool_status, updated_at = NOW()
       WHERE id = :id
@@ -1361,7 +1366,7 @@ export async function executeAssistantArchitectAction({
     }
 
     // Create the execution record immediately so we can return the ID
-    const executionResult = await executeSQL(
+    const executionResult = await executeSQL<{ id: number }>(
       `INSERT INTO tool_executions (assistant_architect_id, user_id, input_data, status, started_at)
        VALUES (:toolId, :userId, :inputData::jsonb, :status::execution_status, NOW())
        RETURNING id`,
@@ -1373,7 +1378,7 @@ export async function executeAssistantArchitectAction({
       ]
     );
 
-    const executionId = executionResult[0]?.id;
+    const executionId = executionResult[0]?.id as number;
 
     // Start the execution in the background
     executeAssistantArchitectJob(jobResult.data.id.toString(), tool, inputs, executionId).catch(error => {
@@ -1518,7 +1523,7 @@ async function executeAssistantArchitectJob(
         }
         newPromptResultId = insertPromptResultResult.records[0][0].longValue;
         
-        const modelRecord = (await executeSQL('SELECT model_id, provider FROM ai_models WHERE id = :id', [{name: 'id', value: {longValue: prompt.modelId}}]))[0];
+        const modelRecord = (await executeSQL<{ model_id: string; provider: string }>('SELECT model_id, provider FROM ai_models WHERE id = :id', [{name: 'id', value: {longValue: prompt.modelId}}]))[0];
         if (!modelRecord) throw new Error("Model not found");
 
         const messages: CoreMessage[] = [
@@ -1597,7 +1602,7 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
     }
     
     // First, get all the tools the user has access to using data API
-    const userTools = await executeSQL(`
+    const userTools = await executeSQL<{ identifier: string }>(`
       SELECT DISTINCT t.identifier
       FROM tools t
       JOIN role_tools rt ON t.id = rt.tool_id
@@ -1613,7 +1618,7 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
     const toolIdentifiers = userTools.map(t => t.identifier);
     
     // Get the base tools from the tools table
-    const baseTools = await executeSQL(`
+    const baseTools = await executeSQL<{ id: string; identifier: string; assistant_architect_id: string | null }>(`
       SELECT id, identifier, assistant_architect_id
       FROM tools
       WHERE identifier = ANY(:identifiers) AND is_active = true
@@ -1629,7 +1634,7 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
     }
     
     // Fetch approved architects that the user has access to
-    const approvedArchitects = await executeSQL(`
+    const approvedArchitects = await executeSQL<SelectAssistantArchitect>(`
       SELECT id, name, description, status, image_path, user_id, created_at, updated_at
       FROM assistant_architects
       WHERE status = 'approved' AND id = ANY(:architectIds)
@@ -1642,13 +1647,13 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
     
     // Fetch related fields and prompts for all approved architects
     const [allInputFields, allPrompts] = await Promise.all([
-      executeSQL(`
+      executeSQL<SelectToolInputField>(`
         SELECT id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at
         FROM tool_input_fields
         WHERE assistant_architect_id = ANY(:architectIds)
         ORDER BY position ASC
       `, [{ name: 'architectIds', value: { stringValue: `{${architectIds.join(',')}}` } }]),
-      executeSQL(`
+      executeSQL<SelectChainPrompt>(`
         SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at
         FROM chain_prompts
         WHERE assistant_architect_id = ANY(:architectIds)
@@ -1657,10 +1662,10 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
     ]);
 
     // Map relations back
-    const results: ArchitectWithRelations[] = approvedArchitects.map((architect: any) => ({
+    const results: ArchitectWithRelations[] = approvedArchitects.map((architect: FormattedRow) => ({
       ...architect,
-      inputFields: allInputFields.filter((f: any) => f.assistant_architect_id === architect.id) || [],
-      prompts: allPrompts.filter((p: any) => p.assistant_architect_id === architect.id) || []
+      inputFields: allInputFields.filter(f => f.assistant_architect_id === architect.id) || [],
+      prompts: allPrompts.filter(p => p.assistant_architect_id === architect.id) || []
     }));
 
     return {
@@ -1683,7 +1688,7 @@ export async function submitAssistantArchitectForApprovalAction(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    const toolResult = await executeSQL(`
+    const toolResult = await executeSQL<SelectAssistantArchitect>(`
       SELECT id, name, description, user_id, status
       FROM assistant_architects
       WHERE id = :id
@@ -1705,10 +1710,10 @@ export async function submitAssistantArchitectForApprovalAction(
 
     // Fetch input fields and prompts for this tool
     const [inputFields, prompts] = await Promise.all([
-      executeSQL(`
+      executeSQL<{ id: number }>(`
         SELECT id FROM tool_input_fields WHERE assistant_architect_id = :id
       `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]),
-      executeSQL(`
+      executeSQL<{ id: number }>(`
         SELECT id FROM chain_prompts WHERE assistant_architect_id = :id
       `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }])
     ]);
@@ -1717,7 +1722,7 @@ export async function submitAssistantArchitectForApprovalAction(
       return { isSuccess: false, message: "Assistant is incomplete" }
     }
 
-    await executeSQL(`
+    await executeSQL<never>(`
       UPDATE assistant_architects
       SET status = 'pending_approval'::tool_status, updated_at = NOW()
       WHERE id = :id
@@ -1748,7 +1753,7 @@ export async function getExecutionResultsAction(
     }
     
     // Get execution details
-    const executionResult = await executeSQL(`
+    const executionResult = await executeSQL<SelectToolExecution>(`
       SELECT te.id, te.assistant_architect_id, te.user_id, te.input_data, te.status, te.started_at, te.completed_at, te.created_at, te.updated_at
       FROM tool_executions te
       JOIN users u ON te.user_id = u.id
@@ -1769,7 +1774,7 @@ export async function getExecutionResultsAction(
     const execution = executionResult[0];
 
     // Get prompt results for this execution
-    const promptResultsData = await executeSQL(`
+    const promptResultsData = await executeSQL<SelectPromptResult>(`
       SELECT id, execution_id, prompt_id, input_data, output_data, status, error_message, started_at, completed_at, execution_time_ms
       FROM prompt_results
       WHERE execution_id = :executionId
@@ -1816,7 +1821,7 @@ export async function migratePromptChainsToAssistantArchitectAction(): Promise<A
 
 export async function getToolsAction(): Promise<ActionState<SelectTool[]>> {
   try {
-    const tools = await executeSQL(`
+    const tools = await executeSQL<SelectTool>(`
       SELECT id, identifier, name, description, assistant_architect_id, is_active, created_at, updated_at
       FROM tools
       WHERE is_active = true
@@ -1826,7 +1831,7 @@ export async function getToolsAction(): Promise<ActionState<SelectTool[]>> {
     return {
       isSuccess: true,
       message: "Tools retrieved successfully",
-      data: tools
+      data: tools as unknown as SelectTool[]
     }
   } catch (error) {
     logger.error("Error getting tools:", error)
@@ -1836,7 +1841,7 @@ export async function getToolsAction(): Promise<ActionState<SelectTool[]>> {
 
 export async function getAiModelsAction(): Promise<ActionState<SelectAiModel[]>> {
   try {
-    const aiModels = await executeSQL(`
+    const aiModels = await executeSQL<SelectAiModel>(`
       SELECT id, name, provider, model_id, description, capabilities, max_tokens, active, chat_enabled, created_at, updated_at
       FROM ai_models
       ORDER BY name ASC
@@ -1845,7 +1850,7 @@ export async function getAiModelsAction(): Promise<ActionState<SelectAiModel[]>>
     return {
       isSuccess: true,
       message: "AI models retrieved successfully",
-      data: aiModels
+      data: aiModels as unknown as SelectAiModel[]
     }
   } catch (error) {
     logger.error("Error getting AI models:", error)
@@ -1862,7 +1867,7 @@ export async function setPromptPositionsAction(
     if (!userId) return { isSuccess: false, message: "Unauthorized" }
 
     // Verify permissions
-    const toolResult = await executeSQL(
+    const toolResult = await executeSQL<{ user_id: number; [key: string]: any }>(
       `SELECT * FROM assistant_architects WHERE id = :id`,
       [{ name: 'id', value: { longValue: parseInt(toolId, 10) } }]
     )
@@ -1881,7 +1886,7 @@ export async function setPromptPositionsAction(
 
     // Update positions for each prompt
     for (const { id, position } of positions) {
-      await executeSQL(
+      await executeSQL<never>(
         `UPDATE chain_prompts SET position = :position WHERE id = :id`,
         [
           { name: 'position', value: { longValue: position } },
@@ -1918,7 +1923,7 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
     }
 
     // Get all approved tools
-    const toolsResult = await executeSQL(
+    const toolsResult = await executeSQL<SelectAssistantArchitect>(
       `SELECT * FROM assistant_architects WHERE status = :status`,
       [{ name: 'status', value: { stringValue: 'approved' } }]
     )
@@ -1938,11 +1943,11 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
         
         // Run input fields and prompts queries in parallel
         const [inputFieldsResult, promptsResult] = await Promise.all([
-          executeSQL(
+          executeSQL<SelectToolInputField>(
             `SELECT * FROM tool_input_fields WHERE assistant_architect_id = :toolId ORDER BY position ASC`,
             [{ name: 'toolId', value: { longValue: parseInt(toolId, 10) } }]
           ),
-          executeSQL(
+          executeSQL<SelectChainPrompt>(
             `SELECT * FROM chain_prompts WHERE assistant_architect_id = :toolId ORDER BY position ASC`,
             [{ name: 'toolId', value: { longValue: parseInt(toolId, 10) } }]
           )
@@ -2020,7 +2025,7 @@ export async function getAllAssistantArchitectsForAdminAction(): Promise<ActionS
       return { isSuccess: false, message: "Only administrators can view all assistants" }
     }
     // Get all assistants
-    const allAssistants = await executeSQL(`
+    const allAssistants = await executeSQL<SelectAssistantArchitect>(`
       SELECT id, name, description, status, image_path, user_id, created_at, updated_at
       FROM assistant_architects
       ORDER BY created_at DESC
@@ -2030,18 +2035,18 @@ export async function getAllAssistantArchitectsForAdminAction(): Promise<ActionS
     const assistantsWithRelations = await Promise.all(
       allAssistants.map(async (tool) => {
         const [inputFields, prompts] = await Promise.all([
-          executeSQL(`
+          executeSQL<SelectToolInputField>(`
             SELECT * FROM tool_input_fields 
             WHERE assistant_architect_id = :toolId 
             ORDER BY position ASC
           `, [{ name: 'toolId', value: { longValue: tool.id } }]),
-          executeSQL(`
+          executeSQL<SelectChainPrompt>(`
             SELECT * FROM chain_prompts 
             WHERE assistant_architect_id = :toolId 
             ORDER BY position ASC
           `, [{ name: 'toolId', value: { longValue: tool.id } }])
         ])
-        return { ...tool, inputFields, prompts }
+        return { ...tool, inputFields: inputFields as SelectToolInputField[], prompts: prompts as SelectChainPrompt[] }
       })
     )
     return { isSuccess: true, message: "All assistants retrieved successfully", data: assistantsWithRelations }

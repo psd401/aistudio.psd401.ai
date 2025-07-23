@@ -150,7 +150,7 @@ function formatDataApiResponse(response: DataApiResponse): FormattedRow[] {
 /**
  * Execute a single SQL statement
  */
-export async function executeSQL(sql: string, parameters: DataApiParameter[] = []): Promise<FormattedRow[]> {
+export async function executeSQL<T = FormattedRow>(sql: string, parameters: DataApiParameter[] = []): Promise<T[]> {
   const maxRetries = 3;
   let lastError: Error | undefined;
   
@@ -168,7 +168,7 @@ export async function executeSQL(sql: string, parameters: DataApiParameter[] = [
 
       const response = await getRDSClient().send(command);
       // SQL success logging removed for security
-      return formatDataApiResponse(response as DataApiResponse);
+      return formatDataApiResponse(response as DataApiResponse) as T[];
     } catch (error) {
       logger.error(`Data API Error (attempt ${attempt}/${maxRetries}):`, error);
       lastError = error as Error;
@@ -205,13 +205,13 @@ export async function executeSQL(sql: string, parameters: DataApiParameter[] = [
 /**
  * Execute multiple SQL statements in a transaction
  */
-export async function executeTransaction(statements: Array<{ sql: string, parameters?: DataApiParameter[] }>): Promise<FormattedRow[][]> {
+export async function executeTransaction<T = FormattedRow>(statements: Array<{ sql: string, parameters?: DataApiParameter[] }>): Promise<T[][]> {
   const transactionId = await beginTransaction();
   
   try {
     const results = [];
     for (const stmt of statements) {
-      const result = await executeSQL(stmt.sql, stmt.parameters);
+      const result = await executeSQL<T>(stmt.sql, stmt.parameters);
       results.push(result);
     }
     
