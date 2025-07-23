@@ -172,12 +172,6 @@ export async function POST(req: Request) {
 
           // Execute prompts sequentially
           for (let i = 0; i < prompts.length; i++) {
-            // Stop processing if controller is closed
-            if (controllerClosed) {
-              logger.info('Controller closed, stopping prompt processing');
-              break;
-            }
-            
             const prompt = prompts[i];
             let promptResultId: number | undefined;
             
@@ -277,12 +271,6 @@ export async function POST(req: Request) {
                 
                 // Actually consume the stream
                 for await (const chunk of streamResult.textStream) {
-                  // Check if request was aborted
-                  if (requestAborted || controllerClosed) {
-                    logger.info('Request aborted during streaming, stopping');
-                    break;
-                  }
-                  
                   fullResponse += chunk;
                   
                   // Send token to client
