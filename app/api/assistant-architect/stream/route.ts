@@ -3,6 +3,7 @@ import { executeSQL } from "@/lib/db/data-api-adapter";
 import { streamCompletion } from "@/lib/ai-helpers";
 import logger from "@/lib/logger";
 import { rateLimit } from "@/lib/rate-limit";
+import { decodePromptVariables } from "@/lib/utils/prompt-decoder";
 
 interface StreamRequest {
   toolId: number;
@@ -10,20 +11,6 @@ interface StreamRequest {
   inputs: Record<string, unknown>;
 }
 
-// Add a function to decode HTML entities and remove escapes for variable placeholders
-function decodePromptVariables(content: string): string {
-  // Replace HTML entity for $ with $
-  let decoded = content.replace(/&#x24;|&\#36;/g, '$');
-  // Remove backslash escapes before $
-  decoded = decoded.replace(/\\\$/g, '$');
-  // Remove backslash escapes before {
-  decoded = decoded.replace(/\\\{/g, '{');
-  // Remove backslash escapes before }
-  decoded = decoded.replace(/\\\}/g, '}');
-  // Remove backslash escapes before _
-  decoded = decoded.replace(/\\_/g, '_');
-  return decoded;
-}
 
 // Configure rate limiting: 5 requests per minute per user
 const limiter = rateLimit({
