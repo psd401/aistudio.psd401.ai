@@ -32,6 +32,10 @@ const limiter = rateLimit({
   skipAuth: false // Apply rate limiting to authenticated users
 });
 
+// Constants
+const STREAM_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes max for entire stream
+const PROMPT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes max per prompt
+
 export async function POST(req: Request) {
   // Apply rate limiting
   const rateLimitResponse = await limiter(req as any);
@@ -126,8 +130,22 @@ export async function POST(req: Request) {
 
     // Create a ReadableStream for the response
     const encoder = new TextEncoder();
+    let streamTimeout: NodeJS.Timeout;
+    
     const stream = new ReadableStream({
       async start(controller) {
+        // Set overall stream timeout
+        streamTimeout = setTimeout(() => {
+          logger.warn(`Stream timeout after ${STREAM_TIMEOUT_MS}ms for execution ${executionId}`);
+          controller.enqueue(encoder.encode(
+            `data: ${JSON.stringify({
+              type: 'error',
+              error: 'Stream timeout - execution took too long'
+            })}\n\n`
+          ));
+          controller.close();
+        }, STREAM_TIMEOUT_MS);
+        
         try {
           // Send initial metadata
           controller.enqueue(encoder.encode(
@@ -301,6 +319,24 @@ export async function POST(req: Request) {
               
               } catch (streamError) {
                 logger.error(`[STREAM] Error during streaming:`, streamError);
+                // Update prompt result to failed state before re-throwing
+                if (promptResultId) {
+                  try {
+                    await executeSQL(
+                      `UPDATE prompt_results 
+                       SET status = 'failed'::execution_status, 
+                           completed_at = NOW(),
+                           error_message = :error
+                       WHERE id = :id`,
+                      [
+                        { name: 'id', value: { longValue: promptResultId } },
+                        { name: 'error', value: { stringValue: `Streaming error: ${streamError instanceof Error ? streamError.message : 'Unknown error'}` } }
+                      ]
+                    );
+                  } catch (updateError) {
+                    logger.error('Failed to update prompt result after stream error:', updateError);
+                  }
+                }
                 throw streamError;
               }
 
@@ -358,7 +394,8 @@ export async function POST(req: Request) {
             })}\n\n`
           ));
 
-          // Close the stream
+          // Clear timeout and close the stream
+          clearTimeout(streamTimeout);
           controller.close();
 
         } catch (error) {
@@ -387,6 +424,7 @@ export async function POST(req: Request) {
             })}\n\n`
           ));
           
+          clearTimeout(streamTimeout);
           controller.close();
         }
       }

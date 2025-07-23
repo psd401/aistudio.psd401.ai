@@ -347,9 +347,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                       handleStreamEvent(data, values)
                     } catch (parseError) {
                       // Log parse errors for debugging but don't break the stream
-                      if (process.env.NODE_ENV === 'development') {
-                        console.warn('[SSE] Failed to parse event data:', line, parseError)
-                      }
+                      console.warn('[SSE] Failed to parse event data:', line, parseError)
                     }
                   }
                 }
