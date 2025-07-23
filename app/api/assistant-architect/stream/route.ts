@@ -99,25 +99,16 @@ export async function POST(req: Request) {
       return new Response('Execution not found', { status: 404 });
     }
 
-    // Check if execution is already running
-    if (executionResult[0].status === 'running') {
-      return new Response('Execution is already in progress', { status: 409 });
+    // Check if execution is already completed or failed
+    if (executionResult[0].status === 'completed' || executionResult[0].status === 'failed') {
+      return new Response('Execution has already been processed', { status: 409 });
     }
 
-    // Mark execution as running to prevent concurrent processing
-    try {
-      await executeSQL(
-        `UPDATE tool_executions 
-         SET status = 'running'::execution_status,
-             started_at = NOW()
-         WHERE id = :executionId AND status = 'pending'::execution_status`,
-        [
-          { name: 'executionId', value: { longValue: executionId } }
-        ]
-      );
-    } catch (error) {
-      logger.error('Failed to mark execution as running:', error);
-      return new Response('Failed to start execution', { status: 500 });
+    // The execution should already be marked as 'running' by executeAssistantArchitect
+    // We just verify it's in a valid state to process
+    if (executionResult[0].status !== 'running') {
+      logger.error(`Unexpected execution status: ${executionResult[0].status} for execution ${executionId}`);
+      return new Response('Execution is not in the correct state for streaming', { status: 400 });
     }
 
     // Create a ReadableStream for the response
