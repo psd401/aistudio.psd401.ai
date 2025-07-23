@@ -48,6 +48,9 @@ export async function POST(req: Request) {
     return new Response('Unauthorized', { status: 401 });
   }
 
+  // Track if request was aborted
+  let requestAborted = false;
+  
   try {
     const { toolId, executionId, inputs }: StreamRequest = await req.json();
 
@@ -130,32 +133,63 @@ export async function POST(req: Request) {
 
     // Create a ReadableStream for the response
     const encoder = new TextEncoder();
+    let controllerClosed = false;
+    
+    // Handle request abort
+    const abortHandler = () => {
+      logger.info('Client disconnected, aborting stream');
+      requestAborted = true;
+      controllerClosed = true;
+    };
+    
+    if (req.signal) {
+      req.signal.addEventListener('abort', abortHandler);
+    }
+    
     const stream = new ReadableStream({
       async start(controller) {
+        // Helper to safely write to controller
+        const safeEnqueue = (data: string) => {
+          if (!controllerClosed) {
+            try {
+              controller.enqueue(encoder.encode(data));
+            } catch (e) {
+              logger.warn('Failed to enqueue data, controller may be closed:', e);
+              controllerClosed = true;
+            }
+          }
+        };
+        
         try {
           // Send initial metadata
-          controller.enqueue(encoder.encode(
+          safeEnqueue(
             `data: ${JSON.stringify({
               type: 'metadata',
               totalPrompts: prompts.length,
               toolName: tool.name
             })}\n\n`
-          ));
+          );
 
           // Execute prompts sequentially
           for (let i = 0; i < prompts.length; i++) {
+            // Stop processing if controller is closed
+            if (controllerClosed) {
+              logger.info('Controller closed, stopping prompt processing');
+              break;
+            }
+            
             const prompt = prompts[i];
             let promptResultId: number | undefined;
             
             // Send prompt start event
-            controller.enqueue(encoder.encode(
+            safeEnqueue(
               `data: ${JSON.stringify({
                 type: 'prompt_start',
                 promptIndex: i,
                 promptId: prompt.id,
                 modelName: prompt.model_name
               })}\n\n`
-            ));
+            );
 
             try {
               
@@ -243,16 +277,22 @@ export async function POST(req: Request) {
                 
                 // Actually consume the stream
                 for await (const chunk of streamResult.textStream) {
+                  // Check if request was aborted
+                  if (requestAborted || controllerClosed) {
+                    logger.info('Request aborted during streaming, stopping');
+                    break;
+                  }
+                  
                   fullResponse += chunk;
                   
                   // Send token to client
-                  controller.enqueue(encoder.encode(
+                  safeEnqueue(
                     `data: ${JSON.stringify({
                       type: 'token',
                       promptIndex: i,
                       token: chunk
                     })}\n\n`
-                  ));
+                  );
                 }
                 
 
@@ -274,17 +314,18 @@ export async function POST(req: Request) {
               }
 
               // Send prompt complete event
-              controller.enqueue(encoder.encode(
+              safeEnqueue(
                 `data: ${JSON.stringify({
                   type: 'prompt_complete',
                   promptIndex: i,
                   result: fullResponse
                 })}\n\n`
-              ));
+              );
               
               } catch (streamError) {
                 logger.error(`[STREAM] Error during streaming:`, streamError);
-                throw streamError;
+                // Don't re-throw here, let the prompt error handler deal with it
+                throw new Error(`Streaming failed: ${streamError instanceof Error ? streamError.message : 'Unknown error'}`);
               }
 
             } catch (promptError) {
@@ -310,13 +351,13 @@ export async function POST(req: Request) {
               }
               
               // Send error event
-              controller.enqueue(encoder.encode(
+              safeEnqueue(
                 `data: ${JSON.stringify({
                   type: 'prompt_error',
                   promptIndex: i,
                   error: promptError instanceof Error ? promptError.message : 'Unknown error'
                 })}\n\n`
-              ));
+              );
               
               // Continue with next prompt
             }
@@ -334,15 +375,18 @@ export async function POST(req: Request) {
           );
 
           // Send completion event
-          controller.enqueue(encoder.encode(
+          safeEnqueue(
             `data: ${JSON.stringify({
               type: 'complete',
               executionId: executionId
             })}\n\n`
-          ));
+          );
 
           // Close the stream
-          controller.close();
+          if (!controllerClosed) {
+            controllerClosed = true;
+            controller.close();
+          }
 
         } catch (error) {
           logger.error('Stream error:', error);
@@ -363,14 +407,17 @@ export async function POST(req: Request) {
           );
 
           // Send error event
-          controller.enqueue(encoder.encode(
+          safeEnqueue(
             `data: ${JSON.stringify({
               type: 'error',
               error: error instanceof Error ? error.message : 'Unknown error'
             })}\n\n`
-          ));
+          );
           
-          controller.close();
+          if (!controllerClosed) {
+            controllerClosed = true;
+            controller.close();
+          }
         }
       }
     });
