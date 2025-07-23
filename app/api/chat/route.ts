@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     }
 
     let conversationId: number | undefined;
-    let title = "Follow-up Conversation";
+    const title = "Follow-up Conversation";
 
     // If an existing conversation ID is provided, use it
     if (existingConversationId) {
