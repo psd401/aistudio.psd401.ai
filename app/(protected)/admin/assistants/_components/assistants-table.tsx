@@ -89,7 +89,6 @@ export function AssistantsTable() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const [editingAssistant, setEditingAssistant] = useState<Assistant | null>(null)
   const [formData, setFormData] = useState({
     name: "",
     description: ""

@@ -1,6 +1,5 @@
 import { Suspense } from "react"
 import { RolesTable } from "./_components/roles-table"
-import { RoleForm } from "./_components/role-form"
 import { requireRole } from "@/lib/auth/role-helpers"
 import { getRoles, getTools } from "@/lib/db/data-api-adapter"
 

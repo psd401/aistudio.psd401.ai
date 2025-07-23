@@ -144,8 +144,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       } else {
         setDocuments([])
       }
-    } catch (error) {
-      // console.error('[fetchDocuments] Error:', error)
+    } catch (_error) {
+      // console.error('[fetchDocuments] Error:', _error)
       setDocuments([])
     }
   }
@@ -184,8 +184,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         }
         
         fetchDocuments(currentConversationId)
-      } catch (error) {
-        // console.error("[handleDocumentUpload] Error linking document:", error)
+      } catch (_error) {
+        // console.error("[handleDocumentUpload] Error linking document:", _error)
         toast({
           title: "Warning",
           description: "Document uploaded but not linked to conversation.",
@@ -229,8 +229,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
           // console.error(`Failed to link document ${doc.id}`)
           continue
         }
-      } catch (error) {
-        // console.error(`Error linking document ${doc.id}:`, error)
+      } catch (_error) {
+        // console.error(`Error linking document ${doc.id}:`, _error)
       }
     }
     

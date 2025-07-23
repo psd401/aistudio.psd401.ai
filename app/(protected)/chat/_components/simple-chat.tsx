@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { useChat } from 'ai/react';
-import { IconReload, IconPlayerStop, IconPlus } from '@tabler/icons-react';
+import { IconPlayerStop } from '@tabler/icons-react';
 import { Message } from './message';
 import { ChatInput } from './chat-input';
 import { Button } from '@/components/ui/button';
@@ -25,7 +25,7 @@ export function SimpleChat({ conversationId, initialMessages = [] }: SimpleChatP
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
   
-  const { messages, input, handleInputChange, handleSubmit: handleChatSubmit, isLoading, error, reload, stop } = useChat({
+  const { messages, input, handleInputChange, handleSubmit: handleChatSubmit, isLoading, reload, stop } = useChat({
     api: '/api/chat',
     id: conversationId?.toString(),
     initialMessages: initialMessages.map(msg => ({

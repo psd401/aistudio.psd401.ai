@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { FileTextIcon, Trash2Icon, RefreshCwIcon, ClockIcon } from "lucide-react"
+import { FileTextIcon, Trash2Icon, RefreshCwIcon } from "lucide-react"
 
 interface Document {
   id: string
@@ -55,7 +55,7 @@ export function DocumentList({
       } else {
         setDocuments([])
       }
-    } catch (error) {
+    } catch (_error) {
       setDocuments([])
     } finally {
       setIsLoading(false)
@@ -76,7 +76,7 @@ export function DocumentList({
     try {
       await onDeleteDocument(documentId)
       setDocuments(docs => docs.filter(doc => doc.id !== documentId))
-    } catch (error) {
+    } catch (_error) {
     }
   }
 
@@ -112,7 +112,7 @@ export function DocumentList({
         // Open document in new tab
         window.open(data.document.url, '_blank', 'noopener,noreferrer');
       }
-    } catch (error) {
+    } catch (_error) {
     }
   };
 

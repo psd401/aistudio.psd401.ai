@@ -92,7 +92,7 @@ export default function IdeasPage() {
       }
       const data = await response.json();
       setIdeas(Array.isArray(data) ? data : []);
-    } catch (error) {
+    } catch (_error) {
       toast({
         title: 'Error',
         description: 'Failed to fetch ideas',
@@ -123,7 +123,7 @@ export default function IdeasPage() {
         description: 'Idea created successfully',
         variant: 'default',
       });
-    } catch (error) {
+    } catch (_error) {
       toast({
         title: 'Error',
         description: 'Failed to create idea',
@@ -174,7 +174,7 @@ export default function IdeasPage() {
       });
       if (!response.ok) throw new Error('Failed to update status');
       await fetchIdeas();
-    } catch (error) {
+    } catch (_error) {
       toast({
         title: 'Error',
         description: 'Failed to update status',
@@ -191,7 +191,7 @@ export default function IdeasPage() {
       const data = await response.json();
       setNotes(data);
       setShowNotesDialog(true);
-    } catch (error) {
+    } catch (_error) {
       toast({
         title: 'Error',
         description: 'Failed to fetch notes',
@@ -222,7 +222,7 @@ export default function IdeasPage() {
         description: 'Note added successfully',
         variant: 'default',
       });
-    } catch (error) {
+    } catch (_error) {
       toast({
         title: 'Error',
         description: 'Failed to add note',
@@ -252,7 +252,7 @@ export default function IdeasPage() {
         description: 'Idea updated successfully',
         variant: 'default',
       });
-    } catch (error) {
+    } catch (_error) {
       toast({
         title: 'Error',
         description: 'Failed to update idea',
@@ -286,7 +286,7 @@ export default function IdeasPage() {
         description: 'Idea deleted successfully',
         variant: 'default',
       });
-    } catch (error) {
+    } catch (_error) {
       toast({
         title: 'Error',
         description: 'Failed to delete idea',
