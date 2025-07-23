@@ -110,7 +110,7 @@ export function ToolAssignments({
           })
         }
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: isAssigned 

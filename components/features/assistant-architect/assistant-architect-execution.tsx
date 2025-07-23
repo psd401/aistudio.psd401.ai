@@ -340,7 +340,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                     try {
                       const data = JSON.parse(line.slice(6))
                       handleStreamEvent(data, values)
-                    } catch (parseError) {
+                    } catch {
                       // Log parse errors for debugging but don't break the stream
                       if (process.env.NODE_ENV === 'development') {
                       }
@@ -507,7 +507,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         } else {
            retryCount++
         }
-      } catch (pollError) {
+      } catch {
         retryCount++
       }
 
@@ -595,7 +595,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         description: "Copied to clipboard",
         duration: 2000
       })
-    } catch (copyError) {
+    } catch {
       toast({
         description: "Failed to copy to clipboard",
         variant: "destructive"
@@ -603,7 +603,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     }
   }, [toast])
 
-  const handleFeedback = async (promptResult, feedback) => {
+  const handleFeedback = async (promptResult: { executionId: string; promptId: string; id: string }, feedback: string) => {
     try {
       await updatePromptResultAction(promptResult.executionId, promptResult.promptId, { userFeedback: feedback })
       setResults(prev => {

@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { requireAdmin } from "@/lib/auth/admin-check"
 import { upsertSettingAction } from "@/actions/db/settings-actions"
-import { withErrorHandling, unauthorized, forbidden } from "@/lib/api-utils"
+import { withErrorHandling } from "@/lib/api-utils"
 
 // List of settings that can be imported from environment
 const IMPORTABLE_SETTINGS = [
@@ -23,7 +23,7 @@ const IMPORTABLE_SETTINGS = [
 ]
 
 // POST /api/admin/settings/import - Import settings from environment variables
-export async function POST(_req: NextRequest) {
+export async function POST() {
   return withErrorHandling(async () => {
     // Check admin authorization
     const authError = await requireAdmin();

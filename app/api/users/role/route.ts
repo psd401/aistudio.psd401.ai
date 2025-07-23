@@ -1,6 +1,5 @@
 import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL, updateUserRole } from '@/lib/db/data-api-adapter';
-import type { Role } from '@/types';
 import { NextResponse } from 'next/server';
 import { hasRole } from '@/utils/roles';
 import logger from '@/lib/logger';

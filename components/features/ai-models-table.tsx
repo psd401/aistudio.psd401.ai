@@ -11,7 +11,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { IconPlus, IconEdit, IconTrash } from '@tabler/icons-react';
 import type { AiModel } from '~/lib/schema';
 import type { SelectAiModel } from '@/types';
-import { useToast } from '@/components/ui/use-toast';
 import {
   ColumnDef,
   flexRender,
@@ -19,6 +18,7 @@ import {
   getSortedRowModel,
   SortingState,
   useReactTable,
+  Column,
 } from '@tanstack/react-table';
 import { IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-react';
 
@@ -195,7 +195,7 @@ export const AiModelsTable = React.memo(function AiModelsTable({
     title,
     className = ""
   }: {
-    column: any;
+    column: Column<SelectAiModel, unknown>;
     title: string;
     className?: string;
   }) => (

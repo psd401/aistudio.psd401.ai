@@ -68,7 +68,6 @@ export async function POST(req: NextRequest) {
     }
 
     let conversationId: number | undefined;
-    const title = "Follow-up Conversation";
 
     // If an existing conversation ID is provided, use it
     if (existingConversationId) {
@@ -211,8 +210,8 @@ export async function POST(req: NextRequest) {
               const content = chunk.content.toLowerCase();
               const message = latestUserMessage.toLowerCase();
               // Look for common words (3+ characters) from the user message in the chunks
-              const keywords = message.split(/\s+/).filter(word => word.length > 2);
-              return keywords.some(keyword => content.includes(keyword));
+              const keywords = message.split(/\s+/).filter((word: string) => word.length > 2);
+              return keywords.some((keyword: string) => content.includes(keyword));
             })
             .slice(0, 3); // Top 3 most relevant chunks
         }

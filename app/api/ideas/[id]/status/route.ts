@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
 import logger from '@/lib/logger';
+import { SqlParameter } from 'aws-sdk/clients/rdsdataservice';
 
 export async function PATCH(request: Request, context: { params: { id: string } }) {
   const session = await getServerSession();
@@ -28,7 +29,7 @@ export async function PATCH(request: Request, context: { params: { id: string } 
     }
 
     let sql = 'UPDATE ideas SET status = :status, updated_at = NOW()';
-    const params: any[] = [
+    const params: SqlParameter[] = [
       { name: 'status', value: { stringValue: status } },
       { name: 'ideaId', value: { longValue: ideaId } },
     ];

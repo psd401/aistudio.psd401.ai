@@ -15,7 +15,7 @@ export interface ExportedAssistant {
     model_name: string // Using model name instead of ID for portability
     position: number
     parallel_group?: number
-    input_mapping?: any
+    input_mapping?: Record<string, unknown>
     timeout_seconds?: number
   }>
   input_fields: Array<{
@@ -23,7 +23,7 @@ export interface ExportedAssistant {
     label: string
     field_type: string
     position: number
-    options?: any
+    options?: Record<string, unknown>
   }>
 }
 
@@ -135,26 +135,28 @@ export function createExportFile(assistants: ExportedAssistant[]): ExportFormat 
 /**
  * Validates import file structure and version
  */
-export function validateImportFile(data: any): { valid: boolean; error?: string } {
-  if (!data || typeof data !== 'object') {
+export function validateImportFile(data: unknown): { valid: boolean; error?: string } {
+  if (!data || typeof data !== 'object' || data === null) {
     return { valid: false, error: "Invalid file format" }
   }
 
-  if (!data.version) {
+  const importData = data as Record<string, unknown>
+
+  if (!importData.version) {
     return { valid: false, error: "Missing version information" }
   }
 
   // For now, we only support version 1.0
-  if (data.version !== CURRENT_EXPORT_VERSION) {
-    return { valid: false, error: `Unsupported version: ${data.version}. Expected: ${CURRENT_EXPORT_VERSION}` }
+  if (importData.version !== CURRENT_EXPORT_VERSION) {
+    return { valid: false, error: `Unsupported version: ${importData.version}. Expected: ${CURRENT_EXPORT_VERSION}` }
   }
 
-  if (!Array.isArray(data.assistants)) {
+  if (!Array.isArray(importData.assistants)) {
     return { valid: false, error: "Missing or invalid assistants array" }
   }
 
   // Validate each assistant structure
-  for (const assistant of data.assistants) {
+  for (const assistant of importData.assistants as Record<string, unknown>[]) {
     if (!assistant.name || typeof assistant.name !== 'string') {
       return { valid: false, error: "Invalid assistant: missing name" }
     }

@@ -27,7 +27,7 @@ export async function GET() {
     const allCookies = cookieStore.getAll();
     
     // Clear each auth-related cookie
-    allCookies.forEach(cookie => {
+    allCookies.forEach((cookie: { name: string; value: string }) => {
       if (cookie.name.includes('auth') || 
           cookie.name.includes('session') ||
           cookie.name.includes('csrf') ||

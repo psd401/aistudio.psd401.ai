@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { IconThumbUp, IconNote, IconCheck, IconTrash, IconEdit } from '@tabler/icons-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -61,7 +61,7 @@ export default function IdeasPage() {
 
   useEffect(() => {
     fetchIdeas();
-  }, []);
+  }, [fetchIdeas]);
 
   const sortIdeas = (ideasToSort: Idea[]) => {
     return [...ideasToSort].sort((a, b) => {
@@ -84,7 +84,7 @@ export default function IdeasPage() {
     });
   };
 
-  const fetchIdeas = async () => {
+  const fetchIdeas = useCallback(async () => {
     try {
       const response = await fetch('/api/ideas');
       if (!response.ok) {
@@ -92,7 +92,7 @@ export default function IdeasPage() {
       }
       const data = await response.json();
       setIdeas(Array.isArray(data) ? data : []);
-    } catch (_error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Failed to fetch ideas',
@@ -100,7 +100,7 @@ export default function IdeasPage() {
       });
       setIdeas([]);
     }
-  };
+  }, [toast]);
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -123,7 +123,7 @@ export default function IdeasPage() {
         description: 'Idea created successfully',
         variant: 'default',
       });
-    } catch (_error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Failed to create idea',
@@ -146,7 +146,7 @@ export default function IdeasPage() {
         throw new Error(errorText || 'Failed to vote');
       }
       
-      const data = await response.json();
+      await response.json();
       
       await fetchIdeas();
       toast({
@@ -174,7 +174,7 @@ export default function IdeasPage() {
       });
       if (!response.ok) throw new Error('Failed to update status');
       await fetchIdeas();
-    } catch (_error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Failed to update status',
@@ -191,7 +191,7 @@ export default function IdeasPage() {
       const data = await response.json();
       setNotes(data);
       setShowNotesDialog(true);
-    } catch (_error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Failed to fetch notes',
@@ -222,7 +222,7 @@ export default function IdeasPage() {
         description: 'Note added successfully',
         variant: 'default',
       });
-    } catch (_error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Failed to add note',
@@ -252,7 +252,7 @@ export default function IdeasPage() {
         description: 'Idea updated successfully',
         variant: 'default',
       });
-    } catch (_error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Failed to update idea',
@@ -286,7 +286,7 @@ export default function IdeasPage() {
         description: 'Idea deleted successfully',
         variant: 'default',
       });
-    } catch (_error) {
+    } catch {
       toast({
         title: 'Error',
         description: 'Failed to delete idea',
@@ -300,7 +300,7 @@ export default function IdeasPage() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Ideas</h1>
         <div className="flex items-center gap-4">
-          <Select onValueChange={(value) => setSortBy(value as any)} value={sortBy}>
+          <Select onValueChange={(value) => setSortBy(value as 'newest' | 'priority' | 'votes')} value={sortBy}>
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Sort by" />
             </SelectTrigger>
@@ -464,7 +464,7 @@ export default function IdeasPage() {
           <DialogHeader>
             <DialogTitle>Edit Idea</DialogTitle>
             <DialogDescription>
-              Make changes to your idea here. Click save when you're done.
+              Make changes to your idea here. Click save when you&apos;re done.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">

@@ -10,6 +10,7 @@ import { Message } from "@/components/ui/message"
 import { ExecutionResultDetails } from "@/types/assistant-architect-types"
 import { IconPlayerStop } from "@tabler/icons-react"
 import { Loader2 } from "lucide-react"
+import type { SelectMessage } from "@/types/schema-types"
 
 interface AssistantArchitectChatProps {
   execution: ExecutionResultDetails
@@ -125,7 +126,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
         if (response.ok) {
           const data = await response.json();
           if (Array.isArray(data.messages)) {
-            setMessages(data.messages.map((msg: any) => ({
+            setMessages(data.messages.map((msg: SelectMessage) => ({
               id: msg.id.toString(),
               role: msg.role,
               content: msg.content

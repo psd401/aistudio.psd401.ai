@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 
 interface FeatureProps {
-  icon: React.FC<any>;
+  icon: React.FC<{ size?: number; className?: string; stroke?: number }>;
   title: string;
   description: string;
 }

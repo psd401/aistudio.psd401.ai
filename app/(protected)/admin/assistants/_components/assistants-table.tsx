@@ -190,7 +190,7 @@ export function AssistantsTable() {
         variant: "destructive",
       })
     }
-  }, [fetchAssistants])
+  }, [fetchAssistants, toast])
 
   // Handle approve/reject
   const handleStatusChange = useCallback(async (id: string, action: "approve" | "reject") => {
@@ -223,7 +223,7 @@ export function AssistantsTable() {
         variant: "destructive",
       })
     }
-  }, [fetchAssistants])
+  }, [fetchAssistants, toast])
 
   // Get status badge
   const getStatusBadge = useCallback((status: Assistant["status"]) => {

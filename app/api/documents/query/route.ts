@@ -20,8 +20,6 @@ export async function POST(request: NextRequest) {
   if (!currentUser.isSuccess) {
     return NextResponse.json({ error: 'User not found' }, { status: 401 });
   }
-  
-  const userId = currentUser.data.user.id;
 
   try {
     const body = await request.json();

@@ -13,7 +13,7 @@ import { getServerSession } from "@/lib/auth/server-session"
  * 
  * Returns detailed diagnostic information to help troubleshoot deployment issues
  */
-export async function GET(_request: Request) {
+export async function GET() {
   // For production, you may want to add authentication or IP restriction
   // For now, we'll allow access but you can uncomment the following to restrict:
   /*
@@ -26,7 +26,42 @@ export async function GET(_request: Request) {
   }
   */
 
-  const healthCheck: any = {
+  interface HealthCheckResult {
+    timestamp: string;
+    status: string;
+    checks: {
+      environment: {
+        status: string;
+        missingVariables?: string[];
+        awsRegion?: string;
+        nodeEnv?: string;
+        details?: Record<string, unknown>;
+        error?: string;
+      };
+      authentication: {
+        status: string;
+        hasSession?: boolean;
+        sessionUser?: string;
+        authConfigured?: boolean;
+        error?: string;
+        hint?: string;
+      };
+      database: {
+        status: string;
+        success?: boolean;
+        configured?: boolean;
+        hint?: string;
+        error?: unknown;
+        [key: string]: unknown;
+      };
+    };
+    diagnostics?: {
+      hints: string[];
+      deploymentChecklist?: string[];
+    };
+  }
+
+  const healthCheck: HealthCheckResult = {
     timestamp: new Date().toISOString(),
     status: "checking",
     checks: {
@@ -136,7 +171,7 @@ export async function GET(_request: Request) {
 
   // 4. Overall health status
   const allHealthy = Object.values(healthCheck.checks).every(
-    (check: any) => check.status === "healthy"
+    (check) => check.status === "healthy"
   )
   
   healthCheck.status = allHealthy ? "healthy" : "unhealthy"

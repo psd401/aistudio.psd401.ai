@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
           key: document.url,
           expiresIn: 3600 // 1 hour
         });
-      } catch (error) {
+      } catch {
         return NextResponse.json({
           success: false,
           error: 'Failed to generate document access URL'
@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
               ...doc,
               url: signedUrl
             };
-          } catch (error) {
+          } catch {
             // If we can't generate a signed URL, return the document without it
             return doc;
           }

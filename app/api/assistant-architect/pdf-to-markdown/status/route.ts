@@ -49,7 +49,18 @@ export async function GET(req: NextRequest) {
       return new NextResponse(JSON.stringify({ error: 'Job not found' }), { status: 404, headers });
     }
 
-    let result: any = {
+    interface JobResult {
+      jobId: number;
+      status: string;
+      createdAt: string;
+      updatedAt: string;
+      error?: string;
+      markdown?: string;
+      fileName?: string;
+      processingTime?: number;
+    }
+
+    let result: JobResult = {
       jobId: job.id,
       status: job.status,
       createdAt: job.created_at,
@@ -70,7 +81,7 @@ export async function GET(req: NextRequest) {
 
     return new NextResponse(JSON.stringify(result), { status: 200, headers });
 
-  } catch (error: any) {
+  } catch (error) {
     logger.error('[PDF Status Check] Error:', error);
     return new NextResponse(JSON.stringify({ error: 'Failed to check job status' }), { status: 500, headers });
   }

@@ -3,6 +3,7 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
 import logger from '@/lib/logger';
+import { SqlParameter } from 'aws-sdk/clients/rdsdataservice';
 
 export async function PATCH(
   request: NextRequest,
@@ -26,7 +27,7 @@ export async function PATCH(
     const { id } = await Promise.resolve(context.params);
 
     const updateFields: string[] = [];
-    const params: any[] = [{ name: 'id', value: { longValue: parseInt(id) } }];
+    const params: SqlParameter[] = [{ name: 'id', value: { longValue: parseInt(id) } }];
 
     if (body.title) {
       updateFields.push('title = :title');

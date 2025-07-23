@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireAdmin } from "@/lib/auth/admin-check"
 import { testSettingConnectionAction } from "@/actions/db/settings-actions"
-import { withErrorHandling, unauthorized, forbidden } from "@/lib/api-utils"
+import { withErrorHandling } from "@/lib/api-utils"
 
 // POST /api/admin/settings/test - Test a setting connection
 export async function POST(req: NextRequest) {

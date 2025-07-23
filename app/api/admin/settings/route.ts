@@ -5,10 +5,10 @@ import {
   upsertSettingAction, 
   deleteSettingAction 
 } from "@/actions/db/settings-actions"
-import { withErrorHandling, unauthorized, forbidden } from "@/lib/api-utils"
+import { withErrorHandling } from "@/lib/api-utils"
 
 // GET /api/admin/settings - Get all settings
-export async function GET(_req: NextRequest) {
+export async function GET() {
   return withErrorHandling(async () => {
     // Check admin authorization
     const authError = await requireAdmin();

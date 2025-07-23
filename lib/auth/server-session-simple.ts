@@ -1,4 +1,4 @@
-import { validateJWT, type JWTPayload } from "./jwt-validator";
+import { validateJWT } from "./jwt-validator";
 
 export interface CognitoSession {
   sub: string;

@@ -6,7 +6,7 @@ import logger from '@/lib/logger';
 
 export const dynamic = 'force-dynamic'
 
-export async function GET(_request: Request) {
+export async function GET() {
   try {
     const session = await getServerSession()
     if (!session || !session.sub) {

@@ -5,7 +5,6 @@ import { InputFieldsForm } from "./input-fields-form"
 import { InputFieldList } from "./input-field-list"
 import type { SelectToolInputField } from "@/types"
 import { CardHeader, CardTitle } from "@/components/ui/card"
-import Link from "next/link"
 
 interface InputFieldsPageClientProps {
   assistantId: string

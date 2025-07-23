@@ -1,4 +1,4 @@
-import { RDSDataClient, ExecuteStatementCommand } from "@aws-sdk/client-rds-data";
+import { RDSDataClient, ExecuteStatementCommand, SqlParameter } from "@aws-sdk/client-rds-data";
 import logger from '@/lib/logger';
 
 // Initialize the RDS Data API client
@@ -18,7 +18,7 @@ export interface DataApiConfig {
  */
 export async function executeStatement(
   sql: string, 
-  parameters?: any[],
+  parameters?: SqlParameter[],
   config?: DataApiConfig
 ) {
   const defaultConfig = {

@@ -6,10 +6,9 @@
 
 // Note: We keep the type imports (if they exist) purely for IDE support.
 import type pdfParseType from 'pdf-parse';
-import type mammothType from 'mammoth';
 import logger from "@/lib/logger"
 
-// @ts-ignore - Ignore type error for this specific import path if necessary
+// @ts-expect-error - Ignore type error for this specific import path if necessary
 // import * as pdfjsLib from 'pdfjs-dist/webpack.mjs'; // Replaced
 // import path from 'path'; // No longer needed for this approach
 // Removed eager import of pdf-parse
@@ -24,7 +23,7 @@ import logger from "@/lib/logger"
 /**
  * Extract text from a PDF file
  */
-export async function extractTextFromPDF(buffer: Buffer): Promise<{ text: string, metadata: any }> {
+export async function extractTextFromPDF(buffer: Buffer): Promise<{ text: string, metadata: Record<string, unknown> }> {
   try {
     // Import the library without executing its top-level debug routine that
     // exists in `index.js`.  We jump directly to the core implementation
@@ -48,7 +47,7 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<{ text: string
 /**
  * Extract text from a DOCX file
  */
-export async function extractTextFromDOCX(buffer: Buffer): Promise<{ text: string, metadata: any }> {
+export async function extractTextFromDOCX(buffer: Buffer): Promise<{ text: string, metadata: Record<string, unknown> }> {
   try {
     const mammoth = (await import('mammoth')).default;
     const result = await mammoth.extractRawText({ buffer });
@@ -67,7 +66,7 @@ export async function extractTextFromDOCX(buffer: Buffer): Promise<{ text: strin
 /**
  * Extract text from a TXT file
  */
-export async function extractTextFromTXT(buffer: Buffer): Promise<{ text: string, metadata: any }> {
+export async function extractTextFromTXT(buffer: Buffer): Promise<{ text: string, metadata: Record<string, unknown> }> {
   try {
     const text = buffer.toString('utf-8');
     return {
@@ -88,7 +87,7 @@ export async function extractTextFromTXT(buffer: Buffer): Promise<{ text: string
 export async function extractTextFromDocument(
   buffer: Buffer, 
   fileType: string
-): Promise<{ text: string, metadata: any }> {
+): Promise<{ text: string, metadata: Record<string, unknown> }> {
   switch (fileType.toLowerCase()) {
     case 'pdf':
       return extractTextFromPDF(buffer);

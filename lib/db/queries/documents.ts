@@ -1,6 +1,6 @@
 import { InsertDocument, SelectDocument, InsertDocumentChunk, SelectDocumentChunk } from "@/types/db-types";
 import logger from "@/lib/logger"
-import { executeSQL } from "@/lib/db/data-api-adapter"
+import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter"
 
 /**
  * Saves a document to the database
@@ -47,7 +47,7 @@ export async function saveDocument(document: InsertDocument): Promise<SelectDocu
     }
     
     // Parse metadata back from JSON string
-    const result = results[0] as any;
+    const result = results[0] as FormattedRow;
     if (result.metadata && typeof result.metadata === 'string') {
       try {
         result.metadata = JSON.parse(result.metadata);
@@ -204,7 +204,7 @@ export async function saveDocumentChunk(chunk: InsertDocumentChunk): Promise<Sel
       throw new Error('Failed to save document chunk');
     }
     
-    const result = results[0] as any;
+    const result = results[0] as FormattedRow;
     // Parse metadata back from JSON string
     if (result.metadata && typeof result.metadata === 'string') {
       try {
@@ -296,7 +296,7 @@ export async function batchInsertDocumentChunks(chunks: InsertDocumentChunk[]): 
       
       const results = await executeSQL(query, parameters);
       if (results.length > 0) {
-        const result = results[0] as any;
+        const result = results[0] as FormattedRow;
         // Parse metadata back from JSON string
         if (result.metadata && typeof result.metadata === 'string') {
           try {

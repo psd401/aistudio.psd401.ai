@@ -181,8 +181,8 @@ export async function POST(req: Request) {
           .filter(chunk => {
             const content = chunk.content.toLowerCase();
             const message = latestUserMessage.toLowerCase();
-            const keywords = message.split(/\s+/).filter(word => word.length > 2);
-            return keywords.some(keyword => content.includes(keyword));
+            const keywords = message.split(/\s+/).filter((word: string) => word.length > 2);
+            return keywords.some((keyword: string) => content.includes(keyword));
           })
           .slice(0, 3); // Top 3 most relevant chunks
       }

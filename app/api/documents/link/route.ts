@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { linkDocumentToConversation, getDocumentById } from '@/lib/db/queries/documents';
-import { withErrorHandling, unauthorized, badRequest } from '@/lib/api-utils';
+import { withErrorHandling, unauthorized } from '@/lib/api-utils';
 import { createError } from '@/lib/error-utils';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';

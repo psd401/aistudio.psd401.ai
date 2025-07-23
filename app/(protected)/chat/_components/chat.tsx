@@ -101,7 +101,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     return () => {
       abortController.abort()
     }
-  }, []) // Empty deps since this runs once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Intentionally empty - initialization effect that should only run once on mount
 
   useEffect(() => {
     if (pendingDocument && currentConversationId) {
@@ -144,7 +145,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       } else {
         setDocuments([])
       }
-    } catch (_error) {
+    } catch {
       // console.error('[fetchDocuments] Error:', _error)
       setDocuments([])
     }
@@ -184,7 +185,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         }
         
         fetchDocuments(currentConversationId)
-      } catch (_error) {
+      } catch {
         // console.error("[handleDocumentUpload] Error linking document:", _error)
         toast({
           title: "Warning",
@@ -229,7 +230,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
           // console.error(`Failed to link document ${doc.id}`)
           continue
         }
-      } catch (_error) {
+      } catch {
         // console.error(`Error linking document ${doc.id}:`, _error)
       }
     }

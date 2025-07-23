@@ -1,4 +1,3 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 import { executeSQL } from "@/lib/db/data-api-adapter"
 import logger from '@/lib/logger';

@@ -32,7 +32,16 @@ export async function GET(request: Request, context: { params: { id: string } })
     `;
     const notes = await executeSQL(sql, [{ name: 'ideaId', value: { longValue: ideaId } }]);
 
-    return NextResponse.json(notes.map((note: any) => ({
+    interface NoteRow {
+      id: number;
+      idea_id: number;
+      content: string;
+      user_id: number;
+      created_at: string;
+      creator_name: string;
+    }
+
+    return NextResponse.json(notes.map((note: NoteRow) => ({
       ...note,
       createdBy: note.creator_name || note.user_id,
       createdAt: note.created_at,

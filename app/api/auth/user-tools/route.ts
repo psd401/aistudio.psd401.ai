@@ -3,7 +3,7 @@ import { getServerSession } from "@/lib/auth/server-session"
 import { getUserTools } from "@/utils/roles"
 import logger from '@/lib/logger';
 
-export async function GET(_request: Request) {
+export async function GET() {
   try {
     const session = await getServerSession()
     if (!session) {

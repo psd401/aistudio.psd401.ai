@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { FileTextIcon, Trash2Icon, RefreshCwIcon } from "lucide-react"
 
@@ -29,15 +29,7 @@ export function DocumentList({
   const [documents, setDocuments] = useState<Document[]>(initialDocuments || [])
   const [isLoading, setIsLoading] = useState(false)
 
-  useEffect(() => {
-    if (initialDocuments) {
-      setDocuments(initialDocuments);
-    } else if (conversationId) {
-      fetchDocuments();
-    }
-  }, [conversationId, initialDocuments])
-
-  const fetchDocuments = async () => {
+  const fetchDocuments = useCallback(async () => {
     if (!conversationId) return;
     
     setIsLoading(true)
@@ -55,12 +47,20 @@ export function DocumentList({
       } else {
         setDocuments([])
       }
-    } catch (_error) {
+    } catch {
       setDocuments([])
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [conversationId])
+
+  useEffect(() => {
+    if (initialDocuments) {
+      setDocuments(initialDocuments);
+    } else if (conversationId) {
+      fetchDocuments();
+    }
+  }, [conversationId, initialDocuments, fetchDocuments])
   
   const handleRefresh = () => {
     if (onRefresh) {
@@ -76,7 +76,7 @@ export function DocumentList({
     try {
       await onDeleteDocument(documentId)
       setDocuments(docs => docs.filter(doc => doc.id !== documentId))
-    } catch (_error) {
+    } catch {
     }
   }
 
@@ -112,7 +112,7 @@ export function DocumentList({
         // Open document in new tab
         window.open(data.document.url, '_blank', 'noopener,noreferrer');
       }
-    } catch (_error) {
+    } catch {
     }
   };
 

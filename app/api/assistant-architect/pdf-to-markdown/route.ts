@@ -4,6 +4,7 @@ import { getServerSession } from '@/lib/auth/server-session'
 import { executeSQL } from '@/lib/db/data-api-adapter'
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action'
 import logger from "@/lib/logger"
+import { getErrorMessage } from "@/types/errors"
 
 // Easily change the model id here
 const PDF_TO_MARKDOWN_MODEL_ID = 20
@@ -144,18 +145,26 @@ export async function POST(req: NextRequest) {
       { status: 202, headers }
     );
     
-  } catch (error: any) {
+  } catch (error) {
     logger.error('[PDF-to-Markdown] General error:', error);
-    logger.error('[PDF-to-Markdown] Error stack:', error.stack);
+    logger.error('[PDF-to-Markdown] Error stack:', error);
     return new NextResponse(
-      JSON.stringify({ error: error.message || 'Unknown error' }), 
+      JSON.stringify({ error: getErrorMessage(error) || 'Unknown error' }), 
       { status: 500, headers }
     );
   }
 }
 
 // Background processing function
-async function processPdfInBackground(jobId: number, jobInput: any) {
+interface JobInput {
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  fileData: string;
+  modelId: number;
+}
+
+async function processPdfInBackground(jobId: number, jobInput: JobInput) {
   try {
     logger.info(`[PDF-to-Markdown Background] Starting processing for job ${jobId}`);
     
@@ -242,9 +251,9 @@ async function processPdfInBackground(jobId: number, jobInput: any) {
     
     logger.info(`[PDF-to-Markdown Background] Job ${jobId} successfully saved to database`);
       
-  } catch (error: any) {
+  } catch (error) {
     logger.error(`[PDF-to-Markdown Background] Job ${jobId} failed:`, error);
-    logger.error(`[PDF-to-Markdown Background] Error details:`, error.stack);
+    logger.error(`[PDF-to-Markdown Background] Error details:`, error);
     
     // Update job with error
     await executeSQL(`
@@ -252,7 +261,7 @@ async function processPdfInBackground(jobId: number, jobInput: any) {
       SET status = 'failed'::job_status, error = :error, updated_at = NOW()
       WHERE id = :jobId
     `, [
-      { name: 'error', value: { stringValue: error.message || 'Unknown error' } },
+      { name: 'error', value: { stringValue: getErrorMessage(error) || 'Unknown error' } },
       { name: 'jobId', value: { longValue: jobId } }
     ]);
   }

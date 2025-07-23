@@ -70,7 +70,7 @@ export default function EditForm({ id, initialData }: EditFormProps) {
           variant: "destructive"
         })
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to update Assistant Architect",

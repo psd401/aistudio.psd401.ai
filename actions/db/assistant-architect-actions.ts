@@ -26,7 +26,7 @@ import { hasRole, getUserTools } from "@/utils/roles";
 import { createNavigationItemAction } from "@/actions/db/navigation-actions"
 import logger from "@/lib/logger"
 import { getServerSession } from "@/lib/auth/server-session";
-import { executeSQL, checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter";
+import { executeSQL, checkUserRoleByCognitoSub, type FormattedRow } from "@/lib/db/data-api-adapter";
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action";
 import { RDSDataClient, BeginTransactionCommand, ExecuteStatementCommand, CommitTransactionCommand, RollbackTransactionCommand } from "@aws-sdk/client-rds-data";
 
@@ -1923,7 +1923,7 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
       [{ name: 'status', value: { stringValue: 'approved' } }]
     )
 
-    if (!toolsResult.records || toolsResult.records.length === 0) {
+    if (!toolsResult || toolsResult.length === 0) {
       return {
         isSuccess: true,
         message: "No approved tools found",
@@ -1933,8 +1933,8 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
 
     // Get related data for each tool
     const toolsWithRelations = await Promise.all(
-      toolsResult.records.map(async (toolRecord) => {
-        const toolId = toolRecord[0]?.stringValue || ''
+      toolsResult.map(async (toolRecord: FormattedRow) => {
+        const toolId = String(toolRecord.id || '')
         
         // Run input fields and prompts queries in parallel
         const [inputFieldsResult, promptsResult] = await Promise.all([
@@ -1950,45 +1950,45 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
 
         // Map the tool record
         const tool: SelectAssistantArchitect = {
-          id: toolRecord[0]?.stringValue || '',
-          name: toolRecord[1]?.stringValue || '',
-          description: toolRecord[2]?.stringValue || null,
-          status: toolRecord[3]?.stringValue || 'draft',
-          imagePath: toolRecord[4]?.stringValue || null,
-          userId: toolRecord[5]?.stringValue || '',
-          createdAt: new Date(toolRecord[6]?.stringValue || ''),
-          updatedAt: new Date(toolRecord[7]?.stringValue || '')
+          id: String(toolRecord.id || ''),
+          name: String(toolRecord.name || ''),
+          description: toolRecord.description ? String(toolRecord.description) : null,
+          status: String(toolRecord.status || 'draft'),
+          imagePath: toolRecord.image_path ? String(toolRecord.image_path) : null,
+          userId: String(toolRecord.user_id || ''),
+          createdAt: new Date(String(toolRecord.created_at || '')),
+          updatedAt: new Date(String(toolRecord.updated_at || ''))
         }
 
         // Map input fields
-        const inputFields = inputFieldsResult.records?.map(record => ({
-          id: record[0]?.stringValue || '',
-          toolId: record[1]?.stringValue || '',
-          name: record[2]?.stringValue || '',
-          label: record[3]?.stringValue || '',
-          type: record[4]?.stringValue || 'text',
-          placeholder: record[5]?.stringValue || null,
-          description: record[6]?.stringValue || null,
-          required: record[7]?.booleanValue || false,
-          defaultValue: record[8]?.stringValue || null,
-          position: Number(record[9]?.longValue || 0),
-          createdAt: new Date(record[10]?.stringValue || ''),
-          updatedAt: new Date(record[11]?.stringValue || '')
-        })) || []
+        const inputFields = inputFieldsResult.map((record: FormattedRow) => ({
+          id: String(record.id || ''),
+          toolId: String(record.assistant_architect_id || ''),
+          name: String(record.name || ''),
+          label: String(record.label || ''),
+          type: String(record.type || 'text'),
+          placeholder: record.placeholder ? String(record.placeholder) : null,
+          description: record.description ? String(record.description) : null,
+          required: Boolean(record.required || false),
+          defaultValue: record.default_value ? String(record.default_value) : null,
+          position: Number(record.position || 0),
+          createdAt: new Date(String(record.created_at || '')),
+          updatedAt: new Date(String(record.updated_at || ''))
+        }))
 
         // Map prompts
-        const prompts = promptsResult.records?.map(record => ({
-          id: record[0]?.stringValue || '',
-          toolId: record[1]?.stringValue || '',
-          name: record[2]?.stringValue || '',
-          content: record[3]?.stringValue || '',
-          systemContext: record[4]?.stringValue || null,
-          userContext: record[5]?.stringValue || null,
-          position: Number(record[6]?.longValue || 0),
-          selectedModelId: record[7]?.stringValue || null,
-          createdAt: new Date(record[8]?.stringValue || ''),
-          updatedAt: new Date(record[9]?.stringValue || '')
-        })) || []
+        const prompts = promptsResult.map((record: FormattedRow) => ({
+          id: String(record.id || ''),
+          toolId: String(record.assistant_architect_id || ''),
+          name: String(record.name || ''),
+          content: String(record.content || ''),
+          systemContext: record.system_context ? String(record.system_context) : null,
+          userContext: record.user_context ? String(record.user_context) : null,
+          position: Number(record.position || 0),
+          selectedModelId: record.model_id ? String(record.model_id) : null,
+          createdAt: new Date(String(record.created_at || '')),
+          updatedAt: new Date(String(record.updated_at || ''))
+        }))
 
         return {
           ...tool,

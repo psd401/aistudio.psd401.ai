@@ -1,4 +1,4 @@
-import { NextResponse, NextRequest } from "next/server"
+import { NextResponse } from "next/server"
 import { getServerSession } from "@/lib/auth/server-session"
 import { getNavigationItems as getNavigationItemsViaDataAPI } from "@/lib/db/data-api-adapter"
 import logger from '@/lib/logger';
@@ -30,7 +30,7 @@ import logger from '@/lib/logger';
  *   ]
  * }
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // Check if user is authenticated using NextAuth
     const session = await getServerSession()
@@ -108,7 +108,16 @@ export async function GET(request: NextRequest) {
       logger.error("Data API error:", error);
       
       // Enhanced error logging for debugging
-      const errorDetails: any = {
+      interface ErrorDetails {
+        timestamp: string;
+        endpoint: string;
+        error: unknown;
+        credentialIssue?: boolean;
+        hint?: string;
+        permissionIssue?: boolean;
+      }
+
+      const errorDetails: ErrorDetails = {
         timestamp: new Date().toISOString(),
         endpoint: '/api/navigation',
         error: error instanceof Error ? {

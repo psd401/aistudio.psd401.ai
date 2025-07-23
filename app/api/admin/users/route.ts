@@ -3,7 +3,7 @@ import { getUsers, getUserRoles, createUser, updateUser, deleteUser } from "@/li
 import { requireAdmin } from "@/lib/auth/admin-check"
 import logger from "@/lib/logger"
 
-export async function GET(_request: Request) {
+export async function GET() {
   try {
     // Check admin authorization
     const authError = await requireAdmin();
@@ -32,7 +32,7 @@ export async function GET(_request: Request) {
         lastName: dbUser.last_name,
         lastSignInAt: dbUser.last_sign_in_at,
         role: userRolesList[0] || "",
-        roles: userRolesList.map(name => ({ name }))
+        roles: userRolesList.map((name: string) => ({ name }))
       }
     })
 
