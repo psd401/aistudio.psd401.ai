@@ -89,7 +89,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   })
 
   const [abortController, setAbortController] = useState<AbortController | null>(null)
-  const [streamReader, setStreamReader] = useState<ReadableStreamDefaultReader<Uint8Array> | null>(null)
   const [streamingPromptIndex, setStreamingPromptIndex] = useState<number>(-1)
   const [promptTexts, setPromptTexts] = useState<Record<string, string>>({})
 
@@ -100,13 +99,9 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
       if (abortController) {
         abortController.abort()
       }
-      if (streamReader) {
-        streamReader.cancel().catch(() => {
-          // Ignore cancellation errors
-        })
-      }
+      // Don't try to cancel streamReader - it causes issues
     }
-  }, [abortController, streamReader])
+  }, [abortController])
 
   const handleStreamEvent = useCallback((event: { type: string; totalPrompts?: number; promptIndex?: number; promptId?: number; modelName?: string; token?: string; result?: string; error?: string; executionId?: number }, inputs: Record<string, unknown>) => {
     switch (event.type) {
@@ -322,8 +317,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
               throw new Error('No reader available')
             }
 
-            // Store reader for cleanup
-            setStreamReader(reader)
+            // Don't store reader - it causes issues
 
             // Set up timeout
             const timeoutId = setTimeout(() => {
@@ -367,7 +361,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
             
             // Clean up reader after successful streaming
             reader.releaseLock()
-            setStreamReader(null)
           } catch (streamError) {
             console.error('[Stream] Streaming failed:', streamError)
             if (streamError instanceof Error && streamError.name === 'AbortError') {
@@ -816,12 +809,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                     onClick={() => {
                       abortController.abort()
                       setAbortController(null)
-                      if (streamReader) {
-                        streamReader.cancel().catch(() => {
-                          // Ignore cancellation errors
-                        })
-                        setStreamReader(null)
-                      }
                       setIsLoading(false)
                       setStreamingPromptIndex(-1)
                       setPromptTexts({})
