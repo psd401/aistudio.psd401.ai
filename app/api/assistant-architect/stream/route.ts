@@ -99,16 +99,16 @@ export async function POST(req: Request) {
       return new Response('Execution not found', { status: 404 });
     }
 
-    // Check if execution is already in progress
-    if (executionResult[0].status === 'in_progress') {
+    // Check if execution is already running
+    if (executionResult[0].status === 'running') {
       return new Response('Execution is already in progress', { status: 409 });
     }
 
-    // Mark execution as in_progress to prevent concurrent processing
+    // Mark execution as running to prevent concurrent processing
     try {
       await executeSQL(
         `UPDATE tool_executions 
-         SET status = 'in_progress'::execution_status,
+         SET status = 'running'::execution_status,
              started_at = NOW()
          WHERE id = :executionId AND status = 'pending'::execution_status`,
         [
@@ -116,7 +116,7 @@ export async function POST(req: Request) {
         ]
       );
     } catch (error) {
-      logger.error('Failed to mark execution as in_progress:', error);
+      logger.error('Failed to mark execution as running:', error);
       return new Response('Failed to start execution', { status: 500 });
     }
 
