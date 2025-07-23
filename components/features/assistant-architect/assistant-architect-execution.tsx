@@ -256,6 +256,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     if (!isLoading && !isPolling) {
       // Don't clear results if we already have completed results - user might be using chat
       if (!results || results.status !== 'completed') {
+        console.log('[onSubmit] Setting results to null - case 1')
         setIsLoading(true)
         setResults(null)
         setError(null)
@@ -265,6 +266,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         if (!confirmRerun) {
           return;
         }
+        console.log('[onSubmit] Setting results to null - case 2')
         setIsLoading(true)
         setResults(null)
         setError(null)
@@ -275,16 +277,19 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     }
 
     try {
+      console.log('[onSubmit] Calling executeAssistantArchitectAction')
       const result = await executeAssistantArchitectAction({
         toolId: tool.id,
         inputs: values
       })
+      console.log('[onSubmit] Execute result:', result)
 
       if (result.isSuccess && result.data?.jobId) {
         setJobId(String(result.data.jobId))
         
         // Check if we have executionId for streaming support
         const supportsStreaming = !!result.data?.executionId
+        console.log('[onSubmit] Supports streaming:', supportsStreaming, 'executionId:', result.data?.executionId)
         
         if (supportsStreaming) {
           // Start streaming
@@ -364,11 +369,13 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
             reader.releaseLock()
             setStreamReader(null)
           } catch (streamError) {
+            console.error('[Stream] Streaming failed:', streamError)
             if (streamError instanceof Error && streamError.name === 'AbortError') {
               // Stream aborted
               return
             }
             // Fall back to polling for this execution
+            console.log('[Stream] Falling back to polling')
             setIsPolling(true)
           } finally {
             // Clean up resources
