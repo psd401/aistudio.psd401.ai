@@ -7,8 +7,8 @@ import { CreateLayout } from "../../../create/_components/create-layout"
 import { PromptsPageClient } from "./_components/prompts-page-client"
 import Link from "next/link"
 
-export default async function PromptsPage({ params }: { params: { id: string } }) {
-  const resolvedParams = await Promise.resolve(params)
+export default async function PromptsPage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = await params
   const id = resolvedParams.id
   const result = await getAssistantArchitectAction(id)
   if (!result.isSuccess) {

@@ -6,13 +6,13 @@ import { CreateLayout } from "../../../create/_components/create-layout"
 import { SubmitForm } from "./_components/submit-form"
 
 interface Props {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 export default async function SubmitAssistantArchitectPage({ params }: Props) {
-  const resolvedParams = await Promise.resolve(params)
+  const resolvedParams = await params
   const id = resolvedParams.id
   
   const toolResult = await getAssistantArchitectAction(id)

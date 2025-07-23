@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { executeSQL } from '@/lib/db/data-api-adapter';
+import { Field } from '@aws-sdk/client-rds-data';
 import logger from '@/lib/logger';
 
 export async function DELETE(
@@ -35,7 +36,7 @@ export async function DELETE(
       WHERE id = :conversationId
     `;
     const checkParams = [
-      { name: 'conversationId', value: { longValue: conversationId } }
+      { name: 'conversationId', value: { longValue: conversationId } as Field }
     ];
     const conversation = await executeSQL(checkQuery, checkParams);
 
@@ -115,7 +116,7 @@ export async function PATCH(
       WHERE id = :conversationId
     `;
     const checkParams = [
-      { name: 'conversationId', value: { longValue: conversationId } }
+      { name: 'conversationId', value: { longValue: conversationId } as Field }
     ];
     const conversation = await executeSQL(checkQuery, checkParams);
 
@@ -135,7 +136,7 @@ export async function PATCH(
     `;
     const updateParams = [
       { name: 'title', value: { stringValue: body.title.slice(0, 100) } },
-      { name: 'conversationId', value: { longValue: conversationId } }
+      { name: 'conversationId', value: { longValue: conversationId } as Field }
     ];
     await executeSQL(updateQuery, updateParams);
 

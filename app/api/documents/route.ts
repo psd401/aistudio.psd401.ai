@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
   try {
     // If documentId is provided, fetch single document
     if (documentId) {
-      const document = await getDocumentById({ id: documentId });
+      const document = await getDocumentById({ id: parseInt(documentId, 10) });
       
       if (!document) {
         return NextResponse.json({ 
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
       }
       
       // Check if the document belongs to the authenticated user
-      if (document.user_id !== userId) {
+      if (document.userId !== userId) {
         return NextResponse.json({ 
           success: false, 
           error: 'Unauthorized access to document' 
@@ -175,7 +175,7 @@ export async function DELETE(request: NextRequest) {
     }
     
     // Check if the document belongs to the authenticated user
-    if (document.user_id !== userId) {
+    if (document.userId !== userId) {
       return NextResponse.json({ 
         success: false, 
         error: 'Unauthorized access to document' 
@@ -193,7 +193,7 @@ export async function DELETE(request: NextRequest) {
     }
     
     // Delete the document from the database
-    await deleteDocumentById({ id: docId });
+    await deleteDocumentById({ id: docId.toString() });
     
     return NextResponse.json({
       success: true,

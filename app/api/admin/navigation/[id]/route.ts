@@ -5,14 +5,15 @@ import logger from "@/lib/logger"
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Check admin authorization
     const authError = await requireAdmin();
     if (authError) return authError;
 
-    const { id } = params
+    const resolvedParams = await params
+    const { id } = resolvedParams
 
     // Delete the navigation item
     await deleteNavigationItem(parseInt(id, 10))

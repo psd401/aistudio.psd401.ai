@@ -7,7 +7,7 @@ import { SqlParameter } from 'aws-sdk/clients/rdsdataservice';
 
 export async function PATCH(
   request: NextRequest,
-  context: { params: { id: string } }
+  _context: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession();
   if (!session?.sub) {
@@ -24,7 +24,8 @@ export async function PATCH(
   
   try {
     const body = await request.json();
-    const { id } = await Promise.resolve(context.params);
+    const resolvedParams = await params;
+    const { id } = resolvedParams;
 
     const updateFields: string[] = [];
     const params: SqlParameter[] = [{ name: 'id', value: { longValue: parseInt(id) } }];
@@ -80,7 +81,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  context: { params: { id: string } }
+  _context: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession();
   if (!session?.sub) {
@@ -93,7 +94,8 @@ export async function DELETE(
   }
 
   try {
-    const { id } = await Promise.resolve(context.params);
+    const resolvedParams = await params;
+    const { id } = resolvedParams;
     const sql = 'DELETE FROM ideas WHERE id = :id';
     await executeSQL(sql, [{ name: 'id', value: { longValue: parseInt(id) } }]);
     return new NextResponse(null, { status: 204 });

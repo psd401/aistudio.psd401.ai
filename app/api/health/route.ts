@@ -124,7 +124,7 @@ export async function GET() {
       healthCheck.checks.authentication = {
         status: "healthy",
         hasSession: !!session,
-        sessionUser: session?.user?.email || "no session",
+        sessionUser: (session?.user as any)?.email || "no session",
         authConfigured: true
       }
     } catch (error) {
@@ -189,11 +189,11 @@ export async function GET() {
     }
     
     if (healthCheck.checks.database.status !== "healthy") {
-      if (healthCheck.checks.database.error?.message?.includes("credentials")) {
+      if ((healthCheck.checks.database.error as any)?.message?.includes("credentials")) {
         healthCheck.diagnostics.hints.push(
           "AWS credentials issue. Verify Amplify service role has RDS Data API permissions."
         )
-      } else if (healthCheck.checks.database.error?.message?.includes("region")) {
+      } else if ((healthCheck.checks.database.error as any)?.message?.includes("region")) {
         healthCheck.diagnostics.hints.push(
           "AWS region not configured. AWS Amplify should provide AWS_REGION automatically. Ensure NEXT_PUBLIC_AWS_REGION is set as fallback."
         )

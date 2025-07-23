@@ -18,8 +18,8 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { uploadDocument } from '@/lib/aws/s3-client';
 import { 
-  createDocument, 
-  createDocumentChunks, 
+  saveDocument, 
+  saveDocumentChunk, 
   getDocumentsByConversationId,
   getDocumentById,
   getDocumentChunksByDocumentId,
@@ -77,8 +77,8 @@ describe('Document Upload End-to-End Flow', () => {
       ];
       
       (uploadDocument as jest.Mock).mockResolvedValue(mockUploadResult);
-      (createDocument as jest.Mock).mockResolvedValue(mockDocument);
-      (createDocumentChunks as jest.Mock).mockResolvedValue(mockChunks);
+      (saveDocument as jest.Mock).mockResolvedValue(mockDocument);
+      (saveDocumentChunk as jest.Mock).mockResolvedValue(mockChunks[0]);
       
       // Create upload request
       const formData = new FormData();
@@ -212,10 +212,10 @@ describe('Document Upload End-to-End Flow', () => {
       };
       
       (uploadDocument as jest.Mock).mockResolvedValue({ key: 'test-key', url: 'test-url' });
-      (createDocument as jest.Mock).mockResolvedValue(mockDocument);
-      (createDocumentChunks as jest.Mock).mockResolvedValue([
+      (saveDocument as jest.Mock).mockResolvedValue(mockDocument);
+      (saveDocumentChunk as jest.Mock).mockResolvedValue(
         { content: 'Financial report content', chunk_index: 0 }
-      ]);
+      );
       
       const formData = new FormData();
       formData.append('file', new File(['Financial report'], 'report.pdf', { type: 'application/pdf' }));

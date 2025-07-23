@@ -4,7 +4,7 @@ import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
 import logger from '@/lib/logger';
 
-export async function POST(request: Request, context: { params: { id: string } }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession();
   if (!session?.sub) {
     return new NextResponse('Unauthorized', { status: 401 });
@@ -20,7 +20,8 @@ export async function POST(request: Request, context: { params: { id: string } }
   }
 
   try {
-    const { id } = await Promise.resolve(context.params);
+    const resolvedParams = await params;
+    const { id } = resolvedParams;
     const ideaId = parseInt(id);
     
     if (isNaN(ideaId)) {

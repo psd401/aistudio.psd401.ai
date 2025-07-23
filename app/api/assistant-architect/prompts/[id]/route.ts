@@ -3,11 +3,7 @@ import { getServerSession } from "@/lib/auth/server-session"
 import { executeSQL } from "@/lib/db/data-api-adapter"
 import logger from '@/lib/logger'
 
-interface Params {
-  params: { id: string }
-}
-
-export async function GET(req: NextRequest, context: Params) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   // Check authentication
   const session = await getServerSession()
   if (!session || !session.sub) {
@@ -15,8 +11,8 @@ export async function GET(req: NextRequest, context: Params) {
   }
 
   try {
-    // Await context.params for Next.js dynamic API routes
-    const resolvedParams = await Promise.resolve(context.params)
+    // Await params for Next.js 15 dynamic API routes
+    const resolvedParams = await params
     const promptId = resolvedParams.id
 
     // Parse promptId to integer

@@ -6,10 +6,11 @@ import { CoreMessage } from "ai"
 import { withErrorHandling, unauthorized, badRequest } from "@/lib/api-utils"
 import { createError } from "@/lib/error-utils"
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents"
+import { SelectDocument } from "@/types/db-types"
 import logger from "@/lib/logger"
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 import { getServerSession } from "@/lib/auth/server-session"
-import { executeSQL } from "@/lib/db/data-api-adapter"
+import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter"
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession()
@@ -139,12 +140,12 @@ export async function POST(req: NextRequest) {
     const messagesParams = [
       { name: 'conversationId', value: { longValue: conversationId } }
     ];
-    const previousMessages = await executeSQL(messagesQuery, messagesParams);
+    const previousMessages = await executeSQL<FormattedRow>(messagesQuery, messagesParams);
 
     // --- Fetch documents and relevant content for AI context ---
     let documentContext = "";
     try {
-      let documents = [];
+      let documents: SelectDocument[] = [];
       
       // If we have a conversationId, get documents linked to it
       if (conversationId) {
@@ -155,7 +156,7 @@ export async function POST(req: NextRequest) {
       // This ensures we include it even if linking hasn't completed yet
       if (documentId) {
         const singleDoc = await getDocumentById({ id: documentId });
-        if (singleDoc && !documents.find(d => d.id === documentId)) {
+        if (singleDoc && !documents.find((d: SelectDocument) => d.id === documentId)) {
           documents.push(singleDoc);
           logger.info(`Added document ${documentId} to context (total documents: ${documents.length})`);
         }
@@ -254,11 +255,14 @@ export async function POST(req: NextRequest) {
     const systemPrompt = baseSystemPrompt + documentContext;
       
     const aiMessages: CoreMessage[] = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system' as const, content: systemPrompt },
       // Only include context if it's the first message (no previous messages)
-      ...(previousMessages.length === 1 && context ? [{ role: 'system', content: `Context from execution: ${JSON.stringify(context)}` }] : []),
+      ...(previousMessages.length === 1 && context ? [{ role: 'system' as const, content: `Context from execution: ${JSON.stringify(context)}` }] : []),
       // Include previous messages and the new user message
-      ...previousMessages.map(msg => ({ role: msg.role as 'user' | 'assistant', content: msg.content }))
+      ...previousMessages.map(msg => ({ 
+        role: (msg.role === 'user' ? 'user' : 'assistant') as const, 
+        content: String(msg.content) 
+      }))
     ];
 
     // Call the AI model using the helper function
@@ -334,7 +338,7 @@ export async function GET(req: NextRequest) {
   const messagesParams = [
     { name: 'conversationId', value: { longValue: parseInt(conversationId) } }
   ];
-  const messages = await executeSQL(messagesQuery, messagesParams);
+  const messages = await executeSQL<FormattedRow>(messagesQuery, messagesParams);
 
   return NextResponse.json({ messages })
 } 

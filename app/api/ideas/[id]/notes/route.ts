@@ -1,17 +1,18 @@
 import { getServerSession } from '@/lib/auth/server-session';
 import { NextResponse } from 'next/server';
-import { executeSQL } from '@/lib/db/data-api-adapter';
+import { executeSQL, FormattedRow } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
 import logger from '@/lib/logger';
 
-export async function GET(request: Request, context: { params: { id: string } }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession();
   if (!session?.sub) {
     return new NextResponse('Unauthorized', { status: 401 });
   }
 
   try {
-    const { id } = await Promise.resolve(context.params);
+    const resolvedParams = await params;
+    const { id } = resolvedParams;
     const ideaId = parseInt(id);
     if (isNaN(ideaId)) {
       return new NextResponse('Invalid idea ID', { status: 400 });
@@ -30,18 +31,9 @@ export async function GET(request: Request, context: { params: { id: string } })
       WHERE n.idea_id = :ideaId
       ORDER BY n.created_at ASC
     `;
-    const notes = await executeSQL(sql, [{ name: 'ideaId', value: { longValue: ideaId } }]);
+    const notes = await executeSQL<FormattedRow>(sql, [{ name: 'ideaId', value: { longValue: ideaId } }]);
 
-    interface NoteRow {
-      id: number;
-      idea_id: number;
-      content: string;
-      user_id: number;
-      created_at: string;
-      creator_name: string;
-    }
-
-    return NextResponse.json(notes.map((note: NoteRow) => ({
+    return NextResponse.json(notes.map((note) => ({
       ...note,
       createdBy: note.creator_name || note.user_id,
       createdAt: note.created_at,
@@ -52,7 +44,7 @@ export async function GET(request: Request, context: { params: { id: string } })
   }
 }
 
-export async function POST(request: Request, context: { params: { id: string } }) {
+export async function POST(request: Request, _context: { params: Promise<{ id: string }> }) {
   const session = await getServerSession();
   if (!session?.sub) {
     return new NextResponse('Unauthorized', { status: 401 });
@@ -67,7 +59,8 @@ export async function POST(request: Request, context: { params: { id: string } }
   }
 
   try {
-    const { id } = await Promise.resolve(context.params);
+    const resolvedParams = await params;
+    const { id } = resolvedParams;
     const ideaId = parseInt(id);
     if (isNaN(ideaId)) {
       return new NextResponse('Invalid idea ID', { status: 400 });

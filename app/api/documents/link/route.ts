@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { linkDocumentToConversation, getDocumentById } from '@/lib/db/queries/documents';
 import { withErrorHandling, unauthorized } from '@/lib/api-utils';
 import { createError } from '@/lib/error-utils';
+import { ErrorLevel } from '@/types/actions-types';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import logger from '@/lib/logger';
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
     if (!documentId) {
       throw createError('Document ID is required', {
         code: 'VALIDATION',
-        level: 'warn',
+        level: ErrorLevel.WARN,
         details: { field: 'documentId' }
       });
     }
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
     if (!conversationId) {
       throw createError('Conversation ID is required', {
         code: 'VALIDATION',
-        level: 'warn',
+        level: ErrorLevel.WARN,
         details: { field: 'conversationId' }
       });
     }
@@ -45,20 +46,20 @@ export async function POST(request: NextRequest) {
     if (!document) {
       throw createError('Document not found', {
         code: 'NOT_FOUND',
-        level: 'warn',
+        level: ErrorLevel.WARN,
         details: { documentId }
       });
     }
 
-    logger.info(`Document user_id: ${document.user_id}, type: ${typeof document.user_id}`);
+    logger.info(`Document userId: ${document.userId}, type: ${typeof document.userId}`);
     logger.info(`Current userId: ${userId}, type: ${typeof userId}`);
-    logger.info(`Comparison: ${document.user_id} !== ${userId} = ${document.user_id !== userId}`);
+    logger.info(`Comparison: ${document.userId} !== ${userId} = ${document.userId !== userId}`);
 
-    if (document.user_id !== userId) {
+    if (document.userId !== userId) {
       throw createError('Access denied to document', {
         code: 'FORBIDDEN',
-        level: 'warn',
-        details: { documentId, userId, documentUserId: document.user_id }
+        level: ErrorLevel.WARN,
+        details: { documentId, userId, documentUserId: document.userId }
       });
     }
 
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
     if (!updatedDocument) {
       throw createError('Failed to link document to conversation', {
         code: 'INTERNAL_ERROR',
-        level: 'error',
+        level: ErrorLevel.ERROR,
         details: { documentId, conversationId }
       });
     }

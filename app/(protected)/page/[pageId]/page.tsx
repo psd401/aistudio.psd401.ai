@@ -7,7 +7,7 @@ import logger from "@/lib/logger"
 import type { SelectNavigationItem, SelectAssistantArchitect } from "@/types/db-types"
 
 interface PageProps {
-  params: { pageId: string }
+  params: Promise<{ pageId: string }>
 }
 
 export default async function PublicPage({ params }: PageProps) {

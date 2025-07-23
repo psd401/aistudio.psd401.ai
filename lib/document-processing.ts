@@ -8,11 +8,6 @@
 import type pdfParseType from 'pdf-parse';
 import logger from "@/lib/logger"
 
-// @ts-expect-error - Ignore type error for this specific import path if necessary
-// import * as pdfjsLib from 'pdfjs-dist/webpack.mjs'; // Replaced
-// import path from 'path'; // No longer needed for this approach
-// Removed eager import of pdf-parse
-
 /**
  * Document processing utility functions
  * 

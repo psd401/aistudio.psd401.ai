@@ -1,6 +1,7 @@
 import { InsertDocument, SelectDocument, InsertDocumentChunk, SelectDocumentChunk } from "@/types/db-types";
 import logger from "@/lib/logger"
 import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter"
+import { Field } from "@aws-sdk/client-rds-data"
 
 /**
  * Saves a document to the database
@@ -11,20 +12,20 @@ export async function saveDocument(document: InsertDocument): Promise<SelectDocu
     const fields = ['name', 'type', 'url', 'size', 'user_id', 'conversation_id', 'metadata'];
     const placeholders = [':name', ':type', ':url', ':size', ':userId', ':conversationId', ':metadata'];
     const parameters = [
-      { name: 'name', value: { stringValue: document.name } },
-      { name: 'type', value: { stringValue: document.type } },
-      { name: 'url', value: { stringValue: document.url } },
-      { name: 'size', value: document.size ? { longValue: document.size } : { isNull: true } },
-      { name: 'userId', value: { longValue: document.userId } },
-      { name: 'conversationId', value: document.conversationId ? { longValue: document.conversationId } : { isNull: true } },
-      { name: 'metadata', value: document.metadata ? { stringValue: JSON.stringify(document.metadata) } : { isNull: true } }
+      { name: 'name', value: { stringValue: document.name } as Field },
+      { name: 'type', value: { stringValue: document.type } as Field },
+      { name: 'url', value: { stringValue: document.url } as Field },
+      { name: 'size', value: document.size ? { longValue: document.size } as Field : { isNull: true } as Field },
+      { name: 'userId', value: { longValue: document.userId } as Field },
+      { name: 'conversationId', value: document.conversationId ? { longValue: document.conversationId } as Field : { isNull: true } as Field },
+      { name: 'metadata', value: document.metadata ? { stringValue: JSON.stringify(document.metadata) } as Field : { isNull: true } as Field }
     ];
 
     // Add id if provided
     if (document.id) {
       fields.unshift('id');
       placeholders.unshift(':id');
-      parameters.unshift({ name: 'id', value: { longValue: document.id } });
+      parameters.unshift({ name: 'id', value: { longValue: document.id } as Field });
     }
 
     // Apply proper type casting for PostgreSQL
@@ -41,13 +42,13 @@ export async function saveDocument(document: InsertDocument): Promise<SelectDocu
       RETURNING id, name, type, url, size, user_id, conversation_id, metadata, created_at
     `;
     
-    const results = await executeSQL(query, parameters);
+    const results = await executeSQL<SelectDocument>(query, parameters);
     if (results.length === 0) {
       throw new Error('Failed to save document');
     }
     
     // Parse metadata back from JSON string
-    const result = results[0] as FormattedRow;
+    const result = results[0];
     if (result.metadata && typeof result.metadata === 'string') {
       try {
         result.metadata = JSON.parse(result.metadata);
@@ -56,7 +57,7 @@ export async function saveDocument(document: InsertDocument): Promise<SelectDocu
       }
     }
     
-    return result as SelectDocument;
+    return result;
   } catch (error) {
     logger.error("Error saving document", { document, error });
     throw error;
@@ -75,11 +76,11 @@ export async function getDocumentById({ id }: { id: number }): Promise<SelectDoc
       LIMIT 1
     `;
     const parameters = [
-      { name: 'id', value: { longValue: id } }
+      { name: 'id', value: { longValue: id } as Field }
     ];
     
-    const results = await executeSQL(query, parameters);
-    return results[0] as SelectDocument | undefined;
+    const results = await executeSQL<SelectDocument>(query, parameters);
+    return results[0];
   } catch (error) {
     logger.error("Error fetching document by ID", { id, error });
     return undefined;
@@ -98,11 +99,11 @@ export async function getDocumentsByUserId({ userId }: { userId: number }): Prom
       ORDER BY created_at DESC
     `;
     const parameters = [
-      { name: 'userId', value: { longValue: userId } }
+      { name: 'userId', value: { longValue: userId } as Field }
     ];
     
-    const results = await executeSQL(query, parameters);
-    return results as SelectDocument[];
+    const results = await executeSQL<SelectDocument>(query, parameters);
+    return results;
   } catch (error) {
     logger.error("Error fetching documents by user ID", { userId, error });
     return [];
@@ -125,12 +126,12 @@ export async function getDocumentsByConversationId({
       WHERE conversation_id = :conversationId
     `;
     const parameters = [
-      { name: 'conversationId', value: { longValue: conversationId } }
+      { name: 'conversationId', value: { longValue: conversationId } as Field }
     ];
     
-    const results = await executeSQL(query, parameters);
+    const results = await executeSQL<SelectDocument>(query, parameters);
     // Documents fetched
-    return results as SelectDocument[];
+    return results;
   } catch (error) {
     logger.error("Error fetching documents by conversation ID", { conversationId, error });
     return [];
@@ -147,10 +148,10 @@ export async function deleteDocumentById({ id }: { id: string }): Promise<void> 
       WHERE id = :id
     `;
     const parameters = [
-      { name: 'id', value: { longValue: id } }
+      { name: 'id', value: { longValue: parseInt(id, 10) } as Field }
     ];
     
-    await executeSQL(query, parameters);
+    await executeSQL<FormattedRow>(query, parameters);
   } catch (error) {
     logger.error("Error deleting document", { id, error });
     throw error;
@@ -166,22 +167,22 @@ export async function saveDocumentChunk(chunk: InsertDocumentChunk): Promise<Sel
     const fields = ['document_id', 'content', 'chunk_index'];
     const placeholders = [':documentId', ':content', ':chunkIndex'];
     const parameters = [
-      { name: 'documentId', value: { longValue: chunk.documentId } },
-      { name: 'content', value: { stringValue: chunk.content } },
-      { name: 'chunkIndex', value: { longValue: chunk.chunkIndex } }
+      { name: 'documentId', value: { longValue: chunk.documentId } as Field },
+      { name: 'content', value: { stringValue: chunk.content } as Field },
+      { name: 'chunkIndex', value: { longValue: chunk.chunkIndex } as Field }
     ];
 
     // Add optional fields if provided
     if (chunk.id) {
       fields.unshift('id');
       placeholders.unshift(':id');
-      parameters.unshift({ name: 'id', value: { longValue: chunk.id } });
+      parameters.unshift({ name: 'id', value: { longValue: chunk.id } as Field });
     }
     
     if (chunk.metadata) {
       fields.push('metadata');
       placeholders.push(':metadata');
-      parameters.push({ name: 'metadata', value: { stringValue: JSON.stringify(chunk.metadata) } });
+      parameters.push({ name: 'metadata', value: { stringValue: JSON.stringify(chunk.metadata) } as Field });
     }
 
     // Apply proper type casting for PostgreSQL
@@ -199,12 +200,12 @@ export async function saveDocumentChunk(chunk: InsertDocumentChunk): Promise<Sel
       RETURNING id, document_id, content, chunk_index, metadata, created_at
     `;
     
-    const results = await executeSQL(query, parameters);
+    const results = await executeSQL<SelectDocumentChunk>(query, parameters);
     if (results.length === 0) {
       throw new Error('Failed to save document chunk');
     }
     
-    const result = results[0] as FormattedRow;
+    const result = results[0];
     // Parse metadata back from JSON string
     if (result.metadata && typeof result.metadata === 'string') {
       try {
@@ -214,7 +215,7 @@ export async function saveDocumentChunk(chunk: InsertDocumentChunk): Promise<Sel
       }
     }
     
-    return result as SelectDocumentChunk;
+    return result;
   } catch (error) {
     logger.error("Error saving document chunk", { chunk, error });
     throw error;
@@ -237,11 +238,11 @@ export async function getDocumentChunksByDocumentId({
       ORDER BY chunk_index ASC
     `;
     const parameters = [
-      { name: 'documentId', value: { longValue: documentId } }
+      { name: 'documentId', value: { longValue: documentId } as Field }
     ];
     
-    const results = await executeSQL(query, parameters);
-    return results as SelectDocumentChunk[];
+    const results = await executeSQL<SelectDocumentChunk>(query, parameters);
+    return results;
   } catch (error) {
     logger.error("Error fetching document chunks", { documentId, error });
     return [];
@@ -261,22 +262,22 @@ export async function batchInsertDocumentChunks(chunks: InsertDocumentChunk[]): 
       const fields = ['document_id', 'content', 'chunk_index'];
       const placeholders = [':documentId', ':content', ':chunkIndex'];
       const parameters = [
-        { name: 'documentId', value: { longValue: chunk.documentId } },
-        { name: 'content', value: { stringValue: chunk.content } },
-        { name: 'chunkIndex', value: { longValue: chunk.chunkIndex } }
+        { name: 'documentId', value: { longValue: chunk.documentId } as Field },
+        { name: 'content', value: { stringValue: chunk.content } as Field },
+        { name: 'chunkIndex', value: { longValue: chunk.chunkIndex } as Field }
       ];
 
       // Add optional fields if provided
       if (chunk.id) {
         fields.unshift('id');
         placeholders.unshift(':id');
-        parameters.unshift({ name: 'id', value: { longValue: chunk.id } });
+        parameters.unshift({ name: 'id', value: { longValue: chunk.id } as Field });
       }
       
       if (chunk.metadata) {
         fields.push('metadata');
         placeholders.push(':metadata');
-        parameters.push({ name: 'metadata', value: { stringValue: JSON.stringify(chunk.metadata) } });
+        parameters.push({ name: 'metadata', value: { stringValue: JSON.stringify(chunk.metadata) } as Field });
       }
 
       // Apply proper type casting for PostgreSQL
@@ -294,9 +295,9 @@ export async function batchInsertDocumentChunks(chunks: InsertDocumentChunk[]): 
         RETURNING id, document_id, content, chunk_index, metadata, created_at
       `;
       
-      const results = await executeSQL(query, parameters);
+      const results = await executeSQL<SelectDocumentChunk>(query, parameters);
       if (results.length > 0) {
-        const result = results[0] as FormattedRow;
+        const result = results[0];
         // Parse metadata back from JSON string
         if (result.metadata && typeof result.metadata === 'string') {
           try {
@@ -305,7 +306,7 @@ export async function batchInsertDocumentChunks(chunks: InsertDocumentChunk[]): 
             // If parsing fails, leave as string
           }
         }
-        savedChunks.push(result as SelectDocumentChunk);
+        savedChunks.push(result);
       }
     }
     
@@ -330,10 +331,10 @@ export async function deleteDocumentChunksByDocumentId({
       WHERE document_id = :documentId
     `;
     const parameters = [
-      { name: 'documentId', value: { longValue: documentId } }
+      { name: 'documentId', value: { longValue: documentId } as Field }
     ];
     
-    await executeSQL(query, parameters);
+    await executeSQL<FormattedRow>(query, parameters);
   } catch (error) {
     logger.error("Error deleting document chunks", { documentId, error });
     throw error;
@@ -355,12 +356,12 @@ export async function linkDocumentToConversation(
       RETURNING id, name, type, url, size, user_id, conversation_id, created_at
     `;
     const parameters = [
-      { name: 'documentId', value: { longValue: documentId } },
-      { name: 'conversationId', value: { longValue: conversationId } }
+      { name: 'documentId', value: { longValue: documentId } as Field },
+      { name: 'conversationId', value: { longValue: conversationId } as Field }
     ];
     
-    const results = await executeSQL(query, parameters);
-    return results[0] as SelectDocument | undefined;
+    const results = await executeSQL<SelectDocument>(query, parameters);
+    return results[0];
   } catch (error) {
     logger.error('Error linking document to conversation', { documentId, conversationId, error });
     // Handle error appropriately, maybe return undefined or throw

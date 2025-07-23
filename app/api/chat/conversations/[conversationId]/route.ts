@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 import { executeSQL } from "@/lib/db/data-api-adapter"
+import { Field } from '@aws-sdk/client-rds-data';
 import logger from '@/lib/logger';
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { conversationId: string } }
+  { params }: { params: Promise<{ conversationId: string }> }
 ) {
   const currentUser = await getCurrentUserAction()
   if (!currentUser.isSuccess) {
     return new NextResponse("Unauthorized", { status: 401 })
   }
-  const { conversationId } = params
+  const resolvedParams = await params
+  const { conversationId } = resolvedParams
 
   try {
     const conversationQuery = `
@@ -39,7 +41,7 @@ export async function GET(
       ORDER BY created_at ASC
     `;
     const messagesParams = [
-      { name: 'conversationId', value: { longValue: parseInt(conversationId, 10) } }
+      { name: 'conversationId', value: { longValue: parseInt(conversationId, 10) } as Field }
     ];
     const messages = await executeSQL(messagesQuery, messagesParams);
 
@@ -64,13 +66,14 @@ export async function GET(
 
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { conversationId: string } }
+  { params }: { params: Promise<{ conversationId: string }> }
 ) {
   const currentUser = await getCurrentUserAction()
   if (!currentUser.isSuccess) {
     return new NextResponse("Unauthorized", { status: 401 })
   }
-  const { conversationId } = params
+  const resolvedParams = await params
+  const { conversationId } = resolvedParams
   const body = await req.json()
 
   // Verify ownership
@@ -115,13 +118,14 @@ export async function PUT(
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { conversationId: string } }
+  { params }: { params: Promise<{ conversationId: string }> }
 ) {
   const currentUser = await getCurrentUserAction()
   if (!currentUser.isSuccess) {
     return new NextResponse("Unauthorized", { status: 401 })
   }
-  const { conversationId } = params
+  const resolvedParams = await params
+  const { conversationId } = resolvedParams
 
   // Verify ownership
   const checkQuery = `
