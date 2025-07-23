@@ -48,9 +48,6 @@ export async function POST(req: Request) {
     return new Response('Unauthorized', { status: 401 });
   }
 
-  // Track if request was aborted
-  let requestAborted = false;
-  
   try {
     const { toolId, executionId, inputs }: StreamRequest = await req.json();
 
@@ -133,30 +130,16 @@ export async function POST(req: Request) {
 
     // Create a ReadableStream for the response
     const encoder = new TextEncoder();
-    let controllerClosed = false;
-    
-    // Handle request abort
-    const abortHandler = () => {
-      logger.info('Client disconnected, aborting stream');
-      requestAborted = true;
-      controllerClosed = true;
-    };
-    
-    if (req.signal) {
-      req.signal.addEventListener('abort', abortHandler);
-    }
     
     const stream = new ReadableStream({
       async start(controller) {
         // Helper to safely write to controller
         const safeEnqueue = (data: string) => {
-          if (!controllerClosed) {
-            try {
-              controller.enqueue(encoder.encode(data));
-            } catch (e) {
-              logger.warn('Failed to enqueue data, controller may be closed:', e);
-              controllerClosed = true;
-            }
+          try {
+            controller.enqueue(encoder.encode(data));
+          } catch (e) {
+            // Controller is closed, just log and continue
+            logger.debug('Controller closed, cannot enqueue data');
           }
         };
         
@@ -371,10 +354,7 @@ export async function POST(req: Request) {
           );
 
           // Close the stream
-          if (!controllerClosed) {
-            controllerClosed = true;
-            controller.close();
-          }
+          controller.close();
 
         } catch (error) {
           logger.error('Stream error:', error);
@@ -402,10 +382,7 @@ export async function POST(req: Request) {
             })}\n\n`
           );
           
-          if (!controllerClosed) {
-            controllerClosed = true;
-            controller.close();
-          }
+          controller.close();
         }
       }
     });
