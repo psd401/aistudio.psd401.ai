@@ -3,7 +3,7 @@ import { withErrorHandling, unauthorized } from '@/lib/api-utils';
 import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 
-export async function GET(request: Request) {
+export async function GET(_request: Request) {
   const session = await getServerSession();
   if (!session) {
     return unauthorized('User not authenticated');

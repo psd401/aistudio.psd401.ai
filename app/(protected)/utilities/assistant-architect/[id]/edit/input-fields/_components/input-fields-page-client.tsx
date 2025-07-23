@@ -54,7 +54,6 @@ export function InputFieldsPageClient({ assistantId, inputFields }: InputFieldsP
           </CardHeader>
           <div className="mt-2">
             <InputFieldList 
-              assistantId={assistantId} 
               inputFields={inputFields} 
               onEdit={handleEdit}
             />

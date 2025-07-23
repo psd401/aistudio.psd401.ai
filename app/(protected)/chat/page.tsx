@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation"
 import { Chat } from "./_components/chat"
-import { hasToolAccess } from "@/utils/roles"
 import { getServerSession } from "@/lib/auth/server-session"
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 import { executeSQL } from "@/lib/db/data-api-adapter"

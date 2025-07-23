@@ -8,7 +8,7 @@ import {
 import { withErrorHandling, unauthorized, forbidden } from "@/lib/api-utils"
 
 // GET /api/admin/settings - Get all settings
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   return withErrorHandling(async () => {
     // Check admin authorization
     const authError = await requireAdmin();

@@ -3,7 +3,7 @@ import { getUsers, getUserRoles, createUser, updateUser, deleteUser } from "@/li
 import { requireAdmin } from "@/lib/auth/admin-check"
 import logger from "@/lib/logger"
 
-export async function GET(request: Request) {
+export async function GET(_request: Request) {
   try {
     // Check admin authorization
     const authError = await requireAdmin();

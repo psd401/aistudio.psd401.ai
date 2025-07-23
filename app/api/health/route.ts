@@ -13,7 +13,7 @@ import { getServerSession } from "@/lib/auth/server-session"
  * 
  * Returns detailed diagnostic information to help troubleshoot deployment issues
  */
-export async function GET(request: Request) {
+export async function GET(_request: Request) {
   // For production, you may want to add authentication or IP restriction
   // For now, we'll allow access but you can uncomment the following to restrict:
   /*

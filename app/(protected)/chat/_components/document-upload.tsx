@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { PaperclipIcon, FileTextIcon, XIcon, UploadIcon, CheckCircleIcon, Loader2 } from "lucide-react"
+import { FileTextIcon, XIcon, UploadIcon, CheckCircleIcon, Loader2 } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 
 interface Document {
@@ -18,7 +18,6 @@ interface DocumentUploadProps {
   onUploadComplete: (documentInfo: Document) => void
   onFileSelected?: (documentInfo: Partial<Document>) => void
   pendingDocument?: Partial<Document> | null
-  needsUpload?: boolean
 }
 
 export function DocumentUpload({ 
@@ -26,8 +25,7 @@ export function DocumentUpload({
   onUploadComplete, 
   onFileSelected,
   externalInputRef, 
-  pendingDocument,
-  needsUpload = false
+  pendingDocument
 }: DocumentUploadProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)

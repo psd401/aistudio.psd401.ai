@@ -23,7 +23,7 @@ const IMPORTABLE_SETTINGS = [
 ]
 
 // POST /api/admin/settings/import - Import settings from environment variables
-export async function POST(req: NextRequest) {
+export async function POST(_req: NextRequest) {
   return withErrorHandling(async () => {
     // Check admin authorization
     const authError = await requireAdmin();
