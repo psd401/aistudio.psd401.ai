@@ -84,11 +84,10 @@ export function RoleForm({ role, onClose }: RoleFormProps) {
       
       router.refresh()
       onClose()
-    } catch (error: any) {
-      console.error("Error saving role:", error)
+    } catch (error) {
       toast({
         title: "Error",
-        description: error.message || "Failed to save role",
+        description: error instanceof Error ? error.message : "Failed to save role",
         variant: "destructive"
       })
     } finally {
@@ -131,7 +130,7 @@ export function RoleForm({ role, onClose }: RoleFormProps) {
                     <Textarea {...field} disabled={loading} />
                   </FormControl>
                   <FormDescription>
-                    Optional description of the role's purpose
+                    Optional description of the role&apos;s purpose
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

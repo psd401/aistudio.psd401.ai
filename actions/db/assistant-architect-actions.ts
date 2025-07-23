@@ -1312,7 +1312,7 @@ export async function executeAssistantArchitectAction({
 }: {
   toolId: number | string
   inputs: Record<string, unknown>
-}): Promise<ActionState<{ jobId: number }>> {
+}): Promise<ActionState<{ jobId: number; executionId?: number }>> {
   logger.info(`[EXEC] Started for tool ${toolId}`);
   
   try {
@@ -1360,12 +1360,27 @@ export async function executeAssistantArchitectAction({
       });
     }
 
+    // Create the execution record immediately so we can return the ID
+    const executionResult = await executeSQL(
+      `INSERT INTO tool_executions (assistant_architect_id, user_id, input_data, status, started_at)
+       VALUES (:toolId, :userId, :inputData::jsonb, :status::execution_status, NOW())
+       RETURNING id`,
+      [
+        { name: 'toolId', value: { longValue: parseInt(String(toolId), 10) } },
+        { name: 'userId', value: { longValue: currentUser.data.user.id } },
+        { name: 'inputData', value: { stringValue: JSON.stringify(inputs) } },
+        { name: 'status', value: { stringValue: 'pending' } }
+      ]
+    );
+
+    const executionId = executionResult[0]?.id;
+
     // Start the execution in the background
-    executeAssistantArchitectJob(jobResult.data.id.toString(), tool, inputs).catch(error => {
+    executeAssistantArchitectJob(jobResult.data.id.toString(), tool, inputs, executionId).catch(error => {
       logger.error(`[EXEC:${jobResult.data.id}] Background execution failed:`, error);
     });
 
-    return createSuccess({ jobId: jobResult.data.id }, "Execution started");
+    return createSuccess({ jobId: jobResult.data.id, executionId }, "Execution started");
   } catch (error) {
     return handleError(error, "Failed to execute assistant architect", {
       context: "executeAssistantArchitectAction"
@@ -1376,11 +1391,12 @@ export async function executeAssistantArchitectAction({
 async function executeAssistantArchitectJob(
   jobId: string,
   tool: ArchitectWithRelations,
-  inputs: Record<string, unknown>
+  inputs: Record<string, unknown>,
+  providedExecutionId?: number
 ) {
   const executionStartTime = new Date();
   const results: PromptExecutionResult[] = [];
-  let executionId: number | null = null;
+  let executionId: number | null = providedExecutionId || null;
   
   const rdsDataClient = new RDSDataClient({ region: process.env.AWS_REGION || 'us-east-1' });
   const dataApiConfig = {
@@ -1406,28 +1422,49 @@ async function executeAssistantArchitectJob(
       throw new Error("Failed to get job data");
     }
     
-    const insertExecutionSql = `
-      INSERT INTO tool_executions (assistant_architect_id, user_id, input_data, status, started_at)
-      VALUES (:toolId, :userId, :inputData::jsonb, :status::execution_status, :startedAt::timestamp)
-      RETURNING id
-    `;
-    const executionResult = await rdsDataClient.send(new ExecuteStatementCommand({
-      ...dataApiConfig,
-      sql: insertExecutionSql,
-      parameters: [
-        { name: 'toolId', value: { longValue: parseInt(tool.id, 10) } },
-        { name: 'userId', value: { longValue: jobResult.data.userId } },
-        { name: 'inputData', value: { stringValue: JSON.stringify(inputs) } },
-        { name: 'status', value: { stringValue: 'running' } },
-        { name: 'startedAt', value: { stringValue: executionStartTime.toISOString().slice(0, 19).replace('T', ' ') } },
-      ],
-      transactionId,
-    }));
-    
-    if (!executionResult.records || executionResult.records.length === 0) {
-      throw new Error("Failed to create execution record");
+    // If we already have an executionId, update it. Otherwise create a new one.
+    if (providedExecutionId) {
+      // Update existing execution
+      const updateExecutionSql = `
+        UPDATE tool_executions 
+        SET status = :status::execution_status, started_at = :startedAt::timestamp
+        WHERE id = :executionId
+      `;
+      await rdsDataClient.send(new ExecuteStatementCommand({
+        ...dataApiConfig,
+        sql: updateExecutionSql,
+        parameters: [
+          { name: 'executionId', value: { longValue: providedExecutionId } },
+          { name: 'status', value: { stringValue: 'running' } },
+          { name: 'startedAt', value: { stringValue: executionStartTime.toISOString().slice(0, 19).replace('T', ' ') } },
+        ],
+        transactionId,
+      }));
+    } else {
+      // Create new execution (for backward compatibility)
+      const insertExecutionSql = `
+        INSERT INTO tool_executions (assistant_architect_id, user_id, input_data, status, started_at)
+        VALUES (:toolId, :userId, :inputData::jsonb, :status::execution_status, :startedAt::timestamp)
+        RETURNING id
+      `;
+      const executionResult = await rdsDataClient.send(new ExecuteStatementCommand({
+        ...dataApiConfig,
+        sql: insertExecutionSql,
+        parameters: [
+          { name: 'toolId', value: { longValue: parseInt(tool.id, 10) } },
+          { name: 'userId', value: { longValue: jobResult.data.userId } },
+          { name: 'inputData', value: { stringValue: JSON.stringify(inputs) } },
+          { name: 'status', value: { stringValue: 'running' } },
+          { name: 'startedAt', value: { stringValue: executionStartTime.toISOString().slice(0, 19).replace('T', ' ') } }
+        ],
+        transactionId,
+      }));
+      
+      if (!executionResult.records || executionResult.records.length === 0) {
+        throw new Error("Failed to create execution record");
+      }
+      executionId = executionResult.records[0][0].longValue;
     }
-    executionId = executionResult.records[0][0].longValue;
 
     const prompts = tool.prompts?.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)) || [];
     for (const prompt of prompts) {

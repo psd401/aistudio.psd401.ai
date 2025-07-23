@@ -40,8 +40,6 @@ export interface ToolDefinition {
 
 // Get the appropriate model client based on provider
 async function getModelClient(modelConfig: ModelConfig) {
-  logger.info(`[getModelClient] Getting client for provider '${modelConfig.provider}' with model '${modelConfig.modelId}'`);
-
   switch (modelConfig.provider) {
     case 'amazon-bedrock': {
       const bedrockConfig = await Settings.getBedrock();
@@ -112,8 +110,6 @@ export async function generateCompletion(
   messages: CoreMessage[],
   tools?: Record<string, CoreTool>
 ) {
-  logger.info('[generateCompletion] SENDING TO LLM:', messages.map(m => `\n[${m.role}]\n${m.content}`).join('\n---\n'));
-  
   const model = await getModelClient(modelConfig);
   
   try {
@@ -153,24 +149,27 @@ export async function streamCompletion(
   options?: StreamingOptions,
   tools?: Record<string, CoreTool>
 ): Promise<StreamTextResult<Record<string, CoreTool>>> {
-  logger.info('[streamCompletion] Starting stream for:', modelConfig);
-  
   const model = await getModelClient(modelConfig);
   
-  const result = await streamText({
-    model,
-    messages,
-    tools,
-    maxSteps: tools ? 5 : undefined,
-    onChunk: options?.onToken ? ({ chunk }) => {
-      if (chunk.type === 'text-delta') {
-        options.onToken!(chunk.textDelta);
-      }
-    } : undefined,
-    onFinish: options?.onFinish
-  });
+  try {
+    const result = await streamText({
+      model,
+      messages,
+      tools,
+      maxSteps: tools ? 5 : undefined,
+      onChunk: ({ chunk }) => {
+        if (chunk.type === 'text-delta' && options?.onToken) {
+          options.onToken(chunk.textDelta);
+        }
+      },
+      onFinish: options?.onFinish
+    });
 
-  return result;
+    return result;
+  } catch (error) {
+    logger.error('[streamCompletion] Error during streaming:', error);
+    throw error;
+  }
 }
 
 // Generate a structured object
@@ -179,8 +178,6 @@ export async function generateStructuredOutput<T>(
   messages: CoreMessage[],
   schema: z.ZodType<T>
 ): Promise<T> {
-  logger.info('[generateStructuredOutput] Generating structured output');
-  
   const model = await getModelClient(modelConfig);
   
   const result = await generateObject({
