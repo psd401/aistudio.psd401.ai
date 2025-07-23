@@ -1,7 +1,6 @@
 "use server"
 
 import { NextRequest, NextResponse } from "next/server"
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { generateCompletion } from "@/lib/ai-helpers"
 import { CoreMessage } from "ai"
 import { withErrorHandling, unauthorized, badRequest } from "@/lib/api-utils"
@@ -9,10 +8,9 @@ import { createError } from "@/lib/error-utils"
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents"
 import { SelectDocument } from "@/types/db-types"
 import logger from "@/lib/logger"
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"import { getServerSession } from "@/lib/auth/server-session"
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter"
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
+import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
+import { getServerSession } from "@/lib/auth/server-session"
+import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter"
 export async function POST(req: NextRequest) {
   const session = await getServerSession()
   if (!session) {

@@ -1,5 +1,4 @@
 import { streamText } from 'ai';
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { createAzure } from '@ai-sdk/azure';
 import { google } from '@ai-sdk/google';
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
@@ -9,11 +8,9 @@ import { getCurrentUserAction } from "@/actions/db/get-current-user-action";
 import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter";
 import { SelectDocument } from "@/types/db-types";
 import { Settings } from "@/lib/settings-manager";
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"import logger from "@/lib/logger";
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"import escapeHtml from "escape-html";
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
+import logger from "@/lib/logger";
+import escapeHtml from "escape-html";
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents";
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 export async function POST(req: Request) {
   const session = await getServerSession();
   if (!session) {

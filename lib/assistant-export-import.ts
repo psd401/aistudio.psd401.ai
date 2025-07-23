@@ -1,5 +1,4 @@
 import { executeSQL } from "@/lib/db/data-api-adapter"
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import logger from "@/lib/logger"
 export interface ExportedAssistant {
   name: string

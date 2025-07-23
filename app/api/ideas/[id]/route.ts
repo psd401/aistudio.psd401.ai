@@ -1,5 +1,4 @@
 import { NextResponse, NextRequest } from 'next/server';
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
@@ -7,7 +6,7 @@ import logger from '@/lib/logger';
 import { SqlParameter } from 'aws-sdk/clients/rdsdataservice';
 export async function PATCH(
   request: NextRequest,
-  _context: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession();
   if (!session?.sub) {
@@ -24,7 +23,7 @@ export async function PATCH(
   
   try {
     const body = await request.json();
-    const resolvedParams = await params;
+    const resolvedParams = await context.params;
     const { id } = resolvedParams;
 
     const updateFields: string[] = [];
@@ -80,8 +79,8 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  request: NextRequest,
-  _context: { params: Promise<{ id: string }> }
+  _request: NextRequest,
+  context: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession();
   if (!session?.sub) {
@@ -94,7 +93,7 @@ export async function DELETE(
   }
 
   try {
-    const resolvedParams = await params;
+    const resolvedParams = await context.params;
     const { id } = resolvedParams;
     const sql = 'DELETE FROM ideas WHERE id = :id';
     await executeSQL(sql, [{ name: 'id', value: { longValue: parseInt(id) } }]);

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server"
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { getUsers, getUserRoles, createUser, updateUser, deleteUser } from "@/lib/db/data-api-adapter"
 import { requireAdmin } from "@/lib/auth/admin-check"
 import logger from "@/lib/logger"

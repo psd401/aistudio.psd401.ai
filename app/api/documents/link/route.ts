@@ -1,5 +1,4 @@
 import { NextRequest } from 'next/server';
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { linkDocumentToConversation, getDocumentById } from '@/lib/db/queries/documents';
 import { withErrorHandling, unauthorized } from '@/lib/api-utils';
 import { createError } from '@/lib/error-utils';

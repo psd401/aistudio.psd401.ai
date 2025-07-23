@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server"
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { validateDataAPIConnection } from "@/lib/db/data-api-adapter"
 import { getServerSession } from "@/lib/auth/server-session"
 /**
@@ -124,7 +123,7 @@ export async function GET() {
       healthCheck.checks.authentication = {
         status: "healthy",
         hasSession: !!session,
-        sessionUser: (session?.user as any)?.email || "no session",
+        sessionUser: session?.user?.email || "no session",
         authConfigured: true
       }
     } catch (error) {
@@ -189,11 +188,16 @@ export async function GET() {
     }
     
     if (healthCheck.checks.database.status !== "healthy") {
-      if ((healthCheck.checks.database.error as any)?.message?.includes("credentials")) {
+      const dbError = healthCheck.checks.database.error;
+      if (typeof dbError === 'object' && dbError !== null && 'message' in dbError && 
+          typeof (dbError as {message: string}).message === 'string' && 
+          (dbError as {message: string}).message.includes("credentials")) {
         healthCheck.diagnostics.hints.push(
           "AWS credentials issue. Verify Amplify service role has RDS Data API permissions."
         )
-      } else if ((healthCheck.checks.database.error as any)?.message?.includes("region")) {
+      } else if (typeof dbError === 'object' && dbError !== null && 'message' in dbError && 
+                 typeof (dbError as {message: string}).message === 'string' && 
+                 (dbError as {message: string}).message.includes("region")) {
         healthCheck.diagnostics.hints.push(
           "AWS region not configured. AWS Amplify should provide AWS_REGION automatically. Ensure NEXT_PUBLIC_AWS_REGION is set as fallback."
         )
