@@ -51,7 +51,7 @@ export function CreateForm({ initialData }: CreateFormProps) {
     fetch("/api/assistant-images")
       .then(res => res.json())
       .then(data => setImages(data.images))
-      .catch(err => console.error("Failed to load assistant images:", err))
+      .catch(() => setImages([]))
   }, [])
 
   const form = useForm<FormValues>({

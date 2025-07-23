@@ -1,6 +1,7 @@
 import { NextResponse, NextRequest } from "next/server"
 import { getServerSession } from "@/lib/auth/server-session"
 import { getNavigationItems as getNavigationItemsViaDataAPI } from "@/lib/db/data-api-adapter"
+import logger from '@/lib/logger';
 
 /**
  * Navigation API
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest) {
     if (!region) missingEnvVars.push('NEXT_PUBLIC_AWS_REGION');
     
     if (missingEnvVars.length > 0) {
-      console.error("Missing required environment variables:", {
+      logger.error("Missing required environment variables:", {
         missing: missingEnvVars,
         RDS_RESOURCE_ARN: process.env.RDS_RESOURCE_ARN ? 'set' : 'missing',
         RDS_SECRET_ARN: process.env.RDS_SECRET_ARN ? 'set' : 'missing',
@@ -104,7 +105,7 @@ export async function GET(request: NextRequest) {
       })
       
     } catch (error) {
-      console.error("Data API error:", error);
+      logger.error("Data API error:", error);
       
       // Enhanced error logging for debugging
       const errorDetails: any = {
@@ -129,7 +130,7 @@ export async function GET(request: NextRequest) {
         }
       }
       
-      console.error("Enhanced error details:", errorDetails);
+      logger.error("Enhanced error details:", errorDetails);
       
       return NextResponse.json(
         {
@@ -143,10 +144,10 @@ export async function GET(request: NextRequest) {
     }
     
   } catch (error) {
-    console.error("Error in navigation API:", error)
+    logger.error("Error in navigation API:", error)
     // Log more details about the error
     if (error instanceof Error) {
-      console.error("Outer error details:", {
+      logger.error("Outer error details:", {
         name: error.name,
         message: error.message,
         stack: error.stack?.split('\n').slice(0, 5).join('\n')

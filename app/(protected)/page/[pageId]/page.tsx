@@ -3,6 +3,7 @@ import { executeSQL } from "@/lib/db/data-api-adapter"
 import { Suspense } from "react"
 import Image from "next/image"
 import Link from "next/link"
+import logger from "@/lib/logger"
 
 interface PageProps {
   params: { pageId: string }
@@ -118,7 +119,7 @@ export default async function PublicPage({ params }: PageProps) {
     </>
   )
   } catch (error) {
-    console.error('Error loading page:', error);
+    logger.error('Error loading page:', error);
     notFound();
   }
 } 

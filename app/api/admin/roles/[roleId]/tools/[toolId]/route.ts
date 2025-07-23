@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { assignToolToRole, removeToolFromRole } from "@/lib/db/data-api-adapter"
 import { requireAdmin } from "@/lib/auth/admin-check"
+import logger from '@/lib/logger';
 
 export async function POST(
   request: NextRequest,
@@ -16,7 +17,7 @@ export async function POST(
     
     return NextResponse.json({ success })
   } catch (error: any) {
-    console.error("Error assigning tool to role:", error)
+    logger.error("Error assigning tool to role:", error)
     return NextResponse.json(
       { error: error.message || "Failed to assign tool" },
       { status: 500 }
@@ -38,7 +39,7 @@ export async function DELETE(
     
     return NextResponse.json({ success })
   } catch (error: any) {
-    console.error("Error removing tool from role:", error)
+    logger.error("Error removing tool from role:", error)
     return NextResponse.json(
       { error: error.message || "Failed to remove tool" },
       { status: 500 }

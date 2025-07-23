@@ -300,7 +300,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         const modelsData = result.data || result
         
         if (!Array.isArray(modelsData) || modelsData.length === 0) {
-          console.warn('[loadModels] No models returned from API or invalid format')
           return
         }
         

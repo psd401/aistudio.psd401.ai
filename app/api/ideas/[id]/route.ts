@@ -2,6 +2,7 @@ import { NextResponse, NextRequest } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
+import logger from '@/lib/logger';
 
 export async function PATCH(
   request: NextRequest,
@@ -71,7 +72,7 @@ export async function PATCH(
     const result = await executeSQL(sql, params);
     return NextResponse.json(result[0]);
   } catch (error) {
-    console.error('Failed to update idea:', error);
+    logger.error('Failed to update idea:', error);
     return NextResponse.json({ error: 'Failed to update idea' }, { status: 500 });
   }
 }
@@ -96,7 +97,7 @@ export async function DELETE(
     await executeSQL(sql, [{ name: 'id', value: { longValue: parseInt(id) } }]);
     return new NextResponse(null, { status: 204 });
   } catch (error) {
-    console.error('Failed to delete idea:', error);
+    logger.error('Failed to delete idea:', error);
     return NextResponse.json({ error: 'Failed to delete idea' }, { status: 500 });
   }
 } 

@@ -2,6 +2,7 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { NextResponse } from 'next/server';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
+import logger from '@/lib/logger';
 
 export async function PATCH(request: Request, context: { params: { id: string } }) {
   const session = await getServerSession();
@@ -52,7 +53,7 @@ export async function PATCH(request: Request, context: { params: { id: string } 
 
     return NextResponse.json(result[0]);
   } catch (error) {
-    console.error('Error updating idea status:', error);
+    logger.error('Error updating idea status:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 } 

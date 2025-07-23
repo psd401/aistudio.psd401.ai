@@ -2,6 +2,7 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { NextResponse } from 'next/server';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
+import logger from '@/lib/logger';
 
 export async function GET(request: Request, context: { params: { id: string } }) {
   const session = await getServerSession();
@@ -37,7 +38,7 @@ export async function GET(request: Request, context: { params: { id: string } })
       createdAt: note.created_at,
     })));
   } catch (error) {
-    console.error('Error fetching notes:', error);
+    logger.error('Error fetching notes:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 }
@@ -97,7 +98,7 @@ export async function POST(request: Request, context: { params: { id: string } }
       createdAt: newNote.created_at,
     });
   } catch (error) {
-    console.error('Error creating note:', error);
+    logger.error('Error creating note:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 } 

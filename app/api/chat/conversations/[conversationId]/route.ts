@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDocumentsByConversationId } from '@/lib/db/queries/documents';
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 import { executeSQL } from "@/lib/db/data-api-adapter"
+import logger from '@/lib/logger';
 
 export async function GET(
   req: NextRequest,
@@ -57,7 +58,7 @@ export async function GET(
       }
     )
   } catch (error) {
-    console.error("Error fetching conversation details:", error)
+    logger.error("Error fetching conversation details:", error)
     return new NextResponse("Internal Server Error", { status: 500 })
   }
 }
@@ -108,7 +109,7 @@ export async function PUT(
       headers: { "Content-Type": "application/json" },
     })
   } catch (error) {
-    console.error("Error updating conversation:", error)
+    logger.error("Error updating conversation:", error)
     return new NextResponse("Internal Server Error", { status: 500 })
   }
 }
@@ -159,7 +160,7 @@ export async function DELETE(
 
     return new NextResponse(null, { status: 204 })
   } catch (error) {
-    console.error("Error deleting conversation:", error)
+    logger.error("Error deleting conversation:", error)
     return new NextResponse("Internal Server Error", { status: 500 })
   }
 } 
