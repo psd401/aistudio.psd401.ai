@@ -1,10 +1,10 @@
 import { getServerSession } from '@/lib/auth/server-session';
+import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { NextResponse } from 'next/server';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
 import logger from '@/lib/logger';
 import { SqlParameter } from 'aws-sdk/clients/rdsdataservice';
-
 export async function PATCH(request: Request, _context: { params: Promise<{ id: string }> }) {
   const session = await getServerSession();
   if (!session?.sub) {

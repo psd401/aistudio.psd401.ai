@@ -8,6 +8,7 @@ import {
   CreateBucketCommand,
   HeadBucketCommand,
   PutBucketCorsCommand,
+  BucketLocationConstraint,
 } from "@aws-sdk/client-s3"
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import { createError } from "@/lib/error-utils"
@@ -84,8 +85,8 @@ export async function ensureDocumentsBucket(): Promise<void> {
         await s3Client.send(
           new CreateBucketCommand({
             Bucket: bucketName,
-            ...(config.region !== "us-east-1" && {
-              CreateBucketConfiguration: { LocationConstraint: config.region },
+            ...(config.region && config.region !== "us-east-1" && {
+              CreateBucketConfiguration: { LocationConstraint: config.region as BucketLocationConstraint },
             }),
           })
         )
@@ -110,15 +111,21 @@ export async function ensureDocumentsBucket(): Promise<void> {
           })
         )
       } catch (createErr) {
-        throw createError("Failed to create S3 bucket", "S3_BUCKET_CREATE_ERROR", {
-          error: createErr instanceof Error ? createErr.message : String(createErr),
-          bucket: bucketName,
+        throw createError("Failed to create S3 bucket", {
+          code: "S3_BUCKET_CREATE_ERROR",
+          details: {
+            error: createErr instanceof Error ? createErr.message : String(createErr),
+            bucket: bucketName,
+          }
         })
       }
     } else {
-      throw createError("Failed to check S3 bucket", "S3_BUCKET_CHECK_ERROR", {
-        error: error instanceof Error ? error.message : String(error),
-        bucket: bucketName,
+      throw createError("Failed to check S3 bucket", {
+        code: "S3_BUCKET_CHECK_ERROR",
+        details: {
+          error: error instanceof Error ? error.message : String(error),
+          bucket: bucketName,
+        }
       })
     }
   }
@@ -164,9 +171,12 @@ export async function uploadDocument({
 
     return { key, url }
   } catch (error) {
-    throw createError("Failed to upload document to S3", "S3_UPLOAD_ERROR", {
-      error: error instanceof Error ? error.message : String(error),
-      fileName,
+    throw createError("Failed to upload document to S3", {
+      code: "S3_UPLOAD_ERROR",
+      details: {
+        error: error instanceof Error ? error.message : String(error),
+        fileName,
+      }
     })
   }
 }
@@ -189,9 +199,12 @@ export async function getDocumentSignedUrl({
     const url = await getSignedUrl(s3Client, command, { expiresIn })
     return url
   } catch (error) {
-    throw createError("Failed to generate signed URL", "S3_SIGNED_URL_ERROR", {
-      error: error instanceof Error ? error.message : String(error),
-      key,
+    throw createError("Failed to generate signed URL", {
+      code: "S3_SIGNED_URL_ERROR",
+      details: {
+        error: error instanceof Error ? error.message : String(error),
+        key,
+      }
     })
   }
 }
@@ -210,9 +223,12 @@ export async function deleteDocument(key: string): Promise<void> {
 
     await s3Client.send(command)
   } catch (error) {
-    throw createError("Failed to delete document from S3", "S3_DELETE_ERROR", {
-      error: error instanceof Error ? error.message : String(error),
-      key,
+    throw createError("Failed to delete document from S3", {
+      code: "S3_DELETE_ERROR",
+      details: {
+        error: error instanceof Error ? error.message : String(error),
+        key,
+      }
     })
   }
 }
@@ -236,9 +252,12 @@ export async function documentExists(key: string): Promise<boolean> {
     if (awsError.name === "NotFound" || awsError.$metadata?.httpStatusCode === 404) {
       return false
     }
-    throw createError("Failed to check document existence", "S3_HEAD_ERROR", {
-      error: error instanceof Error ? error.message : String(error),
-      key,
+    throw createError("Failed to check document existence", {
+      code: "S3_HEAD_ERROR",
+      details: {
+        error: error instanceof Error ? error.message : String(error),
+        key,
+      }
     })
   }
 }
@@ -267,9 +286,12 @@ export async function listUserDocuments(
       lastModified: object.LastModified || new Date(),
     }))
   } catch (error) {
-    throw createError("Failed to list user documents", "S3_LIST_ERROR", {
-      error: error instanceof Error ? error.message : String(error),
-      userId,
+    throw createError("Failed to list user documents", {
+      code: "S3_LIST_ERROR",
+      details: {
+        error: error instanceof Error ? error.message : String(error),
+        userId,
+      }
     })
   }
 }

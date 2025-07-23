@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { linkDocumentToConversation, getDocumentById } from '@/lib/db/queries/documents';
 import { withErrorHandling, unauthorized } from '@/lib/api-utils';
 import { createError } from '@/lib/error-utils';
@@ -6,7 +7,6 @@ import { ErrorLevel } from '@/types/actions-types';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import logger from '@/lib/logger';
-
 export async function POST(request: NextRequest) {
   const session = await getServerSession();
   if (!session) {

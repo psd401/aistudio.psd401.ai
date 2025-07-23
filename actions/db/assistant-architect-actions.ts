@@ -15,6 +15,7 @@ import {
   type SelectAiModel
 } from "@/types/db-types"
 import { CoreMessage } from "ai"
+import { transformSnakeToCamel } from '@/lib/db/field-mapper'
 
 import { createJobAction, updateJobAction, getJobAction } from "@/actions/db/jobs-actions";
 import { generateCompletion } from "@/lib/ai-helpers";
@@ -82,16 +83,7 @@ export async function createAssistantArchitectAction(
       { name: 'userId', value: { longValue: currentUser.data.user.id } }
     ]);
 
-    const architect: SelectAssistantArchitect = {
-      id: architectRaw.id,
-      name: architectRaw.name,
-      description: architectRaw.description,
-      status: architectRaw.status,
-      imagePath: architectRaw.image_path,
-      userId: architectRaw.user_id,
-      createdAt: architectRaw.created_at,
-      updatedAt: architectRaw.updated_at
-    };
+    const architect = transformSnakeToCamel<SelectAssistantArchitect>(architectRaw);
 
     return createSuccess(architect, "Assistant architect created successfully");
   } catch (error) {
@@ -120,14 +112,14 @@ export async function getAssistantArchitectsAction(): Promise<
 
     const architectsWithRelations = await Promise.all(
       architectsRaw.map(async (architect: any) => {
-        const [inputFields, prompts] = await Promise.all([
-          executeSQL<SelectToolInputField>(`
+        const [inputFieldsRaw, promptsRaw] = await Promise.all([
+          executeSQL<any>(`
             SELECT id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at
             FROM tool_input_fields
             WHERE assistant_architect_id = :toolId
             ORDER BY position ASC
           `, [{ name: 'toolId', value: { longValue: architect.id } }]),
-          executeSQL<SelectChainPrompt>(`
+          executeSQL<any>(`
             SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at
             FROM chain_prompts
             WHERE assistant_architect_id = :toolId
@@ -135,17 +127,14 @@ export async function getAssistantArchitectsAction(): Promise<
           `, [{ name: 'toolId', value: { longValue: architect.id } }])
         ]);
 
+        const inputFields = inputFieldsRaw.map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
+        const prompts = promptsRaw.map((prompt: any) => transformSnakeToCamel<SelectChainPrompt>(prompt));
+        const transformedArchitect = transformSnakeToCamel<SelectAssistantArchitect>(architect);
+
         return {
-          id: architect.id,
-          name: architect.name,
-          description: architect.description,
-          status: architect.status,
-          imagePath: architect.image_path,
-          userId: architect.user_id,
-          createdAt: architect.created_at,
-          updatedAt: architect.updated_at,
-          inputFields: inputFields as SelectToolInputField[],
-          prompts: prompts as SelectChainPrompt[],
+          ...transformedArchitect,
+          inputFields,
+          prompts,
           creator: architect.creator_first_name && architect.creator_last_name && architect.creator_email
             ? {
                 firstName: architect.creator_first_name,
@@ -194,17 +183,17 @@ export async function getAssistantArchitectByIdAction(
       });
     }
 
-    const architect = architectResult[0];
+    const architect = transformSnakeToCamel<SelectAssistantArchitect>(architectResult[0]);
     
     // Get input fields and prompts using data API
-    const [inputFields, prompts] = await Promise.all([
-      executeSQL<SelectToolInputField>(`
+    const [inputFieldsRaw, promptsRaw] = await Promise.all([
+      executeSQL<any>(`
         SELECT id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at
         FROM tool_input_fields
         WHERE assistant_architect_id = :toolId
         ORDER BY position ASC
       `, [{ name: 'toolId', value: { longValue: idInt } }]),
-      executeSQL<SelectChainPrompt>(`
+      executeSQL<any>(`
         SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at
         FROM chain_prompts
         WHERE assistant_architect_id = :toolId
@@ -213,42 +202,11 @@ export async function getAssistantArchitectByIdAction(
     ]);
 
     // Transform snake_case to camelCase for frontend compatibility
-    const transformedInputFields = (inputFields || []).map((field: any) => ({
-      id: field.id,
-      assistantArchitectId: field.assistant_architect_id,
-      name: field.name,
-      label: field.label,
-      fieldType: field.field_type,
-      position: field.position,
-      options: field.options,
-      createdAt: field.created_at,
-      updatedAt: field.updated_at
-    } as SelectToolInputField));
-
-    const transformedPrompts = (prompts || []).map((prompt: any) => ({
-      id: prompt.id,
-      assistantArchitectId: prompt.assistant_architect_id,
-      name: prompt.name,
-      content: prompt.content,
-      systemContext: prompt.system_context,
-      modelId: prompt.model_id,
-      position: prompt.position,
-      inputMapping: prompt.input_mapping,
-      parallelGroup: prompt.parallel_group,
-      timeoutSeconds: prompt.timeout_seconds,
-      createdAt: prompt.created_at,
-      updatedAt: prompt.updated_at
-    } as SelectChainPrompt));
+    const transformedInputFields = (inputFieldsRaw || []).map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
+    const transformedPrompts = (promptsRaw || []).map((prompt: any) => transformSnakeToCamel<SelectChainPrompt>(prompt));
 
     const architectWithRelations: ArchitectWithRelations = {
-      id: architect.id,
-      name: architect.name,
-      description: architect.description,
-      status: architect.status,
-      imagePath: architect.image_path,
-      userId: architect.user_id,
-      createdAt: architect.created_at,
-      updatedAt: architect.updated_at,
+      ...architect,
       inputFields: transformedInputFields,
       prompts: transformedPrompts
     };
@@ -287,14 +245,14 @@ export async function getPendingAssistantArchitectsAction(): Promise<
     // For each tool, get its input fields and prompts
     const toolsWithRelations = await Promise.all(
       pendingTools.map(async (tool: any) => {
-        const [inputFields, prompts] = await Promise.all([
-          executeSQL<SelectToolInputField>(`
+        const [inputFieldsRaw, promptsRaw] = await Promise.all([
+          executeSQL<any>(`
             SELECT id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at
             FROM tool_input_fields
             WHERE assistant_architect_id = :toolId
             ORDER BY position ASC
           `, [{ name: 'toolId', value: { longValue: tool.id } }]),
-          executeSQL<SelectChainPrompt>(`
+          executeSQL<any>(`
             SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at
             FROM chain_prompts
             WHERE assistant_architect_id = :toolId
@@ -302,15 +260,12 @@ export async function getPendingAssistantArchitectsAction(): Promise<
           `, [{ name: 'toolId', value: { longValue: tool.id } }])
         ]);
 
+        const transformedTool = transformSnakeToCamel<SelectAssistantArchitect>(tool);
+        const inputFields = inputFieldsRaw.map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
+        const prompts = promptsRaw.map((prompt: any) => transformSnakeToCamel<SelectChainPrompt>(prompt));
+
         return {
-          id: tool.id,
-          name: tool.name,
-          description: tool.description,
-          status: tool.status,
-          imagePath: tool.image_path,
-          userId: tool.user_id,
-          createdAt: tool.created_at,
-          updatedAt: tool.updated_at,
+          ...transformedTool,
           inputFields: inputFields || [],
           prompts: prompts || []
         };
@@ -420,16 +375,7 @@ export async function updateAssistantArchitectAction(
     return {
       isSuccess: true,
       message: "Assistant updated successfully",
-      data: {
-        id: updatedToolRaw.id,
-        name: updatedToolRaw.name,
-        description: updatedToolRaw.description,
-        status: updatedToolRaw.status,
-        imagePath: updatedToolRaw.image_path,
-        userId: updatedToolRaw.user_id,
-        createdAt: updatedToolRaw.created_at,
-        updatedAt: updatedToolRaw.updated_at
-      } as SelectAssistantArchitect
+      data: transformSnakeToCamel<SelectAssistantArchitect>(updatedToolRaw)
     }
   } catch (error) {
     logger.error("Error updating assistant:", error)
@@ -560,7 +506,7 @@ export async function deleteInputFieldAction(
       SELECT user_id
       FROM assistant_architects
       WHERE id = :toolId
-    `, [{ name: 'toolId', value: { longValue: field.assistant_architect_id } }]);
+    `, [{ name: 'toolId', value: { longValue: (field as any).assistant_architect_id || field.assistantArchitectId } }]);
 
     if (!toolResult || toolResult.length === 0) {
       return { isSuccess: false, message: "Tool not found" }
@@ -623,7 +569,7 @@ export async function updateInputFieldAction(
       SELECT user_id
       FROM assistant_architects
       WHERE id = :toolId
-    `, [{ name: 'toolId', value: { longValue: field.assistant_architect_id } }]);
+    `, [{ name: 'toolId', value: { longValue: (field as any).assistant_architect_id || field.assistantArchitectId } }]);
 
     if (!toolResult || toolResult.length === 0) {
       return { isSuccess: false, message: "Tool not found" }
@@ -691,17 +637,7 @@ export async function updateInputFieldAction(
     return {
       isSuccess: true,
       message: "Input field updated successfully",
-      data: {
-        id: updatedFieldResult[0].id,
-        assistantArchitectId: updatedFieldResult[0].assistant_architect_id,
-        name: updatedFieldResult[0].name,
-        label: updatedFieldResult[0].label,
-        fieldType: updatedFieldResult[0].field_type,
-        position: updatedFieldResult[0].position,
-        options: updatedFieldResult[0].options,
-        createdAt: updatedFieldResult[0].created_at,
-        updatedAt: updatedFieldResult[0].updated_at
-      } as SelectToolInputField
+      data: transformSnakeToCamel<SelectToolInputField>(updatedFieldResult[0])
     }
   } catch (error) {
     logger.error("Error updating input field:", error)
@@ -754,18 +690,7 @@ export async function reorderInputFieldsAction(
           { name: 'position', value: { longValue: position } },
           { name: 'id', value: { longValue: parseInt(id, 10) } }
         ]);
-        const field = result[0];
-        return {
-          id: field.id,
-          assistantArchitectId: field.assistant_architect_id,
-          name: field.name,
-          label: field.label,
-          fieldType: field.field_type,
-          position: field.position,
-          options: field.options,
-          createdAt: field.created_at,
-          updatedAt: field.updated_at
-        } as SelectToolInputField;
+        return transformSnakeToCamel<SelectToolInputField>(result[0]);
       })
     )
 
@@ -908,20 +833,7 @@ export async function updatePromptAction(
     return {
       isSuccess: true,
       message: "Prompt updated successfully",
-      data: {
-        id: updatedPromptResult[0].id,
-        assistantArchitectId: updatedPromptResult[0].assistant_architect_id,
-        name: updatedPromptResult[0].name,
-        content: updatedPromptResult[0].content,
-        systemContext: updatedPromptResult[0].system_context,
-        modelId: updatedPromptResult[0].model_id,
-        position: updatedPromptResult[0].position,
-        inputMapping: updatedPromptResult[0].input_mapping,
-        parallelGroup: updatedPromptResult[0].parallel_group,
-        timeoutSeconds: updatedPromptResult[0].timeout_seconds,
-        createdAt: updatedPromptResult[0].created_at,
-        updatedAt: updatedPromptResult[0].updated_at
-      } as SelectChainPrompt
+      data: transformSnakeToCamel<SelectChainPrompt>(updatedPromptResult[0])
     }
   } catch (error) {
     logger.error("Error updating prompt:", error)
@@ -1007,33 +919,33 @@ export async function updatePromptPositionAction(
     }
 
     // Find the prompt
-    const promptResult = await executeSQL<{ assistant_architect_id: number; [key: string]: any }>(
-      `SELECT * FROM chain_prompts WHERE id = :id`,
+    const promptResult = await executeSQL<any>(
+      `SELECT assistant_architect_id FROM chain_prompts WHERE id = :id`,
       [{ name: 'id', value: { longValue: parseInt(id, 10) } }]
     )
 
-    if (!promptResult.records || promptResult.records.length === 0) {
+    if (!promptResult || promptResult.length === 0) {
       return { isSuccess: false, message: "Prompt not found" }
     }
 
-    const prompt = promptResult.records[0]
-    const toolId = prompt[1]?.stringValue // toolId is at index 1
+    const prompt = promptResult[0] as any;
+    const toolId = prompt.assistant_architect_id;
 
     // Get the tool to check permissions
-    const toolResult = await executeSQL<{ user_id: number; [key: string]: any }>(
-      `SELECT * FROM assistant_architects WHERE id = :id`,
-      [{ name: 'id', value: { longValue: parseInt(toolId, 10) } }]
+    const toolResult = await executeSQL<any>(
+      `SELECT user_id FROM assistant_architects WHERE id = :id`,
+      [{ name: 'id', value: { longValue: toolId } }]
     )
 
-    if (!toolResult.records || toolResult.records.length === 0) {
+    if (!toolResult || toolResult.length === 0) {
       return { isSuccess: false, message: "Tool not found" }
     }
 
-    const tool = toolResult.records[0]
-    const toolUserId = tool[5]?.stringValue // userId is at index 5
+    const tool = toolResult[0] as any;
+    const toolUserId = tool.user_id;
 
     // Only tool creator or admin can update prompt positions
-    const isAdmin = await hasRole("administrator")
+    const isAdmin = await checkUserRoleByCognitoSub(session.sub, "administrator");
     if (!isAdmin && toolUserId !== userId) {
       return { isSuccess: false, message: "Forbidden" }
     }
@@ -1088,12 +1000,12 @@ export async function createToolExecutionAction(
       ]
     )
     
-    const executionId = executionResult[0].id as string
+    const executionId = (executionResult as any)[0].id as number
 
     return {
       isSuccess: true,
       message: "Tool execution created successfully",
-      data: executionId
+      data: executionId.toString()
     }
   } catch (error) {
     logger.error("Error creating tool execution:", error)
@@ -1192,7 +1104,7 @@ export async function approveAssistantArchitectAction(
       return { isSuccess: false, message: "Tool not found" }
     }
     
-    const updatedTool = updatedToolResult[0];
+    const updatedTool = transformSnakeToCamel<SelectAssistantArchitect>(updatedToolResult[0]);
     
     // Check if tool already exists in tools table
     const existingToolResult = await executeSQL<{ id: string }>(`
@@ -1303,16 +1215,7 @@ export async function approveAssistantArchitectAction(
     return {
       isSuccess: true,
       message: "Tool approved successfully",
-      data: {
-        id: updatedTool.id,
-        name: updatedTool.name,
-        description: updatedTool.description,
-        status: updatedTool.status,
-        imagePath: updatedTool.image_path,
-        userId: updatedTool.user_id,
-        createdAt: updatedTool.created_at,
-        updatedAt: updatedTool.updated_at
-      } as SelectAssistantArchitect
+      data: updatedTool
     }
   } catch (error) {
     logger.error("Error approving tool:", error)
@@ -1532,7 +1435,7 @@ async function executeAssistantArchitectJob(
         ...dataApiConfig,
         sql: insertExecutionSql,
         parameters: [
-          { name: 'toolId', value: { longValue: parseInt(tool.id, 10) } },
+          { name: 'toolId', value: { longValue: typeof tool.id === 'string' ? parseInt(tool.id, 10) : tool.id } },
           { name: 'userId', value: { longValue: jobResult.data.userId } },
           { name: 'inputData', value: { stringValue: JSON.stringify(inputs) } },
           { name: 'status', value: { stringValue: 'running' } },
@@ -1544,7 +1447,7 @@ async function executeAssistantArchitectJob(
       if (!executionResult.records || executionResult.records.length === 0) {
         throw new Error("Failed to create execution record");
       }
-      executionId = executionResult.records[0][0].longValue;
+      executionId = executionResult.records[0][0].longValue as number;
     }
 
     const prompts = tool.prompts?.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)) || [];
@@ -1567,9 +1470,9 @@ async function executeAssistantArchitectJob(
             const inputName = value.substring(6);
             promptInputData[key] = inputs[inputName];
           } else { // It's a prompt output mapping
-             const prevPrompt = tool.prompts?.find(p => p.id === value);
-             if (prevPrompt) {
-                const prevResult = results.find(r => r.promptId === prevPrompt.id);
+             const matchingPrompt = tool.prompts?.find(p => String(p.id) === String(value));
+             if (matchingPrompt) {
+                const prevResult = results.find(r => r.promptId === matchingPrompt.id);
                 if (prevResult) {
                     promptInputData[key] = prevResult.output;
                 }
@@ -1586,8 +1489,8 @@ async function executeAssistantArchitectJob(
                   VALUES (:executionId, :promptId, :inputData::jsonb, 'pending'::execution_status, :startedAt::timestamp)
                   RETURNING id`,
             parameters: [
-                { name: 'executionId', value: { longValue: executionId } },
-                { name: 'promptId', value: { longValue: parseInt(prompt.id, 10) } },
+                { name: 'executionId', value: { longValue: executionId! } },
+                { name: 'promptId', value: { longValue: typeof prompt.id === 'string' ? parseInt(prompt.id, 10) : prompt.id } },
                 { name: 'inputData', value: { stringValue: JSON.stringify(promptInputData) } },
                 { name: 'startedAt', value: { stringValue: promptStartTime.toISOString().slice(0, 19).replace('T', ' ') } },
             ],
@@ -1597,9 +1500,9 @@ async function executeAssistantArchitectJob(
         if (!insertPromptResultResult.records || insertPromptResultResult.records.length === 0) {
           throw new Error("Failed to create prompt result record");
         }
-        newPromptResultId = insertPromptResultResult.records[0][0].longValue;
+        newPromptResultId = (insertPromptResultResult.records[0][0] as any).longValue as number;
         
-        const modelRecord = (await executeSQL<{ model_id: string; provider: string }>('SELECT model_id, provider FROM ai_models WHERE id = :id', [{name: 'id', value: {longValue: prompt.modelId}}]))[0];
+        const modelRecord = (await executeSQL<any>('SELECT model_id, provider FROM ai_models WHERE id = :id', [{name: 'id', value: {longValue: typeof prompt.modelId === 'string' ? parseInt(prompt.modelId, 10) : prompt.modelId}}]))[0] as any;
         if (!modelRecord) throw new Error("Model not found");
 
         const messages: CoreMessage[] = [
@@ -1624,7 +1527,7 @@ async function executeAssistantArchitectJob(
                 { name: 'output', value: { stringValue: output } },
                 { name: 'completedAt', value: { stringValue: new Date().toISOString().slice(0, 19).replace('T', ' ') } },
                 { name: 'execTime', value: { longValue: new Date().getTime() - promptStartTime.getTime() } },
-                { name: 'id', value: { longValue: newPromptResultId } }
+                { name: 'id', value: { longValue: newPromptResultId! } }
             ],
             transactionId
         }));
@@ -1637,7 +1540,7 @@ async function executeAssistantArchitectJob(
               parameters: [
                   { name: 'errorMsg', value: { stringValue: errorMsg } },
                   { name: 'completedAt', value: { stringValue: new Date().toISOString().slice(0, 19).replace('T', ' ') } },
-                  { name: 'id', value: { longValue: newPromptResultId } }
+                  { name: 'id', value: { longValue: newPromptResultId! } }
             ],
             transactionId
           }));
@@ -1652,7 +1555,7 @@ async function executeAssistantArchitectJob(
         parameters: [
             { name: 'status', value: { stringValue: finalStatus } },
             { name: 'completedAt', value: { stringValue: new Date().toISOString().slice(0, 19).replace('T', ' ') } },
-            { name: 'id', value: { longValue: executionId } }
+            { name: 'id', value: { longValue: executionId! } }
         ],
         transactionId
     }));
@@ -1739,46 +1642,18 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
 
     // Map relations back and transform to camelCase
     const results: ArchitectWithRelations[] = approvedArchitects.map((architect: FormattedRow) => {
+      const transformedArchitect = transformSnakeToCamel<SelectAssistantArchitect>(architect);
+      
       const inputFieldsForArchitect = allInputFieldsRaw
         .filter((f: any) => f.assistant_architect_id === architect.id)
-        .map((field: any) => ({
-          id: field.id,
-          assistantArchitectId: field.assistant_architect_id,
-          name: field.name,
-          label: field.label,
-          fieldType: field.field_type,
-          position: field.position,
-          options: field.options,
-          createdAt: field.created_at,
-          updatedAt: field.updated_at
-        } as SelectToolInputField));
+        .map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
       
       const promptsForArchitect = allPromptsRaw
         .filter((p: any) => p.assistant_architect_id === architect.id)
-        .map((prompt: any) => ({
-          id: prompt.id,
-          assistantArchitectId: prompt.assistant_architect_id,
-          name: prompt.name,
-          content: prompt.content,
-          systemContext: prompt.system_context,
-          modelId: prompt.model_id,
-          position: prompt.position,
-          inputMapping: prompt.input_mapping,
-          parallelGroup: prompt.parallel_group,
-          timeoutSeconds: prompt.timeout_seconds,
-          createdAt: prompt.created_at,
-          updatedAt: prompt.updated_at
-        } as SelectChainPrompt));
+        .map((prompt: any) => transformSnakeToCamel<SelectChainPrompt>(prompt));
       
       return {
-        id: architect.id,
-        name: architect.name,
-        description: architect.description,
-        status: architect.status,
-        imagePath: architect.image_path,
-        userId: architect.user_id,
-        createdAt: architect.created_at,
-        updatedAt: architect.updated_at,
+        ...transformedArchitect,
         inputFields: inputFieldsForArchitect,
         prompts: promptsForArchitect
       };
@@ -1887,7 +1762,7 @@ export async function getExecutionResultsAction(
       });
     }
 
-    const execution = executionResult[0];
+    const execution = transformSnakeToCamel<SelectToolExecution>(executionResult[0]);
 
     // Get prompt results for this execution
     const promptResultsRaw = await executeSQL<any>(`
@@ -1899,31 +1774,31 @@ export async function getExecutionResultsAction(
     
     // Transform to match SelectPromptResult type - note: the DB schema has evolved
     // but the type definition hasn't been updated to match
-    const promptResultsData = promptResultsRaw.map((result: any) => ({
-      id: result.id,
-      toolExecutionId: result.execution_id,
-      chainPromptId: result.prompt_id,
-      result: result.output_data || result.result || '',
-      aiModelId: null, // Not in current DB schema
-      createdAt: result.created_at || result.started_at || new Date(),
-      updatedAt: result.updated_at || result.completed_at || new Date(),
-      // Additional fields from actual DB that aren't in the type definition
-      inputData: result.input_data,
-      outputData: result.output_data,
-      status: result.status,
-      errorMessage: result.error_message,
-      startedAt: result.started_at,
-      completedAt: result.completed_at,
-      executionTimeMs: result.execution_time_ms
-    } as SelectPromptResult & {
-      inputData?: any;
-      outputData?: string;
-      status?: string;
-      errorMessage?: string;
-      startedAt?: Date;
-      completedAt?: Date;
-      executionTimeMs?: number;
-    }));
+    const promptResultsData = promptResultsRaw.map((result: any) => {
+      const transformedResult = transformSnakeToCamel<SelectPromptResult>(result);
+      // Add additional fields from actual DB that aren't in the type definition
+      return {
+        ...transformedResult,
+        result: result.output_data || result.result || '',
+        aiModelId: null, // Not in current DB schema
+        // Additional fields from actual DB
+        inputData: result.input_data,
+        outputData: result.output_data,
+        status: result.status,
+        errorMessage: result.error_message,
+        startedAt: result.started_at,
+        completedAt: result.completed_at,
+        executionTimeMs: result.execution_time_ms
+      } as SelectPromptResult & {
+        inputData?: any;
+        outputData?: string;
+        status?: string;
+        errorMessage?: string;
+        startedAt?: Date;
+        completedAt?: Date;
+        executionTimeMs?: number;
+      };
+    });
 
     // Return data in the ExecutionResultDetails format
     const returnData: ExecutionResultDetails = {
@@ -1965,17 +1840,26 @@ export async function migratePromptChainsToAssistantArchitectAction(): Promise<A
 
 export async function getToolsAction(): Promise<ActionState<SelectTool[]>> {
   try {
-    const tools = await executeSQL<SelectTool>(`
+    const toolsRaw = await executeSQL<any>(`
       SELECT id, identifier, name, description, assistant_architect_id, is_active, created_at, updated_at
       FROM tools
       WHERE is_active = true
       ORDER BY name ASC
     `);
     
+    const tools = toolsRaw.map((tool: any) => {
+      const transformed = transformSnakeToCamel<SelectTool>(tool);
+      // Map assistant_architect_id to promptChainToolId for backward compatibility
+      return {
+        ...transformed,
+        promptChainToolId: tool.assistant_architect_id
+      } as SelectTool;
+    });
+    
     return {
       isSuccess: true,
       message: "Tools retrieved successfully",
-      data: tools as unknown as SelectTool[]
+      data: tools
     }
   } catch (error) {
     logger.error("Error getting tools:", error)
@@ -1985,16 +1869,18 @@ export async function getToolsAction(): Promise<ActionState<SelectTool[]>> {
 
 export async function getAiModelsAction(): Promise<ActionState<SelectAiModel[]>> {
   try {
-    const aiModels = await executeSQL<SelectAiModel>(`
+    const aiModelsRaw = await executeSQL<any>(`
       SELECT id, name, provider, model_id, description, capabilities, max_tokens, active, chat_enabled, created_at, updated_at
       FROM ai_models
       ORDER BY name ASC
     `);
     
+    const aiModels = aiModelsRaw.map((model: any) => transformSnakeToCamel<SelectAiModel>(model));
+    
     return {
       isSuccess: true,
       message: "AI models retrieved successfully",
-      data: aiModels as unknown as SelectAiModel[]
+      data: aiModels
     }
   } catch (error) {
     logger.error("Error getting AI models:", error)
@@ -2007,23 +1893,30 @@ export async function setPromptPositionsAction(
   positions: { id: string; position: number }[]
 ): Promise<ActionState<void>> {
   try {
-    const { userId } = await getServerSession();
-    if (!userId) return { isSuccess: false, message: "Unauthorized" }
+    const session = await getServerSession();
+    if (!session || !session.sub) {
+      return { isSuccess: false, message: "Unauthorized" }
+    }
+    
+    const userId = await getCurrentUserId();
+    if (!userId) {
+      return { isSuccess: false, message: "User not found" }
+    }
 
     // Verify permissions
-    const toolResult = await executeSQL<{ user_id: number; [key: string]: any }>(
-      `SELECT * FROM assistant_architects WHERE id = :id`,
+    const toolResult = await executeSQL<any>(
+      `SELECT user_id FROM assistant_architects WHERE id = :id`,
       [{ name: 'id', value: { longValue: parseInt(toolId, 10) } }]
     )
 
-    if (!toolResult.records || toolResult.records.length === 0) {
+    if (!toolResult || toolResult.length === 0) {
       return { isSuccess: false, message: "Tool not found" }
     }
 
-    const tool = toolResult.records[0]
-    const toolUserId = tool[5]?.stringValue // userId is at index 5
+    const tool = toolResult[0] as any;
+    const toolUserId = tool.user_id;
 
-    const isAdmin = await hasRole("administrator")
+    const isAdmin = await checkUserRoleByCognitoSub(session.sub, "administrator");
     if (!isAdmin && toolUserId !== userId) {
       return { isSuccess: false, message: "Forbidden" }
     }
@@ -2061,16 +1954,18 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
     }
 
     // Check if user is an administrator
-    const isAdmin = await hasRole("administrator")
+    const isAdmin = await checkUserRoleByCognitoSub(session.sub, "administrator")
     if (!isAdmin) {
       return { isSuccess: false, message: "Only administrators can view approved tools" }
     }
 
     // Get all approved tools
-    const toolsResult = await executeSQL<SelectAssistantArchitect>(
-      `SELECT * FROM assistant_architects WHERE status = :status`,
+    const toolsResultRaw = await executeSQL<any>(
+      `SELECT id, name, description, status, image_path, user_id, created_at, updated_at FROM assistant_architects WHERE status = :status`,
       [{ name: 'status', value: { stringValue: 'approved' } }]
     )
+    
+    const toolsResult = toolsResultRaw.map((raw: any) => transformSnakeToCamel<SelectAssistantArchitect>(raw))
 
     if (!toolsResult || toolsResult.length === 0) {
       return {
@@ -2086,57 +1981,28 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
         const toolId = String(toolRecord.id || '')
         
         // Run input fields and prompts queries in parallel
-        const [inputFieldsResult, promptsResult] = await Promise.all([
-          executeSQL<SelectToolInputField>(
-            `SELECT * FROM tool_input_fields WHERE assistant_architect_id = :toolId ORDER BY position ASC`,
+        const [inputFieldsResultRaw, promptsResultRaw] = await Promise.all([
+          executeSQL<any>(
+            `SELECT id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at FROM tool_input_fields WHERE assistant_architect_id = :toolId ORDER BY position ASC`,
             [{ name: 'toolId', value: { longValue: parseInt(toolId, 10) } }]
           ),
-          executeSQL<SelectChainPrompt>(
-            `SELECT * FROM chain_prompts WHERE assistant_architect_id = :toolId ORDER BY position ASC`,
+          executeSQL<any>(
+            `SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, parallel_group, timeout_seconds, created_at, updated_at FROM chain_prompts WHERE assistant_architect_id = :toolId ORDER BY position ASC`,
             [{ name: 'toolId', value: { longValue: parseInt(toolId, 10) } }]
           )
         ]);
+        
+        const inputFieldsResult = inputFieldsResultRaw;
+        const promptsResult = promptsResultRaw;
 
         // Map the tool record
-        const tool: SelectAssistantArchitect = {
-          id: toolRecord.id,
-          name: toolRecord.name,
-          description: toolRecord.description,
-          status: toolRecord.status,
-          imagePath: toolRecord.image_path,
-          userId: toolRecord.user_id,
-          createdAt: toolRecord.created_at,
-          updatedAt: toolRecord.updated_at
-        }
+        const tool = transformSnakeToCamel<SelectAssistantArchitect>(toolRecord);
 
         // Map input fields
-        const inputFields = inputFieldsResult.map((record: FormattedRow) => ({
-          id: record.id,
-          assistantArchitectId: record.assistant_architect_id,
-          name: record.name,
-          label: record.label,
-          fieldType: record.field_type,
-          position: record.position,
-          options: record.options,
-          createdAt: record.created_at,
-          updatedAt: record.updated_at
-        } as SelectToolInputField))
+        const inputFields = inputFieldsResult.map((record: any) => transformSnakeToCamel<SelectToolInputField>(record));
 
         // Map prompts
-        const prompts = promptsResult.map((record: FormattedRow) => ({
-          id: record.id,
-          assistantArchitectId: record.assistant_architect_id,
-          name: record.name,
-          content: record.content,
-          systemContext: record.system_context,
-          modelId: record.model_id,
-          position: record.position,
-          inputMapping: record.input_mapping,
-          parallelGroup: record.parallel_group,
-          timeoutSeconds: record.timeout_seconds,
-          createdAt: record.created_at,
-          updatedAt: record.updated_at
-        } as SelectChainPrompt))
+        const prompts = promptsResult.map((record: any) => transformSnakeToCamel<SelectChainPrompt>(record))
 
         return {
           ...tool,
@@ -2163,12 +2029,12 @@ export async function getAllAssistantArchitectsForAdminAction(): Promise<ActionS
     if (!session) {
       return { isSuccess: false, message: "Unauthorized" }
     }
-    const isAdmin = await hasRole("administrator")
+    const isAdmin = await checkUserRoleByCognitoSub(session.sub, "administrator")
     if (!isAdmin) {
       return { isSuccess: false, message: "Only administrators can view all assistants" }
     }
     // Get all assistants
-    const allAssistants = await executeSQL<SelectAssistantArchitect>(`
+    const allAssistants = await executeSQL<any>(`
       SELECT id, name, description, status, image_path, user_id, created_at, updated_at
       FROM assistant_architects
       ORDER BY created_at DESC
@@ -2191,43 +2057,15 @@ export async function getAllAssistantArchitectsForAdminAction(): Promise<ActionS
         ]);
         
         // Transform input fields to camelCase
-        const inputFields = inputFieldsRaw.map((field: any) => ({
-          id: field.id,
-          assistantArchitectId: field.assistant_architect_id,
-          name: field.name,
-          label: field.label,
-          fieldType: field.field_type,
-          position: field.position,
-          options: field.options,
-          createdAt: field.created_at,
-          updatedAt: field.updated_at
-        } as SelectToolInputField));
+        const inputFields = inputFieldsRaw.map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
         
         // Transform prompts to camelCase
-        const prompts = promptsRaw.map((prompt: any) => ({
-          id: prompt.id,
-          assistantArchitectId: prompt.assistant_architect_id,
-          name: prompt.name,
-          content: prompt.content,
-          systemContext: prompt.system_context,
-          modelId: prompt.model_id,
-          position: prompt.position,
-          inputMapping: prompt.input_mapping,
-          parallelGroup: prompt.parallel_group,
-          timeoutSeconds: prompt.timeout_seconds,
-          createdAt: prompt.created_at,
-          updatedAt: prompt.updated_at
-        } as SelectChainPrompt));
+        const prompts = promptsRaw.map((prompt: any) => transformSnakeToCamel<SelectChainPrompt>(prompt));
+        
+        const transformedTool = transformSnakeToCamel<SelectAssistantArchitect>(tool);
         
         return {
-          id: tool.id,
-          name: tool.name,
-          description: tool.description,
-          status: tool.status,
-          imagePath: tool.image_path,
-          userId: tool.user_id,
-          createdAt: tool.created_at,
-          updatedAt: tool.updated_at,
+          ...transformedTool,
           inputFields,
           prompts
         };

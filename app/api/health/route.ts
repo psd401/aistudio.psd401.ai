@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
+import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { validateDataAPIConnection } from "@/lib/db/data-api-adapter"
 import { getServerSession } from "@/lib/auth/server-session"
-
 /**
  * Health Check API Endpoint
  * 

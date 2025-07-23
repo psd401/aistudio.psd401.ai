@@ -1,9 +1,9 @@
 import { NextRequest } from 'next/server';
+import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { executeSQL, FormattedRow } from '@/lib/db/data-api-adapter';
 import logger from '@/lib/logger';
-
 export async function GET(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }

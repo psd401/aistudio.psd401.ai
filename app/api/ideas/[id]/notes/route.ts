@@ -1,9 +1,9 @@
 import { getServerSession } from '@/lib/auth/server-session';
+import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { NextResponse } from 'next/server';
 import { executeSQL, FormattedRow } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
 import logger from '@/lib/logger';
-
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession();
   if (!session?.sub) {

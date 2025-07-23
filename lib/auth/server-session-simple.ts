@@ -20,9 +20,8 @@ export async function getServerSession(): Promise<CognitoSession | null> {
 
     // Convert JWT payload to session format
     return {
-      sub: jwtPayload.sub,
-      email: jwtPayload.email,
       ...jwtPayload,
+      email: jwtPayload.email,
     };
   } catch {
     // Session retrieval failed

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { getDocumentSignedUrl, deleteDocument } from '@/lib/aws/s3-client';
 import { 
   getDocumentsByConversationId, 
@@ -8,7 +9,7 @@ import {
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import logger from '@/lib/logger';
-
+import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 export async function GET(request: NextRequest) {
   // Check authentication
   const session = await getServerSession();

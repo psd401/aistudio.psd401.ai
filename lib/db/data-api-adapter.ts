@@ -2,6 +2,9 @@ import {
   RDSDataClient, 
   ExecuteStatementCommand, 
   ExecuteStatementCommandOutput,
+  BeginTransactionCommand,
+  CommitTransactionCommand,
+  RollbackTransactionCommand,
   Field,
   SqlParameter,
   ArrayValue
@@ -224,27 +227,28 @@ export async function executeTransaction<T = FormattedRow>(statements: Array<{ s
 }
 
 async function beginTransaction() {
-  const command = new ExecuteStatementCommand({
-    ...getDataApiConfig(),
-    sql: 'BEGIN'
+  const command = new BeginTransactionCommand({
+    resourceArn: process.env.RDS_RESOURCE_ARN!,
+    secretArn: process.env.RDS_SECRET_ARN!,
+    database: process.env.RDS_DATABASE_NAME
   });
   const response = await getRDSClient().send(command);
   return response.transactionId!;
 }
 
 async function commitTransaction(transactionId: string) {
-  const command = new ExecuteStatementCommand({
-    ...getDataApiConfig(),
-    sql: 'COMMIT',
+  const command = new CommitTransactionCommand({
+    resourceArn: process.env.RDS_RESOURCE_ARN!,
+    secretArn: process.env.RDS_SECRET_ARN!,
     transactionId
   });
   await getRDSClient().send(command);
 }
 
 async function rollbackTransaction(transactionId: string) {
-  const command = new ExecuteStatementCommand({
-    ...getDataApiConfig(),
-    sql: 'ROLLBACK',
+  const command = new RollbackTransactionCommand({
+    resourceArn: process.env.RDS_RESOURCE_ARN!,
+    secretArn: process.env.RDS_SECRET_ARN!,
     transactionId
   });
   await getRDSClient().send(command);

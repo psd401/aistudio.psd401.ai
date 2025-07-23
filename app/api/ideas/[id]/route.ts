@@ -1,10 +1,10 @@
 import { NextResponse, NextRequest } from 'next/server';
+import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
 import logger from '@/lib/logger';
 import { SqlParameter } from 'aws-sdk/clients/rdsdataservice';
-
 export async function PATCH(
   request: NextRequest,
   _context: { params: Promise<{ id: string }> }

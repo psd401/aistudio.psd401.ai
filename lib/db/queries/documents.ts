@@ -1,8 +1,8 @@
 import { InsertDocument, SelectDocument, InsertDocumentChunk, SelectDocumentChunk } from "@/types/db-types";
+import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import logger from "@/lib/logger"
 import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter"
 import { Field } from "@aws-sdk/client-rds-data"
-
 /**
  * Saves a document to the database
  */
