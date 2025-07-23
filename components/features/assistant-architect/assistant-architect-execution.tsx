@@ -373,7 +373,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
           } finally {
             // Clean up resources
             setAbortController(null)
-            setStreamReader(null)
           }
         } else {
           // Use polling for older executions without executionId

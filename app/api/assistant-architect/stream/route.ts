@@ -179,21 +179,17 @@ export async function POST(req: Request) {
               // If this is not the first prompt, include previous results
               if (i > 0) {
                 const previousResultsQuery = `
-                  SELECT pr.output_data as result, cp.position
+                  SELECT pr.output_data as result 
                   FROM prompt_results pr
-                  JOIN chain_prompts cp ON pr.prompt_id = cp.id
                   WHERE pr.execution_id = :executionId
-                    AND pr.status = 'completed'::execution_status
-                    AND cp.position < :currentPosition
-                  ORDER BY cp.position ASC
+                  ORDER BY pr.started_at ASC
                 `;
                 const previousResults = await executeSQL(previousResultsQuery, [
-                  { name: 'executionId', value: { longValue: executionId } },
-                  { name: 'currentPosition', value: { longValue: i + 1 } }
+                  { name: 'executionId', value: { longValue: executionId } }
                 ]);
 
-                previousResults.forEach((result) => {
-                  const resultPlaceholder = `{{result_${result.position}}}`;
+                previousResults.forEach((result, index) => {
+                  const resultPlaceholder = `{{result_${index + 1}}}`;
                   processedPrompt = processedPrompt.replace(
                     new RegExp(resultPlaceholder, 'g'),
                     result.result
