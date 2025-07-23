@@ -10,10 +10,6 @@ interface StreamRequest {
   inputs: Record<string, unknown>;
 }
 
-// Constants
-const STREAM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-const PROMPT_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes per prompt
-
 // Add a function to decode HTML entities and remove escapes for variable placeholders
 function decodePromptVariables(content: string): string {
   // Replace HTML entity for $ with $
@@ -130,7 +126,6 @@ export async function POST(req: Request) {
 
     // Create a ReadableStream for the response
     const encoder = new TextEncoder();
-    
     const stream = new ReadableStream({
       async start(controller) {
         try {
@@ -215,6 +210,7 @@ export async function POST(req: Request) {
 
               // Stream the AI response
               let fullResponse = '';
+              let tokenCount = 0;
               const messages = [
                 ...(prompt.system_context ? [{ 
                   role: 'system' as const, 
@@ -245,6 +241,8 @@ export async function POST(req: Request) {
                 // Actually consume the stream
                 for await (const chunk of streamResult.textStream) {
                   fullResponse += chunk;
+                  tokenCount++;
+                  
                   
                   // Send token to client
                   controller.enqueue(encoder.encode(
@@ -285,8 +283,7 @@ export async function POST(req: Request) {
               
               } catch (streamError) {
                 logger.error(`[STREAM] Error during streaming:`, streamError);
-                // Don't re-throw here, let the prompt error handler deal with it
-                throw new Error(`Streaming failed: ${streamError instanceof Error ? streamError.message : 'Unknown error'}`);
+                throw streamError;
               }
 
             } catch (promptError) {
