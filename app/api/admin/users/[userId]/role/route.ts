@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { updateUserRole } from '@/lib/db/data-api-adapter';
 import { requireAdmin } from '@/lib/auth/admin-check';
 import { validateRequest, updateUserRoleSchema } from '@/lib/validations/api-schemas';
+import logger from '@/lib/logger';
 
 export async function PUT(
   request: NextRequest,
@@ -41,7 +42,7 @@ export async function PUT(
       message: 'User role updated successfully'
     });
   } catch (error) {
-    console.error('Error updating user role:', error);
+    logger.error('Error updating user role:', error);
     return NextResponse.json(
       { 
         isSuccess: false, 

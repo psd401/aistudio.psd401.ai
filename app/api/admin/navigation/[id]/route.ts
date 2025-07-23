@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { requireAdmin } from "@/lib/auth/admin-check"
 import { deleteNavigationItem } from "@/lib/db/data-api-adapter"
+import logger from "@/lib/logger"
 
 export async function DELETE(
   request: Request,
@@ -21,7 +22,7 @@ export async function DELETE(
       message: "Navigation item deleted successfully"
     })
   } catch (error) {
-    console.error("Error deleting navigation item:", error)
+    logger.error("Error deleting navigation item:", error)
     return NextResponse.json(
       { 
         isSuccess: false, 

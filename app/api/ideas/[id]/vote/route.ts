@@ -2,6 +2,7 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { NextResponse } from 'next/server';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
+import logger from '@/lib/logger';
 
 export async function POST(request: Request, context: { params: { id: string } }) {
   const session = await getServerSession();
@@ -56,7 +57,7 @@ export async function POST(request: Request, context: { params: { id: string } }
       return NextResponse.json({ success: true, message: 'Vote recorded' });
     }
   } catch (error) {
-    console.error('Error voting on idea:', error);
+    logger.error('Error voting on idea:', error);
     return new NextResponse(
       error instanceof Error ? error.message : 'Internal Server Error',
       { status: 500 }

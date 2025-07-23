@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import logger from '@/lib/logger';
 
 export async function GET() {
   try {
@@ -9,7 +10,7 @@ export async function GET() {
     const baseUrl = process.env.AUTH_URL || 'http://localhost:3000';
     
     if (!cognitoDomain || !clientId) {
-      console.error('Missing Cognito configuration for logout');
+      logger.error('Missing Cognito configuration for logout');
       return NextResponse.redirect(new URL('/', baseUrl));
     }
     
@@ -71,7 +72,7 @@ export async function GET() {
     
     return response;
   } catch (error) {
-    console.error('Federated signout error:', error);
+    logger.error('Federated signout error:', error);
     return NextResponse.redirect(new URL('/', process.env.AUTH_URL || 'http://localhost:3000'));
   }
 }

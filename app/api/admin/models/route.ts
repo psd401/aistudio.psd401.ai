@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAIModels, createAIModel, updateAIModel, deleteAIModel } from '@/lib/db/data-api-adapter';
 import { requireAdmin } from '@/lib/auth/admin-check';
+import logger from '@/lib/logger';
 
 export async function GET() {
   try {
@@ -31,7 +32,7 @@ export async function GET() {
       data: models
     });
   } catch (error) {
-    console.error("Error fetching models:", error);
+    logger.error("Error fetching models:", error);
     return NextResponse.json(
       { isSuccess: false, message: "Failed to fetch models" },
       { status: 500 }
@@ -80,7 +81,7 @@ export async function POST(request: Request) {
       data: transformedModel
     });
   } catch (error) {
-    console.error('Error creating model:', error);
+    logger.error('Error creating model:', error);
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to create model' },
       { status: 500 }
@@ -125,7 +126,7 @@ export async function PUT(request: Request) {
       data: transformedModel
     });
   } catch (error) {
-    console.error('Error updating model:', error);
+    logger.error('Error updating model:', error);
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to update model' },
       { status: 500 }
@@ -157,7 +158,7 @@ export async function DELETE(request: Request) {
       data: model
     });
   } catch (error) {
-    console.error('Error deleting model:', error);
+    logger.error('Error deleting model:', error);
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to delete model' },
       { status: 500 }

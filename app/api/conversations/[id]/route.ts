@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { executeSQL } from '@/lib/db/data-api-adapter';
+import logger from '@/lib/logger';
 
 export async function DELETE(
   req: NextRequest,
@@ -75,7 +76,7 @@ export async function DELETE(
 
     return new Response(null, { status: 204 });
   } catch (error) {
-    console.error('Failed to delete conversation:', error);
+    logger.error('Failed to delete conversation:', error);
     return new Response(
       JSON.stringify({ error: 'Failed to delete conversation' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
@@ -140,7 +141,7 @@ export async function PATCH(
 
     return new Response(null, { status: 204 });
   } catch (error) {
-    console.error('Failed to update conversation:', error);
+    logger.error('Failed to update conversation:', error);
     return new Response(
       JSON.stringify({ error: 'Failed to update conversation' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }

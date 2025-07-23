@@ -6,6 +6,7 @@ import {
   approveAssistantArchitect,
   rejectAssistantArchitect
 } from "@/lib/db/data-api-adapter"
+import logger from '@/lib/logger'
 
 export async function PUT(
   request: Request,
@@ -35,7 +36,7 @@ export async function PUT(
       data: assistant
     })
   } catch (error) {
-    console.error('Error updating assistant:', error)
+    logger.error('Error updating assistant:', error)
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to update assistant' },
       { status: 500 }
@@ -69,7 +70,7 @@ export async function DELETE(
       message: 'Assistant deleted successfully'
     })
   } catch (error) {
-    console.error('Error deleting assistant:', error)
+    logger.error('Error deleting assistant:', error)
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to delete assistant' },
       { status: 500 }
@@ -119,7 +120,7 @@ export async function POST(
       { status: 400 }
     )
   } catch (error) {
-    console.error('Error processing assistant action:', error)
+    logger.error('Error processing assistant action:', error)
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to process action' },
       { status: 500 }

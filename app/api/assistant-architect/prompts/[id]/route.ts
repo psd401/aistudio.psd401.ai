@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "@/lib/auth/server-session"
 import { executeSQL } from "@/lib/db/data-api-adapter"
+import logger from '@/lib/logger'
 
 interface Params {
   params: { id: string }
@@ -85,7 +86,7 @@ export async function GET(req: NextRequest, context: Params) {
       actualModelId: actualModelId // Send the text model_id
     })
   } catch (error) {
-    console.error("Error fetching prompt:", error)
+    logger.error("Error fetching prompt:", error)
     return new NextResponse(
       JSON.stringify({ error: "Failed to fetch prompt" }),
       { status: 500 }

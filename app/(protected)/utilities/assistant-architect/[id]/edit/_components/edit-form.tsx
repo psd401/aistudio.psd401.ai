@@ -71,7 +71,6 @@ export default function EditForm({ id, initialData }: EditFormProps) {
         })
       }
     } catch (error) {
-      console.error("Error updating Assistant Architect:", error)
       toast({
         title: "Error",
         description: "Failed to update Assistant Architect",
