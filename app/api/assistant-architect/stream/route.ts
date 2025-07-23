@@ -133,25 +133,15 @@ export async function POST(req: Request) {
     
     const stream = new ReadableStream({
       async start(controller) {
-        // Helper to safely write to controller
-        const safeEnqueue = (data: string) => {
-          try {
-            controller.enqueue(encoder.encode(data));
-          } catch (e) {
-            // Controller is closed, just log and continue
-            logger.debug('Controller closed, cannot enqueue data');
-          }
-        };
-        
         try {
           // Send initial metadata
-          safeEnqueue(
+          controller.enqueue(encoder.encode(
             `data: ${JSON.stringify({
               type: 'metadata',
               totalPrompts: prompts.length,
               toolName: tool.name
             })}\n\n`
-          );
+          ));
 
           // Execute prompts sequentially
           for (let i = 0; i < prompts.length; i++) {
@@ -159,14 +149,14 @@ export async function POST(req: Request) {
             let promptResultId: number | undefined;
             
             // Send prompt start event
-            safeEnqueue(
+            controller.enqueue(encoder.encode(
               `data: ${JSON.stringify({
                 type: 'prompt_start',
                 promptIndex: i,
                 promptId: prompt.id,
                 modelName: prompt.model_name
               })}\n\n`
-            );
+            ));
 
             try {
               
@@ -257,13 +247,13 @@ export async function POST(req: Request) {
                   fullResponse += chunk;
                   
                   // Send token to client
-                  safeEnqueue(
+                  controller.enqueue(encoder.encode(
                     `data: ${JSON.stringify({
                       type: 'token',
                       promptIndex: i,
                       token: chunk
                     })}\n\n`
-                  );
+                  ));
                 }
                 
 
@@ -285,13 +275,13 @@ export async function POST(req: Request) {
               }
 
               // Send prompt complete event
-              safeEnqueue(
+              controller.enqueue(encoder.encode(
                 `data: ${JSON.stringify({
                   type: 'prompt_complete',
                   promptIndex: i,
                   result: fullResponse
                 })}\n\n`
-              );
+              ));
               
               } catch (streamError) {
                 logger.error(`[STREAM] Error during streaming:`, streamError);
@@ -322,13 +312,13 @@ export async function POST(req: Request) {
               }
               
               // Send error event
-              safeEnqueue(
+              controller.enqueue(encoder.encode(
                 `data: ${JSON.stringify({
                   type: 'prompt_error',
                   promptIndex: i,
                   error: promptError instanceof Error ? promptError.message : 'Unknown error'
                 })}\n\n`
-              );
+              ));
               
               // Continue with next prompt
             }
@@ -346,12 +336,12 @@ export async function POST(req: Request) {
           );
 
           // Send completion event
-          safeEnqueue(
+          controller.enqueue(encoder.encode(
             `data: ${JSON.stringify({
               type: 'complete',
               executionId: executionId
             })}\n\n`
-          );
+          ));
 
           // Close the stream
           controller.close();
@@ -375,12 +365,12 @@ export async function POST(req: Request) {
           );
 
           // Send error event
-          safeEnqueue(
+          controller.enqueue(encoder.encode(
             `data: ${JSON.stringify({
               type: 'error',
               error: error instanceof Error ? error.message : 'Unknown error'
             })}\n\n`
-          );
+          ));
           
           controller.close();
         }
