@@ -104,11 +104,28 @@ export async function POST(req: Request) {
       return new Response('Execution has already been processed', { status: 409 });
     }
 
-    // The execution should already be marked as 'running' by executeAssistantArchitect
-    // We just verify it's in a valid state to process
-    if (executionResult[0].status !== 'running') {
+    // If execution is pending, we need to mark it as running
+    // This handles the case where streaming starts before the background job updates the status
+    if (executionResult[0].status === 'pending') {
+      try {
+        await executeSQL(
+          `UPDATE tool_executions 
+           SET status = 'running'::execution_status,
+               started_at = COALESCE(started_at, NOW())
+           WHERE id = :executionId AND status = 'pending'::execution_status`,
+          [
+            { name: 'executionId', value: { longValue: executionId } }
+          ]
+        );
+      } catch (error) {
+        logger.error('Failed to mark execution as running:', error);
+        // If we can't update the status, it might have been updated by another process
+        // Continue anyway
+      }
+    } else if (executionResult[0].status !== 'running') {
+      // If it's not pending or running, something is wrong
       logger.error(`Unexpected execution status: ${executionResult[0].status} for execution ${executionId}`);
-      return new Response('Execution is not in the correct state for streaming', { status: 400 });
+      return new Response('Execution is in an invalid state', { status: 400 });
     }
 
     // Create a ReadableStream for the response
