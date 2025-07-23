@@ -11,6 +11,7 @@ import {
 } from "@aws-sdk/client-rds-data";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import logger from '@/lib/logger';
+import { transformSnakeToCamel } from "./field-mapper";
 
 // Type aliases for cleaner code
 type DataApiResponse = ExecuteStatementCommandOutput;
@@ -414,7 +415,8 @@ export async function getUsers() {
     ORDER BY created_at DESC
   `;
   
-  return executeSQL(query);
+  const results = await executeSQL(query);
+  return transformSnakeToCamel(results);
 }
 
 export async function getUserRoles() {
@@ -425,7 +427,8 @@ export async function getUserRoles() {
     ORDER BY r.name ASC
   `;
   
-  return executeSQL(sql);
+  const results = await executeSQL(sql);
+  return transformSnakeToCamel(results);
 }
 
 export interface UserData {

@@ -1,4 +1,5 @@
 import { executeSQL } from "@/lib/db/data-api-adapter"
+import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import logger from "@/lib/logger"
 export interface ExportedAssistant {
   name: string
@@ -54,7 +55,16 @@ export async function getAssistantDataForExport(assistantIds: number[]): Promise
     FROM assistant_architects
     WHERE id IN (${placeholders})
   `
-  const assistants = await executeSQL(assistantsQuery, parameters)
+  const assistantsRaw = await executeSQL(assistantsQuery, parameters)
+  const assistants = assistantsRaw.map(transformSnakeToCamel) as Array<{
+    id: number
+    name: string
+    description: string
+    status: string
+    imagePath?: string
+    isParallel?: boolean
+    timeoutSeconds?: number
+  }>
 
   // For each assistant, fetch related data
   const exportedAssistants = await Promise.all(assistants.map(async (assistant) => {
@@ -74,9 +84,19 @@ export async function getAssistantDataForExport(assistantIds: number[]): Promise
       WHERE cp.assistant_architect_id = :assistantId
       ORDER BY cp.position ASC
     `
-    const prompts = await executeSQL(promptsQuery, [
+    const promptsRaw = await executeSQL(promptsQuery, [
       { name: 'assistantId', value: { longValue: assistant.id } }
     ])
+    const prompts = promptsRaw.map(transformSnakeToCamel) as Array<{
+      name: string
+      content: string
+      systemContext?: string
+      position: number
+      parallelGroup?: number
+      inputMapping?: Record<string, unknown>
+      timeoutSeconds?: number
+      modelName: string
+    }>
 
     // Fetch input fields
     const fieldsQuery = `
@@ -85,31 +105,38 @@ export async function getAssistantDataForExport(assistantIds: number[]): Promise
       WHERE assistant_architect_id = :assistantId
       ORDER BY position ASC
     `
-    const inputFields = await executeSQL(fieldsQuery, [
+    const inputFieldsRaw = await executeSQL(fieldsQuery, [
       { name: 'assistantId', value: { longValue: assistant.id } }
     ])
+    const inputFields = inputFieldsRaw.map(transformSnakeToCamel) as Array<{
+      name: string
+      label: string
+      fieldType: string
+      position: number
+      options?: Record<string, unknown>
+    }>
 
     return {
       name: assistant.name,
       description: assistant.description,
       status: assistant.status,
-      image_path: assistant.image_path,
-      is_parallel: assistant.is_parallel,
-      timeout_seconds: assistant.timeout_seconds,
+      image_path: assistant.imagePath,
+      is_parallel: assistant.isParallel,
+      timeout_seconds: assistant.timeoutSeconds,
       prompts: prompts.map(p => ({
         name: p.name,
         content: p.content,
-        system_context: p.system_context,
-        model_name: p.model_name || 'gpt-4', // Default fallback
+        system_context: p.systemContext,
+        model_name: p.modelName || 'gpt-4', // Default fallback
         position: p.position,
-        parallel_group: p.parallel_group,
-        input_mapping: p.input_mapping,
-        timeout_seconds: p.timeout_seconds
+        parallel_group: p.parallelGroup,
+        input_mapping: p.inputMapping,
+        timeout_seconds: p.timeoutSeconds
       })),
       input_fields: inputFields.map(f => ({
         name: f.name,
         label: f.label,
-        field_type: f.field_type,
+        field_type: f.fieldType,
         position: f.position,
         options: f.options
       }))
@@ -179,14 +206,20 @@ export async function mapModelsForImport(modelNames: string[]): Promise<Map<stri
   const modelMap = new Map<string, number>()
   
   // Get all available models
-  const models = await executeSQL(`
+  const modelsRaw = await executeSQL(`
     SELECT id, model_id, provider, capabilities
     FROM ai_models
     WHERE active = true
   `)
+  const models = modelsRaw.map(transformSnakeToCamel) as Array<{
+    id: number
+    modelId: string
+    provider: string
+    capabilities?: unknown
+  }>
 
   // Create a lookup map
-  const modelLookup = new Map(models.map(m => [m.model_id, m.id]))
+  const modelLookup = new Map(models.map(m => [m.modelId, m.id]))
   const providerDefaults = new Map<string, number>()
 
   // Set provider defaults
