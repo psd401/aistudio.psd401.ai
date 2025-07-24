@@ -1,0 +1,105 @@
+# Continuous Integration workflow
+# Runs tests, linting, and type checking on all PRs and main branch pushes
+name: CI
+
+on:
+  push:
+    branches: [ "main", "dev" ]
+  pull_request:
+    branches: [ "main", "dev" ]
+
+jobs:
+  test:
+    name: Test, Lint, and Type Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    strategy:
+      matrix:
+        node-version: [20.x]
+        # Can add more versions if needed: [18.x, 20.x]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run linter
+      run: npm run lint
+    
+    - name: Run type checking
+      run: npm run typecheck
+    
+    - name: Run tests
+      run: npm test
+      env:
+        # Prevent tests from timing out in CI
+        CI: true
+    
+    # Optional: Upload test coverage if you generate it
+    # - name: Upload coverage reports
+    #   uses: codecov/codecov-action@v3
+    #   if: always()
+    
+  # CDK validation job - checks infrastructure code
+  cdk-validate:
+    name: Validate CDK Infrastructure
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20.x
+    
+    - name: Cache root dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-
+    
+    - name: Install dependencies
+      run: |
+        npm ci
+        cd infra && npm ci
+    
+    - name: Build CDK TypeScript
+      run: cd infra && npm run build
+    
+    - name: Synthesize CDK stacks
+      run: |
+        cd infra
+        npx cdk synth --context baseDomain=example.com
+      env:
+        # Dummy values for synthesis only - not for deployment
+        CDK_DEFAULT_ACCOUNT: '123456789012'
+        CDK_DEFAULT_REGION: 'us-east-1'
+    
+    # Show infrastructure changes on PRs
+    - name: CDK Diff
+      if: github.event_name == 'pull_request'
+      run: |
+        cd infra
+        echo "## Infrastructure Changes" >> $GITHUB_STEP_SUMMARY
+        echo "```" >> $GITHUB_STEP_SUMMARY
+        npx cdk diff --context baseDomain=example.com 2>&1 | tee -a $GITHUB_STEP_SUMMARY || true
+        echo "```" >> $GITHUB_STEP_SUMMARY
+      env:
+        CDK_DEFAULT_ACCOUNT: '123456789012'
+        CDK_DEFAULT_REGION: 'us-east-1'

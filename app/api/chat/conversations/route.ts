@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 import { executeSQL } from "@/lib/db/data-api-adapter"
+import logger from '@/lib/logger';
 
 export async function GET() {
   const currentUser = await getCurrentUserAction()
@@ -26,7 +26,7 @@ export async function GET() {
       headers: { "Content-Type": "application/json" },
     })
   } catch (error) {
-    console.error("Error fetching conversations:", error)
+    logger.error("Error fetching conversations:", error)
     return new Response("Internal Server Error", { status: 500 })
   }
 }
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
       headers: { "Content-Type": "application/json" },
     })
   } catch (error) {
-    console.error("Error creating conversation:", error)
+    logger.error("Error creating conversation:", error)
     return new Response("Internal Server Error", { status: 500 })
   }
 } 

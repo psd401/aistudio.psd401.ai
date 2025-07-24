@@ -3,6 +3,20 @@ import { AiModelsClient } from "@/components/features/ai-models-client"
 import { requireRole } from "@/lib/auth/role-helpers"
 import { getAIModels } from "@/lib/db/data-api-adapter"
 
+interface RawAIModel {
+  id: number;
+  name: string;
+  provider: string;
+  model_id: string;
+  description: string | null;
+  capabilities: string | null;
+  max_tokens: number | null;
+  active: boolean;
+  chat_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export default async function ModelsPage() {
   await requireRole("administrator");
   
@@ -10,7 +24,7 @@ export default async function ModelsPage() {
   const rawModels = await getAIModels();
   
   // Transform snake_case to camelCase
-  const models = rawModels.map((model: any) => ({
+  const models = rawModels.map((model: RawAIModel) => ({
     id: model.id,
     name: model.name,
     provider: model.provider,

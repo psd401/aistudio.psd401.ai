@@ -1,16 +1,17 @@
 import { getServerSession } from '@/lib/auth/server-session';
 import { NextResponse } from 'next/server';
-import { executeSQL } from '@/lib/db/data-api-adapter';
+import { executeSQL, FormattedRow } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
-
-export async function GET(request: Request, context: { params: { id: string } }) {
+import logger from '@/lib/logger';
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession();
   if (!session?.sub) {
     return new NextResponse('Unauthorized', { status: 401 });
   }
 
   try {
-    const { id } = await Promise.resolve(context.params);
+    const resolvedParams = await params;
+    const { id } = resolvedParams;
     const ideaId = parseInt(id);
     if (isNaN(ideaId)) {
       return new NextResponse('Invalid idea ID', { status: 400 });
@@ -29,20 +30,20 @@ export async function GET(request: Request, context: { params: { id: string } })
       WHERE n.idea_id = :ideaId
       ORDER BY n.created_at ASC
     `;
-    const notes = await executeSQL(sql, [{ name: 'ideaId', value: { longValue: ideaId } }]);
+    const notes = await executeSQL<FormattedRow>(sql, [{ name: 'ideaId', value: { longValue: ideaId } }]);
 
-    return NextResponse.json(notes.map((note: any) => ({
+    return NextResponse.json(notes.map((note) => ({
       ...note,
       createdBy: note.creator_name || note.user_id,
       createdAt: note.created_at,
     })));
   } catch (error) {
-    console.error('Error fetching notes:', error);
+    logger.error('Error fetching notes:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 }
 
-export async function POST(request: Request, context: { params: { id: string } }) {
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const session = await getServerSession();
   if (!session?.sub) {
     return new NextResponse('Unauthorized', { status: 401 });
@@ -57,7 +58,8 @@ export async function POST(request: Request, context: { params: { id: string } }
   }
 
   try {
-    const { id } = await Promise.resolve(context.params);
+    const resolvedParams = await context.params;
+    const { id } = resolvedParams;
     const ideaId = parseInt(id);
     if (isNaN(ideaId)) {
       return new NextResponse('Invalid idea ID', { status: 400 });
@@ -97,7 +99,7 @@ export async function POST(request: Request, context: { params: { id: string } }
       createdAt: newNote.created_at,
     });
   } catch (error) {
-    console.error('Error creating note:', error);
+    logger.error('Error creating note:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 } 

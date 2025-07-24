@@ -1,9 +1,9 @@
 import { getServerSession } from '@/lib/auth/server-session';
-import { NextResponse } from 'next/server';
-import { executeSQL, updateUserRole, getRoleByName } from '@/lib/db/data-api-adapter';
+import { executeSQL, updateUserRole } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
 import { withErrorHandling, unauthorized } from '@/lib/api-utils';
 import { createError } from '@/lib/error-utils';
+import { getErrorMessage } from '@/types/errors';
 
 export async function POST(request: Request) {
   const session = await getServerSession();
@@ -55,8 +55,8 @@ export async function POST(request: Request) {
         success: true,
         user: result[0]
       };
-    } catch (error: any) {
-      if (error.message?.includes('not found')) {
+    } catch (error) {
+      if (getErrorMessage(error).includes('not found')) {
         throw createError('User or role not found', {
           code: 'NOT_FOUND',
           level: 'warn',

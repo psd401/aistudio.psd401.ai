@@ -3,9 +3,11 @@ import { executeSQL } from "@/lib/db/data-api-adapter"
 import { Suspense } from "react"
 import Image from "next/image"
 import Link from "next/link"
+import logger from "@/lib/logger"
+import type { SelectNavigationItem, SelectAssistantArchitect } from "@/types/db-types"
 
 interface PageProps {
-  params: { pageId: string }
+  params: Promise<{ pageId: string }>
 }
 
 export default async function PublicPage({ params }: PageProps) {
@@ -48,10 +50,10 @@ export default async function PublicPage({ params }: PageProps) {
 
   // For each child, try to extract assistant/tool id from the link
   const childAssistantIds = childItems
-    .map((child: any) => extractAssistantId(child.link))
+    .map((child: SelectNavigationItem) => extractAssistantId(child.link))
     .filter((id): id is number => Boolean(id) && !isNaN(id))
 
-  let assistants: Record<number, any> = {}
+  let assistants: Record<number, SelectAssistantArchitect> = {}
   if (childAssistantIds.length > 0) {
     // Build the IN clause for SQL with integer IDs
     const placeholders = childAssistantIds.map((_, i) => `:id${i}`).join(', ');
@@ -62,7 +64,7 @@ export default async function PublicPage({ params }: PageProps) {
     }));
     
     const assistantRows = await executeSQL(assistantsSql, assistantParams);
-    assistants = Object.fromEntries(assistantRows.map((a: any) => [a.id, a]))
+    assistants = Object.fromEntries(assistantRows.map((a: SelectAssistantArchitect) => [a.id, a]))
   }
 
   return (
@@ -76,7 +78,7 @@ export default async function PublicPage({ params }: PageProps) {
           <div className="text-muted-foreground text-center py-12">No tools assigned to this page.</div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-            {childItems.map((child: any) => {
+            {childItems.map((child: SelectNavigationItem) => {
               const assistantId = extractAssistantId(child.link)
               const assistant = assistantId ? assistants[assistantId] : null
               const href = child.link || "#"
@@ -118,7 +120,7 @@ export default async function PublicPage({ params }: PageProps) {
     </>
   )
   } catch (error) {
-    console.error('Error loading page:', error);
+    logger.error('Error loading page:', error);
     notFound();
   }
 } 

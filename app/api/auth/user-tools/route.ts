@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "@/lib/auth/server-session"
 import { getUserTools } from "@/utils/roles"
+import logger from '@/lib/logger';
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const session = await getServerSession()
     if (!session) {
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
       data: tools
     })
   } catch (error) {
-    console.error("Error fetching user tools:", error)
+    logger.error("Error fetching user tools:", error)
     return NextResponse.json(
       { 
         isSuccess: false, 

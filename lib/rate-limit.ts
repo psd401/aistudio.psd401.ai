@@ -31,7 +31,7 @@ async function getIdentifier(request: NextRequest, skipAuth: boolean): Promise<s
       if (session?.sub) {
         return `user:${session.sub}`;
       }
-    } catch (error) {
+    } catch {
       // Fall through to IP-based limiting
     }
   }
@@ -101,7 +101,7 @@ export function rateLimit(config: RateLimitConfig) {
 /**
  * Wrapper function for API routes with rate limiting
  */
-export function withRateLimit<T extends any[], R>(
+export function withRateLimit<T extends unknown[], R>(
   handler: (...args: T) => Promise<R>,
   config: RateLimitConfig = {
     interval: 60 * 1000, // 1 minute
@@ -112,7 +112,7 @@ export function withRateLimit<T extends any[], R>(
   
   return async (...args: T) => {
     // Assume first argument is NextRequest
-    const request = args[0] as NextRequest;
+    const request = args[0] as unknown as NextRequest;
     
     // Check rate limit
     const rateLimitResponse = await limiter(request);
@@ -142,26 +142,26 @@ export function withRateLimit<T extends any[], R>(
 // Pre-configured rate limiters for common use cases
 export const apiRateLimit = {
   // Standard API endpoints: 100 requests per minute
-  standard: (handler: any) => withRateLimit(handler, {
+  standard: <T extends unknown[], R>(handler: (...args: T) => Promise<R>) => withRateLimit(handler, {
     interval: 60 * 1000,
     uniqueTokenPerInterval: 100
   }),
   
   // AI endpoints: 20 requests per minute (more expensive)
-  ai: (handler: any) => withRateLimit(handler, {
+  ai: <T extends unknown[], R>(handler: (...args: T) => Promise<R>) => withRateLimit(handler, {
     interval: 60 * 1000,
     uniqueTokenPerInterval: 20
   }),
   
   // Auth endpoints: 10 requests per minute (prevent brute force)
-  auth: (handler: any) => withRateLimit(handler, {
+  auth: <T extends unknown[], R>(handler: (...args: T) => Promise<R>) => withRateLimit(handler, {
     interval: 60 * 1000,
     uniqueTokenPerInterval: 10,
     skipAuth: true // Don't check auth for auth endpoints
   }),
   
   // Upload endpoints: 5 requests per minute
-  upload: (handler: any) => withRateLimit(handler, {
+  upload: <T extends unknown[], R>(handler: (...args: T) => Promise<R>) => withRateLimit(handler, {
     interval: 60 * 1000,
     uniqueTokenPerInterval: 5
   })

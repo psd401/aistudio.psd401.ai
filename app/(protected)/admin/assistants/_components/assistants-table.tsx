@@ -89,7 +89,6 @@ export function AssistantsTable() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const [editingAssistant, setEditingAssistant] = useState<Assistant | null>(null)
   const [formData, setFormData] = useState({
     name: "",
     description: ""
@@ -101,7 +100,7 @@ export function AssistantsTable() {
   const { toast } = useToast()
 
   // Fetch assistants
-  const fetchAssistants = async () => {
+  const fetchAssistants = useCallback(async () => {
     try {
       setError(null)
       const response = await fetch("/api/admin/assistants")
@@ -112,17 +111,17 @@ export function AssistantsTable() {
       } else {
         setError(data.message || "Failed to fetch assistants")
       }
-    } catch (error) {
+    } catch {
       // console.error("Error fetching assistants:", error)
       setError("Failed to fetch assistants")
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchAssistants()
-  }, [])
+  }, [fetchAssistants])
 
   // Handle create assistant
   const handleCreate = async () => {
@@ -150,7 +149,7 @@ export function AssistantsTable() {
           variant: "destructive",
         })
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to create assistant",
@@ -159,49 +158,9 @@ export function AssistantsTable() {
     }
   }
 
-  // Handle update assistant
-  const handleUpdate = async () => {
-    if (!editingAssistant) return
-
-    try {
-      const response = await fetch("/api/admin/assistants", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: editingAssistant.id,
-          ...formData,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (data.isSuccess) {
-        toast({
-          title: "Assistant updated",
-          description: "The assistant has been updated successfully.",
-        })
-        setIsEditOpen(false)
-        setEditingAssistant(null)
-        setFormData({ name: "", description: "" })
-        fetchAssistants()
-      } else {
-        toast({
-          title: "Error",
-          description: data.message || "Failed to update assistant",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update assistant",
-        variant: "destructive",
-      })
-    }
-  }
 
   // Handle delete assistant
-  const handleDelete = async (id: string) => {
+  const handleDelete = useCallback(async (id: string) => {
     if (!confirm("Are you sure you want to delete this assistant?")) return
 
     try {
@@ -224,17 +183,17 @@ export function AssistantsTable() {
           variant: "destructive",
         })
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to delete assistant",
         variant: "destructive",
       })
     }
-  }
+  }, [fetchAssistants, toast])
 
   // Handle approve/reject
-  const handleStatusChange = async (id: string, action: "approve" | "reject") => {
+  const handleStatusChange = useCallback(async (id: string, action: "approve" | "reject") => {
     try {
       const response = await fetch("/api/admin/assistants", {
         method: "POST",
@@ -257,17 +216,17 @@ export function AssistantsTable() {
           variant: "destructive",
         })
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: `Failed to ${action} assistant`,
         variant: "destructive",
       })
     }
-  }
+  }, [fetchAssistants, toast])
 
   // Get status badge
-  const getStatusBadge = (status: Assistant["status"]) => {
+  const getStatusBadge = useCallback((status: Assistant["status"]) => {
     switch (status) {
       case "draft":
         return <Badge variant="secondary"><FileText className="h-3 w-3 mr-1" />Draft</Badge>
@@ -280,10 +239,10 @@ export function AssistantsTable() {
       case "disabled":
         return <Badge variant="secondary"><AlertCircle className="h-3 w-3 mr-1" />Disabled</Badge>
     }
-  }
+  }, [])
 
   // Handle selection
-  const handleSelectAssistant = (assistantId: string) => {
+  const handleSelectAssistant = useCallback((assistantId: string) => {
     const newSelected = new Set(selectedAssistants)
     if (newSelected.has(assistantId)) {
       newSelected.delete(assistantId)
@@ -291,15 +250,15 @@ export function AssistantsTable() {
       newSelected.add(assistantId)
     }
     setSelectedAssistants(newSelected)
-  }
+  }, [selectedAssistants])
 
-  const handleSelectAll = () => {
+  const handleSelectAll = useCallback(() => {
     if (selectedAssistants.size === assistants.length) {
       setSelectedAssistants(new Set())
     } else {
       setSelectedAssistants(new Set(assistants.map(a => a.id)))
     }
-  }
+  }, [selectedAssistants, assistants])
 
   // Sortable column header component
   const SortableColumnHeader = useCallback(({

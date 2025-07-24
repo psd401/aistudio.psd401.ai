@@ -9,7 +9,6 @@ interface PreviewPageClientProps {
 }
 
 export function PreviewPageClient({
-  assistantId,
   tool
 }: PreviewPageClientProps) {
   return (

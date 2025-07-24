@@ -2,10 +2,11 @@ import { NextResponse, NextRequest } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
-
+import logger from '@/lib/logger';
+import { SqlParameter } from 'aws-sdk/clients/rdsdataservice';
 export async function PATCH(
   request: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession();
   if (!session?.sub) {
@@ -22,10 +23,11 @@ export async function PATCH(
   
   try {
     const body = await request.json();
-    const { id } = await Promise.resolve(context.params);
+    const resolvedParams = await context.params;
+    const { id } = resolvedParams;
 
     const updateFields: string[] = [];
-    const params: any[] = [{ name: 'id', value: { longValue: parseInt(id) } }];
+    const params: SqlParameter[] = [{ name: 'id', value: { longValue: parseInt(id) } }];
 
     if (body.title) {
       updateFields.push('title = :title');
@@ -71,14 +73,14 @@ export async function PATCH(
     const result = await executeSQL(sql, params);
     return NextResponse.json(result[0]);
   } catch (error) {
-    console.error('Failed to update idea:', error);
+    logger.error('Failed to update idea:', error);
     return NextResponse.json({ error: 'Failed to update idea' }, { status: 500 });
   }
 }
 
 export async function DELETE(
-  request: NextRequest,
-  context: { params: { id: string } }
+  _request: NextRequest,
+  context: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession();
   if (!session?.sub) {
@@ -91,12 +93,13 @@ export async function DELETE(
   }
 
   try {
-    const { id } = await Promise.resolve(context.params);
+    const resolvedParams = await context.params;
+    const { id } = resolvedParams;
     const sql = 'DELETE FROM ideas WHERE id = :id';
     await executeSQL(sql, [{ name: 'id', value: { longValue: parseInt(id) } }]);
     return new NextResponse(null, { status: 204 });
   } catch (error) {
-    console.error('Failed to delete idea:', error);
+    logger.error('Failed to delete idea:', error);
     return NextResponse.json({ error: 'Failed to delete idea' }, { status: 500 });
   }
 } 

@@ -2,8 +2,9 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { NextResponse } from 'next/server';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
-
-export async function PATCH(request: Request, context: { params: { id: string } }) {
+import logger from '@/lib/logger';
+import { SqlParameter } from 'aws-sdk/clients/rdsdataservice';
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const session = await getServerSession();
   if (!session?.sub) {
     return new NextResponse('Unauthorized', { status: 401 });
@@ -15,7 +16,8 @@ export async function PATCH(request: Request, context: { params: { id: string } 
   }
 
   try {
-    const { id } = await Promise.resolve(context.params);
+    const resolvedParams = await context.params;
+    const { id } = resolvedParams;
     const ideaId = parseInt(id);
     if (isNaN(ideaId)) {
       return new NextResponse('Invalid idea ID', { status: 400 });
@@ -27,7 +29,7 @@ export async function PATCH(request: Request, context: { params: { id: string } 
     }
 
     let sql = 'UPDATE ideas SET status = :status, updated_at = NOW()';
-    const params: any[] = [
+    const params: SqlParameter[] = [
       { name: 'status', value: { stringValue: status } },
       { name: 'ideaId', value: { longValue: ideaId } },
     ];
@@ -52,7 +54,7 @@ export async function PATCH(request: Request, context: { params: { id: string } 
 
     return NextResponse.json(result[0]);
   } catch (error) {
-    console.error('Error updating idea status:', error);
+    logger.error('Error updating idea status:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 } 

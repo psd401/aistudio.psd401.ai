@@ -86,7 +86,7 @@ export function UsersClient() {
         description: "User role updated successfully",
         variant: "default",
       })
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to update user role",
@@ -116,7 +116,7 @@ export function UsersClient() {
         description: "User deleted successfully",
         variant: "default",
       })
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to delete user",

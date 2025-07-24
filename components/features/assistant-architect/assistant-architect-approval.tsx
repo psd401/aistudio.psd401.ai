@@ -17,7 +17,7 @@ import {
 } from "@/actions/db/assistant-architect-actions"
 import { Textarea } from "@/components/ui/textarea"
 import { Check, X, Edit } from "lucide-react"
-import { SelectAssistantArchitect } from "@/types/db-types"
+import { SelectAssistantArchitect, SelectToolInputField, SelectChainPrompt } from "@/types/db-types"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { PreviewPageClient } from "@/app/utilities/assistant-architect/[id]/edit/preview/_components/preview-page-client"
@@ -26,8 +26,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 
 interface AssistantArchitectApprovalProps {
   request: SelectAssistantArchitect & {
-    inputFields: any[]
-    prompts: any[]
+    inputFields: SelectToolInputField[]
+    prompts: SelectChainPrompt[]
   }
   isApproved?: boolean
 }
@@ -124,7 +124,7 @@ export function AssistantArchitectApproval({
           <div>
             <h4 className="text-sm font-medium mb-2">Input Fields</h4>
             <ul className="list-disc list-inside text-sm">
-              {request.inputFields.map((field: any) => (
+              {request.inputFields.map((field) => (
                 <li key={field.id}>{field.name}</li>
               ))}
             </ul>
@@ -133,7 +133,7 @@ export function AssistantArchitectApproval({
           <div>
             <h4 className="text-sm font-medium mb-2">Prompts</h4>
             <ul className="list-disc list-inside text-sm">
-              {request.prompts.map((prompt: any) => (
+              {request.prompts.map((prompt) => (
                 <li key={prompt.id}>{prompt.name}</li>
               ))}
             </ul>
@@ -175,7 +175,7 @@ export function AssistantArchitectApproval({
                         {request.prompts.length === 0 ? (
                           <div className="text-muted-foreground">No prompts defined.</div>
                         ) : (
-                          request.prompts.map((prompt: any) => (
+                          request.prompts.map((prompt) => (
                             <div key={prompt.id} className="border rounded-md p-4 bg-muted/10">
                               <div className="font-semibold text-lg mb-1">{prompt.name}</div>
                               <div className="mb-2">

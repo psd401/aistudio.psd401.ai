@@ -128,6 +128,21 @@ Parameter types: `stringValue`, `longValue`, `booleanValue`, `doubleValue`, `isN
     └── database/         # DB schema and migrations
 ```
 
+### Architectural Patterns
+This codebase follows a **Layered Architecture** with Domain-Driven Design influences:
+
+**Layer Separation:**
+- **Presentation Layer**: `/app` (pages), `/components` (UI)
+- **Application Layer**: `/actions` (server-side business logic) 
+- **Infrastructure Layer**: `/lib` (adapters, utilities), `/infra` (AWS CDK)
+
+**Key Principles:**
+- Server-first approach with React Server Components
+- Business logic isolated in server actions
+- Infrastructure details abstracted behind adapters
+- Consistent interfaces (`ActionState<T>`) between layers
+- Direct SQL with parameterized queries (no ORM)
+
 ### Key Conventions
 - **File Naming**: kebab-case (e.g., `user-role-form.tsx`)
 - **Component Export**: File name matches component name
@@ -163,3 +178,7 @@ Required environment variables are documented in `/docs/ENVIRONMENT_VARIABLES.md
 - SQL injection protection via parameterized queries
 - Secrets managed in AWS Secrets Manager
 - No direct database connections (Data API only)
+
+### Commit & PR Process
+- You are never to attribute commits or pull requests to yourself, DO NOT ever add yourself as the author
+- Always write very detailed intricate commit messages to document fully what was changed in the code you were working on.

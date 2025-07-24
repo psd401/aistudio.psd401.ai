@@ -2,23 +2,20 @@
 
 import { Amplify } from "aws-amplify"
 import { Hub } from "aws-amplify/utils"
-import { PropsWithChildren, useEffect, useState } from "react"
-import { getCurrentUser, fetchAuthSession } from "aws-amplify/auth"
+import { PropsWithChildren, useEffect } from "react"
+import { getCurrentUser } from "aws-amplify/auth"
 
 import { config } from "@/app/utils/amplifyConfig"
 
 Amplify.configure(config, { ssr: true })
 
 export default function AmplifyProvider({ children }: PropsWithChildren) {
-  const [user, setUser] = useState<any | null>(null)
-
   useEffect(() => {
     const checkUser = async () => {
       try {
-        const currentUser = await getCurrentUser()
-        setUser(currentUser)
-      } catch (error) {
-        setUser(null)
+        await getCurrentUser()
+      } catch {
+        // User is not authenticated
       }
     }
 
@@ -35,10 +32,8 @@ export default function AmplifyProvider({ children }: PropsWithChildren) {
           break
         case "signedOut":
         case "signOut":
-          setUser(null)
-          break
         case "signIn_failure":
-          setUser(null)
+          // User is signed out
           break
       }
     })

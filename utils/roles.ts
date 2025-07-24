@@ -27,7 +27,7 @@ export async function hasRole(roleName: string): Promise<boolean> {
   const userId = await getUserIdByCognitoSub(session.sub);
   if (!userId) return false;
   
-  return checkUserRole(userId, roleName);
+  return checkUserRole(Number(userId), roleName);
 }
 
 /**

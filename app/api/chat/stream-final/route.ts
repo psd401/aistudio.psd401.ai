@@ -5,37 +5,75 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createOpenAI } from '@ai-sdk/openai';
 import { getServerSession } from "@/lib/auth/server-session";
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action";
-import { executeSQL } from "@/lib/db/data-api-adapter";
+import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter";
+import { SelectDocument } from "@/types/db-types";
 import { Settings } from "@/lib/settings-manager";
 import logger from "@/lib/logger";
-import escapeHtml from "escape-html";
-
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents";
-
 export async function POST(req: Request) {
-  const session = await getServerSession();
-  if (!session) {
-    return new Response('Unauthorized', { status: 401 });
-  }
+  try {
+    const session = await getServerSession();
+    if (!session) {
+      return new Response('Unauthorized', { status: 401 });
+    }
 
-  const { messages, modelId: textModelId, conversationId: existingConversationId, documentId, source, executionId, context } = await req.json();
+    const { messages, modelId: textModelId, conversationId: existingConversationId, documentId, source, executionId, context } = await req.json();
 
-  // Get model info
-  const modelQuery = `
-    SELECT id, name, provider, model_id
-    FROM ai_models
-    WHERE model_id = :modelId
-    LIMIT 1
-  `;
-  const modelResult = await executeSQL(modelQuery, [
-    { name: 'modelId', value: { stringValue: textModelId } }
-  ]);
+  // Get model info - handle both numeric ID and string model_id
+  const isNumericId = typeof textModelId === 'number' || /^\d+$/.test(String(textModelId));
   
+  let modelResult;
+  if (isNumericId) {
+    // Try to get model by numeric ID
+    const modelQuery = `
+      SELECT id, name, provider, model_id
+      FROM ai_models
+      WHERE id = :modelId AND active = true AND chat_enabled = true
+      LIMIT 1
+    `;
+    modelResult = await executeSQL<FormattedRow>(modelQuery, [
+      { name: 'modelId', value: { longValue: Number(textModelId) } }
+    ]);
+  } else {
+    // Get model by string model_id
+    const modelQuery = `
+      SELECT id, name, provider, model_id
+      FROM ai_models
+      WHERE model_id = :modelId AND active = true AND chat_enabled = true
+      LIMIT 1
+    `;
+    modelResult = await executeSQL<FormattedRow>(modelQuery, [
+      { name: 'modelId', value: { stringValue: String(textModelId) } }
+    ]);
+  }
+  
+  // If model not found, fall back to first available chat-enabled model
   if (!modelResult.length) {
-    return new Response(`Model not found: ${escapeHtml(textModelId)}`, { status: 404 });
+    const fallbackQuery = `
+      SELECT id, name, provider, model_id
+      FROM ai_models
+      WHERE active = true AND chat_enabled = true
+      ORDER BY id
+      LIMIT 1
+    `;
+    modelResult = await executeSQL<FormattedRow>(fallbackQuery);
+    
+    if (!modelResult.length) {
+      return new Response("No chat-enabled models available", { status: 503 });
+    }
   }
   
   const aiModel = modelResult[0];
+  
+  // Log for debugging
+  logger.info('[stream-final] Model resolved:', {
+    textModelId,
+    isNumericId,
+    aiModelId: aiModel?.id,
+    aiModelName: aiModel?.name,
+    aiModelProvider: aiModel?.provider,
+    aiModelStringId: aiModel?.model_id
+  });
   
   // Handle conversation
   let conversationId = existingConversationId;
@@ -56,7 +94,11 @@ export async function POST(req: Request) {
       { name: 'userId', value: { longValue: currentUser.data.user.id } },
       { name: 'modelId', value: { longValue: aiModel.id } },
       { name: 'source', value: { stringValue: source || "chat" } },
-      { name: 'executionId', value: executionId ? { longValue: executionId } : { isNull: true } },
+      { name: 'executionId', value: (() => {
+        if (!executionId) return { isNull: true };
+        const parsed = typeof executionId === 'string' ? parseInt(executionId, 10) : executionId;
+        return isNaN(parsed) ? { isNull: true } : { longValue: parsed };
+      })() },
       { name: 'context', value: context ? { stringValue: JSON.stringify(context) } : { isNull: true } }
     ]);
     conversationId = newConversation[0].id;
@@ -76,45 +118,50 @@ export async function POST(req: Request) {
   // Get the model
   let model;
   
-  switch (aiModel.provider) {
-    case 'openai': {
-      const key = await Settings.getOpenAI();
-      if (!key) throw new Error('OpenAI key not configured');
-      const openai = createOpenAI({ apiKey: key });
-      model = openai(textModelId);
-      break;
-    }
+  try {
+    switch (aiModel.provider) {
+      case 'openai': {
+        const key = await Settings.getOpenAI();
+        if (!key) throw new Error('OpenAI key not configured');
+        const openai = createOpenAI({ apiKey: key });
+        model = openai(aiModel.model_id);
+        break;
+      }
     case 'azure': {
       const config = await Settings.getAzureOpenAI();
       if (!config.key || !config.resourceName) throw new Error('Azure not configured');
       const azure = createAzure({ apiKey: config.key, resourceName: config.resourceName });
-      model = azure(textModelId);
+      model = azure(aiModel.model_id);
       break;
     }
     case 'google': {
       const key = await Settings.getGoogleAI();
       if (!key) throw new Error('Google key not configured');
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = key;
-      model = google(textModelId);
+      model = google(aiModel.model_id);
       break;
     }
     case 'amazon-bedrock': {
       const config = await Settings.getBedrock();
       if (!config.accessKeyId) throw new Error('Bedrock not configured');
       const bedrock = createAmazonBedrock({
-        region: config.region,
-        accessKeyId: config.accessKeyId,
-        secretAccessKey: config.secretAccessKey
+        region: config.region || undefined,
+        accessKeyId: config.accessKeyId || undefined,
+        secretAccessKey: config.secretAccessKey || undefined
       });
-      model = bedrock(textModelId);
+      model = bedrock(aiModel.model_id);
       break;
     }
     default:
       throw new Error(`Unknown provider: ${aiModel.provider}`);
+    }
+  } catch (modelError) {
+    logger.error('[stream-final] Model initialization error:', modelError);
+    throw new Error(`Failed to initialize model: ${modelError instanceof Error ? modelError.message : 'Unknown error'}`);
   }
 
   // Get all messages for context
-  const allMessages = await executeSQL(
+  const allMessages = await executeSQL<FormattedRow>(
     `SELECT role, content FROM messages WHERE conversation_id = :conversationId ORDER BY created_at ASC`,
     [{ name: 'conversationId', value: { longValue: conversationId } }]
   );
@@ -122,7 +169,7 @@ export async function POST(req: Request) {
   // --- Fetch documents and relevant content for AI context ---
   let documentContext = "";
   try {
-    let documents = [];
+    let documents: SelectDocument[] = [];
     
     // If we have a conversationId, get documents linked to it
     if (conversationId) {
@@ -132,7 +179,7 @@ export async function POST(req: Request) {
     // If a documentId was provided, also fetch that specific document
     if (documentId) {
       const singleDoc = await getDocumentById({ id: documentId });
-      if (singleDoc && !documents.find(d => d.id === documentId)) {
+      if (singleDoc && !documents.find((d: SelectDocument) => d.id === documentId)) {
         documents.push(singleDoc);
         logger.info(`Added document ${documentId} to context (total documents: ${documents.length})`);
       }
@@ -181,8 +228,8 @@ export async function POST(req: Request) {
           .filter(chunk => {
             const content = chunk.content.toLowerCase();
             const message = latestUserMessage.toLowerCase();
-            const keywords = message.split(/\s+/).filter(word => word.length > 2);
-            return keywords.some(keyword => content.includes(keyword));
+            const keywords = message.split(/\s+/).filter((word: string) => word.length > 2);
+            return keywords.some((keyword: string) => content.includes(keyword));
           })
           .slice(0, 3); // Top 3 most relevant chunks
       }
@@ -216,19 +263,150 @@ export async function POST(req: Request) {
     // Continue without document context if there's an error
   }
 
+  // Retrieve execution context if this conversation is linked to an execution
+  let executionContext = "";
+  let fullContext = context;
+  
+  if (existingConversationId) {
+    // Validate conversationId before query
+    const parsedConvId = typeof existingConversationId === 'string' ? parseInt(existingConversationId, 10) : existingConversationId;
+    if (isNaN(parsedConvId) || parsedConvId <= 0) {
+      logger.warn('Invalid conversationId provided', { conversationId: existingConversationId });
+    } else {
+      // First, get conversation data
+      const conversationData = await executeSQL(
+        `SELECT c.context, c.execution_id
+        FROM conversations c
+        WHERE c.id = :conversationId`,
+        [{ name: 'conversationId', value: { longValue: parsedConvId } }]
+      );
+      
+      if (conversationData.length > 0) {
+        const conversation = conversationData[0];
+        
+        // Parse stored context with error handling
+        try {
+          const contextStr = conversation.context as string | null;
+          fullContext = contextStr ? JSON.parse(contextStr) : null;
+          // Validate context structure
+          if (fullContext && typeof fullContext !== 'object') {
+            throw new Error('Invalid context format');
+          }
+          // Validate context size - smart truncation instead of nullifying
+          if (fullContext && JSON.stringify(fullContext).length > 100000) {
+            logger.warn('Context data too large, applying smart truncation', { 
+              conversationId: parsedConvId,
+              contextSize: JSON.stringify(fullContext).length
+            });
+            // Preserve core context while truncating prompt results
+            if (fullContext.promptResults && Array.isArray(fullContext.promptResults)) {
+              const truncatedContext = {
+                ...fullContext,
+                promptResults: fullContext.promptResults.slice(0, 5), // Keep first 5 results
+                truncated: true,
+                originalPromptCount: fullContext.promptResults.length
+              };
+              fullContext = truncatedContext;
+              logger.info('Context truncated to preserve core data', {
+                originalPromptCount: fullContext.originalPromptCount,
+                keptPromptCount: 5
+              });
+            }
+          }
+        } catch (parseError) {
+          logger.warn('Failed to parse conversation context', { 
+            conversationId: parsedConvId, 
+            contextLength: conversation.context ? String(conversation.context).length : 0,
+            error: parseError instanceof Error ? parseError.message : 'Unknown error' 
+          });
+          fullContext = null;
+        }
+        
+        // If there's an execution_id, fetch execution details separately
+        if (conversation.execution_id) {
+          // Validate executionId
+          const execId = typeof conversation.execution_id === 'number' ? conversation.execution_id : parseInt(String(conversation.execution_id), 10);
+          if (!isNaN(execId) && execId > 0) {
+            // Get execution details and prompt results in parallel for better performance
+            const [executionData, promptResults] = await Promise.all([
+              executeSQL(
+                `SELECT te.input_data, te.status as exec_status, te.started_at, te.completed_at,
+                        aa.name as tool_name, aa.description as tool_description
+                FROM tool_executions te
+                LEFT JOIN assistant_architects aa ON te.assistant_architect_id = aa.id
+                WHERE te.id = :executionId`,
+                [{ name: 'executionId', value: { longValue: execId } }]
+              ),
+              executeSQL(
+                `SELECT pr.prompt_id, pr.input_data as prompt_input, pr.output_data, 
+                        pr.status as prompt_status, cp.name as prompt_name
+                FROM prompt_results pr
+                LEFT JOIN chain_prompts cp ON pr.prompt_id = cp.id
+                WHERE pr.execution_id = :executionId
+                ORDER BY pr.started_at ASC`,
+                [{ name: 'executionId', value: { longValue: execId } }]
+              )
+            ]);
+            
+            if (executionData.length > 0) {
+              const execution = executionData[0];
+              
+              // Build execution context
+              executionContext = `\n\nExecution Context:
+Tool: ${execution.tool_name}
+Description: ${execution.tool_description}
+Execution Status: ${execution.exec_status}
+Original Inputs: ${execution.input_data}
+
+Prompt Results:
+${promptResults.map((pr, idx) => `
+${idx + 1}. ${pr.prompt_name}:
+   Input: ${JSON.stringify(pr.prompt_input)}
+   Output: ${pr.output_data}
+   Status: ${pr.prompt_status}`).join('\n')}
+
+This context provides the complete execution history that the user is asking about. Use this information to answer their questions accurately.`;
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Build system prompt based on source
   let systemPrompt = source === "assistant_execution"
-    ? "You are a helpful AI assistant having a follow-up conversation about the results of an AI tool execution. Use the context provided to help answer questions, but stay focused on topics related to the execution results. If a question is completely unrelated to the execution results, politely redirect the user to start a new chat for unrelated topics."
+    ? `You are a helpful AI assistant having a follow-up conversation about the results of an AI tool execution. 
+
+Key responsibilities:
+1. Use the execution context provided to answer questions accurately about the tool execution
+2. Reference specific prompt results when relevant to the user's questions
+3. If asked about inputs, outputs, or the process, refer to the detailed execution history
+4. Stay focused on topics related to the execution results
+5. If a question is completely unrelated to the execution, politely suggest starting a new chat
+
+Remember: You have access to the complete execution history including all inputs, outputs, and prompt results. Use this information to provide accurate and helpful responses.`
     : "You are a helpful AI assistant.";
   
   systemPrompt += documentContext;
+  systemPrompt += executionContext;
 
   const aiMessages = [
     { role: 'system' as const, content: systemPrompt },
-    // Only include context if it's the first message (no previous messages) and we have context
-    ...(allMessages.length === 1 && context ? [{ role: 'system' as const, content: `Context from execution: ${JSON.stringify(context)}` }] : []),
-    ...allMessages.map(msg => ({ role: msg.role as 'user' | 'assistant', content: msg.content }))
+    // Include context for new conversations or if we have full context from retrieval
+    ...(fullContext && allMessages.length === 1 ? [{ role: 'system' as const, content: `Initial execution context: ${JSON.stringify(fullContext)}` }] : []),
+    ...allMessages.map(msg => ({ 
+      role: msg.role === 'user' ? 'user' as const : 'assistant' as const, 
+      content: String(msg.content) 
+    }))
   ];
+
+  // Log before streaming
+  logger.info('[stream-final] Starting stream with:', {
+    conversationId,
+    messageCount: aiMessages.length,
+    modelProvider: aiModel.provider,
+    modelId: aiModel.model_id
+  });
 
   // Stream the response
   const result = await streamText({
@@ -237,7 +415,7 @@ export async function POST(req: Request) {
     onFinish: async ({ text }) => {
       // Save assistant message
       try {
-        await executeSQL(
+        await executeSQL<FormattedRow>(
           `INSERT INTO messages (conversation_id, role, content) VALUES (:conversationId, :role, :content)`,
           [
             { name: 'conversationId', value: { longValue: conversationId } },
@@ -258,4 +436,18 @@ export async function POST(req: Request) {
       'X-Conversation-Id': conversationId.toString()
     }
   });
+  } catch (error) {
+    logger.error('[stream-final] Unhandled error:', error);
+    // Return a proper error response that won't cause page reset
+    return new Response(
+      JSON.stringify({ 
+        error: 'An error occurred while processing your request',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      }), 
+      { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+  }
 }

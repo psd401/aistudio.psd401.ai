@@ -2,8 +2,9 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { NextResponse } from 'next/server';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
+import logger from '@/lib/logger';
 
-export async function POST(request: Request, context: { params: { id: string } }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession();
   if (!session?.sub) {
     return new NextResponse('Unauthorized', { status: 401 });
@@ -19,7 +20,8 @@ export async function POST(request: Request, context: { params: { id: string } }
   }
 
   try {
-    const { id } = await Promise.resolve(context.params);
+    const resolvedParams = await params;
+    const { id } = resolvedParams;
     const ideaId = parseInt(id);
     
     if (isNaN(ideaId)) {
@@ -56,7 +58,7 @@ export async function POST(request: Request, context: { params: { id: string } }
       return NextResponse.json({ success: true, message: 'Vote recorded' });
     }
   } catch (error) {
-    console.error('Error voting on idea:', error);
+    logger.error('Error voting on idea:', error);
     return new NextResponse(
       error instanceof Error ? error.message : 'Internal Server Error',
       { status: 500 }

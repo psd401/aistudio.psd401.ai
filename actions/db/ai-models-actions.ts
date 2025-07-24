@@ -6,7 +6,7 @@ import logger from "@/lib/logger"
 
 export async function getAiModelsAction(): Promise<ActionState<SelectAiModel[]>> {
   try {
-    const models = await executeSQL(`
+    const models = await executeSQL<SelectAiModel>(`
       SELECT id, name, provider, model_id, description, capabilities, max_tokens, active, chat_enabled, created_at, updated_at
       FROM ai_models
       ORDER BY name ASC

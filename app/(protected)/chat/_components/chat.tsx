@@ -101,7 +101,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     return () => {
       abortController.abort()
     }
-  }, []) // Empty deps since this runs once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Intentionally empty - initialization effect that should only run once on mount
 
   useEffect(() => {
     if (pendingDocument && currentConversationId) {
@@ -144,8 +145,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       } else {
         setDocuments([])
       }
-    } catch (error) {
-      // console.error('[fetchDocuments] Error:', error)
+    } catch {
+      // console.error('[fetchDocuments] Error:', _error)
       setDocuments([])
     }
   }
@@ -184,8 +185,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         }
         
         fetchDocuments(currentConversationId)
-      } catch (error) {
-        // console.error("[handleDocumentUpload] Error linking document:", error)
+      } catch {
+        // console.error("[handleDocumentUpload] Error linking document:", _error)
         toast({
           title: "Warning",
           description: "Document uploaded but not linked to conversation.",
@@ -229,8 +230,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
           // console.error(`Failed to link document ${doc.id}`)
           continue
         }
-      } catch (error) {
-        // console.error(`Error linking document ${doc.id}:`, error)
+      } catch {
+        // console.error(`Error linking document ${doc.id}:`, _error)
       }
     }
     
@@ -300,7 +301,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         const modelsData = result.data || result
         
         if (!Array.isArray(modelsData) || modelsData.length === 0) {
-          console.warn('[loadModels] No models returned from API or invalid format')
           return
         }
         

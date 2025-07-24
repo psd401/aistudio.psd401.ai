@@ -10,7 +10,7 @@ export const config = {
   }
 }
 import { z } from 'zod';
-import { uploadDocument, getDocumentSignedUrl } from '@/lib/aws/s3-client';
+import { uploadDocument } from '@/lib/aws/s3-client';
 import { saveDocument, batchInsertDocumentChunks } from '@/lib/db/queries/documents';
 import { extractTextFromDocument, chunkText, getFileTypeFromFileName } from '@/lib/document-processing';
 import { getServerSession } from '@/lib/auth/server-session';

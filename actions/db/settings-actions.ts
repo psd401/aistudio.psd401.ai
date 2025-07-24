@@ -7,6 +7,7 @@ import { ActionState } from "@/types/actions-types"
 import { createError, createSuccess, handleError } from "@/lib/error-utils"
 import logger from "@/lib/logger"
 import { revalidateSettingsCache } from "@/lib/settings-manager"
+import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 
 export interface Setting {
   id: number
@@ -69,18 +70,7 @@ export async function getSettingsAction(): Promise<ActionState<Setting[]>> {
       ORDER BY category, key
     `)
 
-
-    const settings = result.map((record: any) => ({
-      id: Number(record.id || 0),
-      key: record.key || '',
-      value: record.value || null,
-      hasValue: record.has_value || false,
-      description: record.description || null,
-      category: record.category || null,
-      isSecret: record.is_secret || false,
-      createdAt: new Date(record.created_at || ''),
-      updatedAt: new Date(record.updated_at || '')
-    }))
+    const settings = transformSnakeToCamel<Setting[]>(result)
 
     return createSuccess(settings, "Settings retrieved successfully")
   } catch (error) {
@@ -98,7 +88,8 @@ export async function getSettingValueAction(key: string): Promise<string | null>
     )
 
     if (result && result.length > 0) {
-      return result[0].value || null
+      const value = result[0].value
+      return typeof value === 'string' ? value : null
     }
 
     return null
@@ -136,9 +127,9 @@ export async function upsertSettingAction(input: CreateSettingInput): Promise<Ac
         [{ name: 'key', value: { stringValue: input.key } }]
       )
       
-      const keepExistingValue = existingIsSecret?.[0]?.is_secret && 
-                                !input.value && 
-                                existingIsSecret[0].value
+      const isSecret = existingIsSecret?.[0]?.is_secret === true || existingIsSecret?.[0]?.is_secret === 1
+      const hasExistingValue = existingIsSecret?.[0]?.value !== null && existingIsSecret?.[0]?.value !== ''
+      const keepExistingValue = isSecret && !input.value && hasExistingValue
       
       // Update existing setting
       if (keepExistingValue) {
@@ -225,18 +216,8 @@ export async function upsertSettingAction(input: CreateSettingInput): Promise<Ac
       throw createError("Failed to save setting")
     }
 
-    const record = result[0]
-    const setting: Setting = {
-      id: Number(record.id || 0),
-      key: record.key || '',
-      value: record.value || null,
-      hasValue: record.has_value || false,
-      description: record.description || null,
-      category: record.category || null,
-      isSecret: record.is_secret || false,
-      createdAt: new Date(record.created_at || ''),
-      updatedAt: new Date(record.updated_at || '')
-    }
+    const settings = transformSnakeToCamel<Setting[]>(result)
+    const setting = settings[0]
 
     // Invalidate the settings cache
     await revalidateSettingsCache()
@@ -297,7 +278,8 @@ export async function getSettingActualValueAction(key: string): Promise<ActionSt
     )
 
     if (result && result.length > 0) {
-      return createSuccess(result[0].value || null, "Value retrieved successfully")
+      const value = result[0].value
+      return createSuccess(typeof value === 'string' ? value : null, "Value retrieved successfully")
     }
 
     return createSuccess(null, "Setting not found")
