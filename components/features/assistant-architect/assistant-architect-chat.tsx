@@ -17,6 +17,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type { SelectMessage } from "@/types/schema-types"
+import type { SelectPromptResult } from "@/types/db-types"
 
 interface PromptResult {
   promptId: number
@@ -76,15 +77,19 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
         toolId: execution.assistantArchitectId || 0,
         inputData: execution.inputData || {},
         promptResults: (execution.promptResults || []).map(result => {
-          // The actual data from getExecutionResultsAction includes these fields
-          // Safe type check without casting
-          const hasExtendedFields = 'inputData' in result && 'outputData' in result && 'status' in result
+          // The actual data from getExecutionResultsAction includes these extended fields
+          const extendedResult = result as SelectPromptResult & {
+            inputData?: Record<string, unknown>
+            outputData?: string
+            status?: string
+            result?: string
+          }
           
           return {
-            promptId: result?.promptId || result?.id || 0,
-            input: hasExtendedFields && result.inputData ? result.inputData as Record<string, unknown> : {},
-            output: hasExtendedFields && result.outputData ? String(result.outputData) : result?.result || '',
-            status: hasExtendedFields && result.status ? String(result.status) : 'completed'
+            promptId: extendedResult.chainPromptId || extendedResult.id || 0,
+            input: extendedResult.inputData || {},
+            output: extendedResult.outputData || extendedResult.result || '',
+            status: extendedResult.status || 'completed'
           }
         })
       } as ExecutionContext : null
