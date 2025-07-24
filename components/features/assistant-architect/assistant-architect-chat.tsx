@@ -18,6 +18,20 @@ import {
 } from "@/components/ui/tooltip"
 import type { SelectMessage } from "@/types/schema-types"
 
+interface PromptResult {
+  promptId: number
+  input: Record<string, unknown>
+  output: string
+  status: string
+}
+
+interface ExecutionContext {
+  executionId: number
+  toolId: number
+  inputData: Record<string, unknown>
+  promptResults: PromptResult[]
+}
+
 interface AssistantArchitectChatProps {
   execution: ExecutionResultDetails
   conversationId: number | null
@@ -76,7 +90,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
           output: result.result,
           status: 'completed' // Result doesn't have status, assuming completed
         }))
-      } : null
+      } as ExecutionContext : null
     },
     onResponse: (response) => {
       // Get conversation ID from header if this is a new conversation

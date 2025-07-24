@@ -224,52 +224,64 @@ export async function POST(req: Request) {
   let fullContext = context;
   
   if (existingConversationId) {
-    // For existing conversations, retrieve the stored context and execution data
-    const conversationData = await executeSQL(
-      `SELECT context, execution_id FROM conversations WHERE id = :conversationId`,
-      [{ name: 'conversationId', value: (() => {
-        const parsed = typeof existingConversationId === 'string' ? parseInt(existingConversationId, 10) : existingConversationId;
-        return isNaN(parsed) ? { longValue: 0 } : { longValue: parsed };
-      })() }]
-    );
-    
-    if (conversationData.length > 0) {
-      const conv = conversationData[0];
-      fullContext = conv.context ? JSON.parse(conv.context) : null;
+    // Validate conversationId before query
+    const parsedConvId = typeof existingConversationId === 'string' ? parseInt(existingConversationId, 10) : existingConversationId;
+    if (isNaN(parsedConvId) || parsedConvId <= 0) {
+      logger.warn('Invalid conversationId provided', { conversationId: existingConversationId });
+    } else {
+      // For existing conversations, retrieve all context data in a single optimized query
+      const contextData = await executeSQL(
+        `SELECT 
+          c.context, c.execution_id,
+          te.input_data, te.status as exec_status, te.started_at, te.completed_at,
+          aa.name as tool_name, aa.description as tool_description,
+          pr.prompt_id, pr.input_data as prompt_input, pr.output_data, pr.status as prompt_status,
+          cp.name as prompt_name
+        FROM conversations c
+        LEFT JOIN tool_executions te ON c.execution_id = te.id
+        LEFT JOIN assistant_architects aa ON te.assistant_architect_id = aa.id
+        LEFT JOIN prompt_results pr ON pr.execution_id = te.id
+        LEFT JOIN chain_prompts cp ON pr.prompt_id = cp.id
+        WHERE c.id = :conversationId
+        ORDER BY pr.started_at ASC`,
+        [{ name: 'conversationId', value: { longValue: parsedConvId } }]
+      );
       
-      // If there's an execution_id, fetch the full execution details
-      if (conv.execution_id) {
-        const executionData = await executeSQL(
-          `SELECT 
-            te.id, te.input_data, te.status, te.started_at, te.completed_at,
-            aa.name as tool_name, aa.description as tool_description
-           FROM tool_executions te
-           JOIN assistant_architects aa ON te.assistant_architect_id = aa.id
-           WHERE te.id = :executionId`,
-          [{ name: 'executionId', value: { longValue: conv.execution_id } }]
-        );
+      if (contextData.length > 0) {
+        const firstRow = contextData[0];
         
-        if (executionData.length > 0) {
-          const exec = executionData[0];
-          
-          // Get all prompt results for this execution
-          const promptResults = await executeSQL(
-            `SELECT 
-              pr.prompt_id, pr.input_data, pr.output_data, pr.status,
-              cp.name as prompt_name
-             FROM prompt_results pr
-             JOIN chain_prompts cp ON pr.prompt_id = cp.id
-             WHERE pr.execution_id = :executionId
-             ORDER BY pr.started_at ASC`,
-            [{ name: 'executionId', value: { longValue: conv.execution_id } }]
-          );
-          
-          // Build execution context
-          executionContext = `\n\nExecution Context:
-Tool: ${exec.tool_name}
-Description: ${exec.tool_description}
-Execution Status: ${exec.status}
-Original Inputs: ${exec.input_data}
+        // Parse stored context with error handling
+        try {
+          fullContext = firstRow.context ? JSON.parse(firstRow.context) : null;
+        } catch (parseError) {
+          logger.warn('Failed to parse conversation context', { 
+            conversationId: parsedConvId, 
+            error: parseError instanceof Error ? parseError.message : 'Unknown error' 
+          });
+          fullContext = null;
+        }
+        
+        // If there's an execution_id, build the execution context
+        if (firstRow.execution_id) {
+          // Validate executionId
+          const execId = typeof firstRow.execution_id === 'number' ? firstRow.execution_id : parseInt(firstRow.execution_id, 10);
+          if (!isNaN(execId) && execId > 0) {
+            // Group prompt results from the joined data
+            const promptResults = contextData
+              .filter(row => row.prompt_id !== null)
+              .map(row => ({
+                prompt_name: row.prompt_name,
+                input_data: row.prompt_input,
+                output_data: row.output_data,
+                status: row.prompt_status
+              }));
+            
+            // Build execution context
+            executionContext = `\n\nExecution Context:
+Tool: ${firstRow.tool_name}
+Description: ${firstRow.tool_description}
+Execution Status: ${firstRow.exec_status}
+Original Inputs: ${firstRow.input_data}
 
 Prompt Results:
 ${promptResults.map((pr, idx) => `
@@ -279,6 +291,7 @@ ${idx + 1}. ${pr.prompt_name}:
    Status: ${pr.status}`).join('\n')}
 
 This context provides the complete execution history that the user is asking about. Use this information to answer their questions accurately.`;
+          }
         }
       }
     }
