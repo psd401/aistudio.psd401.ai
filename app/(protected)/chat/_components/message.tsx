@@ -88,9 +88,10 @@ export function Message({ message, messageId }: MessageProps) {
               p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
               // Use default pre/code handling from prose for consistency?
               // Or keep custom highlighter if preferred.
-              code: ({ inline, className, children, ...props }) => {
+              code: ({ className, children, ...props }: any) => {
                 const match = /language-(\w+)/.exec(className || "")
                 const language = match ? match[1] : ""
+                const inline = !language
   
                 if (inline) {
                   return (

@@ -4,6 +4,7 @@ import { checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter"
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { CreateLayout } from "../../../create/_components/create-layout"
 import { SubmitForm } from "./_components/submit-form"
+import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 
 interface Props {
   params: Promise<{
@@ -21,6 +22,9 @@ export default async function SubmitAssistantArchitectPage({ params }: Props) {
   }
   
   const tool = toolResult.data
+  if (!tool) {
+    notFound()
+  }
   
   // Check authentication
   const session = await getServerSession()
@@ -29,7 +33,8 @@ export default async function SubmitAssistantArchitectPage({ params }: Props) {
   }
   
   const isAdmin = await checkUserRoleByCognitoSub(session.sub, "administrator")
-  const isCreator = session.sub === tool.creatorId
+  const currentUser = await getCurrentUserAction()
+  const isCreator = currentUser.isSuccess && currentUser.data?.user.id === tool.userId
   const canEdit = isAdmin || (isCreator && (tool.status === "draft" || tool.status === "pending_approval" || tool.status === "rejected" || tool.status === "approved"))
   
   if (!canEdit) {

@@ -23,6 +23,7 @@ interface Document {
   url: string
   size?: number
   createdAt?: string
+  conversationId?: number
 }
 
 interface ChatProps {
