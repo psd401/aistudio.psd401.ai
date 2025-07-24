@@ -30,6 +30,7 @@ import ErrorBoundary from "@/components/utilities/error-boundary"
 import type { AssistantArchitectWithRelations } from "@/types/assistant-architect-types"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AssistantArchitectChat } from "./assistant-architect-chat"
+import { ChatErrorBoundary } from "./chat-error-boundary"
 import type { SelectPromptResult } from "@/types/db-types"
 import Image from "next/image"
 import PdfUploadButton from "@/components/ui/pdf-upload-button"
@@ -444,20 +445,21 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   }, [])
 
   useEffect(() => {
+    const abortController = new AbortController()
     let intervalId: NodeJS.Timeout | null = null
+    let timeoutId: NodeJS.Timeout | null = null
     let retryCount = 0
     const MAX_RETRIES = 120
     const BACKOFF_THRESHOLD = 20
     let currentInterval = 3000
-    let isMounted = true // Flag to track if the component is still mounted
 
     async function pollJob() {
-      if (!jobId || !isMounted) return
+      if (!jobId || abortController.signal.aborted) return
       
       try {
         const result = await getJobAction(jobId)
-        // Check if component is still mounted before updating state
-        if (!isMounted) return
+        // Check if request was aborted before updating state
+        if (abortController.signal.aborted) return
         retryCount++
 
         if (result.isSuccess && result.data) {
@@ -592,8 +594,9 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
          currentInterval = 5000
          if (intervalId) {
            clearInterval(intervalId)
-           intervalId = setInterval(pollJob, currentInterval)
+           intervalId = null // Clear reference to prevent accumulation
          }
+         intervalId = setInterval(pollJob, currentInterval)
        }
     }
 
@@ -603,9 +606,15 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     }
 
     return () => {
-      isMounted = false; // Mark as unmounted
+      // Comprehensive cleanup
+      abortController.abort() // Cancel any pending operations
       if (intervalId) {
-        clearInterval(intervalId);
+        clearInterval(intervalId)
+        intervalId = null
+      }
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+        timeoutId = null
       }
     }
   }, [isPolling, jobId, tool.id, toast, form, results, safeJsonParse])
@@ -1118,14 +1127,17 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                       )}
                     </div>
                   ))}
-                  {results.status === "completed" && (
+                  {(results.status === "completed" || conversationId !== null) && (
                     <div className="mt-8">
-                      <AssistantArchitectChat
-                        execution={results as ExecutionResultDetails}
-                        conversationId={conversationId}
-                        onConversationCreated={setConversationId}
-                        isPreview={isPreview}
-                      />
+                      <ChatErrorBoundary>
+                        <AssistantArchitectChat
+                          execution={results as ExecutionResultDetails}
+                          conversationId={conversationId}
+                          onConversationCreated={setConversationId}
+                          isPreview={isPreview}
+                          modelId={tool?.prompts?.[0]?.modelId}
+                        />
+                      </ChatErrorBoundary>
                     </div>
                   )}
                 </div>
