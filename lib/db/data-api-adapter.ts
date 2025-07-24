@@ -12,6 +12,7 @@ import {
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import logger from '@/lib/logger';
 import { snakeToCamel } from "./field-mapper";
+import type { SelectNavigationItem } from '@/types/db-types';
 
 // Type aliases for cleaner code
 type DataApiResponse = ExecuteStatementCommandOutput;
@@ -276,7 +277,7 @@ export async function getNavigationItems(activeOnly: boolean = false) {
     ORDER BY position ASC
   `;
   
-  return executeSQL<any>(sql);
+  return executeSQL<SelectNavigationItem>(sql);
 }
 
 export async function createNavigationItem(data: {

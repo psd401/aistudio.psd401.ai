@@ -72,7 +72,7 @@ export function SettingsTable({ settings, onEdit, onDelete }: SettingsTableProps
         try {
           const result = await getSettingActualValueAction(key)
           if (result.isSuccess && result.data) {
-            setActualValues(prev => ({ ...prev, [key]: result.data }))
+            setActualValues(prev => ({ ...prev, [key]: result.data || '' }))
           }
         } catch {
           toast({

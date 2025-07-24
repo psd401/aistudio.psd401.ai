@@ -1484,7 +1484,9 @@ async function executeAssistantArchitectJob(
         }
         newPromptResultId = (insertPromptResultResult.records[0][0] as any).longValue as number;
         
-        const modelRecord = (await executeSQL<any>('SELECT model_id, provider FROM ai_models WHERE id = :id', [{name: 'id', value: {longValue: typeof prompt.modelId === 'string' ? parseInt(prompt.modelId, 10) : prompt.modelId}}]))[0] as any;
+        if (!prompt.modelId) throw new Error("No model ID specified for prompt");
+        const modelId = typeof prompt.modelId === 'string' ? parseInt(prompt.modelId, 10) : prompt.modelId;
+        const modelRecord = (await executeSQL<any>('SELECT model_id, provider FROM ai_models WHERE id = :id', [{name: 'id', value: {longValue: modelId}}]))[0] as any;
         if (!modelRecord) throw new Error("Model not found");
 
         const messages: CoreMessage[] = [
@@ -1959,7 +1961,7 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
 
     // Get related data for each tool
     const toolsWithRelations = await Promise.all(
-      toolsResult.map(async (toolRecord: FormattedRow) => {
+      toolsResult.map(async (toolRecord) => {
         const toolId = String(toolRecord.id || '')
         
         // Run input fields and prompts queries in parallel

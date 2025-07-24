@@ -3,6 +3,23 @@ import { RolesTable } from "./_components/roles-table"
 import { requireRole } from "@/lib/auth/role-helpers"
 import { getRoles, getTools } from "@/lib/db/data-api-adapter"
 
+interface Role {
+  id: string | number;
+  name: string;
+  description?: string;
+  is_system?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface Tool {
+  id: string;
+  name: string;
+  identifier: string;
+  description?: string;
+  isActive: boolean;
+}
+
 export default async function RolesPage() {
   await requireRole("administrator");
   
@@ -16,7 +33,7 @@ export default async function RolesPage() {
     <div className="p-6">
       <h1 className="mb-6 text-2xl font-bold">Role Management</h1>
       <Suspense fallback={<div>Loading roles...</div>}>
-        <RolesTable roles={roles || []} tools={tools || []} />
+        <RolesTable roles={roles as Role[] || []} tools={tools as Tool[] || []} />
       </Suspense>
     </div>
   )

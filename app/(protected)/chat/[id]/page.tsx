@@ -38,7 +38,7 @@ export default async function ConversationPage({ params }: ConversationPageProps
   `;
   const conversationParams = [
     { name: 'conversationId', value: { longValue: conversationId } },
-    { name: 'userId', value: { stringValue: userId } }
+    { name: 'userId', value: { longValue: userId } }
   ];
   const conversationResult = await executeSQL(conversationQuery, conversationParams);
   const conversation = conversationResult[0];
@@ -61,12 +61,12 @@ export default async function ConversationPage({ params }: ConversationPageProps
 
   return (
     <SimpleChat
-      conversationId={conversation.id}
+      conversationId={conversation.id as number}
       initialMessages={conversationMessages.map(msg => ({
-        id: msg.id.toString(),
-        content: msg.content,
-        role: msg.role,
-        createdAt: msg.created_at ? new Date(msg.created_at).toISOString() : new Date().toISOString(),
+        id: String(msg.id),
+        content: String(msg.content || ''),
+        role: msg.role as 'user' | 'assistant',
+        createdAt: msg.createdAt ? new Date(msg.createdAt).toISOString() : new Date().toISOString(),
       }))}
     />
   );

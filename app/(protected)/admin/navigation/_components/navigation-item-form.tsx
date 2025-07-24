@@ -69,7 +69,7 @@ export function NavigationItemForm({
       icon: (initialData?.icon as IconName) || "IconHome",
       link: initialData?.link || "",
       description: initialData?.description || "",
-      type: initialData?.type || "link",
+      type: (initialData?.type as "link" | "section" | "page") || "link",
       parentId: initialData?.parentId || undefined,
       toolId: initialData?.toolId || null,
       requiresRole: initialData?.requiresRole || null,
@@ -178,7 +178,7 @@ export function NavigationItemForm({
             <form id="navigation-form" onSubmit={form.handleSubmit(onFormSubmit)} className="space-y-4">
               <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <FormField
+                  <FormField<FormValues>
                     control={form.control}
                     name="label"
                     render={({ field }) => (
@@ -195,7 +195,7 @@ export function NavigationItemForm({
                     )}
                   />
 
-                  <FormField
+                  <FormField<FormValues>
                     control={form.control}
                     name="type"
                     render={({ field }) => (
@@ -226,7 +226,7 @@ export function NavigationItemForm({
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <FormField
+                  <FormField<FormValues>
                     control={form.control}
                     name="icon"
                     render={({ field }) => (
@@ -277,7 +277,7 @@ export function NavigationItemForm({
                     )}
                   />
 
-                  <FormField
+                  <FormField<FormValues>
                     control={form.control}
                     name="link"
                     render={({ field }) => (
@@ -295,7 +295,7 @@ export function NavigationItemForm({
                   />
                 </div>
 
-                <FormField
+                <FormField<FormValues>
                   control={form.control}
                   name="description"
                   render={({ field }) => (
@@ -313,7 +313,7 @@ export function NavigationItemForm({
                 />
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <FormField
+                  <FormField<FormValues>
                     control={form.control}
                     name="parentId"
                     render={({ field }) => (
@@ -345,7 +345,7 @@ export function NavigationItemForm({
                     )}
                   />
 
-                  <FormField
+                  <FormField<FormValues>
                     control={form.control}
                     name="toolId"
                     render={({ field }) => (
@@ -375,7 +375,7 @@ export function NavigationItemForm({
                   />
                 </div>
 
-                <FormField
+                <FormField<FormValues>
                   control={form.control}
                   name="requiresRole"
                   render={({ field }) => (
