@@ -87,16 +87,16 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
             // Safely access extended fields that may exist
             const extendedResult = {
               ...result,
-              inputData: (result as any).inputData || {},
-              outputData: (result as any).outputData || (result as any).result || '',
-              status: (result as any).status || 'completed'
+              inputData: (result as any).inputData,
+              outputData: (result as any).outputData || (result as any).result,
+              status: (result as any).status
             }
             
             return {
               promptId: extendedResult.chainPromptId || extendedResult.id || 0,
-              input: extendedResult.inputData,
-              output: extendedResult.outputData,
-              status: extendedResult.status
+              input: extendedResult.inputData || {},
+              output: extendedResult.outputData || '',
+              status: extendedResult.status || 'completed'
             }
           }
           
