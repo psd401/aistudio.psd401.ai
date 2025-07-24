@@ -12,6 +12,7 @@ This guide covers local development, coding standards, and testing for this proj
    ```sh
    npm install
    ```
+   **Important**: This project uses npm as its package manager. Do not use yarn, pnpm, or other package managers.
 3. Copy and configure environment variables:
    ```sh
    cp .env.example .env.local

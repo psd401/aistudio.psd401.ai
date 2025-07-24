@@ -2,6 +2,12 @@
 
 Thank you for contributing to this project! Please follow these standards to ensure code quality, maintainability, and security.
 
+## Package Manager
+- **Use npm exclusively** as the package manager for this project.
+- Do not use yarn, pnpm, or other package managers.
+- Always use `npm install` to install dependencies, not `yarn install` or `pnpm install`.
+- Commit `package-lock.json` to the repository (never `yarn.lock` or `pnpm-lock.yaml`).
+
 ## Logging
 - **Do NOT use** `console.log`, `console.error`, `console.warn`, `console.info`, or `console.debug` in any production or shared code.
 - **All logging must use** the Winston logger (`import logger from "@/lib/logger"`) **in server-side code only** (server actions, API routes, backend utilities).
