@@ -45,7 +45,7 @@ interface ExtendedPromptResult {
   id: string
   executionId: string
   promptId: string | number
-  inputData: any
+  inputData: Record<string, unknown>
   outputData: string
   status: "pending" | "running" | "completed" | "failed"
   startedAt: Date
@@ -61,7 +61,7 @@ interface ExtendedExecutionResultDetails {
   toolId: string | number
   userId: string | number
   status: string
-  inputData: any
+  inputData: Record<string, unknown>
   startedAt: Date | null
   completedAt: Date | null
   errorMessage: string | null
