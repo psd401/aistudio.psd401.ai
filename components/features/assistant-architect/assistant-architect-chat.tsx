@@ -205,14 +205,14 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="max-w-xs">
-                  <p className="text-xs">
-                    The AI assistant has access to:
+                  <div className="text-xs">
+                    <div>The AI assistant has access to:</div>
                     <ul className="mt-1 ml-4 list-disc">
                       <li>Your original inputs</li>
                       <li>{execution.promptResults.length} prompt execution results</li>
                       <li>Complete conversation history</li>
                     </ul>
-                  </p>
+                  </div>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

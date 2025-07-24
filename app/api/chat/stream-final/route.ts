@@ -56,7 +56,11 @@ export async function POST(req: Request) {
       { name: 'userId', value: { longValue: currentUser.data.user.id } },
       { name: 'modelId', value: { longValue: aiModel.id } },
       { name: 'source', value: { stringValue: source || "chat" } },
-      { name: 'executionId', value: executionId ? { longValue: typeof executionId === 'string' ? parseInt(executionId, 10) : executionId } : { isNull: true } },
+      { name: 'executionId', value: (() => {
+        if (!executionId) return { isNull: true };
+        const parsed = typeof executionId === 'string' ? parseInt(executionId, 10) : executionId;
+        return isNaN(parsed) ? { isNull: true } : { longValue: parsed };
+      })() },
       { name: 'context', value: context ? { stringValue: JSON.stringify(context) } : { isNull: true } }
     ]);
     conversationId = newConversation[0].id;
@@ -224,7 +228,10 @@ export async function POST(req: Request) {
     // For existing conversations, retrieve the stored context and execution data
     const conversationData = await executeSQL(
       `SELECT context, execution_id FROM conversations WHERE id = :conversationId`,
-      [{ name: 'conversationId', value: { longValue: typeof existingConversationId === 'string' ? parseInt(existingConversationId, 10) : existingConversationId } }]
+      [{ name: 'conversationId', value: (() => {
+        const parsed = typeof existingConversationId === 'string' ? parseInt(existingConversationId, 10) : existingConversationId;
+        return isNaN(parsed) ? { longValue: 0 } : { longValue: parsed };
+      })() }]
     );
     
     if (conversationData.length > 0) {
