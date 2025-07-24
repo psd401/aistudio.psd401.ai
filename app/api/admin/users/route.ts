@@ -2,7 +2,6 @@ import { NextResponse } from "next/server"
 import { getUsers, getUserRoles, createUser, updateUser, deleteUser } from "@/lib/db/data-api-adapter"
 import { requireAdmin } from "@/lib/auth/admin-check"
 import logger from "@/lib/logger"
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 export async function GET() {
   try {
     // Check admin authorization
@@ -11,11 +10,11 @@ export async function GET() {
     
     // Get users from database via Data API
     const dbUsers = await getUsers();
-    const transformedUsers = transformSnakeToCamel<Array<{id: number, cognitoSub: string, email: string, firstName: string, lastName: string, lastSignInAt: string, createdAt: string, updatedAt: string}>>(dbUsers);
+    const transformedUsers = dbUsers as Array<{id: number, cognitoSub: string, email: string, firstName: string, lastName: string, lastSignInAt: string, createdAt: string, updatedAt: string}>;
     
     // Get all user roles
     const userRoles = await getUserRoles();
-    const transformedRoles = transformSnakeToCamel<Array<{userId: number, roleName: string}>>(userRoles);
+    const transformedRoles = userRoles as Array<{userId: number, roleName: string}>;
     
     // Group roles by userId
     const rolesByUser = transformedRoles.reduce((acc, role) => {
@@ -64,12 +63,11 @@ export async function POST(request: Request) {
     }
 
     const user = await createUser(userData)
-    const transformedUser = transformSnakeToCamel(user)
 
     return NextResponse.json({
       isSuccess: true,
       message: "User created successfully",
-      data: transformedUser
+      data: user
     })
   } catch (error) {
     logger.error("Error creating user:", error)
@@ -90,12 +88,11 @@ export async function PUT(request: Request) {
     const { id, ...updates } = body
 
     const user = await updateUser(String(id), updates)
-    const transformedUser = transformSnakeToCamel(user)
 
     return NextResponse.json({
       isSuccess: true,
       message: "User updated successfully",
-      data: transformedUser
+      data: user
     })
   } catch (error) {
     logger.error("Error updating user:", error)

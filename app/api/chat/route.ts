@@ -10,8 +10,7 @@ import { SelectDocument } from "@/types/db-types"
 import logger from "@/lib/logger"
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 import { getServerSession } from "@/lib/auth/server-session"
-import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter"
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
+import { executeSQL } from "@/lib/db/data-api-adapter"
 export async function POST(req: NextRequest) {
   const session = await getServerSession()
   if (!session) {
@@ -47,10 +46,9 @@ export async function POST(req: NextRequest) {
     const modelParams = [
       { name: 'modelId', value: { stringValue: textModelId } }
     ];
-    const modelResult = await executeSQL<FormattedRow>(modelQuery, modelParams);
-    const transformedModelResult = transformSnakeToCamel<Array<{ id: number; name: string; provider: string; modelId: string }>>(modelResult);
+    const modelResult = await executeSQL<{ id: number; name: string; provider: string; modelId: string }>(modelQuery, modelParams);
     
-    if (!transformedModelResult.length) {
+    if (!modelResult.length) {
       throw createError(`AI Model with identifier '${textModelId}' not found`, {
         code: 'NOT_FOUND',
         level: 'error',
@@ -58,7 +56,7 @@ export async function POST(req: NextRequest) {
       });
     }
     
-    const aiModel = transformedModelResult[0];
+    const aiModel = modelResult[0];
     
     // Ensure id is a number
     if (!aiModel.id) {

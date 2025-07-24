@@ -27,7 +27,7 @@ import { hasRole, getUserTools } from "@/utils/roles";
 import { createNavigationItemAction } from "@/actions/db/navigation-actions"
 import logger from "@/lib/logger"
 import { getServerSession } from "@/lib/auth/server-session";
-import { executeSQL, checkUserRoleByCognitoSub, type FormattedRow } from "@/lib/db/data-api-adapter";
+import { executeSQL, checkUserRoleByCognitoSub, hasToolAccess, type FormattedRow } from "@/lib/db/data-api-adapter";
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action";
 import { RDSDataClient, BeginTransactionCommand, ExecuteStatementCommand, CommitTransactionCommand, RollbackTransactionCommand, SqlParameter } from "@aws-sdk/client-rds-data";
 
@@ -1105,7 +1105,7 @@ export async function approveAssistantArchitectAction(
       `, [
         { name: 'identifier', value: { stringValue: identifier } },
         { name: 'name', value: { stringValue: updatedTool.name } },
-        { name: 'description', value: { stringValue: updatedTool.description } },
+        { name: 'description', value: { stringValue: updatedTool.description || '' } },
         { name: 'id', value: { longValue: parseInt(id, 10) } }
       ]);
       finalToolId = existingToolResult[0].id as string;
@@ -1127,7 +1127,7 @@ export async function approveAssistantArchitectAction(
       `, [
         { name: 'identifier', value: { stringValue: identifier } },
         { name: 'name', value: { stringValue: updatedTool.name } },
-        { name: 'description', value: { stringValue: updatedTool.description } },
+        { name: 'description', value: { stringValue: updatedTool.description || '' } },
         { name: 'assistantArchitectId', value: { longValue: parseInt(id, 10) } }
       ]);
       finalToolId = newToolResult[0].id as string;

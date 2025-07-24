@@ -1,5 +1,4 @@
 import { executeSQL } from "@/lib/db/data-api-adapter"
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import logger from "@/lib/logger"
 export interface ExportedAssistant {
   name: string
@@ -56,7 +55,7 @@ export async function getAssistantDataForExport(assistantIds: number[]): Promise
     WHERE id IN (${placeholders})
   `
   const assistantsRaw = await executeSQL(assistantsQuery, parameters)
-  const assistants = assistantsRaw.map(transformSnakeToCamel) as Array<{
+  const assistants = assistantsRaw as Array<{
     id: number
     name: string
     description: string
@@ -87,7 +86,7 @@ export async function getAssistantDataForExport(assistantIds: number[]): Promise
     const promptsRaw = await executeSQL(promptsQuery, [
       { name: 'assistantId', value: { longValue: assistant.id } }
     ])
-    const prompts = promptsRaw.map(transformSnakeToCamel) as Array<{
+    const prompts = promptsRaw as Array<{
       name: string
       content: string
       systemContext?: string
@@ -108,7 +107,7 @@ export async function getAssistantDataForExport(assistantIds: number[]): Promise
     const inputFieldsRaw = await executeSQL(fieldsQuery, [
       { name: 'assistantId', value: { longValue: assistant.id } }
     ])
-    const inputFields = inputFieldsRaw.map(transformSnakeToCamel) as Array<{
+    const inputFields = inputFieldsRaw as Array<{
       name: string
       label: string
       fieldType: string
