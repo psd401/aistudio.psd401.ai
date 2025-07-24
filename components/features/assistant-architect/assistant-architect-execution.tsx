@@ -447,6 +447,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   useEffect(() => {
     const abortController = new AbortController()
     let intervalId: NodeJS.Timeout | null = null
+    let timeoutId: NodeJS.Timeout | null = null
     let retryCount = 0
     const MAX_RETRIES = 120
     const BACKOFF_THRESHOLD = 20
@@ -604,9 +605,15 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     }
 
     return () => {
+      // Comprehensive cleanup
       abortController.abort() // Cancel any pending operations
       if (intervalId) {
-        clearInterval(intervalId);
+        clearInterval(intervalId)
+        intervalId = null
+      }
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+        timeoutId = null
       }
     }
   }, [isPolling, jobId, tool.id, toast, form, results, safeJsonParse])

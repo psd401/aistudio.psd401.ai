@@ -292,13 +292,26 @@ export async function POST(req: Request) {
           if (fullContext && typeof fullContext !== 'object') {
             throw new Error('Invalid context format');
           }
-          // Validate context size
+          // Validate context size - smart truncation instead of nullifying
           if (fullContext && JSON.stringify(fullContext).length > 100000) {
-            logger.warn('Context data too large, truncating', { 
+            logger.warn('Context data too large, applying smart truncation', { 
               conversationId: parsedConvId,
               contextSize: JSON.stringify(fullContext).length
             });
-            fullContext = null;
+            // Preserve core context while truncating prompt results
+            if (fullContext.promptResults && Array.isArray(fullContext.promptResults)) {
+              const truncatedContext = {
+                ...fullContext,
+                promptResults: fullContext.promptResults.slice(0, 5), // Keep first 5 results
+                truncated: true,
+                originalPromptCount: fullContext.promptResults.length
+              };
+              fullContext = truncatedContext;
+              logger.info('Context truncated to preserve core data', {
+                originalPromptCount: fullContext.originalPromptCount,
+                keptPromptCount: 5
+              });
+            }
           }
         } catch (parseError) {
           logger.warn('Failed to parse conversation context', { 
@@ -314,21 +327,17 @@ export async function POST(req: Request) {
           // Validate executionId
           const execId = typeof conversation.execution_id === 'number' ? conversation.execution_id : parseInt(String(conversation.execution_id), 10);
           if (!isNaN(execId) && execId > 0) {
-            // Get execution details
-            const executionData = await executeSQL(
-              `SELECT te.input_data, te.status as exec_status, te.started_at, te.completed_at,
-                      aa.name as tool_name, aa.description as tool_description
-              FROM tool_executions te
-              LEFT JOIN assistant_architects aa ON te.assistant_architect_id = aa.id
-              WHERE te.id = :executionId`,
-              [{ name: 'executionId', value: { longValue: execId } }]
-            );
-            
-            if (executionData.length > 0) {
-              const execution = executionData[0];
-              
-              // Get prompt results separately to avoid duplication
-              const promptResults = await executeSQL(
+            // Get execution details and prompt results in parallel for better performance
+            const [executionData, promptResults] = await Promise.all([
+              executeSQL(
+                `SELECT te.input_data, te.status as exec_status, te.started_at, te.completed_at,
+                        aa.name as tool_name, aa.description as tool_description
+                FROM tool_executions te
+                LEFT JOIN assistant_architects aa ON te.assistant_architect_id = aa.id
+                WHERE te.id = :executionId`,
+                [{ name: 'executionId', value: { longValue: execId } }]
+              ),
+              executeSQL(
                 `SELECT pr.prompt_id, pr.input_data as prompt_input, pr.output_data, 
                         pr.status as prompt_status, cp.name as prompt_name
                 FROM prompt_results pr
@@ -336,7 +345,11 @@ export async function POST(req: Request) {
                 WHERE pr.execution_id = :executionId
                 ORDER BY pr.started_at ASC`,
                 [{ name: 'executionId', value: { longValue: execId } }]
-              );
+              )
+            ]);
+            
+            if (executionData.length > 0) {
+              const execution = executionData[0];
               
               // Build execution context
               executionContext = `\n\nExecution Context:

@@ -77,16 +77,14 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
         inputData: execution.inputData || {},
         promptResults: (execution.promptResults || []).map(result => {
           // The actual data from getExecutionResultsAction includes these fields
-          const extendedResult = result as SelectPromptResult & {
-            inputData?: Record<string, unknown>
-            outputData?: string
-            status?: string
-          }
+          // Safe type check without casting
+          const hasExtendedFields = 'inputData' in result && 'outputData' in result && 'status' in result
+          
           return {
             promptId: result?.promptId || result?.id || 0,
-            input: extendedResult?.inputData || {},
-            output: extendedResult?.outputData || result?.result || '',
-            status: extendedResult?.status || 'completed'
+            input: hasExtendedFields && result.inputData ? result.inputData as Record<string, unknown> : {},
+            output: hasExtendedFields && result.outputData ? String(result.outputData) : result?.result || '',
+            status: hasExtendedFields && result.status ? String(result.status) : 'completed'
           }
         })
       } as ExecutionContext : null
@@ -169,7 +167,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
         {messages.map((message) => (
           <Message key={message.id} message={{ 
             id: message.id, 
-            role: message.role as "user" | "assistant", 
+            role: message.role === "user" ? "user" : "assistant", 
             content: message.content 
           }} />
         ))}
