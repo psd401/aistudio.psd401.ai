@@ -37,34 +37,25 @@ interface AssistantArchitectChatProps {
   conversationId: number | null
   onConversationCreated?: (id: number) => void
   isPreview?: boolean
+  modelId?: number | null
 }
 
 export const AssistantArchitectChat = memo(function AssistantArchitectChat({ 
   execution, 
   conversationId, 
   onConversationCreated,
-  isPreview = false 
+  isPreview = false,
+  modelId 
 }: AssistantArchitectChatProps) {
-  const [actualModelId, setActualModelId] = useState<string | null>(null)
   const [currentConversationId, setCurrentConversationId] = useState<number | null>(conversationId)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
+  
+  // Use the passed modelId or default to 3 (first model in most systems)
+  const actualModelId = modelId || 3
 
-  // Log component lifecycle (only in development)
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      // eslint-disable-next-line no-console
-      console.log('[AssistantArchitectChat] Component mounted')
-    }
-    return () => {
-      if (process.env.NODE_ENV === 'development') {
-        // eslint-disable-next-line no-console
-        console.log('[AssistantArchitectChat] Component unmounting')
-      }
-    }
-  }, [])
 
-  // Use Vercel AI SDK's useChat hook
+  // Use Vercel AI SDK's useChat hook with safe defaults
   const { 
     messages, 
     input, 
@@ -76,42 +67,53 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
   } = useChat({
     api: '/api/chat/stream-final',
     body: {
-      modelId: actualModelId || 1, // Default to model ID 1 if not available
+      modelId: actualModelId, // Use the actual model from the execution
       conversationId: currentConversationId,
       source: "assistant_execution",
       executionId: isPreview ? null : execution?.id || null,
-      context: currentConversationId === null && execution?.promptResults ? {
-        executionId: execution.id,
-        toolId: execution.assistantArchitectId,
-        inputData: execution.inputData,
-        promptResults: (execution.promptResults || []).map(result => ({
-          promptId: result.chainPromptId,
-          input: {}, // SelectPromptResult doesn't include input data
-          output: result.result,
-          status: 'completed' // SelectPromptResult doesn't include status
-        }))
+      context: currentConversationId === null && execution?.promptResults?.length > 0 ? {
+        executionId: execution.id || 0,
+        toolId: execution.assistantArchitectId || 0,
+        inputData: execution.inputData || {},
+        promptResults: (execution.promptResults || []).map(result => {
+          // The actual data from getExecutionResultsAction includes these fields
+          const extendedResult = result as SelectPromptResult & {
+            inputData?: Record<string, unknown>
+            outputData?: string
+            status?: string
+          }
+          return {
+            promptId: result?.promptId || result?.id || 0,
+            input: extendedResult?.inputData || {},
+            output: extendedResult?.outputData || result?.result || '',
+            status: extendedResult?.status || 'completed'
+          }
+        })
       } as ExecutionContext : null
     },
+    initialMessages: [],
     onResponse: (response) => {
-      // Get conversation ID from header if this is a new conversation
-      const conversationIdHeader = response.headers.get('X-Conversation-Id')
-      if (!currentConversationId && conversationIdHeader) {
-        const newConvId = parseInt(conversationIdHeader, 10)
-        if (Number.isInteger(newConvId) && newConvId > 0) {
-          setCurrentConversationId(newConvId)
-          onConversationCreated?.(newConvId)
+      try {
+        // Get conversation ID from header if this is a new conversation
+        const conversationIdHeader = response.headers.get('X-Conversation-Id')
+        if (!currentConversationId && conversationIdHeader) {
+          const newConvId = parseInt(conversationIdHeader, 10)
+          if (Number.isInteger(newConvId) && newConvId > 0) {
+            setCurrentConversationId(newConvId)
+            onConversationCreated?.(newConvId)
+          }
         }
+      } catch (error) {
+        console.error("Error processing response", error)
+        // Don't throw - just log the error
       }
     },
     onError: (error) => {
-      console.error("Error sending message", error)
       toast({
         title: "Error",
         description: error.message || "Failed to send message",
         variant: "destructive"
       })
-      // Prevent any navigation or page reload on error
-      return false
     },
     onFinish: () => {
       // Scroll to bottom when message is complete
@@ -128,43 +130,6 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
   useEffect(() => {
     setCurrentConversationId(conversationId)
   }, [conversationId])
-
-  // Fetch the model ID when the component mounts
-  useEffect(() => {
-    const fetchModelId = async () => {
-      if (!execution || !execution.promptResults || execution.promptResults.length === 0) {
-        return;
-      }
-      // Get the last prompt result
-      const lastPromptResult = execution.promptResults[execution.promptResults.length - 1];
-      
-      // Check if chainPromptId exists and is valid
-      if (!lastPromptResult.chainPromptId) {
-        // Skip fetching if no chainPromptId available
-        return;
-      }
-      
-      try {
-        // Fetch the prompt details to get the correct text model ID
-        const response = await fetch(`/api/assistant-architect/prompts/${lastPromptResult.chainPromptId}`);
-        if (response.ok) {
-          const promptData = await response.json();
-          // Use the actualModelId (text) provided by the API
-          if (promptData && promptData.actualModelId) {
-            setActualModelId(promptData.actualModelId);
-          } else {
-            console.error("No actual AI model ID found in prompt response");
-          }
-        } else {
-          console.error("Failed to fetch prompt details", response.status);
-        }
-      } catch (error) {
-        console.error("Error fetching model ID", error);
-        // Don't throw or cause UI reset on this error
-      }
-    };
-    fetchModelId();
-  }, [execution]);
 
   // Fetch conversation history when conversationId changes
   useEffect(() => {
@@ -193,22 +158,9 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    e.stopPropagation()
-    if (!input.trim() || isLoading) return
+    if (!input.trim() || isLoading || !actualModelId) return
     
-    // If we don't have actualModelId, don't block the user
-    // The API will use a default model if needed
-    
-    try {
-      handleChatSubmit(e)
-    } catch (error) {
-      console.error("Error submitting chat message:", error)
-      toast({
-        title: "Error",
-        description: "Failed to send message. Please try again.",
-        variant: "destructive"
-      })
-    }
+    handleChatSubmit(e)
   }
 
   const MessageList = memo(function MessageList({ messages, isLoading }: { messages: Array<{ id: string; content: string; role: "user" | "assistant" | "system" | "function" | "data" | "tool" }>, isLoading: boolean }) {
@@ -287,8 +239,12 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
             handleInputChange={handleInputChange}
             handleSubmit={handleSubmit}
             isLoading={isLoading}
-            disabled={!actualModelId}
-            placeholder="Follow-up..."
+            disabled={!actualModelId || (execution?.status !== 'completed' && !conversationId)}
+            placeholder={
+              (execution?.status !== 'completed' && !conversationId) ? "Waiting for execution to complete..." :
+              !actualModelId ? "Model unavailable" :
+              "Follow-up..."
+            }
           />
           {isLoading && (
             <Button

@@ -9,32 +9,71 @@ import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter";
 import { SelectDocument } from "@/types/db-types";
 import { Settings } from "@/lib/settings-manager";
 import logger from "@/lib/logger";
-import escapeHtml from "escape-html";
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents";
 export async function POST(req: Request) {
-  const session = await getServerSession();
-  if (!session) {
-    return new Response('Unauthorized', { status: 401 });
-  }
+  try {
+    const session = await getServerSession();
+    if (!session) {
+      return new Response('Unauthorized', { status: 401 });
+    }
 
-  const { messages, modelId: textModelId, conversationId: existingConversationId, documentId, source, executionId, context } = await req.json();
+    const { messages, modelId: textModelId, conversationId: existingConversationId, documentId, source, executionId, context } = await req.json();
 
-  // Get model info
-  const modelQuery = `
-    SELECT id, name, provider, model_id
-    FROM ai_models
-    WHERE model_id = :modelId
-    LIMIT 1
-  `;
-  const modelResult = await executeSQL<FormattedRow>(modelQuery, [
-    { name: 'modelId', value: { stringValue: textModelId } }
-  ]);
+  // Get model info - handle both numeric ID and string model_id
+  const isNumericId = typeof textModelId === 'number' || /^\d+$/.test(String(textModelId));
   
+  let modelResult;
+  if (isNumericId) {
+    // Try to get model by numeric ID
+    const modelQuery = `
+      SELECT id, name, provider, model_id
+      FROM ai_models
+      WHERE id = :modelId AND active = true AND chat_enabled = true
+      LIMIT 1
+    `;
+    modelResult = await executeSQL<FormattedRow>(modelQuery, [
+      { name: 'modelId', value: { longValue: Number(textModelId) } }
+    ]);
+  } else {
+    // Get model by string model_id
+    const modelQuery = `
+      SELECT id, name, provider, model_id
+      FROM ai_models
+      WHERE model_id = :modelId AND active = true AND chat_enabled = true
+      LIMIT 1
+    `;
+    modelResult = await executeSQL<FormattedRow>(modelQuery, [
+      { name: 'modelId', value: { stringValue: String(textModelId) } }
+    ]);
+  }
+  
+  // If model not found, fall back to first available chat-enabled model
   if (!modelResult.length) {
-    return new Response(`Model not found: ${escapeHtml(textModelId)}`, { status: 404 });
+    const fallbackQuery = `
+      SELECT id, name, provider, model_id
+      FROM ai_models
+      WHERE active = true AND chat_enabled = true
+      ORDER BY id
+      LIMIT 1
+    `;
+    modelResult = await executeSQL<FormattedRow>(fallbackQuery);
+    
+    if (!modelResult.length) {
+      return new Response("No chat-enabled models available", { status: 503 });
+    }
   }
   
   const aiModel = modelResult[0];
+  
+  // Log for debugging
+  logger.info('[stream-final] Model resolved:', {
+    textModelId,
+    isNumericId,
+    aiModelId: aiModel?.id,
+    aiModelName: aiModel?.name,
+    aiModelProvider: aiModel?.provider,
+    aiModelStringId: aiModel?.model_id
+  });
   
   // Handle conversation
   let conversationId = existingConversationId;
@@ -79,26 +118,27 @@ export async function POST(req: Request) {
   // Get the model
   let model;
   
-  switch (aiModel.provider) {
-    case 'openai': {
-      const key = await Settings.getOpenAI();
-      if (!key) throw new Error('OpenAI key not configured');
-      const openai = createOpenAI({ apiKey: key });
-      model = openai(textModelId);
-      break;
-    }
+  try {
+    switch (aiModel.provider) {
+      case 'openai': {
+        const key = await Settings.getOpenAI();
+        if (!key) throw new Error('OpenAI key not configured');
+        const openai = createOpenAI({ apiKey: key });
+        model = openai(aiModel.model_id);
+        break;
+      }
     case 'azure': {
       const config = await Settings.getAzureOpenAI();
       if (!config.key || !config.resourceName) throw new Error('Azure not configured');
       const azure = createAzure({ apiKey: config.key, resourceName: config.resourceName });
-      model = azure(textModelId);
+      model = azure(aiModel.model_id);
       break;
     }
     case 'google': {
       const key = await Settings.getGoogleAI();
       if (!key) throw new Error('Google key not configured');
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = key;
-      model = google(textModelId);
+      model = google(aiModel.model_id);
       break;
     }
     case 'amazon-bedrock': {
@@ -109,11 +149,15 @@ export async function POST(req: Request) {
         accessKeyId: config.accessKeyId || undefined,
         secretAccessKey: config.secretAccessKey || undefined
       });
-      model = bedrock(textModelId);
+      model = bedrock(aiModel.model_id);
       break;
     }
     default:
       throw new Error(`Unknown provider: ${aiModel.provider}`);
+    }
+  } catch (modelError) {
+    logger.error('[stream-final] Model initialization error:', modelError);
+    throw new Error(`Failed to initialize model: ${modelError instanceof Error ? modelError.message : 'Unknown error'}`);
   }
 
   // Get all messages for context
@@ -343,6 +387,14 @@ Remember: You have access to the complete execution history including all inputs
     }))
   ];
 
+  // Log before streaming
+  logger.info('[stream-final] Starting stream with:', {
+    conversationId,
+    messageCount: aiMessages.length,
+    modelProvider: aiModel.provider,
+    modelId: aiModel.model_id
+  });
+
   // Stream the response
   const result = await streamText({
     model,
@@ -371,4 +423,18 @@ Remember: You have access to the complete execution history including all inputs
       'X-Conversation-Id': conversationId.toString()
     }
   });
+  } catch (error) {
+    logger.error('[stream-final] Unhandled error:', error);
+    // Return a proper error response that won't cause page reset
+    return new Response(
+      JSON.stringify({ 
+        error: 'An error occurred while processing your request',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      }), 
+      { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+  }
 }

@@ -1127,6 +1127,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                           conversationId={conversationId}
                           onConversationCreated={setConversationId}
                           isPreview={isPreview}
+                          modelId={tool?.prompts?.[0]?.modelId}
                         />
                       </ChatErrorBoundary>
                     </div>
