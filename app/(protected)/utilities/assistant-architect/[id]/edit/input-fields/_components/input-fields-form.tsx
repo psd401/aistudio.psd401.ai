@@ -149,10 +149,10 @@ export function InputFieldsForm({
         result = await updateInputFieldAction(
           editingField.id,
           {
-            name: values.name,
-            label: values.label,
-            fieldType: values.fieldType,
-            position: values.position,
+            name: values.name as string,
+            label: values.label as string,
+            fieldType: values.fieldType as "short_text" | "long_text" | "select" | "multi_select" | "file_upload",
+            position: values.position as number,
             options: optionsToSave
           }
         )
@@ -165,10 +165,10 @@ export function InputFieldsForm({
         result = await addToolInputFieldAction(
           assistantId,
           {
-            name: values.name,
-            label: values.label,
-            type: values.fieldType,
-            position: values.position,
+            name: values.name as string,
+            label: values.label as string,
+            type: values.fieldType as "short_text" | "long_text" | "select" | "multi_select" | "file_upload",
+            position: values.position as number,
             options: optionsToSave
           }
         )
