@@ -9,6 +9,7 @@ import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter";
 import { SelectDocument } from "@/types/db-types";
 import { Settings } from "@/lib/settings-manager";
 import logger from "@/lib/logger";
+import { ensureRDSString, ensureRDSNumber } from "@/lib/type-helpers";
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents";
 export async function POST(req: Request) {
   try {
@@ -92,7 +93,7 @@ export async function POST(req: Request) {
     const newConversation = await executeSQL(insertQuery, [
       { name: 'title', value: { stringValue: messages[0].content.substring(0, 100) } },
       { name: 'userId', value: { longValue: currentUser.data.user.id } },
-      { name: 'modelId', value: { longValue: aiModel.id } },
+      { name: 'modelId', value: { longValue: ensureRDSNumber(aiModel.id) } },
       { name: 'source', value: { stringValue: source || "chat" } },
       { name: 'executionId', value: (() => {
         if (!executionId) return { isNull: true };
@@ -124,21 +125,21 @@ export async function POST(req: Request) {
         const key = await Settings.getOpenAI();
         if (!key) throw new Error('OpenAI key not configured');
         const openai = createOpenAI({ apiKey: key });
-        model = openai(aiModel.model_id);
+        model = openai(ensureRDSString(aiModel.model_id));
         break;
       }
     case 'azure': {
       const config = await Settings.getAzureOpenAI();
       if (!config.key || !config.resourceName) throw new Error('Azure not configured');
       const azure = createAzure({ apiKey: config.key, resourceName: config.resourceName });
-      model = azure(aiModel.model_id);
+      model = azure(ensureRDSString(aiModel.model_id));
       break;
     }
     case 'google': {
       const key = await Settings.getGoogleAI();
       if (!key) throw new Error('Google key not configured');
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = key;
-      model = google(aiModel.model_id);
+      model = google(ensureRDSString(aiModel.model_id) as any);
       break;
     }
     case 'amazon-bedrock': {
@@ -149,11 +150,11 @@ export async function POST(req: Request) {
         accessKeyId: config.accessKeyId || undefined,
         secretAccessKey: config.secretAccessKey || undefined
       });
-      model = bedrock(aiModel.model_id);
+      model = bedrock(ensureRDSString(aiModel.model_id) as any);
       break;
     }
     default:
-      throw new Error(`Unknown provider: ${aiModel.provider}`);
+      throw new Error(`Unknown provider: ${ensureRDSString(aiModel.provider)}`);
     }
   } catch (modelError) {
     logger.error('[stream-final] Model initialization error:', modelError);

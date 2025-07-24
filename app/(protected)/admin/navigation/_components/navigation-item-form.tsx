@@ -185,7 +185,7 @@ export function NavigationItemForm({
                       <FormItem>
                         <FormLabel>Label</FormLabel>
                         <FormControl>
-                          <Input {...field} value={field.value || ''} />
+                          <Input {...field} value={typeof field.value === 'boolean' ? '' : (field.value || '')} />
                         </FormControl>
                         <FormDescription>
                           This is the label that will be displayed in the navigation.
@@ -284,7 +284,7 @@ export function NavigationItemForm({
                       <FormItem>
                         <FormLabel>Link</FormLabel>
                         <FormControl>
-                          <Input {...field} value={field.value || ''} />
+                          <Input {...field} value={typeof field.value === 'boolean' ? '' : (field.value || '')} />
                         </FormControl>
                         <FormDescription>
                           This is the link that will be used when the item is clicked.
@@ -302,7 +302,7 @@ export function NavigationItemForm({
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Textarea {...field} value={field.value || ''} className="h-20" />
+                        <Textarea {...field} value={typeof field.value === 'boolean' ? '' : (field.value || '')} className="h-20" />
                       </FormControl>
                       <FormDescription>
                         This will be displayed when the navigation item is of type page.

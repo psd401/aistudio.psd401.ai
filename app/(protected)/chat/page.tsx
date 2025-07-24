@@ -3,6 +3,7 @@ import { Chat } from "./_components/chat"
 import { getServerSession } from "@/lib/auth/server-session"
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 import { executeSQL } from "@/lib/db/data-api-adapter"
+import { ensureRDSString, ensureRDSNumber } from "@/lib/type-helpers"
 
 interface ChatPageProps {
   searchParams: Promise<{ conversation?: string }>
@@ -45,7 +46,7 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
     const conversation = await executeSQL(conversationQuery, conversationParams);
 
     if (conversation && conversation.length > 0) {
-      conversationTitle = conversation[0].title; // Set title from fetched conversation
+      conversationTitle = ensureRDSString(conversation[0].title); // Set title from fetched conversation
 
       // Step 2: Fetch messages for the verified conversation
       const messagesQuery = `
@@ -60,9 +61,9 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
       const messages = await executeSQL(messagesQuery, messagesParams);
       
       initialMessages = messages.map(msg => ({
-        id: msg.id.toString(), // Convert serial ID to string if needed by Chat component
-        content: msg.content,
-        role: msg.role as "user" | "assistant"
+        id: ensureRDSNumber(msg.id).toString(), // Convert serial ID to string if needed by Chat component
+        content: ensureRDSString(msg.content),
+        role: ensureRDSString(msg.role) as "user" | "assistant"
       }));
     } else {
       // Optionally redirect or show an error if the conversation is not accessible
@@ -76,7 +77,6 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
     <Chat
       // Pass conversationId only if it's valid and verified, otherwise undefined for new chat
       conversationId={initialMessages.length > 0 ? conversationId : undefined}
-      title={conversationTitle} // Pass the fetched or default title
       initialMessages={initialMessages}
     />
   )

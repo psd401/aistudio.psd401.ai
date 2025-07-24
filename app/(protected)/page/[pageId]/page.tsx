@@ -39,7 +39,7 @@ export default async function PublicPage({ params }: PageProps) {
     ORDER BY position ASC
   `;
   const childItems = await executeSQL(childItemsSql, [
-    { name: 'parentId', value: { longValue: pageItem.id } }
+    { name: 'parentId', value: { longValue: ensureRDSNumber(pageItem.id) } }
   ]);
 
   // Helper to extract toolId from a link like /tools/assistant-architect/{toolId}
@@ -66,7 +66,7 @@ export default async function PublicPage({ params }: PageProps) {
     }));
     
     const assistantRows = await executeSQL(assistantsSql, assistantParams);
-    assistants = Object.fromEntries(assistantRows.map((a) => [ensureRDSNumber(a.id), a]))
+    assistants = Object.fromEntries(assistantRows.map((a) => [ensureRDSNumber(a.id), a as unknown as SelectAssistantArchitect]))
   }
 
   return (
