@@ -76,15 +76,15 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
   } = useChat({
     api: '/api/chat/stream-final',
     body: {
-      modelId: actualModelId,
+      modelId: actualModelId || 1, // Default to model ID 1 if not available
       conversationId: currentConversationId,
       source: "assistant_execution",
-      executionId: isPreview ? null : execution.id,
-      context: currentConversationId === null ? {
+      executionId: isPreview ? null : execution?.id || null,
+      context: currentConversationId === null && execution?.promptResults ? {
         executionId: execution.id,
         toolId: execution.assistantArchitectId,
         inputData: execution.inputData,
-        promptResults: execution.promptResults.map(result => ({
+        promptResults: (execution.promptResults || []).map(result => ({
           promptId: result.chainPromptId,
           input: {}, // SelectPromptResult doesn't include input data
           output: result.result,
@@ -137,6 +137,13 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
       }
       // Get the last prompt result
       const lastPromptResult = execution.promptResults[execution.promptResults.length - 1];
+      
+      // Check if chainPromptId exists and is valid
+      if (!lastPromptResult.chainPromptId) {
+        // Skip fetching if no chainPromptId available
+        return;
+      }
+      
       try {
         // Fetch the prompt details to get the correct text model ID
         const response = await fetch(`/api/assistant-architect/prompts/${lastPromptResult.chainPromptId}`);
@@ -149,10 +156,11 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
             console.error("No actual AI model ID found in prompt response");
           }
         } else {
-          console.error("Failed to fetch prompt details");
+          console.error("Failed to fetch prompt details", response.status);
         }
       } catch (error) {
         console.error("Error fetching model ID", error);
+        // Don't throw or cause UI reset on this error
       }
     };
     fetchModelId();
@@ -186,7 +194,10 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    if (!input.trim() || isLoading || !actualModelId) return
+    if (!input.trim() || isLoading) return
+    
+    // If we don't have actualModelId, don't block the user
+    // The API will use a default model if needed
     
     try {
       handleChatSubmit(e)
@@ -239,7 +250,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
       <div className="p-3 border-b bg-muted/20">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium">Follow-up</h3>
-          {(currentConversationId || execution.promptResults.length > 0) && (
+          {(currentConversationId || (execution?.promptResults?.length > 0)) && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -254,7 +265,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
                     <div>The AI assistant has access to:</div>
                     <ul className="mt-1 ml-4 list-disc">
                       <li>Your original inputs</li>
-                      <li>{execution.promptResults.length} prompt execution results</li>
+                      <li>{execution?.promptResults?.length || 0} prompt execution results</li>
                       <li>Complete conversation history</li>
                     </ul>
                   </div>
