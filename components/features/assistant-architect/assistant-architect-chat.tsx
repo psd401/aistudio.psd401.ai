@@ -35,6 +35,18 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
   const scrollRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
+  // Log component lifecycle
+  useEffect(() => {
+    console.log('[AssistantArchitectChat] Component mounted/updated', {
+      executionId: execution.id,
+      conversationId: currentConversationId,
+      isPreview
+    })
+    return () => {
+      console.log('[AssistantArchitectChat] Component unmounting')
+    }
+  }, [])
+
   // Use Vercel AI SDK's useChat hook
   const { 
     messages, 
@@ -81,6 +93,8 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
         description: error.message || "Failed to send message",
         variant: "destructive"
       })
+      // Prevent any navigation or page reload on error
+      return false
     },
     onFinish: () => {
       // Scroll to bottom when message is complete
@@ -156,7 +170,17 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
     e.preventDefault()
     e.stopPropagation()
     if (!input.trim() || isLoading || !actualModelId) return
-    handleChatSubmit(e)
+    
+    try {
+      handleChatSubmit(e)
+    } catch (error) {
+      console.error("Error submitting chat message:", error)
+      toast({
+        title: "Error",
+        description: "Failed to send message. Please try again.",
+        variant: "destructive"
+      })
+    }
   }
 
   const MessageList = memo(function MessageList({ messages, isLoading }: { messages: Array<{ id: string; content: string; role: "user" | "assistant" | "system" | "function" | "data" | "tool" }>, isLoading: boolean }) {

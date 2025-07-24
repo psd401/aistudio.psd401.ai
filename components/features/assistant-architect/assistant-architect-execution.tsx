@@ -30,6 +30,7 @@ import ErrorBoundary from "@/components/utilities/error-boundary"
 import type { AssistantArchitectWithRelations } from "@/types/assistant-architect-types"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AssistantArchitectChat } from "./assistant-architect-chat"
+import { ChatErrorBoundary } from "./chat-error-boundary"
 import type { SelectPromptResult } from "@/types/db-types"
 import Image from "next/image"
 import PdfUploadButton from "@/components/ui/pdf-upload-button"
@@ -1087,14 +1088,16 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                       )}
                     </div>
                   ))}
-                  {results.status === "completed" && (
+                  {(results.status === "completed" || conversationId !== null) && (
                     <div className="mt-8">
-                      <AssistantArchitectChat
-                        execution={results}
-                        conversationId={conversationId}
-                        onConversationCreated={setConversationId}
-                        isPreview={isPreview}
-                      />
+                      <ChatErrorBoundary>
+                        <AssistantArchitectChat
+                          execution={results}
+                          conversationId={conversationId}
+                          onConversationCreated={setConversationId}
+                          isPreview={isPreview}
+                        />
+                      </ChatErrorBoundary>
                     </div>
                   )}
                 </div>
