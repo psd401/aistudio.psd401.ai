@@ -36,15 +36,17 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
   const scrollRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
-  // Log component lifecycle
+  // Log component lifecycle (only in development)
   useEffect(() => {
-    console.log('[AssistantArchitectChat] Component mounted/updated', {
-      executionId: execution.id,
-      conversationId: currentConversationId,
-      isPreview
-    })
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.log('[AssistantArchitectChat] Component mounted')
+    }
     return () => {
-      console.log('[AssistantArchitectChat] Component unmounting')
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.log('[AssistantArchitectChat] Component unmounting')
+      }
     }
   }, [])
 
@@ -66,13 +68,13 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
       executionId: isPreview ? null : execution.id,
       context: currentConversationId === null ? {
         executionId: execution.id,
-        toolId: execution.toolId,
+        toolId: execution.assistantArchitectId,
         inputData: execution.inputData,
         promptResults: execution.promptResults.map(result => ({
-          promptId: result.promptId,
-          input: result.inputData,
-          output: result.outputData,
-          status: result.status
+          promptId: result.chainPromptId,
+          input: {}, // Result doesn't have inputData, using empty object
+          output: result.result,
+          status: 'completed' // Result doesn't have status, assuming completed
         }))
       } : null
     },
@@ -123,7 +125,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
       const lastPromptResult = execution.promptResults[execution.promptResults.length - 1];
       try {
         // Fetch the prompt details to get the correct text model ID
-        const response = await fetch(`/api/assistant-architect/prompts/${lastPromptResult.promptId}`);
+        const response = await fetch(`/api/assistant-architect/prompts/${lastPromptResult.chainPromptId}`);
         if (response.ok) {
           const promptData = await response.json();
           // Use the actualModelId (text) provided by the API
@@ -188,7 +190,11 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
     return (
       <div className="space-y-4">
         {messages.map((message) => (
-          <Message key={message.id} message={message} />
+          <Message key={message.id} message={{ 
+            id: message.id, 
+            role: message.role as "user" | "assistant", 
+            content: message.content 
+          }} />
         ))}
         {isLoading && (
           <div className="flex items-start space-x-2 text-muted-foreground">
