@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
         SELECT id, user_id, type, status, input, output, error, created_at, updated_at
         FROM jobs
         WHERE id = :jobId
-      `, [{ name: 'jobId', value: { longValue: job.id } }]);
+      `, [{ name: 'jobId', value: { longValue: job.id as number } }]);
       
       if (foundJobs && foundJobs.length > 0) {
         committedJob = foundJobs[0];
@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
     }
     
     // Start processing in the background (non-blocking)
-    processPdfInBackground(job.id, jobInput).catch(error => {
+    processPdfInBackground(job.id as number, jobInput).catch(error => {
       logger.error('[PDF-to-Markdown] Background processing error:', error);
     });
     
@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
     // Return immediately with job ID
     return new NextResponse(
       JSON.stringify({ 
-        jobId: job.id,
+        jobId: job.id as number,
         status: 'processing',
         message: 'PDF processing started. Poll for status updates.'
       }), 
@@ -208,15 +208,15 @@ async function processPdfInBackground(jobId: number, jobInput: JobInput) {
     logger.info(`[PDF-to-Markdown Background] Prepared messages for job ${jobId}:`, {
       role: messages[0].role,
       contentTypes: messages[0].content.map(c => c.type),
-      textLength: messages[0].content[0].text.length,
-      fileSize: messages[0].content[1].data.length
+      textLength: (messages[0].content[0] as { type: string; text: string })?.text?.length || 0,
+      fileSize: (messages[0].content[1] as { type: string; data: Buffer })?.data?.length || 0
     });
     
     // Call the LLM
     logger.info(`[PDF-to-Markdown Background] Calling LLM for job ${jobId}...`);
     const startTime = Date.now();
     const markdown = await generateCompletion(
-      { provider: model.provider, modelId: model.model_id },
+      { provider: model.provider as string, modelId: model.model_id as string },
       messages
     );
     

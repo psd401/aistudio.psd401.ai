@@ -31,8 +31,8 @@ export interface StreamingOptions {
   onToken?: (token: string) => void
   onFinish?: (result: { 
     text?: string; 
-    toolCalls?: CoreToolCall[]; 
-    toolResults?: CoreToolResult[]; 
+    toolCalls?: CoreToolCall<string, unknown>[]; 
+    toolResults?: CoreToolResult<string, unknown, unknown>[]; 
     finishReason?: FinishReason; 
     usage?: { 
       promptTokens?: number; 
@@ -159,7 +159,7 @@ export async function streamCompletion(
   messages: CoreMessage[],
   options?: StreamingOptions,
   tools?: Record<string, CoreTool>
-): Promise<StreamTextResult<Record<string, CoreTool>>> {
+): Promise<StreamTextResult<Record<string, CoreTool>, unknown>> {
   const model = await getModelClient(modelConfig);
   
   try {

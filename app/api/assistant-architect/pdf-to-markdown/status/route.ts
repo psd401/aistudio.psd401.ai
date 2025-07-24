@@ -61,22 +61,22 @@ export async function GET(req: NextRequest) {
     }
 
     let result: JobResult = {
-      jobId: job.id,
-      status: job.status,
-      createdAt: job.created_at,
-      updatedAt: job.updated_at
+      jobId: job.id as number,
+      status: job.status as string,
+      createdAt: job.created_at as string,
+      updatedAt: job.updated_at as string
     };
 
     if (job.status === 'completed' && job.output) {
       try {
-        const output = JSON.parse(job.output);
+        const output = JSON.parse(job.output as string);
         result = { ...result, ...output };
       } catch (e) {
         logger.error('[PDF Status Check] Failed to parse job output:', e);
         return new NextResponse(JSON.stringify({ error: 'Failed to parse job result' }), { status: 500, headers });
       }
     } else if (job.status === 'failed') {
-      result.error = job.error || 'Processing failed';
+      result.error = (job.error as string) || 'Processing failed';
     }
 
     return new NextResponse(JSON.stringify(result), { status: 200, headers });
