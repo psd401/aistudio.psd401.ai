@@ -1146,7 +1146,15 @@ export async function updateAssistantArchitect(id: number, updates: Record<strin
 export async function deleteAssistantArchitect(id: number) {
   // Delete related records first to avoid foreign key constraint violations
   
-  // Delete chain prompts
+  // First delete prompt_results (references chain_prompts)
+  await executeSQL(`
+    DELETE FROM prompt_results
+    WHERE prompt_id IN (
+      SELECT id FROM chain_prompts WHERE assistant_architect_id = :id
+    )
+  `, [{ name: 'id', value: { longValue: id } }]);
+  
+  // Then delete chain prompts
   await executeSQL(`
     DELETE FROM chain_prompts 
     WHERE assistant_architect_id = :id

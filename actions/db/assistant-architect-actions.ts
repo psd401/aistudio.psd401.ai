@@ -387,32 +387,16 @@ export async function deleteAssistantArchitectAction(
   id: string
 ): Promise<ActionState<void>> {
   try {
-    // First delete all related records in the correct order
-    // Delete prompt_results (references chain_prompts)
-    await executeSQL<never>(`
-      DELETE FROM prompt_results
-      WHERE prompt_id IN (
-        SELECT id FROM chain_prompts WHERE assistant_architect_id = :id
-      )
-    `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
+    const session = await getServerSession();
+    if (!session || !session.sub) {
+      return { isSuccess: false, message: "Unauthorized" }
+    }
     
-    // Delete tool_executions (which might have prompt_results)
-    await executeSQL<never>(`
-      DELETE FROM tool_executions
-      WHERE assistant_architect_id = :id
-    `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
-    
-    // Delete chain_prompts
-    await executeSQL<never>(`
-      DELETE FROM chain_prompts
-      WHERE assistant_architect_id = :id
-    `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
-    
-    // Delete tool_input_fields
-    await executeSQL<never>(`
-      DELETE FROM tool_input_fields
-      WHERE assistant_architect_id = :id
-    `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
+    // Check if user has admin access
+    const hasAccess = await hasToolAccess(session.sub, "admin");
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied" }
+    }
     
     // Delete from tools table (using prompt_chain_tool_id which references assistant_architect)
     await executeSQL<never>(`
@@ -426,11 +410,9 @@ export async function deleteAssistantArchitectAction(
       WHERE link = :link
     `, [{ name: 'link', value: { stringValue: `/tools/assistant-architect/${id}` } }]);
     
-    // Finally delete the assistant architect
-    await executeSQL<never>(`
-      DELETE FROM assistant_architects
-      WHERE id = :id
-    `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
+    // Use the deleteAssistantArchitect function which handles all the cascade deletes properly
+    const { deleteAssistantArchitect } = await import("@/lib/db/data-api-adapter");
+    await deleteAssistantArchitect(parseInt(id, 10));
 
     return {
       isSuccess: true,
