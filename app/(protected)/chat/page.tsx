@@ -23,7 +23,7 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
   
   const userId = currentUser.data.user.id
   
-  let initialMessages = []
+  let initialMessages: Array<{ id: string; content: string; role: "user" | "assistant" }> = []
   const resolvedParams = await searchParams
   const conversationIdParam = resolvedParams.conversation
   const conversationId = conversationIdParam ? parseInt(conversationIdParam) : undefined

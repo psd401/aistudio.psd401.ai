@@ -71,7 +71,7 @@ export function filterDefined<T>(array: (T | null | undefined)[]): T[] {
  */
 
 // RDS Data API Field value type
-export type RDSFieldValue = string | number | boolean | Uint8Array | ArrayValue | null;
+export type RDSFieldValue = string | number | boolean | Uint8Array | any | null;
 
 /**
  * Type guard to check if RDS field value is a string
@@ -149,13 +149,3 @@ export function toReactKey(value: RDSFieldValue): string | number {
   return String(value);
 }
 
-/**
- * Type for ArrayValue from RDS Data API
- */
-export type ArrayValue = {
-  arrayValue?: {
-    stringValues?: string[];
-    longValues?: number[];
-    booleanValues?: boolean[];
-  };
-};

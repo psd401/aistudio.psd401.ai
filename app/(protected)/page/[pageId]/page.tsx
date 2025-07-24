@@ -53,7 +53,7 @@ export default async function PublicPage({ params }: PageProps) {
   // For each child, try to extract assistant/tool id from the link
   const childAssistantIds = childItems
     .map((child) => extractAssistantId(child.link))
-    .filter((id): id is number => Boolean(id) && !isNaN(id))
+    .filter((id): id is number => id !== null && !isNaN(id))
 
   let assistants: Record<number, SelectAssistantArchitect> = {}
   if (childAssistantIds.length > 0) {
@@ -91,9 +91,9 @@ export default async function PublicPage({ params }: PageProps) {
                   className="block rounded-lg border bg-card shadow-sm hover:shadow-md transition p-6 group focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   <div className="flex items-start">
-                    {assistant && assistant.image_path ? (
+                    {assistant && assistant.imagePath ? (
                       <Image
-                        src={`/assistant_logos/${assistant.image_path}`}
+                        src={`/assistant_logos/${assistant.imagePath}`}
                         alt={assistant.name}
                         width={64}
                         height={64}
