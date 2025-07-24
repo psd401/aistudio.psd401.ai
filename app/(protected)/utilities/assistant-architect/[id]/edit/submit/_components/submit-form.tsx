@@ -65,12 +65,12 @@ export function SubmitForm({ id, tool }: Props) {
               />
               <RequirementItem
                 title="Input Fields"
-                isComplete={tool.inputFields?.length > 0}
+                isComplete={(tool.inputFields?.length ?? 0) > 0}
                 description="At least one input field defined"
               />
               <RequirementItem
                 title="Prompts"
-                isComplete={tool.prompts?.length > 0}
+                isComplete={(tool.prompts?.length ?? 0) > 0}
                 description="At least one prompt configured"
               />
             </div>
@@ -116,7 +116,7 @@ function isComplete(tool: ArchitectWithRelations): boolean {
   return !!(
     tool.name &&
     tool.description &&
-    tool.inputFields?.length > 0 &&
-    tool.prompts?.length > 0
+    (tool.inputFields?.length ?? 0) > 0 &&
+    (tool.prompts?.length ?? 0) > 0
   )
 } 
