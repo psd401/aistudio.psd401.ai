@@ -9,7 +9,13 @@ import { ChatInput } from "@/components/ui/chat-input"
 import { Message } from "@/components/ui/message"
 import { ExecutionResultDetails } from "@/types/assistant-architect-types"
 import { IconPlayerStop } from "@tabler/icons-react"
-import { Loader2 } from "lucide-react"
+import { Loader2, Info } from "lucide-react"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 interface AssistantArchitectChatProps {
   execution: ExecutionResultDetails
@@ -46,9 +52,14 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
       source: "assistant_execution",
       executionId: isPreview ? null : execution.id,
       context: currentConversationId === null ? {
+        executionId: execution.id,
+        toolId: execution.toolId,
+        inputData: execution.inputData,
         promptResults: execution.promptResults.map(result => ({
+          promptId: result.promptId,
           input: result.inputData,
-          output: result.outputData
+          output: result.outputData,
+          status: result.status
         }))
       } : null
     },
@@ -181,7 +192,32 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
   return (
     <div className="flex flex-col h-[400px] border rounded-lg overflow-hidden">
       <div className="p-3 border-b bg-muted/20">
-        <h3 className="text-sm font-medium">Follow-up</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium">Follow-up</h3>
+          {(currentConversationId || execution.promptResults.length > 0) && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-help">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                    <span>Context available</span>
+                    <Info className="w-3 h-3" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs">
+                  <p className="text-xs">
+                    The AI assistant has access to:
+                    <ul className="mt-1 ml-4 list-disc">
+                      <li>Your original inputs</li>
+                      <li>{execution.promptResults.length} prompt execution results</li>
+                      <li>Complete conversation history</li>
+                    </ul>
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
       </div>
 
       <ScrollArea ref={scrollRef} className="flex-1 p-4">

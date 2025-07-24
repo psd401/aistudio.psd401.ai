@@ -216,17 +216,89 @@ export async function POST(req: Request) {
     // Continue without document context if there's an error
   }
 
+  // Retrieve execution context if this conversation is linked to an execution
+  let executionContext = "";
+  let fullContext = context;
+  
+  if (existingConversationId) {
+    // For existing conversations, retrieve the stored context and execution data
+    const conversationData = await executeSQL(
+      `SELECT context, execution_id FROM conversations WHERE id = :conversationId`,
+      [{ name: 'conversationId', value: { longValue: existingConversationId } }]
+    );
+    
+    if (conversationData.length > 0) {
+      const conv = conversationData[0];
+      fullContext = conv.context ? JSON.parse(conv.context) : null;
+      
+      // If there's an execution_id, fetch the full execution details
+      if (conv.execution_id) {
+        const executionData = await executeSQL(
+          `SELECT 
+            te.id, te.input_data, te.status, te.started_at, te.completed_at,
+            aa.name as tool_name, aa.description as tool_description
+           FROM tool_executions te
+           JOIN assistant_architects aa ON te.assistant_architect_id = aa.id
+           WHERE te.id = :executionId`,
+          [{ name: 'executionId', value: { longValue: conv.execution_id } }]
+        );
+        
+        if (executionData.length > 0) {
+          const exec = executionData[0];
+          
+          // Get all prompt results for this execution
+          const promptResults = await executeSQL(
+            `SELECT 
+              pr.prompt_id, pr.input_data, pr.output_data, pr.status,
+              cp.name as prompt_name
+             FROM prompt_results pr
+             JOIN chain_prompts cp ON pr.prompt_id = cp.id
+             WHERE pr.execution_id = :executionId
+             ORDER BY pr.started_at ASC`,
+            [{ name: 'executionId', value: { longValue: conv.execution_id } }]
+          );
+          
+          // Build execution context
+          executionContext = `\n\nExecution Context:
+Tool: ${exec.tool_name}
+Description: ${exec.tool_description}
+Execution Status: ${exec.status}
+Original Inputs: ${exec.input_data}
+
+Prompt Results:
+${promptResults.map((pr, idx) => `
+${idx + 1}. ${pr.prompt_name}:
+   Input: ${JSON.stringify(pr.input_data)}
+   Output: ${pr.output_data}
+   Status: ${pr.status}`).join('\n')}
+
+This context provides the complete execution history that the user is asking about. Use this information to answer their questions accurately.`;
+        }
+      }
+    }
+  }
+
   // Build system prompt based on source
   let systemPrompt = source === "assistant_execution"
-    ? "You are a helpful AI assistant having a follow-up conversation about the results of an AI tool execution. Use the context provided to help answer questions, but stay focused on topics related to the execution results. If a question is completely unrelated to the execution results, politely redirect the user to start a new chat for unrelated topics."
+    ? `You are a helpful AI assistant having a follow-up conversation about the results of an AI tool execution. 
+
+Key responsibilities:
+1. Use the execution context provided to answer questions accurately about the tool execution
+2. Reference specific prompt results when relevant to the user's questions
+3. If asked about inputs, outputs, or the process, refer to the detailed execution history
+4. Stay focused on topics related to the execution results
+5. If a question is completely unrelated to the execution, politely suggest starting a new chat
+
+Remember: You have access to the complete execution history including all inputs, outputs, and prompt results. Use this information to provide accurate and helpful responses.`
     : "You are a helpful AI assistant.";
   
   systemPrompt += documentContext;
+  systemPrompt += executionContext;
 
   const aiMessages = [
     { role: 'system' as const, content: systemPrompt },
-    // Only include context if it's the first message (no previous messages) and we have context
-    ...(allMessages.length === 1 && context ? [{ role: 'system' as const, content: `Context from execution: ${JSON.stringify(context)}` }] : []),
+    // Include context for new conversations or if we have full context from retrieval
+    ...(fullContext && allMessages.length === 1 ? [{ role: 'system' as const, content: `Initial execution context: ${JSON.stringify(fullContext)}` }] : []),
     ...allMessages.map(msg => ({ role: msg.role as 'user' | 'assistant', content: msg.content }))
   ];
 
