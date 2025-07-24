@@ -82,30 +82,13 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
         toolId: execution.assistantArchitectId || 0,
         inputData: execution.inputData || {},
         promptResults: (execution.promptResults || []).map(result => {
-          // Use safe type checking with type guard
-          if (isSelectPromptResult(result)) {
-            // Safely access extended fields that may exist
-            const extendedResult = {
-              ...result,
-              inputData: (result as any).inputData,
-              outputData: (result as any).outputData || (result as any).result,
-              status: (result as any).status
-            }
-            
-            return {
-              promptId: extendedResult.chainPromptId || extendedResult.id || 0,
-              input: extendedResult.inputData || {},
-              output: extendedResult.outputData || '',
-              status: extendedResult.status || 'completed'
-            }
-          }
-          
-          // Fallback for results that don't match the type guard
+          // The actual data from the database includes additional fields beyond SelectPromptResult
+          const extendedResult = result as any;
           return {
-            promptId: (result as any)?.promptId || (result as any)?.id || 0,
-            input: (result as any)?.inputData || {},
-            output: (result as any)?.outputData || (result as any)?.result || '',
-            status: (result as any)?.status || 'completed'
+            promptId: extendedResult.chainPromptId || extendedResult.id || 0,
+            input: extendedResult.inputData || {},
+            output: extendedResult.outputData || extendedResult.result || '',
+            status: extendedResult.status || 'completed'
           }
         })
       } as ExecutionContext : null

@@ -12,8 +12,12 @@ const customJestConfig = {
   testEnvironment: 'jest-environment-jsdom',
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
+    'lucide-react': '<rootDir>/tests/mocks/lucide-react.js'
   },
   setupFiles: ['<rootDir>/.jest/setEnvVars.js'],
+  transformIgnorePatterns: [
+    'node_modules/(?!(lucide-react)/)'
+  ]
 };
 
 module.exports = createJestConfig(customJestConfig); 
