@@ -86,9 +86,9 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
         inputData: execution.inputData,
         promptResults: execution.promptResults.map(result => ({
           promptId: result.chainPromptId,
-          input: {}, // Result doesn't have inputData, using empty object
+          input: {}, // SelectPromptResult doesn't include input data
           output: result.result,
-          status: 'completed' // Result doesn't have status, assuming completed
+          status: 'completed' // SelectPromptResult doesn't include status
         }))
       } as ExecutionContext : null
     },
@@ -96,8 +96,8 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
       // Get conversation ID from header if this is a new conversation
       const conversationIdHeader = response.headers.get('X-Conversation-Id')
       if (!currentConversationId && conversationIdHeader) {
-        const newConvId = parseInt(conversationIdHeader)
-        if (!isNaN(newConvId)) {
+        const newConvId = parseInt(conversationIdHeader, 10)
+        if (Number.isInteger(newConvId) && newConvId > 0) {
           setCurrentConversationId(newConvId)
           onConversationCreated?.(newConvId)
         }

@@ -229,68 +229,87 @@ export async function POST(req: Request) {
     if (isNaN(parsedConvId) || parsedConvId <= 0) {
       logger.warn('Invalid conversationId provided', { conversationId: existingConversationId });
     } else {
-      // For existing conversations, retrieve all context data in a single optimized query
-      const contextData = await executeSQL(
-        `SELECT 
-          c.context, c.execution_id,
-          te.input_data, te.status as exec_status, te.started_at, te.completed_at,
-          aa.name as tool_name, aa.description as tool_description,
-          pr.prompt_id, pr.input_data as prompt_input, pr.output_data, pr.status as prompt_status,
-          cp.name as prompt_name
+      // First, get conversation data
+      const conversationData = await executeSQL(
+        `SELECT c.context, c.execution_id
         FROM conversations c
-        LEFT JOIN tool_executions te ON c.execution_id = te.id
-        LEFT JOIN assistant_architects aa ON te.assistant_architect_id = aa.id
-        LEFT JOIN prompt_results pr ON pr.execution_id = te.id
-        LEFT JOIN chain_prompts cp ON pr.prompt_id = cp.id
-        WHERE c.id = :conversationId
-        ORDER BY pr.started_at ASC`,
+        WHERE c.id = :conversationId`,
         [{ name: 'conversationId', value: { longValue: parsedConvId } }]
       );
       
-      if (contextData.length > 0) {
-        const firstRow = contextData[0];
+      if (conversationData.length > 0) {
+        const conversation = conversationData[0];
         
         // Parse stored context with error handling
         try {
-          fullContext = firstRow.context ? JSON.parse(firstRow.context) : null;
+          const contextStr = conversation.context as string | null;
+          fullContext = contextStr ? JSON.parse(contextStr) : null;
+          // Validate context structure
+          if (fullContext && typeof fullContext !== 'object') {
+            throw new Error('Invalid context format');
+          }
+          // Validate context size
+          if (fullContext && JSON.stringify(fullContext).length > 100000) {
+            logger.warn('Context data too large, truncating', { 
+              conversationId: parsedConvId,
+              contextSize: JSON.stringify(fullContext).length
+            });
+            fullContext = null;
+          }
         } catch (parseError) {
           logger.warn('Failed to parse conversation context', { 
             conversationId: parsedConvId, 
+            contextLength: conversation.context ? String(conversation.context).length : 0,
             error: parseError instanceof Error ? parseError.message : 'Unknown error' 
           });
           fullContext = null;
         }
         
-        // If there's an execution_id, build the execution context
-        if (firstRow.execution_id) {
+        // If there's an execution_id, fetch execution details separately
+        if (conversation.execution_id) {
           // Validate executionId
-          const execId = typeof firstRow.execution_id === 'number' ? firstRow.execution_id : parseInt(firstRow.execution_id, 10);
+          const execId = typeof conversation.execution_id === 'number' ? conversation.execution_id : parseInt(String(conversation.execution_id), 10);
           if (!isNaN(execId) && execId > 0) {
-            // Group prompt results from the joined data
-            const promptResults = contextData
-              .filter(row => row.prompt_id !== null)
-              .map(row => ({
-                prompt_name: row.prompt_name,
-                input_data: row.prompt_input,
-                output_data: row.output_data,
-                status: row.prompt_status
-              }));
+            // Get execution details
+            const executionData = await executeSQL(
+              `SELECT te.input_data, te.status as exec_status, te.started_at, te.completed_at,
+                      aa.name as tool_name, aa.description as tool_description
+              FROM tool_executions te
+              LEFT JOIN assistant_architects aa ON te.assistant_architect_id = aa.id
+              WHERE te.id = :executionId`,
+              [{ name: 'executionId', value: { longValue: execId } }]
+            );
             
-            // Build execution context
-            executionContext = `\n\nExecution Context:
-Tool: ${firstRow.tool_name}
-Description: ${firstRow.tool_description}
-Execution Status: ${firstRow.exec_status}
-Original Inputs: ${firstRow.input_data}
+            if (executionData.length > 0) {
+              const execution = executionData[0];
+              
+              // Get prompt results separately to avoid duplication
+              const promptResults = await executeSQL(
+                `SELECT pr.prompt_id, pr.input_data as prompt_input, pr.output_data, 
+                        pr.status as prompt_status, cp.name as prompt_name
+                FROM prompt_results pr
+                LEFT JOIN chain_prompts cp ON pr.prompt_id = cp.id
+                WHERE pr.execution_id = :executionId
+                ORDER BY pr.started_at ASC`,
+                [{ name: 'executionId', value: { longValue: execId } }]
+              );
+              
+              // Build execution context
+              executionContext = `\n\nExecution Context:
+Tool: ${execution.tool_name}
+Description: ${execution.tool_description}
+Execution Status: ${execution.exec_status}
+Original Inputs: ${execution.input_data}
 
 Prompt Results:
 ${promptResults.map((pr, idx) => `
 ${idx + 1}. ${pr.prompt_name}:
-   Input: ${JSON.stringify(pr.input_data)}
+   Input: ${JSON.stringify(pr.prompt_input)}
    Output: ${pr.output_data}
-   Status: ${pr.status}`).join('\n')}
+   Status: ${pr.prompt_status}`).join('\n')}
 
 This context provides the complete execution history that the user is asking about. Use this information to answer their questions accurately.`;
+            }
           }
         }
       }
@@ -319,7 +338,7 @@ Remember: You have access to the complete execution history including all inputs
     // Include context for new conversations or if we have full context from retrieval
     ...(fullContext && allMessages.length === 1 ? [{ role: 'system' as const, content: `Initial execution context: ${JSON.stringify(fullContext)}` }] : []),
     ...allMessages.map(msg => ({ 
-      role: (msg.role === 'user' ? 'user' : 'assistant') as const, 
+      role: msg.role === 'user' ? 'user' as const : 'assistant' as const, 
       content: String(msg.content) 
     }))
   ];

@@ -26,7 +26,7 @@ jest.mock('@/lib/logger', () => ({
 }))
 
 // Mock the getCurrentUser module
-jest.mock('@/actions/db/user-actions', () => ({
+jest.mock('@/actions/db/get-current-user-action', () => ({
   getCurrentUser: jest.fn().mockResolvedValue({
     isSuccess: true,
     data: { user: { id: 1, email: 'test@example.com' } }
