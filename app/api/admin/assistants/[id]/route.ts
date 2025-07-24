@@ -6,10 +6,11 @@ import {
   approveAssistantArchitect,
   rejectAssistantArchitect
 } from "@/lib/db/data-api-adapter"
+import logger from '@/lib/logger'
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Check admin authorization
@@ -17,7 +18,8 @@ export async function PUT(
     if (authError) return authError;
 
     const body = await request.json()
-    const { id } = params
+    const resolvedParams = await params
+    const { id } = resolvedParams
     
     const assistantId = parseInt(id, 10)
     if (isNaN(assistantId)) {
@@ -35,7 +37,7 @@ export async function PUT(
       data: assistant
     })
   } catch (error) {
-    console.error('Error updating assistant:', error)
+    logger.error('Error updating assistant:', error)
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to update assistant' },
       { status: 500 }
@@ -45,14 +47,15 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Check admin authorization
     const authError = await requireAdmin();
     if (authError) return authError;
 
-    const { id } = params
+    const resolvedParams = await params
+    const { id } = resolvedParams
     
     const assistantId = parseInt(id, 10)
     if (isNaN(assistantId)) {
@@ -69,7 +72,7 @@ export async function DELETE(
       message: 'Assistant deleted successfully'
     })
   } catch (error) {
-    console.error('Error deleting assistant:', error)
+    logger.error('Error deleting assistant:', error)
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to delete assistant' },
       { status: 500 }
@@ -79,7 +82,7 @@ export async function DELETE(
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Check admin authorization
@@ -87,7 +90,8 @@ export async function POST(
     if (authError) return authError;
 
     const body = await request.json()
-    const { id } = params
+    const resolvedParams = await params
+    const { id } = resolvedParams
     
     const assistantId = parseInt(id, 10)
     if (isNaN(assistantId)) {
@@ -119,7 +123,7 @@ export async function POST(
       { status: 400 }
     )
   } catch (error) {
-    console.error('Error processing assistant action:', error)
+    logger.error('Error processing assistant action:', error)
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to process action' },
       { status: 500 }

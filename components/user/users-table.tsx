@@ -15,6 +15,7 @@ import {
   getSortedRowModel,
   SortingState,
   useReactTable,
+  Column,
 } from '@tanstack/react-table';
 import { IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-react';
 
@@ -145,7 +146,7 @@ export function UsersTable({
     title,
     className = ""
   }: {
-    column: any;
+    column: Column<User, unknown>;
     title: string;
     className?: string;
   }) => (

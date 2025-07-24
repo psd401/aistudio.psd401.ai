@@ -68,11 +68,11 @@ export function validateColumns(tableName: keyof typeof ALLOWED_UPDATE_COLUMNS, 
     throw new Error(`No column validation configured for table: ${tableName}`);
   }
   
-  const validColumns = columns.filter(col => allowedColumns.includes(col as any));
+  const validColumns = columns.filter(col => (allowedColumns as readonly string[]).includes(col));
   
   // Log any rejected columns in development
   if (process.env.NODE_ENV === 'development') {
-    const rejected = columns.filter(col => !allowedColumns.includes(col as any));
+    const rejected = columns.filter(col => !(allowedColumns as readonly string[]).includes(col));
     if (rejected.length > 0) {
       logger.warn(`Rejected columns for ${tableName}:`, rejected);
     }
@@ -94,11 +94,11 @@ export function toSnakeCase(str: string): string {
  * @param data Object with column:value pairs
  * @returns Object with validated snake_case columns
  */
-export function sanitizeUpdateData(
+export function sanitizeUpdateData<T extends Record<string, unknown>>(
   tableName: keyof typeof ALLOWED_UPDATE_COLUMNS, 
-  data: Record<string, any>
-): Record<string, any> {
-  const snakeCaseData: Record<string, any> = {};
+  data: T
+): Record<string, unknown> {
+  const snakeCaseData: Record<string, unknown> = {};
   
   // Convert to snake_case
   for (const [key, value] of Object.entries(data)) {
@@ -110,7 +110,7 @@ export function sanitizeUpdateData(
   const validColumns = validateColumns(tableName, Object.keys(snakeCaseData));
   
   // Filter to only valid columns
-  const sanitizedData: Record<string, any> = {};
+  const sanitizedData: Record<string, unknown> = {};
   for (const col of validColumns) {
     sanitizedData[col] = snakeCaseData[col];
   }

@@ -95,7 +95,9 @@ export function requireValidEnv(): void {
   
   // Console warnings in development (logger not available in Edge Runtime)
   if (process.env.NODE_ENV === 'development' && warnings.length > 0) {
+    // eslint-disable-next-line no-console
     console.warn('Environment validation warnings:');
+    // eslint-disable-next-line no-console
     warnings.forEach(warning => console.warn(`  - ${warning}`));
   }
 }

@@ -1,5 +1,4 @@
 import { CognitoJwtVerifier } from "aws-jwt-verify"
-import { NextRequest } from "next/server"
 import { cookies } from "next/headers"
 import logger from '@/lib/logger'
 
@@ -13,7 +12,7 @@ const verifier = CognitoJwtVerifier.create({
   clientId: clientId,
 })
 
-export const getAuthenticatedUser = async (request: NextRequest) => {
+export const getAuthenticatedUser = async () => {
   try {
     // Get the ID token from cookies
     const cookieStore = await cookies()

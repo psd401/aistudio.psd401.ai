@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { SelectAssistantArchitect } from "@/types/db-types"
 import { submitAssistantArchitectForApprovalAction } from "@/actions/db/assistant-architect-actions"
 import { toast } from "sonner"
@@ -29,7 +29,7 @@ export function SubmitForm({ id, tool }: Props) {
       } else {
         toast.error(result.message)
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to submit assistant")
     } finally {
       setIsLoading(false)

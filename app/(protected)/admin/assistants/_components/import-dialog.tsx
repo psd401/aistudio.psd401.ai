@@ -83,7 +83,7 @@ export function ImportDialog({
       })
       setFile(null)
     }
-  }, [])
+  }, [toast])
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()

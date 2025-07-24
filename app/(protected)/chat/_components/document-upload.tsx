@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
-import { PaperclipIcon, FileTextIcon, XIcon, UploadIcon, CheckCircleIcon, Loader2 } from "lucide-react"
+import { FileTextIcon, XIcon, UploadIcon, CheckCircleIcon, Loader2 } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 
 interface Document {
@@ -18,7 +18,6 @@ interface DocumentUploadProps {
   onUploadComplete: (documentInfo: Document) => void
   onFileSelected?: (documentInfo: Partial<Document>) => void
   pendingDocument?: Partial<Document> | null
-  needsUpload?: boolean
 }
 
 export function DocumentUpload({ 
@@ -26,8 +25,7 @@ export function DocumentUpload({
   onUploadComplete, 
   onFileSelected,
   externalInputRef, 
-  pendingDocument,
-  needsUpload = false
+  pendingDocument
 }: DocumentUploadProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -44,7 +42,7 @@ export function DocumentUpload({
       hasAttemptedUpload.current = true;
       uploadDocument(selectedFile);
     }
-  }, [conversationId, selectedFile]);
+  }, [conversationId, selectedFile, uploadDocument]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -114,7 +112,7 @@ export function DocumentUpload({
     uploadDocument(file); // Pass file to upload function
   }
 
-  const uploadDocument = async (fileToUpload: File | null) => {
+  const uploadDocument = useCallback(async (fileToUpload: File | null) => {
     if (!fileToUpload) {
       toast({
         title: "No file selected",
@@ -159,10 +157,10 @@ export function DocumentUpload({
             if (error) errMsg = error
           } else {
             // If response is not JSON, try to read as text
-            const text = await response.text()
+            await response.text()
             errMsg = `Server error: ${response.status} ${response.statusText}`
           }
-        } catch (parseError) {
+        } catch {
           // Keep the default error message
         }
         throw new Error(errMsg)
@@ -175,7 +173,7 @@ export function DocumentUpload({
           throw new Error('Invalid response format: expected JSON')
         }
         data = await response.json()
-      } catch (parseError) {
+      } catch {
         throw new Error('Invalid response format from server')
       }
       
@@ -212,7 +210,7 @@ export function DocumentUpload({
         fileInputRef.current.value = ''
       }
     }
-  }
+  }, [onUploadComplete, fileInputRef])
 
   const cancelSelection = () => { // Renamed for clarity
     setSelectedFile(null)

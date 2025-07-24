@@ -6,13 +6,13 @@ import { getServerSession } from "@/lib/auth/server-session"
 import { checkUserRoleByCognitoSub, executeSQL } from "@/lib/db/data-api-adapter"
 
 interface Props {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 export default async function EditAssistantArchitectPage({ params }: Props) {
-  const resolvedParams = await Promise.resolve(params)
+  const resolvedParams = await params
   const id = resolvedParams.id
   
   const toolResult = await getAssistantArchitectAction(id)

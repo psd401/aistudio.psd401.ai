@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { deleteUser } from '@/lib/db/data-api-adapter';
 import { requireAdmin } from '@/lib/auth/admin-check';
+import logger from '@/lib/logger';
 
 export async function DELETE(
   _request: Request,
@@ -40,7 +41,7 @@ export async function DELETE(
       data: deletedUser
     });
   } catch (error) {
-    console.error('Error deleting user:', error);
+    logger.error('Error deleting user:', error);
     return NextResponse.json(
       { 
         isSuccess: false, 

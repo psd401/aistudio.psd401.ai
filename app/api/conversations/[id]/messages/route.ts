@@ -1,9 +1,8 @@
 import { NextRequest } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
-import { executeSQL } from '@/lib/db/data-api-adapter';
+import { executeSQL, FormattedRow } from '@/lib/db/data-api-adapter';
 import logger from '@/lib/logger';
-
 export async function GET(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -53,11 +52,11 @@ export async function GET(
     const messagesParams = [
       { name: 'conversationId', value: { longValue: conversationId } }
     ];
-    const conversationMessages = await executeSQL(messagesQuery, messagesParams);
+    const conversationMessages = await executeSQL<FormattedRow>(messagesQuery, messagesParams);
 
     // Format messages for the chat
     const formattedMessages = conversationMessages.map(msg => ({
-      id: msg.id.toString(),
+      id: msg.id ? msg.id.toString() : '',
       role: msg.role,
       content: msg.content
     }));

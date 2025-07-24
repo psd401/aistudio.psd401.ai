@@ -1,11 +1,10 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
-import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
-import { addChainPromptAction, deletePromptAction, updatePromptAction, updatePromptPositionAction, getAssistantArchitectByIdAction, setPromptPositionsAction } from "@/actions/db/assistant-architect-actions"
-import { PlusIcon, ArrowUp, ArrowDown, Pencil, Trash2, Plus, X, Play, Loader2, FileUp } from "lucide-react"
+import { addChainPromptAction, deletePromptAction, updatePromptAction, getAssistantArchitectByIdAction, setPromptPositionsAction } from "@/actions/db/assistant-architect-actions"
+import { PlusIcon, Pencil, Trash2, Play } from "lucide-react"
 import {
   ReactFlow,
   MiniMap,
@@ -17,7 +16,6 @@ import {
   Node,
   Edge,
   Connection,
-  NodeChange,
   EdgeChange,
   Handle,
   Position,
@@ -31,7 +29,6 @@ import "@xyflow/react/dist/style.css"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 import { Badge } from "@/components/ui/badge"
 import type { SelectAiModel, SelectChainPrompt, SelectToolInputField } from "@/types"
@@ -66,11 +63,6 @@ const MDXEditor = dynamic(() => import("@mdxeditor/editor").then(mod => mod.MDXE
 
 
 
-interface InputMapping {
-  variableName: string
-  source: "input" | "prompt"
-  sourceId: string
-}
 
 interface PromptsPageClientProps {
   assistantId: string
@@ -90,17 +82,29 @@ function StartNode() {
   )
 }
 
+interface PromptNodeData {
+  name: string;
+  content: string;
+  modelName: string;
+  systemContext?: string;
+  modelId: number;
+  inputMapping?: unknown;
+  prompt: SelectChainPrompt;
+  onEdit: (prompt: SelectChainPrompt) => void;
+  onDelete: (id: string) => void;
+}
+
 // Custom Node Component
-function PromptNode({ data, id }: NodeProps) {
+function PromptNode({ data, id }: NodeProps<PromptNodeData>) {
   const handleEdit = () => {
-    (data.onEdit as any)(data.prompt)
+    data.onEdit(data.prompt)
   }
 
   const handleDelete = () => {
-    (data.onDelete as any)(id)
+    data.onDelete(id)
   }
 
-  const d = data as any
+  const d = data
   return (
     <div className="min-w-[200px] shadow-lg rounded-lg bg-background border">
       <div className="p-3">
@@ -142,20 +146,28 @@ const nodeTypes = {
   start: StartNode
 }
 
+interface FlowHandle {
+  getNodes: () => Node[];
+  getEdges: () => Edge[];
+  setNodes: (nodes: Node[]) => void;
+  setEdges: (edges: Edge[]) => void;
+  savePositions: () => Promise<void>;
+}
+
 // Convert Flow to a forwardRef component
-const Flow = React.forwardRef(({ 
-  assistantId,
-  prompts, 
-  models, 
-  onEdit, 
-  onDelete
-}: { 
+const Flow = React.forwardRef<FlowHandle, {
   assistantId: string,
   prompts: SelectChainPrompt[]
   models: SelectAiModel[]
   onEdit: (prompt: SelectChainPrompt) => void
   onDelete: (id: string) => void
-}, ref: React.Ref<any>) => {
+}>(({ 
+  assistantId,
+  prompts, 
+  models, 
+  onEdit, 
+  onDelete
+}, ref) => {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, _onEdgesChange] = useEdgesState<Edge>([])
   const [isSaving, setIsSaving] = useState(false)
@@ -183,9 +195,6 @@ const Flow = React.forwardRef(({
     const nodeLevels = new Map<string, number>();
     const visited = new Set<string>();
     
-    // Helper function to get incoming edges to a node
-    const getIncomingEdges = (nodeId: string) => 
-      edges.filter(e => e.target === nodeId);
 
     // Helper function to get outgoing edges from a node
     const getOutgoingEdges = (nodeId: string) =>
@@ -230,7 +239,7 @@ const Flow = React.forwardRef(({
       // Transaction update
       await setPromptPositionsAction(assistantId, order);
       toast.success("Graph structure saved");
-    } catch(e){ toast.error("Failed to save graph structure"); }
+    } catch { toast.error("Failed to save graph structure"); }
     finally { setIsSaving(false);} 
   }, [calculateExecutionOrder, assistantId]);
 
@@ -432,6 +441,8 @@ const Flow = React.forwardRef(({
   )
 });
 
+Flow.displayName = 'Flow';
+
 // Simple heuristic: 1 token ~ 4 characters (OpenAI guideline)
 function estimateTokens(text: string): number {
   if (!text) return 0
@@ -447,7 +458,11 @@ function slugify(str: string): string {
 }
 
 // Custom Variable Insert Dropdown for MDXEditor toolbar
-function VariableInsertDropdown({ variables, editorRef }: { variables: string[], editorRef: React.RefObject<any> }) {
+interface MDXEditorHandle {
+  insertMarkdown: (text: string) => void;
+}
+
+function VariableInsertDropdown({ variables, editorRef }: { variables: string[], editorRef: React.RefObject<MDXEditorHandle> }) {
   return (
     <select
       className="border rounded px-2 py-1 text-xs bg-muted mr-2"
@@ -480,15 +495,12 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
   const [systemContext, setSystemContext] = useState("")
   const [modelId, setModelId] = useState<string | null>(null)
   const [editingPrompt, setEditingPrompt] = useState<SelectChainPrompt | null>(null)
-  const [inputMappings, setInputMappings] = useState<InputMapping[]>([])
-  const [isUpdatingPositions, setIsUpdatingPositions] = useState(false)
   const [prompts, setPrompts] = useState<SelectChainPrompt[]>(initialPrompts)
-  const router = useRouter()
-  const reactFlowInstanceRef = useRef<any>(null);
+  const reactFlowInstanceRef = useRef<FlowHandle>(null);
   const [contextTokens, setContextTokens] = useState(0)
   const [promptTokens, setPromptTokens] = useState(0)
   const [flowKey, setFlowKey] = useState(0)
-  const mdxEditorRef = useRef<any>(null);
+  const mdxEditorRef = useRef<MDXEditorHandle>(null);
 
   // When initialPrompts changes (from server), update our local state
   useEffect(() => {
@@ -542,7 +554,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
       } else {
         toast.error(result.message)
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to add prompt")
     } finally {
       setIsLoading(false)
@@ -583,7 +595,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
       } else {
         toast.error(result.message)
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to update prompt")
     } finally {
       setIsLoading(false)
@@ -611,12 +623,12 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
           const graphInstance = reactFlowInstanceRef.current;
           setTimeout(() => {
             // Remove the node
-            const updatedNodes = graphInstance.getNodes().filter((n: any) => n.id !== promptId);
+            const updatedNodes = graphInstance.getNodes().filter((n: Node) => n.id !== promptId);
             graphInstance.setNodes(updatedNodes);
             
             // Remove edges connected to this node
             const updatedEdges = graphInstance.getEdges().filter(
-              (e: any) => e.source !== promptId && e.target !== promptId
+              (e: Edge) => e.source !== promptId && e.target !== promptId
             );
             graphInstance.setEdges(updatedEdges);
             
@@ -630,7 +642,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
       } else {
         toast.error(result.message)
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to delete prompt")
     }
   }
@@ -641,7 +653,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
       const result = await getAssistantArchitectByIdAction(assistantId)
       let latestPrompt = prompt
       if (result.isSuccess && result.data?.prompts) {
-        const found = result.data.prompts.find((p: any) => p.id === prompt.id) as SelectChainPrompt | undefined
+        const found = result.data.prompts.find((p: SelectChainPrompt) => p.id === prompt.id)
         if (found) latestPrompt = found
       }
       setEditingPrompt(latestPrompt)
@@ -650,7 +662,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
       setSystemContext(latestPrompt.systemContext || "")
       setModelId(latestPrompt.modelId ? latestPrompt.modelId.toString() : null)
       setIsEditDialogOpen(true)
-    } catch (error) {
+    } catch {
       toast.error("Failed to fetch latest prompt data")
       setIsEditDialogOpen(true)
     } finally {
@@ -658,51 +670,6 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
     }
   }
 
-  const handleUpdatePositions = async (order: string[]) => {
-    if (isUpdatingPositions) return
-    setIsUpdatingPositions(true)
-
-    try {
-      // Get the current execution order from the graph
-      let executionOrder = order;
-      
-      // If we have access to the reactFlowInstance through the ref, use that to calculate the order
-      if (reactFlowInstanceRef.current) {
-        executionOrder = reactFlowInstanceRef.current.calculateExecutionOrder() || order;
-      }
-      
-      
-      // Update each prompt's position
-      const updatePromises = executionOrder.map((promptId, index) => 
-        updatePromptPositionAction(parseInt(promptId, 10), index)
-      );
-      
-      // Wait for all position updates to complete
-      await Promise.all(updatePromises);
-
-      toast.success("Execution order updated")
-      
-      // Update our local state with the new order
-      setPrompts(current => {
-        const updatedPrompts = [...current];
-        executionOrder.forEach((id, index) => {
-          const idInt = parseInt(id, 10);
-          const promptIndex = updatedPrompts.findIndex(p => p.id === idInt);
-          if (promptIndex >= 0) {
-            updatedPrompts[promptIndex] = {
-              ...updatedPrompts[promptIndex],
-              position: index
-            };
-          }
-        });
-        return updatedPrompts;
-      });
-    } catch (error) {
-      toast.error("Failed to update execution order")
-    } finally {
-      setIsUpdatingPositions(false)
-    }
-  }
 
   return (
     <div className="space-y-8">
@@ -814,7 +781,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                   {contextTokens} tokens
                 </div>
                 <div className="text-xs text-muted-foreground mt-2">
-                  You can reference the system context in your prompt content by saying things like "Given the above context" or "Knowing the persona of this community..."
+                  You can reference the system context in your prompt content by saying things like &quot;Given the above context&quot; or &quot;Knowing the persona of this community...&quot;
                 </div>
               </div>
               <div className="space-y-2">
@@ -981,7 +948,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                     {contextTokens} tokens
                   </div>
                   <div className="text-xs text-muted-foreground mt-2">
-                    You can reference the system context in your prompt content by saying things like "Given the above context" or "Knowing the persona of this community..."
+                    You can reference the system context in your prompt content by saying things like &quot;Given the above context&quot; or &quot;Knowing the persona of this community...&quot;
                   </div>
                 </div>
                 <div className="space-y-2">

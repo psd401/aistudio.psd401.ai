@@ -5,13 +5,12 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createOpenAI } from '@ai-sdk/openai';
 import { getServerSession } from "@/lib/auth/server-session";
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action";
-import { executeSQL } from "@/lib/db/data-api-adapter";
+import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter";
+import { SelectDocument } from "@/types/db-types";
 import { Settings } from "@/lib/settings-manager";
 import logger from "@/lib/logger";
 import escapeHtml from "escape-html";
-
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents";
-
 export async function POST(req: Request) {
   const session = await getServerSession();
   if (!session) {
@@ -27,7 +26,7 @@ export async function POST(req: Request) {
     WHERE model_id = :modelId
     LIMIT 1
   `;
-  const modelResult = await executeSQL(modelQuery, [
+  const modelResult = await executeSQL<FormattedRow>(modelQuery, [
     { name: 'modelId', value: { stringValue: textModelId } }
   ]);
   
@@ -106,9 +105,9 @@ export async function POST(req: Request) {
       const config = await Settings.getBedrock();
       if (!config.accessKeyId) throw new Error('Bedrock not configured');
       const bedrock = createAmazonBedrock({
-        region: config.region,
-        accessKeyId: config.accessKeyId,
-        secretAccessKey: config.secretAccessKey
+        region: config.region || undefined,
+        accessKeyId: config.accessKeyId || undefined,
+        secretAccessKey: config.secretAccessKey || undefined
       });
       model = bedrock(textModelId);
       break;
@@ -118,7 +117,7 @@ export async function POST(req: Request) {
   }
 
   // Get all messages for context
-  const allMessages = await executeSQL(
+  const allMessages = await executeSQL<FormattedRow>(
     `SELECT role, content FROM messages WHERE conversation_id = :conversationId ORDER BY created_at ASC`,
     [{ name: 'conversationId', value: { longValue: conversationId } }]
   );
@@ -126,7 +125,7 @@ export async function POST(req: Request) {
   // --- Fetch documents and relevant content for AI context ---
   let documentContext = "";
   try {
-    let documents = [];
+    let documents: SelectDocument[] = [];
     
     // If we have a conversationId, get documents linked to it
     if (conversationId) {
@@ -136,7 +135,7 @@ export async function POST(req: Request) {
     // If a documentId was provided, also fetch that specific document
     if (documentId) {
       const singleDoc = await getDocumentById({ id: documentId });
-      if (singleDoc && !documents.find(d => d.id === documentId)) {
+      if (singleDoc && !documents.find((d: SelectDocument) => d.id === documentId)) {
         documents.push(singleDoc);
         logger.info(`Added document ${documentId} to context (total documents: ${documents.length})`);
       }
@@ -185,8 +184,8 @@ export async function POST(req: Request) {
           .filter(chunk => {
             const content = chunk.content.toLowerCase();
             const message = latestUserMessage.toLowerCase();
-            const keywords = message.split(/\s+/).filter(word => word.length > 2);
-            return keywords.some(keyword => content.includes(keyword));
+            const keywords = message.split(/\s+/).filter((word: string) => word.length > 2);
+            return keywords.some((keyword: string) => content.includes(keyword));
           })
           .slice(0, 3); // Top 3 most relevant chunks
       }
@@ -306,7 +305,10 @@ Remember: You have access to the complete execution history including all inputs
     { role: 'system' as const, content: systemPrompt },
     // Include context for new conversations or if we have full context from retrieval
     ...(fullContext && allMessages.length === 1 ? [{ role: 'system' as const, content: `Initial execution context: ${JSON.stringify(fullContext)}` }] : []),
-    ...allMessages.map(msg => ({ role: msg.role as 'user' | 'assistant', content: msg.content }))
+    ...allMessages.map(msg => ({ 
+      role: (msg.role === 'user' ? 'user' : 'assistant') as const, 
+      content: String(msg.content) 
+    }))
   ];
 
   // Stream the response
@@ -316,7 +318,7 @@ Remember: You have access to the complete execution history including all inputs
     onFinish: async ({ text }) => {
       // Save assistant message
       try {
-        await executeSQL(
+        await executeSQL<FormattedRow>(
           `INSERT INTO messages (conversation_id, role, content) VALUES (:conversationId, :role, :content)`,
           [
             { name: 'conversationId', value: { longValue: conversationId } },

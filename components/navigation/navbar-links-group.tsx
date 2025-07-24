@@ -22,7 +22,7 @@ interface NavigationLink {
 }
 
 interface LinksGroupProps {
-  icon: React.FC<any>;
+  icon: React.FC<{ className?: string }>;
   label: string;
   type?: 'link' | 'section' | 'page';
   links?: NavigationLink[];

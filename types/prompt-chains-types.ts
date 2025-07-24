@@ -1,4 +1,4 @@
-import { SelectPromptChainTool, SelectToolInputField, SelectChainPrompt, SelectToolExecution, SelectPromptResult } from "@/types/db-types"
+import { SelectToolInputField, SelectChainPrompt, SelectToolExecution, SelectPromptResult } from "@/types/db-types"
 
 // Input field option type
 export interface InputFieldOption {
@@ -7,10 +7,7 @@ export interface InputFieldOption {
 }
 
 // Extended types with relations
-export interface PromptChainToolWithRelations extends SelectPromptChainTool {
-  inputFields?: SelectToolInputField[]
-  prompts?: SelectChainPrompt[]
-}
+// Note: PromptChainToolWithRelations removed as SelectPromptChainTool doesn't exist in db-types
 
 export interface ToolExecutionWithRelations extends SelectToolExecution {
   results?: SelectPromptResult[]
@@ -95,27 +92,4 @@ export interface ChainPrompt {
   timeoutSeconds: number
   createdAt: Date
   updatedAt: Date
-}
-
-export interface SelectChainPrompt {
-  id: string
-  toolId: string
-  name: string
-  content: string
-  systemContext?: string | null
-  modelId?: number | null
-  position: number
-  inputMapping?: Record<string, string>
-  createdAt: Date
-  updatedAt: Date
-}
-
-export interface InsertChainPrompt {
-  toolId: string
-  name: string
-  content: string
-  systemContext?: string | null
-  modelId?: number | null
-  position: number
-  inputMapping?: Record<string, string>
 } 

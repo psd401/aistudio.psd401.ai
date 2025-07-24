@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { executeSQL } from '@/lib/db/data-api-adapter';
+import { Field } from '@aws-sdk/client-rds-data';
+import logger from '@/lib/logger';
 
 export async function DELETE(
   req: NextRequest,
@@ -34,7 +36,7 @@ export async function DELETE(
       WHERE id = :conversationId
     `;
     const checkParams = [
-      { name: 'conversationId', value: { longValue: conversationId } }
+      { name: 'conversationId', value: { longValue: conversationId } as Field }
     ];
     const conversation = await executeSQL(checkQuery, checkParams);
 
@@ -75,7 +77,7 @@ export async function DELETE(
 
     return new Response(null, { status: 204 });
   } catch (error) {
-    console.error('Failed to delete conversation:', error);
+    logger.error('Failed to delete conversation:', error);
     return new Response(
       JSON.stringify({ error: 'Failed to delete conversation' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
@@ -114,7 +116,7 @@ export async function PATCH(
       WHERE id = :conversationId
     `;
     const checkParams = [
-      { name: 'conversationId', value: { longValue: conversationId } }
+      { name: 'conversationId', value: { longValue: conversationId } as Field }
     ];
     const conversation = await executeSQL(checkQuery, checkParams);
 
@@ -134,13 +136,13 @@ export async function PATCH(
     `;
     const updateParams = [
       { name: 'title', value: { stringValue: body.title.slice(0, 100) } },
-      { name: 'conversationId', value: { longValue: conversationId } }
+      { name: 'conversationId', value: { longValue: conversationId } as Field }
     ];
     await executeSQL(updateQuery, updateParams);
 
     return new Response(null, { status: 204 });
   } catch (error) {
-    console.error('Failed to update conversation:', error);
+    logger.error('Failed to update conversation:', error);
     return new Response(
       JSON.stringify({ error: 'Failed to update conversation' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }

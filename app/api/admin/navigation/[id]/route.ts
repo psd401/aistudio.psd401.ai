@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server"
 import { requireAdmin } from "@/lib/auth/admin-check"
 import { deleteNavigationItem } from "@/lib/db/data-api-adapter"
+import logger from "@/lib/logger"
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Check admin authorization
     const authError = await requireAdmin();
     if (authError) return authError;
 
-    const { id } = params
+    const resolvedParams = await params
+    const { id } = resolvedParams
 
     // Delete the navigation item
     await deleteNavigationItem(parseInt(id, 10))
@@ -21,7 +23,7 @@ export async function DELETE(
       message: "Navigation item deleted successfully"
     })
   } catch (error) {
-    console.error("Error deleting navigation item:", error)
+    logger.error("Error deleting navigation item:", error)
     return NextResponse.json(
       { 
         isSuccess: false, 

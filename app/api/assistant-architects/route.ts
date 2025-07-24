@@ -2,10 +2,11 @@ import { NextResponse } from "next/server"
 import { getAssistantArchitectsAction } from "@/actions/db/assistant-architect-actions"
 import { getServerSession } from "@/lib/auth/server-session"
 import { hasToolAccess } from "@/lib/db/data-api-adapter"
+import logger from '@/lib/logger';
 
 export const dynamic = 'force-dynamic'
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const session = await getServerSession()
     if (!session || !session.sub) {
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
       tools: result.data
     })
   } catch (error) {
-    console.error("Error in assistant-architects API:", error)
+    logger.error("Error in assistant-architects API:", error)
     return NextResponse.json(
       { 
         isSuccess: false, 

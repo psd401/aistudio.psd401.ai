@@ -41,12 +41,41 @@ interface AssistantArchitectExecutionProps {
   isPreview?: boolean
 }
 
+// Extended type for prompt results used in this component
+interface ExtendedPromptResult {
+  id: string
+  executionId: string
+  promptId: string | number
+  inputData: Record<string, unknown>
+  outputData: string
+  status: "pending" | "running" | "completed" | "failed"
+  startedAt: Date
+  completedAt: Date | null
+  executionTimeMs: number | null
+  errorMessage: string | null
+  userFeedback?: 'like' | 'dislike'
+}
+
+// Extended execution result details
+interface ExtendedExecutionResultDetails {
+  id: string | number
+  toolId: string | number
+  userId: string | number
+  status: string
+  inputData: Record<string, unknown>
+  startedAt: Date | null
+  completedAt: Date | null
+  errorMessage: string | null
+  promptResults: ExtendedPromptResult[]
+  assistantArchitectId?: number // Add this field for compatibility with ExecutionResultDetails
+}
+
 export const AssistantArchitectExecution = memo(function AssistantArchitectExecution({ tool, isPreview = false }: AssistantArchitectExecutionProps) {
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
   const [isPolling, setIsPolling] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
-  const [results, setResults] = useState<ExecutionResultDetails | null>(null)
+  const [results, setResults] = useState<ExtendedExecutionResultDetails | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [expandedPrompts, setExpandedPrompts] = useState<Record<string, boolean>>({})
   const [expandedInputs, setExpandedInputs] = useState<Record<string, boolean>>({})
@@ -98,19 +127,20 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     switch (event.type) {
       case 'metadata':
         // Initialize results structure
-        const initialResults: ExecutionResultDetails = {
+        const initialResults: ExtendedExecutionResultDetails = {
           id: jobId || 'streaming',
-          toolId: tool.id,
+          toolId: tool?.id || 0,
           userId: 'current',
           status: 'running',
           inputData: inputs,
           startedAt: new Date(),
           completedAt: null,
           errorMessage: null,
+          assistantArchitectId: tool?.id,
           promptResults: Array(event.totalPrompts).fill(null).map((_, i) => ({
             id: `prompt_${i}_temp`,
             executionId: jobId || 'streaming',
-            promptId: i, // Use index temporarily, will be updated by prompt_start
+            promptId: `prompt_${i}`, // Use string ID temporarily, will be updated by prompt_start
             inputData: '',
             outputData: '',
             status: 'pending' as const,
@@ -124,37 +154,39 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         break
 
       case 'prompt_start':
-        setStreamingPromptIndex(event.promptIndex)
+        setStreamingPromptIndex(event.promptIndex || 0)
         // Initialize with a waiting message
         setPromptTexts(prev => ({
           ...prev,
-          [event.promptIndex]: 'Waiting for AI response...'
+          [event.promptIndex || 0]: 'Waiting for AI response...'
         }))
         setResults(prev => {
           if (!prev) return null
           const updated = { ...prev }
-          updated.promptResults[event.promptIndex] = {
-            ...updated.promptResults[event.promptIndex],
-            promptId: event.promptId || updated.promptResults[event.promptIndex].promptId,
+          const index = event.promptIndex || 0
+          updated.promptResults[index] = {
+            ...updated.promptResults[index],
+            promptId: event.promptId ? String(event.promptId) : updated.promptResults[index].promptId,
             status: 'running' as const,
             startedAt: new Date()
           }
           return updated
         })
         // Auto-expand the currently streaming prompt
-        const promptId = `prompt_${event.promptIndex}_temp`
+        const promptId = `prompt_${event.promptIndex || 0}_temp`
         setExpandedPrompts(prev => ({ ...prev, [promptId]: true }))
         break
 
       case 'token':
         setPromptTexts(prev => {
+          const index = event.promptIndex || 0
           // If this is the first token, clear the waiting message
-          const currentText = prev[event.promptIndex] || ''
+          const currentText = prev[index] || ''
           const isWaitingMessage = currentText === 'Waiting for AI response...'
           
           const updated = {
             ...prev,
-            [event.promptIndex]: isWaitingMessage ? event.token : currentText + event.token
+            [index]: isWaitingMessage ? (event.token || '') : currentText + (event.token || '')
           }
           return updated
         })
@@ -163,20 +195,22 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
       case 'prompt_complete':
         // Clear the streaming text for this prompt
         setPromptTexts(prev => {
+          const index = event.promptIndex || 0
           const updated = { ...prev }
-          delete updated[event.promptIndex]
+          delete updated[index]
           return updated
         })
         // Update results with the final output
         setResults(prev => {
           if (!prev) return null
           const updated = { ...prev }
-          updated.promptResults[event.promptIndex] = {
-            ...updated.promptResults[event.promptIndex],
+          const index = event.promptIndex || 0
+          updated.promptResults[index] = {
+            ...updated.promptResults[index],
             status: 'completed' as const,
             completedAt: new Date(),
-            outputData: event.result,
-            executionTimeMs: Date.now() - updated.promptResults[event.promptIndex].startedAt.getTime()
+            outputData: event.result || '',
+            executionTimeMs: Date.now() - updated.promptResults[index].startedAt.getTime()
           }
           return updated
         })
@@ -186,11 +220,12 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         setResults(prev => {
           if (!prev) return null
           const updated = { ...prev }
-          updated.promptResults[event.promptIndex] = {
-            ...updated.promptResults[event.promptIndex],
+          const index = event.promptIndex || 0
+          updated.promptResults[index] = {
+            ...updated.promptResults[index],
             status: 'failed' as const,
             completedAt: new Date(),
-            errorMessage: event.error
+            errorMessage: event.error || null
           }
           return updated
         })
@@ -217,9 +252,10 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
       case 'status':
         // Update the prompt text with status message
         if (event.promptIndex !== undefined) {
+          const index = event.promptIndex
           setPromptTexts(prev => ({
             ...prev,
-            [event.promptIndex]: event.message || 'Processing...'
+            [index]: event.message || 'Processing...'
           }))
         }
         break
@@ -228,14 +264,14 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         setIsLoading(false)
         setStreamingPromptIndex(-1)
         setPromptTexts({}) // Clear all streaming texts
-        setError(event.error)
+        setError(event.error || 'Unknown error')
         setResults(prev => {
           if (!prev) return null
           return {
             ...prev,
             status: 'failed',
             completedAt: new Date(),
-            errorMessage: event.error
+            errorMessage: event.error || null
           }
         })
         toast({
@@ -245,14 +281,13 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         })
         break
     }
-  }, [jobId, tool.id, toast])
+  }, [jobId, tool?.id, toast])
 
   const onSubmit = useCallback(async (values: z.infer<typeof formSchema>) => {
     // Only clear results if we're not already processing
     if (!isLoading && !isPolling) {
       // Don't clear results if we already have completed results - user might be using chat
       if (!results || results.status !== 'completed') {
-        console.log('[onSubmit] Setting results to null - case 1')
         setIsLoading(true)
         setResults(null)
         setError(null)
@@ -262,7 +297,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         if (!confirmRerun) {
           return;
         }
-        console.log('[onSubmit] Setting results to null - case 2')
         setIsLoading(true)
         setResults(null)
         setError(null)
@@ -273,19 +307,16 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     }
 
     try {
-      console.log('[onSubmit] Calling executeAssistantArchitectAction')
       const result = await executeAssistantArchitectAction({
         toolId: tool.id,
         inputs: values
       })
-      console.log('[onSubmit] Execute result:', result)
 
       if (result.isSuccess && result.data?.jobId) {
         setJobId(String(result.data.jobId))
         
         // Check if we have executionId for streaming support
         const supportsStreaming = !!result.data?.executionId
-        console.log('[onSubmit] Supports streaming:', supportsStreaming, 'executionId:', result.data?.executionId)
         
         if (supportsStreaming) {
           // Start streaming
@@ -346,10 +377,9 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                     try {
                       const data = JSON.parse(line.slice(6))
                       handleStreamEvent(data, values)
-                    } catch (parseError) {
+                    } catch {
                       // Log parse errors for debugging but don't break the stream
                       if (process.env.NODE_ENV === 'development') {
-                        console.warn('[SSE] Failed to parse event data:', line, parseError)
                       }
                     }
                   }
@@ -363,13 +393,11 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
             // Clean up reader after successful streaming
             reader.releaseLock()
           } catch (streamError) {
-            console.error('[Stream] Streaming failed:', streamError)
             if (streamError instanceof Error && streamError.name === 'AbortError') {
               // Stream aborted
               return
             }
             // Fall back to polling for this execution
-            console.log('[Stream] Falling back to polling')
             setIsPolling(true)
           } finally {
             // Clean up resources
@@ -412,7 +440,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
       if (typeof jsonString === 'string') {
         return { value: jsonString };
       }
-      console.error("Failed to parse JSON");
       return null;
     }
   }, [])
@@ -450,7 +477,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
             const inputData = safeJsonParse(job.input);
 
             if (outputData) {
-              const promptResultsForState = outputData.results.map((res: JobPromptResult) => ({
+              const promptResultsForState: ExtendedPromptResult[] = outputData.results.map((res: JobPromptResult) => ({
                 id: res.promptId + "_" + outputData.executionId,
                 executionId: outputData.executionId,
                 promptId: res.promptId,
@@ -460,8 +487,9 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                 startedAt: new Date(res.startTime),
                 completedAt: res.endTime ? new Date(res.endTime) : null,
                 executionTimeMs: res.executionTimeMs,
-                errorMessage: res.status === 'failed' ? 'Prompt execution failed' : null
-              })) as SelectPromptResult[];
+                errorMessage: res.status === 'failed' ? 'Prompt execution failed' : null,
+                userFeedback: res.userFeedback
+              }));
 
               // Initialize expandedPrompts with all collapsed except the last one
               // and expandedInputs with all collapsed
@@ -481,25 +509,27 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
 
               setResults({
                 id: outputData.executionId,
-                toolId: tool.id,
+                toolId: tool?.id || 0,
                 userId: job.userId,
                 status: job.status,
                 inputData: inputData,
                 startedAt: new Date(job.createdAt),
                 completedAt: new Date(job.updatedAt),
                 errorMessage: jobError,
+                assistantArchitectId: tool?.id,
                 promptResults: promptResultsForState
               })
             } else if (job.status === 'failed') {
               setResults({
                 id: jobId,
-                toolId: tool.id,
+                toolId: tool?.id || 0,
                 userId: job.userId,
                 status: job.status,
                 inputData: inputData,
                 startedAt: new Date(job.createdAt),
                 completedAt: new Date(job.updatedAt),
                 errorMessage: jobError || "Execution failed, and output data was not available.",
+                assistantArchitectId: tool?.id,
                 promptResults: []
               })
             }
@@ -517,8 +547,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         } else {
            retryCount++
         }
-      } catch (pollError) {
-        console.error("Error polling job:", pollError)
+      } catch {
         retryCount++
       }
 
@@ -538,13 +567,14 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
              
              setResults({
                  id: jobId || 'unknown',
-                 toolId: tool.id,
+                 toolId: tool?.id || 0,
                  userId: 'unknown',
                  status: 'failed',
                  inputData,
                  startedAt: new Date(),
                  completedAt: new Date(),
                  errorMessage: timeoutError,
+                 assistantArchitectId: tool?.id,
                  promptResults: [],
              });
          }
@@ -606,8 +636,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         description: "Copied to clipboard",
         duration: 2000
       })
-    } catch (copyError) {
-       console.error("Failed to copy:", copyError);
+    } catch {
       toast({
         description: "Failed to copy to clipboard",
         variant: "destructive"
@@ -615,15 +644,16 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     }
   }, [toast])
 
-  const handleFeedback = async (promptResult, feedback) => {
+  const handleFeedback = async (promptResult: { executionId: string; promptId: string | number; id: string }, feedback: string) => {
     try {
-      await updatePromptResultAction(promptResult.executionId, promptResult.promptId, { userFeedback: feedback })
+      const promptIdNum = typeof promptResult.promptId === 'string' ? parseInt(promptResult.promptId) : promptResult.promptId
+      await updatePromptResultAction(promptResult.executionId, promptIdNum, { userFeedback: feedback })
       setResults(prev => {
         if (!prev) return prev
         return {
           ...prev,
           promptResults: prev.promptResults.map(pr =>
-            pr.id === promptResult.id ? { ...pr, userFeedback: feedback } : pr
+            pr.id === promptResult.id ? { ...pr, userFeedback: feedback as 'like' | 'dislike' } : pr
           )
         }
       })
@@ -679,8 +709,9 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   ));
 
   // 1. Add a utility to reconstruct the processed prompt
-  function getPromptTemplateAndContext(promptId: string) {
-    const prompt = tool.prompts?.find(p => p.id === promptId)
+  function getPromptTemplateAndContext(promptId: string | number) {
+    const promptIdStr = String(promptId)
+    const prompt = tool?.prompts?.find(p => String(p.id) === promptIdStr)
     return prompt ? { template: prompt.content, context: prompt.systemContext } : { template: '', context: '' }
   }
 
@@ -881,7 +912,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                             {promptResult.status}
                             {promptResult.executionTimeMs ? ` (${(promptResult.executionTimeMs / 1000).toFixed(1)}s)` : ''}
                           </span>
-                          {expandedPrompts[promptResult.id] ? (
+                          {expandedPrompts[String(promptResult.id)] ? (
                             <ChevronDown className="h-4 w-4 text-muted-foreground" />
                           ) : (
                             <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -889,25 +920,25 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                         </div>
                       </button>
 
-                      {expandedPrompts[promptResult.id] && (
+                      {expandedPrompts[String(promptResult.id)] && (
                         <>
                           {promptResult.inputData && (
                             <div className="border border-border/50 rounded-md overflow-hidden">
                               <button
-                                onClick={() => toggleInputExpand(promptResult.id)}
+                                onClick={() => toggleInputExpand(String(promptResult.id))}
                                 className="w-full px-3 py-2 bg-muted/40 hover:bg-muted/60 transition-colors flex items-center justify-between text-xs font-medium text-foreground"
                               >
                                 <div className="flex items-center">
                                   <User className="h-3 w-3 mr-1.5 flex-shrink-0 text-blue-500"/>
                                   Input Data Used
                                 </div>
-                                {expandedInputs[promptResult.id] ? (
+                                {expandedInputs[String(promptResult.id)] ? (
                                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                                 ) : (
                                   <ChevronRight className="h-4 w-4 text-muted-foreground" />
                                 )}
                               </button>
-                              {expandedInputs[promptResult.id] && (
+                              {expandedInputs[String(promptResult.id)] && (
                                 <div className="p-3 bg-muted/20 space-y-4">
                                   <div>
                                     <div className="font-semibold text-xs mb-1">Input Data</div>
@@ -1092,7 +1123,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                     <div className="mt-8">
                       <ChatErrorBoundary>
                         <AssistantArchitectChat
-                          execution={results}
+                          execution={results as ExecutionResultDetails}
                           conversationId={conversationId}
                           onConversationCreated={setConversationId}
                           isPreview={isPreview}

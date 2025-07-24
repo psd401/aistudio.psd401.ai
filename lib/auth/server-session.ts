@@ -23,9 +23,9 @@ export async function getServerSession(): Promise<CognitoSession | null> {
     
     // Convert NextAuth session to match our CognitoSession interface
     return {
+      ...session.user,
       sub: session.user.id,
       email: session.user.email || undefined,
-      ...session.user
     };
   } catch (error) {
     logger.error("Session retrieval failed:", error);

@@ -6,12 +6,12 @@ import { getServerSession } from "@/lib/auth/server-session"
 import { checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter"
 
 interface PreviewPageProps {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }
 
 export default async function PreviewPage({ params }: PreviewPageProps) {
   // Properly await params
-  const resolvedParams = await Promise.resolve(params)
+  const resolvedParams = await params
   const id = resolvedParams.id
   
   const result = await getAssistantArchitectByIdAction(id)

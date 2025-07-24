@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "@/lib/auth/server-session"
 import logger from "@/lib/logger"
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const session = await getServerSession()
     

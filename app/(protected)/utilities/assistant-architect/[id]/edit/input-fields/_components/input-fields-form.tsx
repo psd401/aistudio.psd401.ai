@@ -102,7 +102,7 @@ export function InputFieldsForm({
       form.reset({
         name: editingField.name,
         label: editingField.label ?? editingField.name,
-        fieldType: editingField.fieldType as any,
+        fieldType: editingField.fieldType as "short_text" | "long_text" | "select" | "multi_select" | "file_upload",
         position: editingField.position,
         options: parsedOptions,
       });
@@ -151,7 +151,7 @@ export function InputFieldsForm({
           {
             name: values.name,
             label: values.label,
-            fieldType: values.fieldType as any,
+            fieldType: values.fieldType,
             position: values.position,
             options: optionsToSave
           }

@@ -1,8 +1,8 @@
 import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL, updateUserRole } from '@/lib/db/data-api-adapter';
-import type { Role } from '@/types';
 import { NextResponse } from 'next/server';
 import { hasRole } from '@/utils/roles';
+import logger from '@/lib/logger';
 
 export async function POST(request: Request) {
   const session = await getServerSession();
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     
     return NextResponse.json(result[0]);
   } catch (error) {
-    console.error('Error updating user role:', error);
+    logger.error('Error updating user role:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 } 

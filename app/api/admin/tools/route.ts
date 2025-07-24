@@ -9,19 +9,14 @@ export async function GET() {
     if (authError) return authError;
 
     // Get all tools
-    const result = await executeSQL({
-      sql: 'SELECT id, name, identifier, description FROM tools ORDER BY name',
-      database: 'aistudio',
-      secretArn: process.env.DB_SECRET_ARN!,
-      resourceArn: process.env.DB_RESOURCE_ARN!,
-    })
+    const result = await executeSQL('SELECT id, name, identifier, description FROM tools ORDER BY name')
 
-    const tools = result.records?.map(record => ({
-      id: record[0].longValue!.toString(),
-      name: record[1].stringValue!,
-      identifier: record[2].stringValue!,
-      description: record[3].stringValue || null,
-    })) || []
+    const tools = result.map((record: { id: string | number | boolean | null; name: string | number | boolean | null; identifier: string | number | boolean | null; description: string | number | boolean | null }) => ({
+      id: String(record.id),
+      name: String(record.name),
+      identifier: String(record.identifier),
+      description: record.description ? String(record.description) : null,
+    }))
 
     return NextResponse.json({
       isSuccess: true,

@@ -59,7 +59,6 @@ export function ToolAssignments({
         if (error instanceof Error && error.name === 'AbortError') {
           return
         }
-        console.error("Error fetching assigned tools:", error)
         toast({
           title: "Error",
           description: "Failed to load assigned tools",
@@ -111,8 +110,7 @@ export function ToolAssignments({
           })
         }
       }
-    } catch (error) {
-      console.error("Error toggling tool assignment:", error)
+    } catch {
       toast({
         title: "Error",
         description: isAssigned 

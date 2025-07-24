@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation"
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { AssistantArchitectExecution } from "@/components/features/assistant-architect/assistant-architect-execution"
 import { Card, CardContent } from "@/components/ui/card"
@@ -20,14 +19,14 @@ import { AssistantArchitectWithRelations } from "@/types"
  */
 
 interface AssistantArchitectToolPageProps {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }
 
 export default async function AssistantArchitectToolPage({
   params
 }: AssistantArchitectToolPageProps) {
   // Properly await params
-  const resolvedParams = await Promise.resolve(params);
+  const resolvedParams = await params;
   const id = resolvedParams.id;
   
   const result = await getAssistantArchitectAction(id)

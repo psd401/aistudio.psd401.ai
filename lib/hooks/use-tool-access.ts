@@ -7,7 +7,7 @@ export function useToolAccess(toolName: string): {
   hasAccess: boolean
   loading: boolean
 } {
-  const { user, roles, loading: userLoading } = useUser()
+  const { user, loading: userLoading } = useUser()
   const [hasAccess, setHasAccess] = useState(false)
   const [loading, setLoading] = useState(true)
 

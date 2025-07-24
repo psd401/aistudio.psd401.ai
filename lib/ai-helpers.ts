@@ -6,11 +6,13 @@ import {
   CoreMessage,
   CoreTool,
   StreamTextResult,
-  GenerateObjectResult,
   ToolExecutionError,
   InvalidToolArgumentsError,
   NoSuchToolError,
-  ToolCallRepairError
+  ToolCallRepairError,
+  FinishReason,
+  CoreToolCall,
+  CoreToolResult
 } from 'ai'
 import { createAzure } from '@ai-sdk/azure'
 import { google } from '@ai-sdk/google'
@@ -27,15 +29,24 @@ interface ModelConfig {
 
 export interface StreamingOptions {
   onToken?: (token: string) => void
-  onFinish?: (result: any) => void
+  onFinish?: (result: { 
+    text?: string; 
+    toolCalls?: CoreToolCall<string, unknown>[]; 
+    toolResults?: CoreToolResult<string, unknown, unknown>[]; 
+    finishReason?: FinishReason; 
+    usage?: { 
+      promptTokens?: number; 
+      completionTokens?: number 
+    } 
+  }) => void
   onError?: (error: Error) => void
 }
 
 export interface ToolDefinition {
   name: string
   description: string
-  parameters: z.ZodType<any>
-  execute: (args: any, context?: { toolCallId: string; messages: CoreMessage[]; abortSignal: AbortSignal }) => Promise<any>
+  parameters: z.ZodType<unknown>
+  execute: (args: unknown, context?: { toolCallId: string; messages: CoreMessage[]; abortSignal: AbortSignal }) => Promise<unknown>
 }
 
 // Get the appropriate model client based on provider
@@ -148,7 +159,7 @@ export async function streamCompletion(
   messages: CoreMessage[],
   options?: StreamingOptions,
   tools?: Record<string, CoreTool>
-): Promise<StreamTextResult<Record<string, CoreTool>>> {
+): Promise<StreamTextResult<Record<string, CoreTool>, unknown>> {
   const model = await getModelClient(modelConfig);
   
   try {
