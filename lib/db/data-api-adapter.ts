@@ -1,6 +1,41 @@
-import { RDSDataClient, ExecuteStatementCommand } from "@aws-sdk/client-rds-data";
+import { 
+  RDSDataClient, 
+  ExecuteStatementCommand, 
+  ExecuteStatementCommandOutput,
+  BeginTransactionCommand,
+  CommitTransactionCommand,
+  RollbackTransactionCommand,
+  Field,
+  SqlParameter,
+  ArrayValue
+} from "@aws-sdk/client-rds-data";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import logger from '@/lib/logger';
+import { transformSnakeToCamel } from "./field-mapper";
+
+// Type aliases for cleaner code
+type DataApiResponse = ExecuteStatementCommandOutput;
+type DataApiParameter = SqlParameter;
+
+// Custom types for our formatted results
+export interface FormattedRow {
+  [columnName: string]: string | number | boolean | null | Uint8Array | ArrayValue;
+}
+
+// Helper function to create SQL parameters with proper types
+function createParameter(name: string, value: string | number | boolean | null | undefined | Uint8Array): SqlParameter {
+  if (value === null || value === undefined) {
+    return { name, value: { isNull: true } };
+  } else if (typeof value === 'boolean') {
+    return { name, value: { booleanValue: value } };
+  } else if (typeof value === 'number') {
+    return { name, value: { longValue: value } };
+  } else if (value instanceof Uint8Array) {
+    return { name, value: { blobValue: value } };
+  } else {
+    return { name, value: { stringValue: String(value) } };
+  }
+}
 
 // Lazy-initialize the RDS Data API client
 let client: RDSDataClient | null = null;
@@ -82,31 +117,31 @@ function getDataApiConfig() {
 /**
  * Convert Data API response to a more usable format
  */
-function formatDataApiResponse(response: any) {
+function formatDataApiResponse(response: DataApiResponse): FormattedRow[] {
   if (!response.records) return [];
   
-  const columns = response.columnMetadata?.map((col: any) => col.name) || [];
+  const columns = response.columnMetadata?.map((col) => col.name || '') || [];
   
-  return response.records.map((record: any) => {
-    const row: any = {};
-    record.forEach((field: any, index: number) => {
+  return response.records.map((record) => {
+    const row: FormattedRow = {};
+    record.forEach((field: Field, index) => {
       const columnName = columns[index];
       // Extract the actual value from the field object
-      let value;
-      if (field.isNull) {
+      let value: string | number | boolean | null | Uint8Array | ArrayValue;
+      if ('isNull' in field && field.isNull) {
         value = null;
-      } else if (field.stringValue !== undefined) {
-        value = field.stringValue;
-      } else if (field.longValue !== undefined) {
-        value = field.longValue;
-      } else if (field.doubleValue !== undefined) {
-        value = field.doubleValue;
-      } else if (field.booleanValue !== undefined) {
-        value = field.booleanValue;
-      } else if (field.blobValue !== undefined) {
-        value = field.blobValue;
-      } else if (field.arrayValue !== undefined) {
-        value = field.arrayValue;
+      } else if ('stringValue' in field) {
+        value = field.stringValue!;
+      } else if ('longValue' in field) {
+        value = field.longValue!;
+      } else if ('doubleValue' in field) {
+        value = field.doubleValue!;
+      } else if ('booleanValue' in field) {
+        value = field.booleanValue!;
+      } else if ('blobValue' in field) {
+        value = field.blobValue!;
+      } else if ('arrayValue' in field) {
+        value = field.arrayValue!;
       } else {
         value = null;
       }
@@ -119,9 +154,9 @@ function formatDataApiResponse(response: any) {
 /**
  * Execute a single SQL statement
  */
-export async function executeSQL(sql: string, parameters: any[] = []) {
+export async function executeSQL<T = FormattedRow>(sql: string, parameters: DataApiParameter[] = []): Promise<T[]> {
   const maxRetries = 3;
-  let lastError: any;
+  let lastError: Error | undefined;
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -137,18 +172,19 @@ export async function executeSQL(sql: string, parameters: any[] = []) {
 
       const response = await getRDSClient().send(command);
       // SQL success logging removed for security
-      return formatDataApiResponse(response);
-    } catch (error: any) {
+      return formatDataApiResponse(response as DataApiResponse) as T[];
+    } catch (error) {
       logger.error(`Data API Error (attempt ${attempt}/${maxRetries}):`, error);
-      lastError = error;
+      lastError = error as Error;
       
       // Check if it's a retryable error
+      const awsError = error as { name?: string; $metadata?: { httpStatusCode?: number } };
       if (
-        error.name === 'InternalServerErrorException' ||
-        error.name === 'ServiceUnavailableException' ||
-        error.name === 'ThrottlingException' ||
-        error.$metadata?.httpStatusCode === 500 ||
-        error.$metadata?.httpStatusCode === 503
+        awsError.name === 'InternalServerErrorException' ||
+        awsError.name === 'ServiceUnavailableException' ||
+        awsError.name === 'ThrottlingException' ||
+        awsError.$metadata?.httpStatusCode === 500 ||
+        awsError.$metadata?.httpStatusCode === 503
       ) {
         // Wait before retry with exponential backoff
         if (attempt < maxRetries) {
@@ -167,19 +203,19 @@ export async function executeSQL(sql: string, parameters: any[] = []) {
   }
   
   // If we get here, all retries failed
-  throw lastError;
+  throw lastError || new Error('Unknown error during executeSQL');
 }
 
 /**
  * Execute multiple SQL statements in a transaction
  */
-export async function executeTransaction(statements: Array<{ sql: string, parameters?: any[] }>) {
+export async function executeTransaction<T = FormattedRow>(statements: Array<{ sql: string, parameters?: DataApiParameter[] }>): Promise<T[][]> {
   const transactionId = await beginTransaction();
   
   try {
     const results = [];
     for (const stmt of statements) {
-      const result = await executeSQL(stmt.sql, stmt.parameters);
+      const result = await executeSQL<T>(stmt.sql, stmt.parameters);
       results.push(result);
     }
     
@@ -192,27 +228,28 @@ export async function executeTransaction(statements: Array<{ sql: string, parame
 }
 
 async function beginTransaction() {
-  const command = new ExecuteStatementCommand({
-    ...getDataApiConfig(),
-    sql: 'BEGIN'
+  const command = new BeginTransactionCommand({
+    resourceArn: process.env.RDS_RESOURCE_ARN!,
+    secretArn: process.env.RDS_SECRET_ARN!,
+    database: process.env.RDS_DATABASE_NAME
   });
   const response = await getRDSClient().send(command);
   return response.transactionId!;
 }
 
 async function commitTransaction(transactionId: string) {
-  const command = new ExecuteStatementCommand({
-    ...getDataApiConfig(),
-    sql: 'COMMIT',
+  const command = new CommitTransactionCommand({
+    resourceArn: process.env.RDS_RESOURCE_ARN!,
+    secretArn: process.env.RDS_SECRET_ARN!,
     transactionId
   });
   await getRDSClient().send(command);
 }
 
 async function rollbackTransaction(transactionId: string) {
-  const command = new ExecuteStatementCommand({
-    ...getDataApiConfig(),
-    sql: 'ROLLBACK',
+  const command = new RollbackTransactionCommand({
+    resourceArn: process.env.RDS_RESOURCE_ARN!,
+    secretArn: process.env.RDS_SECRET_ARN!,
     transactionId
   });
   await getRDSClient().send(command);
@@ -263,16 +300,16 @@ export async function createNavigationItem(data: {
   `;
   
   const parameters = [
-    { name: 'label', value: { stringValue: data.label } },
-    { name: 'icon', value: { stringValue: data.icon } },
-    { name: 'link', value: data.link ? { stringValue: data.link } : { isNull: true } },
-    { name: 'description', value: data.description ? { stringValue: data.description } : { isNull: true } },
-    { name: 'type', value: { stringValue: data.type } },
-    { name: 'parentId', value: data.parentId ? { longValue: data.parentId } : { isNull: true } },
-    { name: 'toolId', value: data.toolId ? { longValue: data.toolId } : { isNull: true } },
-    { name: 'requiresRole', value: data.requiresRole ? { stringValue: data.requiresRole } : { isNull: true } },
-    { name: 'position', value: { longValue: data.position || 0 } },
-    { name: 'isActive', value: { booleanValue: data.isActive ?? true } }
+    createParameter('label', data.label),
+    createParameter('icon', data.icon),
+    createParameter('link', data.link),
+    createParameter('description', data.description),
+    createParameter('type', data.type),
+    createParameter('parentId', data.parentId),
+    createParameter('toolId', data.toolId),
+    createParameter('requiresRole', data.requiresRole),
+    createParameter('position', data.position || 0),
+    createParameter('isActive', data.isActive ?? true)
   ];
   
   const result = await executeSQL(sql, parameters);
@@ -297,7 +334,7 @@ export async function updateNavigationItem(id: number, data: Partial<{
   isActive: boolean;
 }>) {
   const fields = [];
-  const parameters = [{ name: 'id', value: { longValue: id } }];
+  const parameters = [createParameter('id', id)];
   let paramIndex = 0;
   
   for (const [key, value] of Object.entries(data)) {
@@ -309,18 +346,7 @@ export async function updateNavigationItem(id: number, data: Partial<{
       fields.push(`${snakeKey} = :param${paramIndex}`);
     }
     
-    let paramValue;
-    if (value === null || value === undefined) {
-      paramValue = { isNull: true };
-    } else if (typeof value === 'boolean') {
-      paramValue = { booleanValue: value };
-    } else if (typeof value === 'number') {
-      paramValue = { longValue: value };
-    } else {
-      paramValue = { stringValue: String(value) };
-    }
-    
-    parameters.push({ name: `param${paramIndex}`, value: paramValue });
+    parameters.push(createParameter(`param${paramIndex}`, value));
     paramIndex++;
   }
   
@@ -351,13 +377,13 @@ export async function deleteNavigationItem(id: number) {
     RETURNING *
   `;
   
-  const parameters = [{ name: 'id', value: { longValue: id } }];
+  const parameters = [createParameter('id', id)];
   
   const result = await executeSQL(sql, parameters);
   return result[0];
 }
 
-function formatNavigationItem(item: any) {
+function formatNavigationItem(item: FormattedRow) {
   if (!item) {
     throw new Error('Navigation item not found');
   }
@@ -389,7 +415,8 @@ export async function getUsers() {
     ORDER BY created_at DESC
   `;
   
-  return executeSQL(query);
+  const results = await executeSQL(query);
+  return transformSnakeToCamel(results);
 }
 
 export async function getUserRoles() {
@@ -400,7 +427,8 @@ export async function getUserRoles() {
     ORDER BY r.name ASC
   `;
   
-  return executeSQL(sql);
+  const results = await executeSQL(sql);
+  return transformSnakeToCamel(results);
 }
 
 export interface UserData {
@@ -418,16 +446,16 @@ export async function createUser(userData: UserData) {
   `;
 
   const parameters = [
-    { name: 'cognitoSub', value: { stringValue: userData.cognitoSub } },
-    { name: 'email', value: { stringValue: userData.email } },
-    { name: 'firstName', value: userData.firstName ? { stringValue: userData.firstName } : { isNull: true } }
+    createParameter('cognitoSub', userData.cognitoSub),
+    createParameter('email', userData.email),
+    createParameter('firstName', userData.firstName)
   ];
   
   const result = await executeSQL(query, parameters);
   return result[0];
 }
 
-export async function updateUser(id: number, updates: Record<string, any>) {
+export async function updateUser(id: number, updates: Record<string, string | number | boolean | null>) {
   // Build dynamic UPDATE statement
   const updateFields = Object.keys(updates)
     .filter(key => key !== 'id')
@@ -445,13 +473,10 @@ export async function updateUser(id: number, updates: Record<string, any>) {
   `;
   
   const parameters = [
-    { name: 'id', value: { longValue: id } },
+    createParameter('id', id),
     ...Object.entries(updates)
       .filter(([key]) => key !== 'id')
-      .map(([key, value], index) => ({
-        name: `param${index}`,
-        value: value === null ? { isNull: true } : { stringValue: String(value) }
-      }))
+      .map(([, value], index) => createParameter(`param${index}`, value))
   ];
   
   const result = await executeSQL(sql, parameters);
@@ -485,7 +510,7 @@ export async function getUserByCognitoSub(cognitoSub: string) {
   `;
 
   const parameters = [
-    { name: 'cognitoSub', value: { stringValue: cognitoSub } }
+    createParameter('cognitoSub', cognitoSub)
   ];
   
   const result = await executeSQL(query, parameters);
@@ -502,12 +527,12 @@ export async function checkUserRole(userId: number, roleName: string): Promise<b
   `;
 
   const parameters = [
-    { name: 'userId', value: { longValue: userId } },
-    { name: 'roleName', value: { stringValue: roleName } }
+    createParameter('userId', userId),
+    createParameter('roleName', roleName)
   ];
   
   const result = await executeSQL(query, parameters);
-  return result[0].count > 0;
+  return Number(result[0].count) > 0;
 }
 
 export async function checkUserRoleByCognitoSub(cognitoSub: string, roleName: string): Promise<boolean> {
@@ -520,12 +545,12 @@ export async function checkUserRoleByCognitoSub(cognitoSub: string, roleName: st
   `;
 
   const parameters = [
-    { name: 'cognitoSub', value: { stringValue: cognitoSub } },
-    { name: 'roleName', value: { stringValue: roleName } }
+    createParameter('cognitoSub', cognitoSub),
+    createParameter('roleName', roleName)
   ];
   
   const result = await executeSQL(query, parameters);
-  return result[0].count > 0;
+  return Number(result[0].count) > 0;
 }
 
 export async function getUserIdByCognitoSub(cognitoSub: string): Promise<string | null> {
@@ -536,11 +561,11 @@ export async function getUserIdByCognitoSub(cognitoSub: string): Promise<string 
   `;
 
   const parameters = [
-    { name: 'cognitoSub', value: { stringValue: cognitoSub } }
+    createParameter('cognitoSub', cognitoSub)
   ];
   
   const result = await executeSQL(query, parameters);
-  return result[0]?.id || null;
+  return result[0]?.id ? String(result[0].id) : null;
 }
 
 /**
@@ -557,11 +582,11 @@ export async function getUserRolesByCognitoSub(cognitoSub: string): Promise<stri
   `;
 
   const parameters = [
-    { name: 'cognitoSub', value: { stringValue: cognitoSub } }
+    createParameter('cognitoSub', cognitoSub)
   ];
   
   const result = await executeSQL(query, parameters);
-  return result.map((row: any) => row.name);
+  return result.map((row) => row.name as string);
 }
 
 export async function hasToolAccess(cognitoSub: string, toolIdentifier: string): Promise<boolean> {
@@ -576,12 +601,12 @@ export async function hasToolAccess(cognitoSub: string, toolIdentifier: string):
   `;
 
   const parameters = [
-    { name: 'cognitoSub', value: { stringValue: cognitoSub } },
-    { name: 'toolIdentifier', value: { stringValue: toolIdentifier } }
+    createParameter('cognitoSub', cognitoSub),
+    createParameter('toolIdentifier', toolIdentifier)
   ];
   
   const result = await executeSQL(query, parameters);
-  return result[0].count > 0;
+  return Number(result[0].count) > 0;
 }
 
 export async function getUserTools(cognitoSub: string): Promise<string[]> {
@@ -595,11 +620,11 @@ export async function getUserTools(cognitoSub: string): Promise<string[]> {
   `;
 
   const parameters = [
-    { name: 'cognitoSub', value: { stringValue: cognitoSub } }
+    createParameter('cognitoSub', cognitoSub)
   ];
   
   const result = await executeSQL(query, parameters);
-  return result.map((r: any) => r.identifier);
+  return result.map((r) => r.identifier as string);
 }
 
 // Helper function to convert camelCase to snake_case
@@ -618,7 +643,7 @@ export async function getRoleByName(roleName: string) {
   `;
   
   const parameters = [
-    { name: 'roleName', value: { stringValue: roleName } }
+    createParameter('roleName', roleName)
   ];
   
   return executeSQL(sql, parameters);
@@ -634,13 +659,13 @@ export async function updateUserRole(userId: number, newRoleName: string) {
   const statements = [
     {
       sql: 'DELETE FROM user_roles WHERE user_id = :userId',
-      parameters: [{ name: 'userId', value: { longValue: userId } }]
+      parameters: [createParameter('userId', userId)]
     },
     {
       sql: 'INSERT INTO user_roles (user_id, role_id) VALUES (:userId, :roleId)',
       parameters: [
-        { name: 'userId', value: { longValue: userId } },
-        { name: 'roleId', value: { longValue: role.id } }
+        createParameter('userId', userId),
+        createParameter('roleId', Number(role.id))
       ]
     }
   ];
@@ -658,7 +683,7 @@ export async function getRoles() {
   
   const result = await executeSQL(sql);
   // Convert snake_case to camelCase
-  return result.map((role: any) => ({
+  return result.map((role: FormattedRow) => ({
     id: role.id,
     name: role.name,
     description: role.description,
@@ -699,23 +724,23 @@ export async function createAIModel(modelData: {
   `;
   
   const parameters = [
-    { name: 'name', value: { stringValue: modelData.name } },
-    { name: 'modelId', value: { stringValue: modelData.modelId } },
-    { name: 'provider', value: modelData.provider ? { stringValue: modelData.provider } : { isNull: true } },
-    { name: 'description', value: modelData.description ? { stringValue: modelData.description } : { isNull: true } },
-    { name: 'capabilities', value: modelData.capabilities ? { stringValue: modelData.capabilities } : { isNull: true } },
-    { name: 'maxTokens', value: modelData.maxTokens ? { longValue: modelData.maxTokens } : { isNull: true } },
-    { name: 'isActive', value: { booleanValue: modelData.isActive ?? true } },
-    { name: 'chatEnabled', value: { booleanValue: modelData.chatEnabled ?? false } }
+    createParameter('name', modelData.name),
+    createParameter('modelId', modelData.modelId),
+    createParameter('provider', modelData.provider),
+    createParameter('description', modelData.description),
+    createParameter('capabilities', modelData.capabilities),
+    createParameter('maxTokens', modelData.maxTokens),
+    createParameter('isActive', modelData.isActive ?? true),
+    createParameter('chatEnabled', modelData.chatEnabled ?? false)
   ];
   
   const result = await executeSQL(sql, parameters);
   return result[0];
 }
 
-export async function updateAIModel(id: number, updates: Record<string, any>) {
+export async function updateAIModel(id: number, updates: Record<string, string | number | boolean | null>) {
   // Convert camelCase keys to snake_case for the database
-  const snakeCaseUpdates: Record<string, any> = {};
+  const snakeCaseUpdates: Record<string, string | number | boolean | null> = {};
   for (const [key, value] of Object.entries(updates)) {
     const snakeKey = toSnakeCase(key);
     snakeCaseUpdates[snakeKey] = value;
@@ -737,16 +762,10 @@ export async function updateAIModel(id: number, updates: Record<string, any>) {
   `;
   
   const parameters = [
-    { name: 'id', value: { longValue: id } },
+    createParameter('id', id),
     ...Object.entries(snakeCaseUpdates)
       .filter(([key]) => key !== 'id')
-      .map(([key, value], index) => ({
-        name: `param${index}`,
-        value: value === null ? { isNull: true } : 
-               typeof value === 'boolean' ? { booleanValue: value } :
-               typeof value === 'number' ? { longValue: value } :
-               { stringValue: String(value) }
-      }))
+      .map(([, value], index) => createParameter(`param${index}`, value))
   ];
   
   const result = await executeSQL(sql, parameters);
@@ -796,7 +815,7 @@ export async function getTools() {
   
   const result = await executeSQL(sql);
   // Convert snake_case to camelCase
-  return result.map((tool: any) => ({
+  return result.map((tool: FormattedRow) => ({
     id: tool.id,
     identifier: tool.identifier,
     name: tool.name,
@@ -822,7 +841,7 @@ export async function createRole(roleData: {
     RETURNING id, name, description, is_system, created_at, updated_at
   `;
   
-  const parameters: any[] = [
+  const parameters: DataApiParameter[] = [
     { name: 'name', value: { stringValue: roleData.name } },
     { name: 'description', value: roleData.description ? { stringValue: roleData.description } : { isNull: true } },
     { name: 'isSystem', value: { booleanValue: roleData.isSystem ?? false } }
@@ -840,7 +859,7 @@ export async function updateRole(id: number, updates: {
   description?: string;
 }) {
   const updateFields = [];
-  const parameters: any[] = [
+  const parameters: DataApiParameter[] = [
     { name: 'id', value: { longValue: id } }
   ];
   
@@ -915,7 +934,7 @@ export async function getRoleTools(roleId: number) {
   
   const result = await executeSQL(sql, parameters);
   // Convert snake_case to camelCase
-  return result.map((tool: any) => ({
+  return result.map((tool: FormattedRow) => ({
     id: tool.id,
     identifier: tool.identifier,
     name: tool.name,
@@ -1007,7 +1026,7 @@ export async function getAssistantArchitects() {
   const assistants = await executeSQL(sql);
   
   // Transform snake_case to camelCase and include creator info
-  return assistants.map((assistant: any) => ({
+  return assistants.map((assistant: FormattedRow) => ({
     id: assistant.id,
     name: assistant.name,
     description: assistant.description,
@@ -1053,7 +1072,7 @@ export async function createAssistantArchitect(data: {
   const parameters = [
     { name: 'name', value: { stringValue: data.name } },
     { name: 'description', value: data.description ? { stringValue: data.description } : { isNull: true } },
-    { name: 'userId', value: { longValue: userDbId } },
+    { name: 'userId', value: { longValue: Number(userDbId) } },
     { name: 'status', value: { stringValue: data.status || 'draft' } }
   ];
   
@@ -1072,9 +1091,9 @@ export async function createAssistantArchitect(data: {
   };
 }
 
-export async function updateAssistantArchitect(id: number, updates: Record<string, any>) {
-  const updateFields = [];
-  const parameters: any[] = [
+export async function updateAssistantArchitect(id: number, updates: Record<string, string | number | boolean | null>) {
+  const updateFields: string[] = [];
+  const parameters: DataApiParameter[] = [
     { name: 'id', value: { longValue: id } }
   ];
   
@@ -1193,7 +1212,7 @@ export async function approveAssistantArchitect(id: number) {
     AND NOT EXISTS (
       SELECT 1 FROM tools WHERE prompt_chain_tool_id = :assistantId
     )
-  `, [{ name: 'assistantId', value: { longValue: assistant.id } }]);
+  `, [{ name: 'assistantId', value: { longValue: Number(assistant.id) } }]);
   
   return {
     id: assistant.id,
@@ -1236,7 +1255,7 @@ export async function validateDataAPIConnection() {
     });
     
     // 2. Check AWS credentials
-    const client = getRDSClient();
+    getRDSClient(); // Ensure client can be created
     const region = process.env.AWS_REGION || 
                    process.env.AWS_DEFAULT_REGION || 
                    process.env.NEXT_PUBLIC_AWS_REGION || 

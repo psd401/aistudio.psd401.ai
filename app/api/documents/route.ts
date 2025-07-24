@@ -8,7 +8,6 @@ import {
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import logger from '@/lib/logger';
-
 export async function GET(request: NextRequest) {
   // Check authentication
   const session = await getServerSession();
@@ -31,7 +30,7 @@ export async function GET(request: NextRequest) {
   try {
     // If documentId is provided, fetch single document
     if (documentId) {
-      const document = await getDocumentById({ id: documentId });
+      const document = await getDocumentById({ id: parseInt(documentId, 10) });
       
       if (!document) {
         return NextResponse.json({ 
@@ -41,7 +40,7 @@ export async function GET(request: NextRequest) {
       }
       
       // Check if the document belongs to the authenticated user
-      if (document.user_id !== userId) {
+      if (document.userId !== userId) {
         return NextResponse.json({ 
           success: false, 
           error: 'Unauthorized access to document' 
@@ -56,7 +55,7 @@ export async function GET(request: NextRequest) {
           key: document.url,
           expiresIn: 3600 // 1 hour
         });
-      } catch (error) {
+      } catch {
         return NextResponse.json({
           success: false,
           error: 'Failed to generate document access URL'
@@ -100,7 +99,7 @@ export async function GET(request: NextRequest) {
               ...doc,
               url: signedUrl
             };
-          } catch (error) {
+          } catch {
             // If we can't generate a signed URL, return the document without it
             return doc;
           }
@@ -175,7 +174,7 @@ export async function DELETE(request: NextRequest) {
     }
     
     // Check if the document belongs to the authenticated user
-    if (document.user_id !== userId) {
+    if (document.userId !== userId) {
       return NextResponse.json({ 
         success: false, 
         error: 'Unauthorized access to document' 
@@ -193,7 +192,7 @@ export async function DELETE(request: NextRequest) {
     }
     
     // Delete the document from the database
-    await deleteDocumentById({ id: docId });
+    await deleteDocumentById({ id: docId.toString() });
     
     return NextResponse.json({
       success: true,

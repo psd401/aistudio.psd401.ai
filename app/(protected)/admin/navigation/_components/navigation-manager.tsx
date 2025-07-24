@@ -164,7 +164,7 @@ export function NavigationManager() {
         if (data.isSuccess) {
           setItems(data.data)
         }
-      } catch (error) {
+      } catch {
         setError("Failed to update item positions")
         // Revert the optimistic update
         setItems(items)

@@ -1,6 +1,6 @@
 import { POST } from '@/app/api/documents/upload/route';
 import { uploadDocument } from '@/lib/aws/s3-client';
-import { createDocument, createDocumentChunks } from '@/lib/db/queries/documents';
+import { saveDocument, saveDocumentChunk, batchInsertDocumentChunks } from '@/lib/db/queries/documents';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { getServerSession } from '@/lib/auth/server-session';
 import { NextRequest } from 'next/server';
@@ -140,7 +140,7 @@ describe('POST /api/documents/upload', () => {
         id: 'doc-123',
         name: 'test.pdf',
         type: 'pdf',
-        s3_key: mockUploadResult.key,
+        url: mockUploadResult.key,
         size: 11,
         user_id: mockUserId,
         conversation_id: null,
@@ -154,8 +154,8 @@ describe('POST /api/documents/upload', () => {
       ];
       
       (uploadDocument as jest.Mock).mockResolvedValue(mockUploadResult);
-      (createDocument as jest.Mock).mockResolvedValue(mockDocument);
-      (createDocumentChunks as jest.Mock).mockResolvedValue(mockChunks);
+      (saveDocument as jest.Mock).mockResolvedValue(mockDocument);
+      (batchInsertDocumentChunks as jest.Mock).mockResolvedValue(mockChunks);
       
       const response = await POST(request);
       const data = await response.json();
@@ -184,10 +184,10 @@ describe('POST /api/documents/upload', () => {
       });
       
       // Verify document was created in database
-      expect(createDocument).toHaveBeenCalledWith({
+      expect(saveDocument).toHaveBeenCalledWith({
         name: 'test.pdf',
         type: 'pdf',
-        s3_key: mockUploadResult.key,
+        url: mockUploadResult.key,
         size: 11,
         userId: mockUserId,
         conversationId: null,
@@ -198,12 +198,12 @@ describe('POST /api/documents/upload', () => {
       });
       
       // Verify chunks were created
-      expect(createDocumentChunks).toHaveBeenCalledWith(
-        'doc-123',
+      expect(batchInsertDocumentChunks).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
+            documentId: 'doc-123',
             content: 'PDF content',
-            chunk_index: 0,
+            chunkIndex: 0,
           }),
         ])
       );
@@ -242,14 +242,14 @@ describe('POST /api/documents/upload', () => {
           id: 'doc-123',
           name: testCase.filename,
           type: testCase.filename.split('.').pop(),
-          s3_key: mockUploadResult.key,
+          url: mockUploadResult.key,
           size: testCase.content.length,
           user_id: mockUserId,
         };
         
         (uploadDocument as jest.Mock).mockResolvedValue(mockUploadResult);
-        (createDocument as jest.Mock).mockResolvedValue(mockDocument);
-        (createDocumentChunks as jest.Mock).mockResolvedValue([]);
+        (saveDocument as jest.Mock).mockResolvedValue(mockDocument);
+        (batchInsertDocumentChunks as jest.Mock).mockResolvedValue([]);
         
         const response = await POST(request);
         const data = await response.json();
@@ -277,14 +277,14 @@ describe('POST /api/documents/upload', () => {
         id: 'doc-123',
         name: 'large.txt',
         type: 'txt',
-        s3_key: mockUploadResult.key,
+        url: mockUploadResult.key,
         size: 2500,
         user_id: mockUserId,
       };
       
       (uploadDocument as jest.Mock).mockResolvedValue(mockUploadResult);
-      (createDocument as jest.Mock).mockResolvedValue(mockDocument);
-      (createDocumentChunks as jest.Mock).mockResolvedValue([]);
+      (saveDocument as jest.Mock).mockResolvedValue(mockDocument);
+      (batchInsertDocumentChunks as jest.Mock).mockResolvedValue([]);
       
       const response = await POST(request);
       const data = await response.json();
@@ -293,12 +293,11 @@ describe('POST /api/documents/upload', () => {
       expect(data.success).toBe(true);
       
       // Verify chunks were created (should be 3 chunks for 2500 chars with 1000 char chunks)
-      expect(createDocumentChunks).toHaveBeenCalledWith(
-        'doc-123',
+      expect(batchInsertDocumentChunks).toHaveBeenCalledWith(
         expect.arrayContaining([
-          expect.objectContaining({ chunk_index: 0 }),
-          expect.objectContaining({ chunk_index: 1 }),
-          expect.objectContaining({ chunk_index: 2 }),
+          expect.objectContaining({ documentId: 'doc-123', chunkIndex: 0 }),
+          expect.objectContaining({ documentId: 'doc-123', chunkIndex: 1 }),
+          expect.objectContaining({ documentId: 'doc-123', chunkIndex: 2 }),
         ])
       );
     });
@@ -332,7 +331,7 @@ describe('POST /api/documents/upload', () => {
       };
       
       (uploadDocument as jest.Mock).mockResolvedValue(mockUploadResult);
-      (createDocument as jest.Mock).mockRejectedValue(new Error('Database error'));
+      (saveDocument as jest.Mock).mockRejectedValue(new Error('Database error'));
       
       const response = await POST(request);
       const data = await response.json();
@@ -356,15 +355,15 @@ describe('POST /api/documents/upload', () => {
         id: 'doc-123',
         name: 'test.pdf',
         type: 'pdf',
-        s3_key: mockUploadResult.key,
+        url: mockUploadResult.key,
         size: 17,
         user_id: mockUserId,
       };
       
       (uploadDocument as jest.Mock).mockResolvedValue(mockUploadResult);
-      (createDocument as jest.Mock).mockResolvedValue(mockDocument);
+      (saveDocument as jest.Mock).mockResolvedValue(mockDocument);
       // Mock text extraction failure - should still save document without chunks
-      (createDocumentChunks as jest.Mock).mockResolvedValue([]);
+      (batchInsertDocumentChunks as jest.Mock).mockResolvedValue([]);
       
       const response = await POST(request);
       const data = await response.json();
@@ -400,8 +399,8 @@ describe('POST /api/documents/upload', () => {
         };
         
         (uploadDocument as jest.Mock).mockResolvedValue({ key: 'test', url: 'test' });
-        (createDocument as jest.Mock).mockResolvedValue(mockDocument);
-        (createDocumentChunks as jest.Mock).mockResolvedValue([]);
+        (saveDocument as jest.Mock).mockResolvedValue(mockDocument);
+        (batchInsertDocumentChunks as jest.Mock).mockResolvedValue([]);
         
         await POST(request);
         

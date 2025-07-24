@@ -1,7 +1,6 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 import type { SelectToolInputField } from "@/types"
 import { deleteInputFieldAction } from "@/actions/db/assistant-architect-actions"
 import { useRouter } from "next/navigation"
@@ -10,12 +9,11 @@ import { useState } from "react"
 import { Pencil, Trash2 } from "lucide-react"
 
 interface InputFieldListProps {
-  assistantId: string
   inputFields: SelectToolInputField[]
   onEdit: (field: SelectToolInputField) => void
 }
 
-export function InputFieldList({ assistantId, inputFields, onEdit }: InputFieldListProps) {
+export function InputFieldList({ inputFields, onEdit }: InputFieldListProps) {
   const router = useRouter()
   const { toast } = useToast()
   const [isDeleting, setIsDeleting] = useState<string | null>(null)

@@ -65,10 +65,9 @@ export async function validateJWT(): Promise<JWTPayload | null> {
     const payload = await verifier.verify(token);
     
     return {
-      sub: payload.sub,
+      ...payload,
       email: payload.email as string | undefined,
       email_verified: payload.email_verified as boolean | undefined,
-      ...payload,
     };
   } catch {
     // Token is invalid or expired

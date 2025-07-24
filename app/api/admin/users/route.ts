@@ -2,8 +2,8 @@ import { NextResponse } from "next/server"
 import { getUsers, getUserRoles, createUser, updateUser, deleteUser } from "@/lib/db/data-api-adapter"
 import { requireAdmin } from "@/lib/auth/admin-check"
 import logger from "@/lib/logger"
-
-export async function GET(request: Request) {
+import { transformSnakeToCamel } from "@/lib/db/field-mapper"
+export async function GET() {
   try {
     // Check admin authorization
     const authError = await requireAdmin();
@@ -11,28 +11,27 @@ export async function GET(request: Request) {
     
     // Get users from database via Data API
     const dbUsers = await getUsers();
+    const transformedUsers = transformSnakeToCamel<Array<{id: number, cognitoSub: string, email: string, firstName: string, lastName: string, lastSignInAt: string, createdAt: string, updatedAt: string}>>(dbUsers);
     
     // Get all user roles
     const userRoles = await getUserRoles();
+    const transformedRoles = transformSnakeToCamel<Array<{userId: number, roleName: string}>>(userRoles);
     
     // Group roles by userId
-    const rolesByUser = userRoles.reduce((acc, role) => {
-      acc[role.user_id] = acc[role.user_id] || [];
-      acc[role.user_id].push(role.role_name);
+    const rolesByUser = transformedRoles.reduce((acc, role) => {
+      acc[role.userId] = acc[role.userId] || [];
+      acc[role.userId].push(role.roleName);
       return acc;
     }, {} as Record<number, string[]>);
     
     // Map to the format expected by the UI
-    const users = dbUsers.map(dbUser => {
+    const users = transformedUsers.map(dbUser => {
       const userRolesList = rolesByUser[dbUser.id] || []
 
       return {
         ...dbUser,
-        firstName: dbUser.first_name,
-        lastName: dbUser.last_name,
-        lastSignInAt: dbUser.last_sign_in_at,
         role: userRolesList[0] || "",
-        roles: userRolesList.map(name => ({ name }))
+        roles: userRolesList.map((name: string) => ({ name }))
       }
     })
 
@@ -65,11 +64,12 @@ export async function POST(request: Request) {
     }
 
     const user = await createUser(userData)
+    const transformedUser = transformSnakeToCamel(user)
 
     return NextResponse.json({
       isSuccess: true,
       message: "User created successfully",
-      data: user
+      data: transformedUser
     })
   } catch (error) {
     logger.error("Error creating user:", error)
@@ -90,11 +90,12 @@ export async function PUT(request: Request) {
     const { id, ...updates } = body
 
     const user = await updateUser(String(id), updates)
+    const transformedUser = transformSnakeToCamel(user)
 
     return NextResponse.json({
       isSuccess: true,
       message: "User updated successfully",
-      data: user
+      data: transformedUser
     })
   } catch (error) {
     logger.error("Error updating user:", error)

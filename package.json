@@ -9,6 +9,7 @@
     "lint": "next lint",
     "test": "jest",
     "test:watch": "jest --watch",
+    "typecheck": "tsc --noEmit",
     "ts-node": "tsx"
   },
   "dependencies": {
@@ -63,6 +64,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "escape-html": "^1.0.3",
     "framer-motion": "^12.6.3",
     "js-tiktoken": "^1.0.19",
     "jsonwebtoken": "^9.0.2",
@@ -85,18 +87,19 @@
     "tailwindcss-animate": "^1.0.7",
     "uuid": "^11.1.0",
     "winston": "^3.17.0",
-    "zod": "^3.24.2",
-    "escape-html": "^1.0.3"
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.4.2",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
+    "@types/escape-html": "^1.0.4",
     "@types/jest": "^29.5.12",
     "@types/node": "^22.10.7",
     "@types/pdf-parse": "^1.1.5",
     "@types/react": "^18.2.67",
     "@types/react-dom": "^18.2.22",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "autoprefixer": "^10.4.19",
     "babel-loader": "^10.0.0",
     "copy-webpack-plugin": "^13.0.0",

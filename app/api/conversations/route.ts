@@ -1,10 +1,9 @@
-import { NextRequest } from 'next/server';
 import { withErrorHandling, unauthorized } from '@/lib/api-utils';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   const session = await getServerSession();
   if (!session) {
     return unauthorized('User not authenticated');

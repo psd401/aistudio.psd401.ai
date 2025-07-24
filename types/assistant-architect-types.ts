@@ -112,29 +112,6 @@ export interface ChainPrompt {
   updatedAt: Date
 }
 
-export interface SelectChainPrompt {
-  id: string
-  toolId: string
-  name: string
-  content: string
-  systemContext?: string | null
-  modelId?: number | null
-  position: number
-  inputMapping?: Record<string, string>
-  createdAt: Date
-  updatedAt: Date
-}
-
-export interface InsertChainPrompt {
-  toolId: string
-  name: string
-  content: string
-  systemContext?: string | null
-  modelId?: number | null
-  position: number
-  inputMapping?: Record<string, string>
-}
-
 // Job system types
 /**
  * Result of a single prompt execution within a job

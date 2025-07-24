@@ -91,12 +91,12 @@ export default function PdfUploadButton({
         // Unknown status, treat as still processing
         setProcessingStatus("Processing PDF...")
       }
-    } catch (error: any) {
+    } catch (error) {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current)
         pollingIntervalRef.current = null
       }
-      toast.error(error.message || "Failed to process PDF.")
+      toast.error(error instanceof Error ? error.message : "Failed to process PDF.")
       setUploadedFileName(null)
       setIsLoading(false)
       setProcessingStatus("")
@@ -172,13 +172,13 @@ export default function PdfUploadButton({
         throw new Error('Invalid response: unexpected status')
       }
       
-    } catch (err: any) {
+    } catch (err) {
       console.error('[PdfUploadButton] Upload error:', err);
-      toast.error(err.message || "Failed to process PDF.")
+      toast.error(err instanceof Error ? err.message : "Failed to process PDF.")
       setUploadedFileName(null)
       setIsLoading(false)
       setProcessingStatus("")
-      onError?.({ message: err.message })
+      onError?.({ message: err instanceof Error ? err.message : String(err) })
     }
   }
 

@@ -10,17 +10,12 @@ export async function GET() {
     if (authError) return authError;
 
     // Get all roles
-    const result = await executeSQL({
-      sql: 'SELECT name FROM roles ORDER BY name',
-      database: 'aistudio',
-      secretArn: process.env.DB_SECRET_ARN!,
-      resourceArn: process.env.DB_RESOURCE_ARN!,
-    })
+    const result = await executeSQL('SELECT id, name FROM roles ORDER BY name')
 
-    const roles = result.records?.map(record => ({
-      id: record[0].stringValue!,
-      name: record[0].stringValue!,
-    })) || []
+    const roles = result.map((record: { id: string | number | boolean | null; name: string | number | boolean | null }) => ({
+      id: String(record.id),
+      name: String(record.name),
+    }))
 
     return NextResponse.json({
       isSuccess: true,
@@ -47,10 +42,10 @@ export async function POST(request: NextRequest) {
     const role = await createRole(body)
     
     return NextResponse.json({ role })
-  } catch (error: any) {
+  } catch (error) {
     logger.error("Error creating role:", error)
     return NextResponse.json(
-      { error: error.message || "Failed to create role" },
+      { error: error instanceof Error ? error.message : "Failed to create role" },
       { status: 500 }
     )
   }

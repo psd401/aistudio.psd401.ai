@@ -9,9 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { IconPlus, IconEdit, IconTrash } from '@tabler/icons-react';
-import type { AiModel } from '~/lib/schema';
 import type { SelectAiModel } from '@/types';
-import { useToast } from '@/components/ui/use-toast';
 import {
   ColumnDef,
   flexRender,
@@ -19,6 +17,7 @@ import {
   getSortedRowModel,
   SortingState,
   useReactTable,
+  Column,
 } from '@tanstack/react-table';
 import { IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-react';
 
@@ -77,7 +76,7 @@ const ModelForm = React.memo(function ModelForm({
         <div className="space-y-2">
           <label className="text-sm font-medium">Provider</label>
           <Select
-            value={modelData.provider}
+            value={modelData.provider || ''}
             onValueChange={handleProviderChange}
           >
             <SelectTrigger>
@@ -127,7 +126,7 @@ const ModelForm = React.memo(function ModelForm({
           <label className="text-sm font-medium">Max Tokens</label>
           <Input
             type="number"
-            value={modelData.maxTokens}
+            value={modelData.maxTokens?.toString() || '4096'}
             onChange={handleMaxTokensChange}
           />
         </div>
@@ -165,7 +164,16 @@ interface AiModelsTableProps {
   onDeleteModel?: (modelId: number) => Promise<void>;
 }
 
-type ModelFormData = Omit<AiModel, 'id' | 'createdAt' | 'updatedAt'>;
+type ModelFormData = {
+  name: string;
+  provider: string;
+  modelId: string;
+  description: string;
+  capabilities: string;
+  maxTokens: number;
+  active: boolean;
+  chatEnabled: boolean;
+};
 
 const emptyModel: ModelFormData = {
   name: '',
@@ -195,7 +203,7 @@ export const AiModelsTable = React.memo(function AiModelsTable({
     title,
     className = ""
   }: {
-    column: any;
+    column: Column<SelectAiModel, unknown>;
     title: string;
     className?: string;
   }) => (
@@ -217,12 +225,12 @@ export const AiModelsTable = React.memo(function AiModelsTable({
 
   // Event handler for toggling active status
   const handleActiveToggle = useCallback((id: number, checked: boolean) => {
-    onUpdateModel(id, { active: checked });
+    onUpdateModel?.(id, { active: checked });
   }, [onUpdateModel]);
 
   // Event handler for toggling chat enabled status
   const handleChatEnabledToggle = useCallback((id: number, checked: boolean) => {
-    onUpdateModel(id, { chatEnabled: checked });
+    onUpdateModel?.(id, { chatEnabled: checked });
   }, [onUpdateModel]);
 
   // Event handler for edit button
@@ -230,7 +238,7 @@ export const AiModelsTable = React.memo(function AiModelsTable({
     setEditingModel(model);
     setModelData({
       name: model.name,
-      provider: model.provider,
+      provider: model.provider || '',
       modelId: model.modelId,
       description: model.description || '',
       capabilities: model.capabilities || '',
@@ -242,7 +250,7 @@ export const AiModelsTable = React.memo(function AiModelsTable({
 
   // Event handler for delete button
   const handleDeleteClick = useCallback((id: number) => {
-    onDeleteModel(id);
+    onDeleteModel?.(id);
   }, [onDeleteModel]);
 
   const columns = useMemo<ColumnDef<SelectAiModel>[]>(
@@ -279,7 +287,7 @@ export const AiModelsTable = React.memo(function AiModelsTable({
         cell: ({ row }) => (
           <div className="text-center">
             <Switch
-              checked={row.getValue('active')}
+              checked={row.getValue('active') as boolean}
               onCheckedChange={(checked) => handleActiveToggle(row.original.id, checked)}
             />
           </div>
@@ -291,7 +299,7 @@ export const AiModelsTable = React.memo(function AiModelsTable({
         cell: ({ row }) => (
           <div className="text-center">
             <Switch
-              checked={row.getValue('chatEnabled')}
+              checked={row.getValue('chatEnabled') as boolean}
               onCheckedChange={(checked) => handleChatEnabledToggle(row.original.id, checked)}
             />
           </div>
@@ -339,10 +347,10 @@ export const AiModelsTable = React.memo(function AiModelsTable({
 
   const handleSubmit = useCallback(() => {
     if (editingModel) {
-      onUpdateModel(editingModel.id, modelData);
+      onUpdateModel?.(editingModel.id, modelData);
       setEditingModel(null);
     } else {
-      onAddModel(modelData);
+      onAddModel?.(modelData);
       setShowAddForm(false);
     }
     setModelData(emptyModel);

@@ -3,7 +3,9 @@
 import { InsertJob, SelectJob } from "@/types/db-types"
 import { ActionState } from "@/types"
 import logger from "@/lib/logger"
-import { executeSQL } from "@/lib/db/data-api-adapter"
+import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter"
+import { transformSnakeToCamel } from '@/lib/db/field-mapper'
+import { SqlParameter } from "@aws-sdk/client-rds-data"
 
 export async function createJobAction(
   job: Omit<InsertJob, "id" | "createdAt" | "updatedAt">
@@ -19,7 +21,7 @@ export async function createJobAction(
       return { isSuccess: false, message: "Invalid userId provided." };
     }
 
-    const result = await executeSQL(`
+    const result = await executeSQL<FormattedRow>(`
       INSERT INTO jobs (user_id, status, type, input, output, error, created_at, updated_at)
       VALUES (:userId, :status::job_status, :type, :input, :output, :error, NOW(), NOW())
       RETURNING *
@@ -37,22 +39,12 @@ export async function createJobAction(
       throw new Error("Failed to create job: no record returned.");
     }
     
-    const transformedJob = {
-        id: newJob.id,
-        userId: newJob.user_id,
-        status: newJob.status,
-        type: newJob.type,
-        input: newJob.input,
-        output: newJob.output,
-        error: newJob.error,
-        createdAt: newJob.created_at,
-        updatedAt: newJob.updated_at
-    };
+    const transformedJob = transformSnakeToCamel<SelectJob>(newJob);
 
     return {
       isSuccess: true,
       message: "Job created successfully",
-      data: transformedJob as SelectJob
+      data: transformedJob
     }
   } catch (error) {
     logger.error("Error creating job", { error })
@@ -67,7 +59,7 @@ export async function getJobAction(id: string): Promise<ActionState<SelectJob>> 
       return { isSuccess: false, message: "Invalid job ID" };
     }
 
-    const result = await executeSQL(
+    const result = await executeSQL<FormattedRow>(
       'SELECT * FROM jobs WHERE id = :id',
       [{ name: 'id', value: { longValue: idNum } }]
     );
@@ -77,22 +69,12 @@ export async function getJobAction(id: string): Promise<ActionState<SelectJob>> 
       return { isSuccess: false, message: "Job not found" }
     }
     
-    const transformedJob = {
-        id: job.id,
-        userId: job.user_id,
-        status: job.status,
-        type: job.type,
-        input: job.input,
-        output: job.output,
-        error: job.error,
-        createdAt: job.created_at,
-        updatedAt: job.updated_at
-    };
+    const transformedJob = transformSnakeToCamel<SelectJob>(job);
 
     return {
       isSuccess: true,
       message: "Job retrieved successfully",
-      data: transformedJob as SelectJob
+      data: transformedJob
     }
   } catch (error) {
     logger.error("Error getting job", { error })
@@ -107,27 +89,17 @@ export async function getUserJobsAction(userId: string): Promise<ActionState<Sel
       return { isSuccess: false, message: "Invalid user ID" };
     }
 
-    const result = await executeSQL(
+    const result = await executeSQL<FormattedRow>(
       'SELECT * FROM jobs WHERE user_id = :userId',
       [{ name: 'userId', value: { longValue: userIdNum } }]
     );
 
-    const transformedJobs = result.map((job: any) => ({
-        id: job.id,
-        userId: job.user_id,
-        status: job.status,
-        type: job.type,
-        input: job.input,
-        output: job.output,
-        error: job.error,
-        createdAt: job.created_at,
-        updatedAt: job.updated_at
-    }));
+    const transformedJobs = result.map((job) => transformSnakeToCamel<SelectJob>(job));
 
     return {
       isSuccess: true,
       message: "Jobs retrieved successfully",
-      data: transformedJobs as SelectJob[]
+      data: transformedJobs
     }
   } catch (error) {
     logger.error("Error getting jobs", { error })
@@ -169,13 +141,15 @@ export async function updateJobAction(
       return { isSuccess: false, message: "No valid fields to update" };
     }
 
-    const parameters = Object.entries(data).map(([key, value]) => ({
-      name: key,
-      value: value === null || value === undefined ? { isNull: true } : { stringValue: String(value) }
-    }));
+    const parameters: SqlParameter[] = Object.entries(data)
+      .filter(([key, _]) => ALLOWED_COLUMNS[key]) // Only include whitelisted columns
+      .map(([key, value]) => ({
+        name: key,
+        value: value === null || value === undefined ? { isNull: true } : { stringValue: String(value) }
+      }));
     parameters.push({ name: 'id', value: { longValue: idNum } });
     
-    const result = await executeSQL(
+    const result = await executeSQL<FormattedRow>(
       `UPDATE jobs SET ${setClauses}, updated_at = NOW() WHERE id = :id RETURNING *`,
       parameters
     );
@@ -186,22 +160,12 @@ export async function updateJobAction(
         throw new Error("Failed to update job or job not found.");
     }
 
-    const transformedJob = {
-        id: updatedJob.id,
-        userId: updatedJob.user_id,
-        status: updatedJob.status,
-        type: updatedJob.type,
-        input: updatedJob.input,
-        output: updatedJob.output,
-        error: updatedJob.error,
-        createdAt: updatedJob.created_at,
-        updatedAt: updatedJob.updated_at
-    };
+    const transformedJob = transformSnakeToCamel<SelectJob>(updatedJob);
 
     return {
       isSuccess: true,
       message: "Job updated successfully",
-      data: transformedJob as SelectJob
+      data: transformedJob
     }
   } catch (error) {
     logger.error("Error updating job", { error })
@@ -211,9 +175,14 @@ export async function updateJobAction(
 
 export async function deleteJobAction(id: string): Promise<ActionState<void>> {
   try {
+    const idNum = parseInt(id, 10);
+    if (isNaN(idNum)) {
+      return { isSuccess: false, message: "Invalid job ID" };
+    }
+
     await executeSQL(
-      'DELETE FROM jobs WHERE id = :id::uuid',
-      [{ name: 'id', value: { stringValue: id } }]
+      'DELETE FROM jobs WHERE id = :id',
+      [{ name: 'id', value: { longValue: idNum } }]
     );
     return {
       isSuccess: true,

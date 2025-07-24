@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
 
     try {
       importData = JSON.parse(fileContent)
-    } catch (error) {
+    } catch {
       return NextResponse.json(
         { isSuccess: false, message: "Invalid JSON file" },
         { status: 400 }

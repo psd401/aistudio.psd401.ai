@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "@/lib/auth/server-session"
 import { getUserRolesByCognitoSub } from "@/lib/db/data-api-adapter"
+import logger from '@/lib/logger';
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const session = await getServerSession()
     if (!session) {
@@ -17,7 +18,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ isSuccess: true, groups })
   } catch (error) {
-    console.error("Error fetching user groups:", error)
+    logger.error("Error fetching user groups:", error)
     return NextResponse.json(
       { 
         isSuccess: false, 

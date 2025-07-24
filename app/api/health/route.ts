@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { validateDataAPIConnection } from "@/lib/db/data-api-adapter"
 import { getServerSession } from "@/lib/auth/server-session"
-
 /**
  * Health Check API Endpoint
  * 
@@ -13,7 +12,7 @@ import { getServerSession } from "@/lib/auth/server-session"
  * 
  * Returns detailed diagnostic information to help troubleshoot deployment issues
  */
-export async function GET(request: Request) {
+export async function GET() {
   // For production, you may want to add authentication or IP restriction
   // For now, we'll allow access but you can uncomment the following to restrict:
   /*
@@ -26,7 +25,42 @@ export async function GET(request: Request) {
   }
   */
 
-  const healthCheck: any = {
+  interface HealthCheckResult {
+    timestamp: string;
+    status: string;
+    checks: {
+      environment: {
+        status: string;
+        missingVariables?: string[];
+        awsRegion?: string;
+        nodeEnv?: string;
+        details?: Record<string, unknown>;
+        error?: string;
+      };
+      authentication: {
+        status: string;
+        hasSession?: boolean;
+        sessionUser?: string;
+        authConfigured?: boolean;
+        error?: string;
+        hint?: string;
+      };
+      database: {
+        status: string;
+        success?: boolean;
+        configured?: boolean;
+        hint?: string;
+        error?: unknown;
+        [key: string]: unknown;
+      };
+    };
+    diagnostics?: {
+      hints: string[];
+      deploymentChecklist?: string[];
+    };
+  }
+
+  const healthCheck: HealthCheckResult = {
     timestamp: new Date().toISOString(),
     status: "checking",
     checks: {
@@ -136,7 +170,7 @@ export async function GET(request: Request) {
 
   // 4. Overall health status
   const allHealthy = Object.values(healthCheck.checks).every(
-    (check: any) => check.status === "healthy"
+    (check) => check.status === "healthy"
   )
   
   healthCheck.status = allHealthy ? "healthy" : "unhealthy"
@@ -154,11 +188,16 @@ export async function GET(request: Request) {
     }
     
     if (healthCheck.checks.database.status !== "healthy") {
-      if (healthCheck.checks.database.error?.message?.includes("credentials")) {
+      const dbError = healthCheck.checks.database.error;
+      if (typeof dbError === 'object' && dbError !== null && 'message' in dbError && 
+          typeof (dbError as {message: string}).message === 'string' && 
+          (dbError as {message: string}).message.includes("credentials")) {
         healthCheck.diagnostics.hints.push(
           "AWS credentials issue. Verify Amplify service role has RDS Data API permissions."
         )
-      } else if (healthCheck.checks.database.error?.message?.includes("region")) {
+      } else if (typeof dbError === 'object' && dbError !== null && 'message' in dbError && 
+                 typeof (dbError as {message: string}).message === 'string' && 
+                 (dbError as {message: string}).message.includes("region")) {
         healthCheck.diagnostics.hints.push(
           "AWS region not configured. AWS Amplify should provide AWS_REGION automatically. Ensure NEXT_PUBLIC_AWS_REGION is set as fallback."
         )

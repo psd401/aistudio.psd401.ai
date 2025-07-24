@@ -44,7 +44,7 @@ export async function requireAdmin(): Promise<NextResponse | null> {
  * Higher-order function to wrap admin route handlers
  * Usage: export const GET = withAdminAuth(async (request) => { ... })
  */
-export function withAdminAuth<T extends any[], R>(
+export function withAdminAuth<T extends unknown[], R>(
   handler: (...args: T) => Promise<R>
 ): (...args: T) => Promise<R | NextResponse> {
   return async (...args: T) => {

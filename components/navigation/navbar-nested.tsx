@@ -1,14 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Image from 'next/image';
-import Link from 'next/link';
-import { getCurrentUser } from 'aws-amplify/auth';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { iconMap, IconName } from './icon-map';
 import { LinksGroup } from './navbar-links-group';
-import { UserButton } from '../user/user-button';
 import { cn } from '@/lib/utils';
 
 /**
@@ -55,10 +51,6 @@ const sidebarVariants = {
   collapsed: { width: '68px' },
 };
 
-const logoTextVariants = {
-  expanded: { opacity: 1, x: 0, transition: { delay: 0.2 } },
-  collapsed: { opacity: 0, x: -10 },
-}
 
 /**
  * Main collapsible navigation sidebar for desktop.

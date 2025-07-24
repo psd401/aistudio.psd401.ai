@@ -71,7 +71,7 @@ export function ConversationsList() {
               dateA = typeof a.createdAt === 'string' 
                 ? parseISO(a.createdAt) 
                 : new Date(a.createdAt);
-            } catch (e) {
+            } catch {
               dateA = new Date(0); // Default to epoch start if invalid
             }
             
@@ -79,7 +79,7 @@ export function ConversationsList() {
               dateB = typeof b.createdAt === 'string' 
                 ? parseISO(b.createdAt) 
                 : new Date(b.createdAt);
-            } catch (e) {
+            } catch {
               dateB = new Date(0); // Default to epoch start if invalid
             }
             
@@ -88,7 +88,7 @@ export function ConversationsList() {
             if (isNaN(dateB.getTime())) dateB = new Date(0);
             
             return dateB.getTime() - dateA.getTime(); // Sort newest first
-          } catch (error) {
+          } catch {
             return 0; // Keep original order if comparison fails
           }
         })
@@ -112,7 +112,7 @@ export function ConversationsList() {
                 } else {
                   dateStr = new Date(conv.createdAt).toISOString();
                 }
-              } catch (e) {
+              } catch {
               }
             }
             
@@ -126,10 +126,10 @@ export function ConversationsList() {
             
             // Add conversation to group
             groups[dateLabel].push(conv);
-          } catch (error) {
+          } catch {
           }
         });
-    } catch (error) {
+    } catch {
       return {}; // Return empty groups in case of error
     }
     
@@ -160,7 +160,7 @@ export function ConversationsList() {
       } else {
         setConversations([]);
       }
-    } catch (error) {
+    } catch {
       setConversations([]);
     } finally {
       setIsLoading(false);
@@ -196,7 +196,6 @@ export function ConversationsList() {
       
       // Handle non-200 responses with detailed error info
       if (!response.ok) {
-        const errorText = await response.text().catch(() => "Unknown error");
         throw new Error(`Failed to delete conversation: ${response.status} ${response.statusText}`);
       }
       
@@ -283,14 +282,13 @@ export function ConversationsList() {
       }
 
       if (!response.ok) {
-        const errorText = await response.text().catch(() => "Unknown error");
         throw new Error(`Failed to update conversation: ${response.status} ${response.statusText}`);
       }
 
       // Try to parse response just to validate it
       try {
         await response.json();
-      } catch (parseError) {
+      } catch {
       }
 
       // Update local state
@@ -393,7 +391,7 @@ export function ConversationsList() {
                           onKeyDown={e => {
                             e.stopPropagation();
                             if (e.key === 'Escape') {
-                              handleCancelEdit(e as any);
+                              handleCancelEdit(e as unknown as React.MouseEvent);
                             }
                           }}
                           className="flex-1 bg-background text-sm rounded border border-input px-2 py-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"

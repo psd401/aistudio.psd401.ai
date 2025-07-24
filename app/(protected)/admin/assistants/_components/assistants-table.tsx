@@ -89,7 +89,6 @@ export function AssistantsTable() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const [editingAssistant, setEditingAssistant] = useState<Assistant | null>(null)
   const [formData, setFormData] = useState({
     name: "",
     description: ""
@@ -191,7 +190,7 @@ export function AssistantsTable() {
         variant: "destructive",
       })
     }
-  }, [fetchAssistants])
+  }, [fetchAssistants, toast])
 
   // Handle approve/reject
   const handleStatusChange = useCallback(async (id: string, action: "approve" | "reject") => {
@@ -224,7 +223,7 @@ export function AssistantsTable() {
         variant: "destructive",
       })
     }
-  }, [fetchAssistants])
+  }, [fetchAssistants, toast])
 
   // Get status badge
   const getStatusBadge = useCallback((status: Assistant["status"]) => {

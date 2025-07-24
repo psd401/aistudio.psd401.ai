@@ -3,6 +3,8 @@ import { executeSQL } from "@/lib/db/data-api-adapter";
 import { streamCompletion } from "@/lib/ai-helpers";
 import logger from "@/lib/logger";
 import { rateLimit } from "@/lib/rate-limit";
+import { transformSnakeToCamel } from '@/lib/db/field-mapper';
+import { NextRequest } from 'next/server';
 
 interface StreamRequest {
   toolId: number;
@@ -32,7 +34,7 @@ const limiter = rateLimit({
   skipAuth: false // Apply rate limiting to authenticated users
 });
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   // Apply rate limiting
   const rateLimitResponse = await limiter(req);
   if (rateLimitResponse) {
@@ -61,7 +63,7 @@ export async function POST(req: Request) {
       return new Response(`Tool not found or inactive: ${toolId}`, { status: 404 });
     }
 
-    const tool = toolResult[0];
+    const tool = transformSnakeToCamel<{ id: number; name: string; description: string; status: string }>(toolResult[0]);
 
     // Get prompts for this tool
     const promptsQuery = `
@@ -73,9 +75,20 @@ export async function POST(req: Request) {
       WHERE cp.assistant_architect_id = :toolId
       ORDER BY cp.position ASC
     `;
-    const prompts = await executeSQL(promptsQuery, [
+    const promptsRaw = await executeSQL(promptsQuery, [
       { name: 'toolId', value: { longValue: toolId } }
     ]);
+    const prompts = transformSnakeToCamel<Array<{
+      id: number;
+      name: string;
+      content: string;
+      position: number;
+      aiModelId: number;
+      systemContext: string | null;
+      modelId: string;
+      provider: string;
+      modelName: string;
+    }>>(promptsRaw);
 
 
     if (!prompts.length) {
@@ -87,9 +100,10 @@ export async function POST(req: Request) {
       SELECT id, status FROM tool_executions 
       WHERE id = :executionId
     `;
-    const executionResult = await executeSQL(executionQuery, [
+    const executionResultRaw = await executeSQL(executionQuery, [
       { name: 'executionId', value: { longValue: executionId } }
     ]);
+    const executionResult = transformSnakeToCamel<Array<{ id: number; status: string }>>(executionResultRaw);
 
     if (!executionResult.length) {
       return new Response('Execution not found', { status: 404 });
@@ -149,7 +163,7 @@ export async function POST(req: Request) {
                 type: 'prompt_start',
                 promptIndex: i,
                 promptId: prompt.id,
-                modelName: prompt.model_name
+                modelName: prompt.modelName
               })}\n\n`
             ));
 
@@ -180,9 +194,10 @@ export async function POST(req: Request) {
                   WHERE pr.execution_id = :executionId
                   ORDER BY pr.started_at ASC
                 `;
-                const previousResults = await executeSQL(previousResultsQuery, [
+                const previousResultsRaw = await executeSQL(previousResultsQuery, [
                   { name: 'executionId', value: { longValue: executionId } }
                 ]);
+                const previousResults = transformSnakeToCamel<Array<{ result: string }>>(previousResultsRaw);
 
                 previousResults.forEach((result, index) => {
                   const resultPlaceholder = `{{result_${index + 1}}}`;
@@ -201,20 +216,20 @@ export async function POST(req: Request) {
                   :executionId, :promptId, :inputData::jsonb, '', 'pending'::execution_status, NOW()
                 ) RETURNING id
               `;
-              const promptResultInsert = await executeSQL(insertPromptResultQuery, [
+              const promptResultInsertRaw = await executeSQL(insertPromptResultQuery, [
                 { name: 'executionId', value: { longValue: executionId } },
                 { name: 'promptId', value: { longValue: prompt.id } },
                 { name: 'inputData', value: { stringValue: JSON.stringify({ prompt: processedPrompt }) } }
               ]);
+              const promptResultInsert = transformSnakeToCamel<Array<{ id: number }>>(promptResultInsertRaw);
               promptResultId = promptResultInsert[0].id;
 
               // Stream the AI response
               let fullResponse = '';
-              let tokenCount = 0;
               const messages = [
-                ...(prompt.system_context ? [{ 
+                ...(prompt.systemContext ? [{ 
                   role: 'system' as const, 
-                  content: prompt.system_context 
+                  content: prompt.systemContext 
                 }] : []),
                 { 
                   role: 'user' as const, 
@@ -224,8 +239,8 @@ export async function POST(req: Request) {
 
               
               // Check if model config is valid
-              if (!prompt.provider || !prompt.model_id) {
-                logger.error(`[STREAM] Invalid model config - Provider: ${prompt.provider}, Model ID: ${prompt.model_id}`);
+              if (!prompt.provider || !prompt.modelId) {
+                logger.error(`[STREAM] Invalid model config - Provider: ${prompt.provider}, Model ID: ${prompt.modelId}`);
                 throw new Error('Invalid model configuration');
               }
               
@@ -242,7 +257,7 @@ export async function POST(req: Request) {
                 const streamResult = await streamCompletion(
                   {
                     provider: prompt.provider,
-                    modelId: prompt.model_id
+                    modelId: prompt.modelId
                   },
                   messages
                 );
@@ -259,7 +274,6 @@ export async function POST(req: Request) {
                 // Actually consume the stream
                 for await (const chunk of streamResult.textStream) {
                   fullResponse += chunk;
-                  tokenCount++;
                   
                   
                   // Send token to client
@@ -280,7 +294,7 @@ export async function POST(req: Request) {
                    WHERE id = :id`,
                   [
                     { name: 'result', value: { stringValue: fullResponse } },
-                    { name: 'id', value: { longValue: promptResultId } }
+                    { name: 'id', value: { longValue: promptResultId! } }
                   ]
                 );
               
