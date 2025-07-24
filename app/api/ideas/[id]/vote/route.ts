@@ -42,14 +42,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const existingVoteSql = 'SELECT id FROM idea_votes WHERE idea_id = :ideaId AND user_id = :userId';
     const existingVoteParams = [
       { name: 'ideaId', value: { longValue: ideaId } },
-      { name: 'userId', value: { longValue: userId } }
+      { name: 'userId', value: { longValue: Number(userId) } }
     ];
     const existingVotes = await executeSQL(existingVoteSql, existingVoteParams);
 
     if (existingVotes.length > 0) {
       // User has voted, so remove the vote (un-vote)
       const deleteVoteSql = 'DELETE FROM idea_votes WHERE id = :voteId';
-      await executeSQL(deleteVoteSql, [{ name: 'voteId', value: { longValue: existingVotes[0].id } }]);
+      await executeSQL(deleteVoteSql, [{ name: 'voteId', value: { longValue: Number(existingVotes[0].id) } }]);
       return NextResponse.json({ success: true, message: 'Vote removed' });
     } else {
       // User has not voted, so add the vote

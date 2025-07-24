@@ -55,7 +55,7 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
 
         <PreviewPageClient
           assistantId={id}
-          tool={tool}
+          tool={{...tool, inputFields: tool.inputFields || [], prompts: tool.prompts || []}}
         />
       </div>
 

@@ -54,7 +54,7 @@ describe('Assistant Architect Streaming API', () => {
       })
     })
 
-    const response = await POST(request)
+    const response = await POST(request as any)
     
     expect(response.status).toBe(401)
     expect(await response.text()).toBe('Unauthorized')
@@ -78,7 +78,7 @@ describe('Assistant Architect Streaming API', () => {
       })
     })
 
-    const response = await POST(request)
+    const response = await POST(request as any)
     
     expect(response.status).toBe(404)
     expect(await response.text()).toBe('Tool not found or inactive: 999')
@@ -123,7 +123,7 @@ describe('Assistant Architect Streaming API', () => {
       })
     })
 
-    const response = await POST(request)
+    const response = await POST(request as any)
     
     expect(response.status).toBe(200)
     expect(response.headers.get('Content-Type')).toBe('text/event-stream')

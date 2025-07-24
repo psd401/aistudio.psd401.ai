@@ -13,7 +13,7 @@ export function DataStreamHandler({ id }: { id: string }) {
     if (!dataStream) return;
     
     // Process each stream delta
-    dataStream.forEach((delta: DataStreamDelta) => {
+    (dataStream as any[]).forEach((delta: DataStreamDelta) => {
       switch (delta.type) {
         case 'text-delta':
           // Text update

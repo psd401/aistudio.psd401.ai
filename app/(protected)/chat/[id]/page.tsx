@@ -66,7 +66,7 @@ export default async function ConversationPage({ params }: ConversationPageProps
         id: String(msg.id),
         content: String(msg.content || ''),
         role: msg.role as 'user' | 'assistant',
-        createdAt: msg.createdAt ? new Date(msg.createdAt).toISOString() : new Date().toISOString(),
+        createdAt: msg.createdAt ? new Date(String(msg.createdAt)).toISOString() : new Date().toISOString(),
       }))}
     />
   );

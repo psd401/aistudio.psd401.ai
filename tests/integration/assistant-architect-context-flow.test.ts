@@ -53,11 +53,11 @@ jest.mock('ai', () => ({
 import { POST } from '@/app/api/chat/stream-final/route'
 import { getServerSession } from '@/lib/auth/server-session'
 import { executeSQL } from '@/lib/db/data-api-adapter'
-import { getCurrentUser } from '@/actions/db/get-current-user-action'
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action'
 
 const mockGetServerSession = getServerSession as jest.Mock
 const mockExecuteSQL = executeSQL as jest.Mock
-const mockGetCurrentUser = getCurrentUser as jest.Mock
+const mockGetCurrentUser = getCurrentUserAction as jest.Mock
 
 describe('Assistant Architect Context Persistence - Integration Tests', () => {
   beforeEach(() => {

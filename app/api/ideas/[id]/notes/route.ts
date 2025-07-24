@@ -88,7 +88,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const params = [
       { name: 'ideaId', value: { longValue: ideaId } },
       { name: 'content', value: { stringValue: content } },
-      { name: 'userId', value: { longValue: userId } }
+      { name: 'userId', value: { longValue: Number(userId) } }
     ];
     const result = await executeSQL(sql, params);
     const newNote = result[0];

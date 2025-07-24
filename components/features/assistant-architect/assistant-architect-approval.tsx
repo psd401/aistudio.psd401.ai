@@ -20,7 +20,7 @@ import { Check, X, Edit } from "lucide-react"
 import { SelectAssistantArchitect, SelectToolInputField, SelectChainPrompt } from "@/types/db-types"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { PreviewPageClient } from "@/app/utilities/assistant-architect/[id]/edit/preview/_components/preview-page-client"
+import { PreviewPageClient } from "@/app/(protected)/utilities/assistant-architect/[id]/edit/preview/_components/preview-page-client"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 
@@ -46,7 +46,7 @@ export function AssistantArchitectApproval({
   async function handleApprove() {
     try {
       setIsProcessing(true)
-      const result = await approveAssistantArchitectAction(request.id)
+      const result = await approveAssistantArchitectAction(String(request.id))
       if (result.isSuccess) {
         toast({
           title: "Success",
@@ -84,7 +84,7 @@ export function AssistantArchitectApproval({
 
     try {
       setIsProcessing(true)
-      const result = await rejectAssistantArchitectAction(request.id)
+      const result = await rejectAssistantArchitectAction(String(request.id))
       if (result.isSuccess) {
         toast({
           title: "Success",
@@ -168,7 +168,7 @@ export function AssistantArchitectApproval({
                       <TabsTrigger value="prompts">Prompts & Context</TabsTrigger>
                     </TabsList>
                     <TabsContent value="preview">
-                      <PreviewPageClient assistantId={request.id} tool={request} />
+                      <PreviewPageClient assistantId={String(request.id)} tool={request} />
                     </TabsContent>
                     <TabsContent value="prompts">
                       <div className="space-y-6">

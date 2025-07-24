@@ -90,9 +90,9 @@ export async function GET() {
         label: item.label,
         icon: item.icon,
         link: item.link,
-        parent_id: item.parent_id,
+        parent_id: item.parentId,
         parent_label: null, // This column doesn't exist in the table
-        tool_id: item.tool_id,
+        tool_id: item.toolId,
         position: item.position,
         type: item.type || 'link',
         description: item.description || null,

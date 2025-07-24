@@ -137,11 +137,11 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
           completedAt: null,
           errorMessage: null,
           assistantArchitectId: tool?.id,
-          promptResults: Array.from({ length: event.totalPrompts }, (_, i) => ({
+          promptResults: Array.from({ length: event.totalPrompts || 0 }, (_, i) => ({
             id: `prompt_${i}_temp`,
             executionId: jobId || 'streaming',
             promptId: `prompt_${i}`, // Use string ID temporarily, will be updated by prompt_start
-            inputData: '',
+            inputData: {} as Record<string, unknown>,
             outputData: '',
             status: 'pending' as const,
             startedAt: new Date(),
@@ -890,10 +890,10 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
               )}
               {results?.promptResults && results.promptResults.length > 0 ? (
                 <div className="space-y-6">
-                  {results.promptResults.map((promptResult: SelectPromptResult, index: number) => (
+                  {results.promptResults.map((promptResult: ExtendedPromptResult, index: number) => (
                     <div key={promptResult.id} className="space-y-3 p-4 border rounded-md bg-card shadow-sm">
                       <button
-                        onClick={() => togglePromptExpand(promptResult.id)}
+                        onClick={() => togglePromptExpand(String(promptResult.id))}
                         className="w-full flex items-center justify-between text-sm font-medium mb-2"
                       >
                         <div className="flex items-center text-muted-foreground">
@@ -1131,7 +1131,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                     <div className="mt-8">
                       <ChatErrorBoundary>
                         <AssistantArchitectChat
-                          execution={results as ExecutionResultDetails}
+                          execution={results as unknown as ExecutionResultDetails}
                           conversationId={conversationId}
                           onConversationCreated={setConversationId}
                           isPreview={isPreview}

@@ -34,10 +34,18 @@ interface ExecutionContext {
 }
 
 // Extended prompt result type that includes additional fields from the execution
-interface ExtendedPromptResult extends SelectPromptResult {
-  chainPromptId?: number
-  inputData?: Record<string, unknown>
-  userFeedback?: 'like' | 'dislike'
+interface ExtendedPromptResult {
+  id: number;
+  toolExecutionId: number;
+  chainPromptId: number;
+  result: string;
+  aiModelId: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+  inputData?: Record<string, unknown>;
+  outputData?: string;
+  status?: string;
+  userFeedback?: 'like' | 'dislike';
 }
 
 interface AssistantArchitectChatProps {

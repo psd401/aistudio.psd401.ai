@@ -46,11 +46,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         WHERE id = :modelId
       `
       const modelResult = await executeSQL(modelSql, [
-        { name: 'modelId', value: { longValue: prompt.model_id } }
+        { name: 'modelId', value: { longValue: Number(prompt.model_id) } }
       ])
 
       if (modelResult && modelResult.length > 0) {
-        actualModelId = modelResult[0].model_id; // Get the text model_id
+        actualModelId = String(modelResult[0].model_id); // Get the text model_id
       }
     }
 
@@ -64,7 +64,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       `
       const defaultModelResult = await executeSQL(defaultModelSql)
       
-      actualModelId = defaultModelResult?.[0]?.model_id || null;
+      actualModelId = defaultModelResult?.[0]?.model_id ? String(defaultModelResult[0].model_id) : null;
     }
 
     // Transform snake_case to camelCase and return the prompt along with the actual text model_id

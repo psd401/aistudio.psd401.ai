@@ -15,7 +15,7 @@ export default async function ModelsPage() {
     <div className="p-6">
       <h1 className="mb-6 text-2xl font-bold">AI Models Management</h1>
       <Suspense fallback={<div>Loading models...</div>}>
-        <AiModelsClient initialModels={models as SelectAiModel[] || []} />
+        <AiModelsClient initialModels={models as unknown as SelectAiModel[] || []} />
       </Suspense>
     </div>
   )

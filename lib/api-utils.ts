@@ -55,7 +55,7 @@ export function withErrorHandling<T>(
         {
           success: false,
           message: result.message,
-          ...(result.error && { error: result.error })
+          ...((result as any).error && { error: (result as any).error })
         }, 
         { status: statusCode }
       );

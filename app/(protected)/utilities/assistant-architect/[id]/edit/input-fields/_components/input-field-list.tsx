@@ -84,7 +84,7 @@ export function InputFieldList({ inputFields, onEdit }: InputFieldListProps) {
               variant="ghost"
               size="icon"
               onClick={() => handleDelete(field)}
-              disabled={isDeleting === field.id}
+              disabled={isDeleting === String(field.id)}
             >
               <Trash2 className="h-4 w-4 text-destructive" />
             </Button>

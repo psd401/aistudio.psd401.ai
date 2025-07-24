@@ -207,7 +207,7 @@ export function createTool(definition: ToolDefinition): CoreTool {
     description: definition.description,
     parameters: definition.parameters,
     execute: definition.execute
-  });
+  } as any);
 }
 
 // Export error types for consumers

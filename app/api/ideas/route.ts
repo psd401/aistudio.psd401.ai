@@ -49,11 +49,11 @@ export async function GET() {
     let userVotedIdeaIds = new Set();
     if (currentUserId) {
       const userVotesSql = 'SELECT idea_id FROM idea_votes WHERE user_id = :userId';
-      const userVotes = await executeSQL(userVotesSql, [{ name: 'userId', value: { longValue: currentUserId } }]);
+      const userVotes = await executeSQL(userVotesSql, [{ name: 'userId', value: { longValue: Number(currentUserId) } }]);
       interface VoteRow {
         idea_id: number;
       }
-      userVotedIdeaIds = new Set(userVotes.map((vote: VoteRow) => vote.idea_id));
+      userVotedIdeaIds = new Set(userVotes.map((vote) => Number(vote.idea_id)));
     }
 
     interface IdeaRow {
@@ -73,7 +73,7 @@ export async function GET() {
       notes: number;
     }
 
-    const ideasWithVotes = allIdeas.map((idea: IdeaRow) => ({
+    const ideasWithVotes = allIdeas.map((idea) => ({
       ...idea,
       priorityLevel: idea.priority_level,
       createdBy: idea.creator_name || idea.user_id,
@@ -130,7 +130,7 @@ export async function POST(request: Request) {
       { name: 'title', value: { stringValue: title } },
       { name: 'description', value: { stringValue: description } },
       { name: 'priorityLevel', value: { stringValue: priorityLevel } },
-      { name: 'userId', value: { longValue: userId } }
+      { name: 'userId', value: { longValue: Number(userId) } }
     ];
     const result = await executeSQL(sql, params);
     const newIdea = result[0];

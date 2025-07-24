@@ -86,7 +86,7 @@ export async function getAssistantDataForExport(assistantIds: number[]): Promise
     const promptsRaw = await executeSQL(promptsQuery, [
       { name: 'assistantId', value: { longValue: assistant.id } }
     ])
-    const prompts = promptsRaw as Array<{
+    const prompts = promptsRaw as unknown as Array<{
       name: string
       content: string
       systemContext?: string
@@ -107,7 +107,7 @@ export async function getAssistantDataForExport(assistantIds: number[]): Promise
     const inputFieldsRaw = await executeSQL(fieldsQuery, [
       { name: 'assistantId', value: { longValue: assistant.id } }
     ])
-    const inputFields = inputFieldsRaw as Array<{
+    const inputFields = inputFieldsRaw as unknown as Array<{
       name: string
       label: string
       fieldType: string
@@ -210,7 +210,7 @@ export async function mapModelsForImport(modelNames: string[]): Promise<Map<stri
     FROM ai_models
     WHERE active = true
   `)
-  const models = modelsRaw.map(transformSnakeToCamel) as Array<{
+  const models = modelsRaw as unknown as Array<{
     id: number
     modelId: string
     provider: string

@@ -3,7 +3,7 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
 import logger from '@/lib/logger';
-import { SqlParameter } from 'aws-sdk/clients/rdsdataservice';
+import { SqlParameter } from '@aws-sdk/client-rds-data';
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -55,7 +55,7 @@ export async function PATCH(
         
         const userId = userResult[0].id;
         updateFields.push('completed_by = :completedBy', 'completed_at = NOW()');
-        params.push({ name: 'completedBy', value: { stringValue: userId.toString() } });
+        params.push({ name: 'completedBy', value: { stringValue: String(userId || '') } });
       }
     }
 

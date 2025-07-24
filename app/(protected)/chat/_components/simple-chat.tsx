@@ -122,11 +122,7 @@ export function SimpleChat({ conversationId, initialMessages = [] }: SimpleChatP
     }
   }, [messages]);
 
-  useEffect(() => {
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [messages]);
+  // Auto-focus handled by ChatInput component
 
   return (
     <div className="flex flex-col h-full relative">

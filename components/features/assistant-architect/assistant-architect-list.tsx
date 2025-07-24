@@ -23,7 +23,7 @@ export function AssistantArchitectList({ tools }: AssistantArchitectListProps) {
   async function handleDelete(id: number) {
     try {
       setIsDeleting(id)
-      const result = await deleteAssistantArchitectAction(id)
+      const result = await deleteAssistantArchitectAction(String(id))
       if (result.isSuccess) {
         toast({
           title: "Success",

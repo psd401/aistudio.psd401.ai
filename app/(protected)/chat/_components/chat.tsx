@@ -52,7 +52,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     api: '/api/chat/stream-final',
     initialMessages,
     body: {
-      modelId: selectedModel?.model_id,
+      modelId: selectedModel?.modelId,
       conversationId: currentConversationId,
       documentId: currentConversationId === undefined && processingDocumentId ? processingDocumentId : undefined
     },
