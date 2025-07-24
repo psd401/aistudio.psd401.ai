@@ -53,7 +53,7 @@ export async function POST(request: Request) {
       provider: body.provider,
       description: body.description,
       capabilities: body.capabilities,
-      maxTokens: body.maxTokens ? parseInt(body.maxTokens) : null,
+      maxTokens: body.maxTokens ? parseInt(body.maxTokens) : undefined,
       isActive: body.active ?? true,
       chatEnabled: body.chatEnabled ?? false
     };

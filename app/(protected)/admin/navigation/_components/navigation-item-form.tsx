@@ -185,7 +185,7 @@ export function NavigationItemForm({
                       <FormItem>
                         <FormLabel>Label</FormLabel>
                         <FormControl>
-                          <Input {...field} />
+                          <Input {...field} value={field.value || ''} />
                         </FormControl>
                         <FormDescription>
                           This is the label that will be displayed in the navigation.
@@ -203,7 +203,7 @@ export function NavigationItemForm({
                         <FormLabel>Type</FormLabel>
                         <Select
                           onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          defaultValue={String(field.value || '')}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -234,7 +234,7 @@ export function NavigationItemForm({
                         <FormLabel>Icon</FormLabel>
                         <Select
                           onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          defaultValue={String(field.value || '')}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -284,7 +284,7 @@ export function NavigationItemForm({
                       <FormItem>
                         <FormLabel>Link</FormLabel>
                         <FormControl>
-                          <Input {...field} />
+                          <Input {...field} value={field.value || ''} />
                         </FormControl>
                         <FormDescription>
                           This is the link that will be used when the item is clicked.
@@ -302,7 +302,7 @@ export function NavigationItemForm({
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Textarea {...field} className="h-20" />
+                        <Textarea {...field} value={field.value || ''} className="h-20" />
                       </FormControl>
                       <FormDescription>
                         This will be displayed when the navigation item is of type page.
@@ -383,7 +383,7 @@ export function NavigationItemForm({
                       <FormLabel>Required Role</FormLabel>
                       <Select
                         onValueChange={(value) => field.onChange(value === "none" ? null : value)}
-                        defaultValue={field.value || "none"}
+                        defaultValue={String(field.value || "none")}
                       >
                         <FormControl>
                           <SelectTrigger>

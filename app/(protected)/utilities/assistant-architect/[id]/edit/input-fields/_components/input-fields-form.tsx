@@ -116,7 +116,7 @@ export function InputFieldsForm({
     setShowOptions(shouldShowOptions)
     if (!shouldShowOptions) {
       setOptions([])
-      form.setValue("options", [])
+      form.setValue("options" as const, [])
     }
   }, [watchFieldType, form])
 
@@ -124,7 +124,7 @@ export function InputFieldsForm({
     if (newOption.label && newOption.value) {
       const updatedOptions = [...options, newOption]
       setOptions(updatedOptions)
-      form.setValue("options", updatedOptions)
+      form.setValue("options" as const, updatedOptions)
       setNewOption({ label: "", value: "" })
     }
   }
@@ -132,7 +132,7 @@ export function InputFieldsForm({
   function handleRemoveOption(index: number) {
     const updatedOptions = options.filter((_, i) => i !== index)
     setOptions(updatedOptions)
-    form.setValue("options", updatedOptions)
+    form.setValue("options" as const, updatedOptions)
   }
 
   async function onSubmit(values: FormValues) {
@@ -258,7 +258,7 @@ export function InputFieldsForm({
                       setShowOptions(shouldShowOptions)
                       if (!shouldShowOptions) {
                         setOptions([])
-                        form.setValue("options", [])
+                        form.setValue("options" as const, [])
                       }
                     }}
                     defaultValue={field.value}

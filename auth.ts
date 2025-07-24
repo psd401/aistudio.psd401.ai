@@ -66,12 +66,12 @@ export const authConfig: NextAuthConfig = {
     async session({ session, token }) {
       // Check if token exists and is valid
       if (!token || !token.sub) {
-        return null;
+        return session; // Return empty session instead of null
       }
 
       // Check if token is expired
       if (token.expiresAt && Date.now() > (token.expiresAt as number)) {
-        return null;
+        return session;
       }
       
       // Send properties to the client

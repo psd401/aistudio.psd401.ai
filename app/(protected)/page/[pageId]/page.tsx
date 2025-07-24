@@ -4,6 +4,7 @@ import { Suspense } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import logger from "@/lib/logger"
+import { extractRDSString, ensureRDSNumber, toReactKey, ensureRDSString } from "@/lib/type-helpers"
 import type { SelectNavigationItem, SelectAssistantArchitect } from "@/types/db-types"
 
 interface PageProps {
@@ -42,15 +43,16 @@ export default async function PublicPage({ params }: PageProps) {
   ]);
 
   // Helper to extract toolId from a link like /tools/assistant-architect/{toolId}
-  function extractAssistantId(link: string | null | undefined): number | null {
-    if (!link) return null
-    const match = link.match(/\/tools\/assistant-architect\/(\d+)/)
+  function extractAssistantId(link: any): number | null {
+    const linkStr = extractRDSString(link)
+    if (!linkStr) return null
+    const match = linkStr.match(/\/tools\/assistant-architect\/(\d+)/)
     return match ? parseInt(match[1], 10) : null
   }
 
   // For each child, try to extract assistant/tool id from the link
   const childAssistantIds = childItems
-    .map((child: SelectNavigationItem) => extractAssistantId(child.link))
+    .map((child) => extractAssistantId(child.link))
     .filter((id): id is number => Boolean(id) && !isNaN(id))
 
   let assistants: Record<number, SelectAssistantArchitect> = {}
@@ -64,27 +66,27 @@ export default async function PublicPage({ params }: PageProps) {
     }));
     
     const assistantRows = await executeSQL(assistantsSql, assistantParams);
-    assistants = Object.fromEntries(assistantRows.map((a: SelectAssistantArchitect) => [a.id, a]))
+    assistants = Object.fromEntries(assistantRows.map((a) => [ensureRDSNumber(a.id), a]))
   }
 
   return (
     <>
-      <h1 className="text-3xl font-bold mb-4">{pageItem.label}</h1>
+      <h1 className="text-3xl font-bold mb-4">{ensureRDSString(pageItem.label)}</h1>
       {pageItem.description && (
-        <p className="mb-6 text-muted-foreground">{pageItem.description}</p>
+        <p className="mb-6 text-muted-foreground">{ensureRDSString(pageItem.description)}</p>
       )}
       <Suspense fallback={<div>Loading tools...</div>}>
         {childItems.length === 0 ? (
           <div className="text-muted-foreground text-center py-12">No tools assigned to this page.</div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-            {childItems.map((child: SelectNavigationItem) => {
+            {childItems.map((child) => {
               const assistantId = extractAssistantId(child.link)
               const assistant = assistantId ? assistants[assistantId] : null
-              const href = child.link || "#"
+              const href = extractRDSString(child.link) || "#"
               return (
                 <Link
-                  key={child.id}
+                  key={toReactKey(child.id)}
                   href={href}
                   className="block rounded-lg border bg-card shadow-sm hover:shadow-md transition p-6 group focus-visible:ring-2 focus-visible:ring-primary"
                 >
@@ -99,15 +101,15 @@ export default async function PublicPage({ params }: PageProps) {
                       />
                     ) : (
                       <span className="text-3xl text-muted-foreground block">
-                        <span className={`i-lucide:${child.icon || 'file'}`} />
+                        <span className={`i-lucide:${extractRDSString(child.icon) || 'file'}`} />
                       </span>
                     )}
                     <div className="ml-4">
                       <div className="font-semibold text-lg">
-                        {assistant ? assistant.name : child.label}
+                        {assistant ? ensureRDSString(assistant.name) : ensureRDSString(child.label)}
                       </div>
                       <div className="text-muted-foreground text-sm mt-1">
-                        {assistant ? assistant.description : child.description}
+                        {assistant ? extractRDSString(assistant.description) : extractRDSString(child.description)}
                       </div>
                     </div>
                   </div>

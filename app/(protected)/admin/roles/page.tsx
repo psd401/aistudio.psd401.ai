@@ -33,7 +33,7 @@ export default async function RolesPage() {
     <div className="p-6">
       <h1 className="mb-6 text-2xl font-bold">Role Management</h1>
       <Suspense fallback={<div>Loading roles...</div>}>
-        <RolesTable roles={roles as Role[] || []} tools={tools as Tool[] || []} />
+        <RolesTable roles={(roles as unknown as Role[]) || []} tools={(tools as unknown as Tool[]) || []} />
       </Suspense>
     </div>
   )

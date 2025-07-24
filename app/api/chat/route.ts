@@ -5,6 +5,7 @@ import { generateCompletion } from "@/lib/ai-helpers"
 import { CoreMessage } from "ai"
 import { withErrorHandling, unauthorized, badRequest } from "@/lib/api-utils"
 import { createError } from "@/lib/error-utils"
+import { ErrorLevel } from "@/types/actions-types"
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents"
 import { SelectDocument } from "@/types/db-types"
 import logger from "@/lib/logger"
@@ -24,14 +25,14 @@ export async function POST(req: NextRequest) {
     if (!textModelId) {
       throw createError('Model ID is required', {
         code: 'VALIDATION',
-        level: 'warn',
+        level: ErrorLevel.WARN,
         details: { field: 'modelId' }
       });
     }
     if (!messages || messages.length === 0) {
       throw createError('Messages are required', {
         code: 'VALIDATION',
-        level: 'warn',
+        level: ErrorLevel.WARN,
         details: { field: 'messages' }
       });
     }
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
     if (!modelResult.length) {
       throw createError(`AI Model with identifier '${textModelId}' not found`, {
         code: 'NOT_FOUND',
-        level: 'error',
+        level: ErrorLevel.ERROR,
         details: { modelId: textModelId }
       });
     }
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
     if (!aiModel.id) {
       throw createError('AI Model record missing id field', {
         code: 'INVALID_DATA',
-        level: 'error',
+        level: ErrorLevel.ERROR,
         details: { model: aiModel }
       });
     }
@@ -78,11 +79,10 @@ export async function POST(req: NextRequest) {
       const checkParams = [
         { name: 'conversationId', value: { longValue: existingConversationId } }
       ];
-      const conversations = await executeSQL<FormattedRow>(checkQuery, checkParams);
-      const transformedConversations = transformSnakeToCamel<Array<{ id: number }>>(conversations);
+      const conversations = await executeSQL<{ id: number }>(checkQuery, checkParams);
 
-      if (transformedConversations.length > 0) {
-        conversationId = transformedConversations[0].id
+      if (conversations.length > 0) {
+        conversationId = conversations[0].id
         // Update the updated_at timestamp
         const updateQuery = `
           UPDATE conversations
@@ -113,9 +113,8 @@ export async function POST(req: NextRequest) {
         { name: 'executionId', value: executionId ? { longValue: executionId } : { isNull: true } },
         { name: 'context', value: context ? { stringValue: JSON.stringify(context) } : { isNull: true } }
       ];
-      const newConversation = await executeSQL<FormattedRow>(insertQuery, insertParams);
-      const transformedNewConversation = transformSnakeToCamel<Array<{ id: number }>>(newConversation);
-      conversationId = transformedNewConversation[0].id
+      const newConversation = await executeSQL<{ id: number }>(insertQuery, insertParams);
+      conversationId = newConversation[0].id
     }
 
     // Insert only the NEW user message
@@ -141,8 +140,7 @@ export async function POST(req: NextRequest) {
     const messagesParams = [
       { name: 'conversationId', value: { longValue: conversationId } }
     ];
-    const previousMessages = await executeSQL<FormattedRow>(messagesQuery, messagesParams);
-    const transformedPreviousMessages = transformSnakeToCamel<Array<{ role: string; content: string }>>(previousMessages);
+    const previousMessages = await executeSQL<{ role: string; content: string }>(messagesQuery, messagesParams);
 
     // --- Fetch documents and relevant content for AI context ---
     let documentContext = "";
@@ -259,9 +257,9 @@ export async function POST(req: NextRequest) {
     const aiMessages: CoreMessage[] = [
       { role: 'system' as const, content: systemPrompt },
       // Only include context if it's the first message (no previous messages)
-      ...(transformedPreviousMessages.length === 1 && context ? [{ role: 'system' as const, content: `Context from execution: ${JSON.stringify(context)}` }] : []),
+      ...(previousMessages.length === 1 && context ? [{ role: 'system' as const, content: `Context from execution: ${JSON.stringify(context)}` }] : []),
       // Include previous messages and the new user message
-      ...transformedPreviousMessages.map(msg => ({ 
+      ...previousMessages.map(msg => ({ 
         role: msg.role === 'user' ? 'user' as const : 'assistant' as const, 
         content: String(msg.content) 
       }))
@@ -324,10 +322,9 @@ export async function GET(req: NextRequest) {
   const checkParams = [
     { name: 'conversationId', value: { longValue: parseInt(conversationId) } }
   ];
-  const conversationResult = await executeSQL<FormattedRow>(checkQuery, checkParams);
-  const transformedConversationResult = transformSnakeToCamel<Array<{ id: number; userId: number }>>(conversationResult);
+  const conversationResult = await executeSQL<{ id: number; userId: number }>(checkQuery, checkParams);
   
-  if (!transformedConversationResult.length || transformedConversationResult[0].userId !== userId) {
+  if (!conversationResult.length || conversationResult[0].userId !== userId) {
     return NextResponse.json({ error: 'Conversation not found or access denied' }, { status: 403 })
   }
 
@@ -341,8 +338,7 @@ export async function GET(req: NextRequest) {
   const messagesParams = [
     { name: 'conversationId', value: { longValue: parseInt(conversationId) } }
   ];
-  const messages = await executeSQL<FormattedRow>(messagesQuery, messagesParams);
-  const transformedMessages = transformSnakeToCamel<Array<{ id: number; role: string; content: string }>>(messages);
+  const messages = await executeSQL<{ id: number; role: string; content: string }>(messagesQuery, messagesParams);
 
-  return NextResponse.json({ messages: transformedMessages })
+  return NextResponse.json({ messages })
 } 

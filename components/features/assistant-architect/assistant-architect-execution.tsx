@@ -137,7 +137,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
           completedAt: null,
           errorMessage: null,
           assistantArchitectId: tool?.id,
-          promptResults: Array(event.totalPrompts).fill(null).map((_, i) => ({
+          promptResults: Array.from({ length: event.totalPrompts }, (_, i) => ({
             id: `prompt_${i}_temp`,
             executionId: jobId || 'streaming',
             promptId: `prompt_${i}`, // Use string ID temporarily, will be updated by prompt_start
@@ -513,7 +513,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                 toolId: tool?.id || 0,
                 userId: job.userId,
                 status: job.status,
-                inputData: inputData,
+                inputData: inputData || {},
                 startedAt: new Date(job.createdAt),
                 completedAt: new Date(job.updatedAt),
                 errorMessage: jobError,
@@ -526,7 +526,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                 toolId: tool?.id || 0,
                 userId: job.userId,
                 status: job.status,
-                inputData: inputData,
+                inputData: inputData || {},
                 startedAt: new Date(job.createdAt),
                 completedAt: new Date(job.updatedAt),
                 errorMessage: jobError || "Execution failed, and output data was not available.",

@@ -22,7 +22,6 @@ interface SimpleChatProps {
 
 export function SimpleChat({ conversationId, initialMessages = [] }: SimpleChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
   
   const { messages, input, handleInputChange, handleSubmit: handleChatSubmit, isLoading, reload, stop } = useChat({
@@ -156,7 +155,6 @@ export function SimpleChat({ conversationId, initialMessages = [] }: SimpleChatP
       )}
 
       <ChatInput
-        ref={inputRef}
         input={input}
         handleInputChange={handleInputChange}
         handleSubmit={handleSubmit}

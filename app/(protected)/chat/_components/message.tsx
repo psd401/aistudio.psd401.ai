@@ -84,7 +84,6 @@ export function Message({ message, messageId }: MessageProps) {
           </span>
           <ReactMarkdown
             className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0"
-            id={`${uniqueId}-content`}
             components={{
               p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
               // Use default pre/code handling from prose for consistency?

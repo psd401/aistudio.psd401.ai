@@ -15,7 +15,7 @@ export async function PUT(
     
     const { roleId } = await params
     const body = await request.json()
-    const role = await updateRole(roleId, body)
+    const role = await updateRole(parseInt(roleId), body)
     
     return NextResponse.json({ role })
   } catch (error) {
@@ -37,7 +37,7 @@ export async function DELETE(
     if (authError) return authError;
     
     const { roleId } = await params
-    const role = await deleteRole(roleId)
+    const role = await deleteRole(parseInt(roleId))
     
     return NextResponse.json({ role })
   } catch (error) {
