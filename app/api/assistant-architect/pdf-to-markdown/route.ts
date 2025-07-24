@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
     logger.error('[PDF-to-Markdown] General error:', error);
     logger.error('[PDF-to-Markdown] Error stack:', error);
     return new NextResponse(
-      JSON.stringify({ error: getErrorMessage(error) || 'Unknown error' }), 
+      JSON.stringify({ error: 'Failed to process PDF file' }), 
       { status: 500, headers }
     );
   }

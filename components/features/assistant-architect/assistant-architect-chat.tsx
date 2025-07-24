@@ -33,9 +33,11 @@ interface ExecutionContext {
   promptResults: PromptResult[]
 }
 
-// Type guard for safe type checking
-function isSelectPromptResult(result: any): result is SelectPromptResult {
-  return result && typeof result.id !== 'undefined'
+// Extended prompt result type that includes additional fields from the execution
+interface ExtendedPromptResult extends SelectPromptResult {
+  chainPromptId?: number
+  inputData?: Record<string, unknown>
+  userFeedback?: 'like' | 'dislike'
 }
 
 interface AssistantArchitectChatProps {
@@ -83,7 +85,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
         inputData: execution.inputData || {},
         promptResults: (execution.promptResults || []).map(result => {
           // The actual data from the database includes additional fields beyond SelectPromptResult
-          const extendedResult = result as any;
+          const extendedResult = result as ExtendedPromptResult;
           return {
             promptId: extendedResult.chainPromptId || extendedResult.id || 0,
             input: extendedResult.inputData || {},

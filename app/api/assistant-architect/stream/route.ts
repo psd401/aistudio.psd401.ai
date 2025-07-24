@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     ]);
 
     if (!toolResult.length) {
-      return new Response(`Tool not found or inactive: ${toolId}`, { status: 404 });
+      return new Response('Tool not found or inactive', { status: 404 });
     }
 
     const tool = transformSnakeToCamel<{ id: number; name: string; description: string; status: string }>(toolResult[0]);
