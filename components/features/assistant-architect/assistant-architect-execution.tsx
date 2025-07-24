@@ -594,8 +594,9 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
          currentInterval = 5000
          if (intervalId) {
            clearInterval(intervalId)
-           intervalId = setInterval(pollJob, currentInterval)
+           intervalId = null // Clear reference to prevent accumulation
          }
+         intervalId = setInterval(pollJob, currentInterval)
        }
     }
 

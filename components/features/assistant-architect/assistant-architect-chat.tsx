@@ -33,6 +33,11 @@ interface ExecutionContext {
   promptResults: PromptResult[]
 }
 
+// Type guard for safe type checking
+function isSelectPromptResult(result: any): result is SelectPromptResult {
+  return result && typeof result.id !== 'undefined'
+}
+
 interface AssistantArchitectChatProps {
   execution: ExecutionResultDetails
   conversationId: number | null
@@ -77,19 +82,30 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
         toolId: execution.assistantArchitectId || 0,
         inputData: execution.inputData || {},
         promptResults: (execution.promptResults || []).map(result => {
-          // The actual data from getExecutionResultsAction includes these extended fields
-          const extendedResult = result as SelectPromptResult & {
-            inputData?: Record<string, unknown>
-            outputData?: string
-            status?: string
-            result?: string
+          // Use safe type checking with type guard
+          if (isSelectPromptResult(result)) {
+            // Safely access extended fields that may exist
+            const extendedResult = {
+              ...result,
+              inputData: (result as any).inputData || {},
+              outputData: (result as any).outputData || (result as any).result || '',
+              status: (result as any).status || 'completed'
+            }
+            
+            return {
+              promptId: extendedResult.chainPromptId || extendedResult.id || 0,
+              input: extendedResult.inputData,
+              output: extendedResult.outputData,
+              status: extendedResult.status
+            }
           }
           
+          // Fallback for results that don't match the type guard
           return {
-            promptId: extendedResult.chainPromptId || extendedResult.id || 0,
-            input: extendedResult.inputData || {},
-            output: extendedResult.outputData || extendedResult.result || '',
-            status: extendedResult.status || 'completed'
+            promptId: (result as any)?.promptId || (result as any)?.id || 0,
+            input: (result as any)?.inputData || {},
+            output: (result as any)?.outputData || (result as any)?.result || '',
+            status: (result as any)?.status || 'completed'
           }
         })
       } as ExecutionContext : null
