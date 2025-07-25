@@ -95,8 +95,24 @@ export async function DELETE(
   try {
     const resolvedParams = await context.params;
     const { id } = resolvedParams;
-    const sql = 'DELETE FROM ideas WHERE id = :id';
-    await executeSQL(sql, [{ name: 'id', value: { longValue: parseInt(id) } }]);
+    const ideaId = parseInt(id);
+    
+    // Delete related records first (in order of dependencies)
+    // 1. Delete all votes for this idea
+    await executeSQL('DELETE FROM idea_votes WHERE idea_id = :ideaId', [
+      { name: 'ideaId', value: { longValue: ideaId } }
+    ]);
+    
+    // 2. Delete all notes for this idea
+    await executeSQL('DELETE FROM idea_notes WHERE idea_id = :ideaId', [
+      { name: 'ideaId', value: { longValue: ideaId } }
+    ]);
+    
+    // 3. Finally delete the idea itself
+    await executeSQL('DELETE FROM ideas WHERE id = :ideaId', [
+      { name: 'ideaId', value: { longValue: ideaId } }
+    ]);
+    
     return new NextResponse(null, { status: 204 });
   } catch (error) {
     logger.error('Failed to delete idea:', error);

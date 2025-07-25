@@ -56,12 +56,10 @@ export async function GET() {
 
     const ideasWithVotes = allIdeas.map((idea) => ({
       ...idea,
-      priorityLevel: idea.priority_level,
-      createdBy: idea.creator_name || idea.user_id,
-      createdAt: idea.created_at,
-      updatedAt: idea.updated_at,
-      completedAt: idea.completed_at,
-      completedBy: idea.completed_by_name || idea.completed_by,
+      // creator_name is converted to creatorName, and user_id to userId
+      createdBy: idea.creatorName || String(idea.userId),
+      // completed_by_name is converted to completedByName
+      completedBy: idea.completedByName || idea.completedBy,
       hasVoted: userVotedIdeaIds.has(idea.id)
     }));
     
@@ -116,11 +114,10 @@ export async function POST(request: Request) {
     const result = await executeSQL(sql, params);
     const newIdea = result[0];
 
+    // The data is already converted to camelCase by formatDataApiResponse
     return NextResponse.json({
       ...newIdea,
-      priorityLevel: newIdea.priority_level,
-      createdBy: newIdea.user_id,
-      createdAt: newIdea.created_at
+      createdBy: String(newIdea.userId)
     });
   } catch (error) {
     logger.error('Error creating idea:', error);

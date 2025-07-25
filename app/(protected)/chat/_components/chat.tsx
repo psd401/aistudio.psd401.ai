@@ -305,7 +305,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
           return
         }
         
-        const chatModels = modelsData.filter(model => model.chat_enabled === true)
+        const chatModels = modelsData.filter(model => model.chatEnabled === true)
         
         if (chatModels.length > 0) {
           setModels(chatModels)
