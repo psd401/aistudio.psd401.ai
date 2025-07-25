@@ -11,7 +11,8 @@ import {
 } from "@aws-sdk/client-rds-data";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import logger from '@/lib/logger';
-import { transformSnakeToCamel } from "./field-mapper";
+import { snakeToCamel } from "./field-mapper";
+import type { SelectNavigationItem } from '@/types/db-types';
 
 // Type aliases for cleaner code
 type DataApiResponse = ExecuteStatementCommandOutput;
@@ -116,6 +117,7 @@ function getDataApiConfig() {
 
 /**
  * Convert Data API response to a more usable format
+ * Automatically transforms snake_case column names to camelCase
  */
 function formatDataApiResponse(response: DataApiResponse): FormattedRow[] {
   if (!response.records) return [];
@@ -126,6 +128,9 @@ function formatDataApiResponse(response: DataApiResponse): FormattedRow[] {
     const row: FormattedRow = {};
     record.forEach((field: Field, index) => {
       const columnName = columns[index];
+      // Transform snake_case to camelCase for the property name
+      const camelCaseColumnName = snakeToCamel(columnName);
+      
       // Extract the actual value from the field object
       let value: string | number | boolean | null | Uint8Array | ArrayValue;
       if ('isNull' in field && field.isNull) {
@@ -145,7 +150,7 @@ function formatDataApiResponse(response: DataApiResponse): FormattedRow[] {
       } else {
         value = null;
       }
-      row[columnName] = value;
+      row[camelCaseColumnName] = value;
     });
     return row;
   });
@@ -272,7 +277,7 @@ export async function getNavigationItems(activeOnly: boolean = false) {
     ORDER BY position ASC
   `;
   
-  return executeSQL(sql);
+  return executeSQL<SelectNavigationItem>(sql);
 }
 
 export async function createNavigationItem(data: {
@@ -318,7 +323,7 @@ export async function createNavigationItem(data: {
     throw new Error('Failed to create navigation item');
   }
   
-  return formatNavigationItem(result[0]);
+  return result[0];
 }
 
 export async function updateNavigationItem(id: number, data: Partial<{
@@ -367,7 +372,7 @@ export async function updateNavigationItem(id: number, data: Partial<{
     throw new Error(`Navigation item with id ${id} not found or update failed`);
   }
   
-  return formatNavigationItem(result[0]);
+  return result[0];
 }
 
 export async function deleteNavigationItem(id: number) {
@@ -383,26 +388,6 @@ export async function deleteNavigationItem(id: number) {
   return result[0];
 }
 
-function formatNavigationItem(item: FormattedRow) {
-  if (!item) {
-    throw new Error('Navigation item not found');
-  }
-  
-  return {
-    id: item.id,
-    label: item.label,
-    icon: item.icon,
-    link: item.link,
-    description: item.description,
-    type: item.type,
-    parentId: item.parent_id,
-    toolId: item.tool_id,
-    requiresRole: item.requires_role,
-    position: item.position,
-    isActive: item.is_active,
-    createdAt: item.created_at
-  };
-}
 
 /**
  * User management functions
@@ -416,7 +401,7 @@ export async function getUsers() {
   `;
   
   const results = await executeSQL(query);
-  return transformSnakeToCamel(results);
+  return results;
 }
 
 export async function getUserRoles() {
@@ -428,7 +413,7 @@ export async function getUserRoles() {
   `;
   
   const results = await executeSQL(sql);
-  return transformSnakeToCamel(results);
+  return results;
 }
 
 export interface UserData {
@@ -682,15 +667,7 @@ export async function getRoles() {
   `;
   
   const result = await executeSQL(sql);
-  // Convert snake_case to camelCase
-  return result.map((role: FormattedRow) => ({
-    id: role.id,
-    name: role.name,
-    description: role.description,
-    is_system: role.is_system,
-    createdAt: role.created_at,
-    updatedAt: role.updated_at
-  }));
+  return result;
 }
 
 /**
@@ -814,17 +791,7 @@ export async function getTools() {
   `;
   
   const result = await executeSQL(sql);
-  // Convert snake_case to camelCase
-  return result.map((tool: FormattedRow) => ({
-    id: tool.id,
-    identifier: tool.identifier,
-    name: tool.name,
-    description: tool.description,
-    assistantArchitectId: tool.assistant_architect_id,
-    isActive: tool.is_active,
-    createdAt: tool.created_at,
-    updatedAt: tool.updated_at
-  }));
+  return result;
 }
 
 /**
@@ -933,16 +900,7 @@ export async function getRoleTools(roleId: number) {
   ];
   
   const result = await executeSQL(sql, parameters);
-  // Convert snake_case to camelCase
-  return result.map((tool: FormattedRow) => ({
-    id: tool.id,
-    identifier: tool.identifier,
-    name: tool.name,
-    description: tool.description,
-    isActive: tool.is_active,
-    createdAt: tool.created_at,
-    updatedAt: tool.updated_at
-  }));
+  return result;
 }
 
 /**
@@ -1025,22 +983,16 @@ export async function getAssistantArchitects() {
   
   const assistants = await executeSQL(sql);
   
-  // Transform snake_case to camelCase and include creator info
+  // Include creator info
   return assistants.map((assistant: FormattedRow) => ({
-    id: assistant.id,
-    name: assistant.name,
-    description: assistant.description,
-    imagePath: assistant.image_path,
-    userId: assistant.user_id || 'unknown',
-    status: assistant.status,
-    createdAt: assistant.created_at,
-    updatedAt: assistant.updated_at,
-    creator: assistant.creator_first_name || assistant.creator_last_name || assistant.creator_email
+    ...assistant,
+    userId: assistant.userId || 'unknown',
+    creator: assistant.creatorFirstName || assistant.creatorLastName || assistant.creatorEmail
       ? {
-          id: assistant.user_id,
-          firstName: assistant.creator_first_name,
-          lastName: assistant.creator_last_name,
-          email: assistant.creator_email
+          id: assistant.userId,
+          firstName: assistant.creatorFirstName,
+          lastName: assistant.creatorLastName,
+          email: assistant.creatorEmail
         }
       : null
   }));
@@ -1077,18 +1029,7 @@ export async function createAssistantArchitect(data: {
   ];
   
   const result = await executeSQL(sql, parameters);
-  const assistant = result[0];
-  
-  return {
-    id: assistant.id,
-    name: assistant.name,
-    description: assistant.description,
-    imagePath: assistant.image_path,
-    userId: assistant.user_id,
-    status: assistant.status,
-    createdAt: assistant.created_at,
-    updatedAt: assistant.updated_at
-  };
+  return result[0];
 }
 
 export async function updateAssistantArchitect(id: number, updates: Record<string, string | number | boolean | null>) {
@@ -1129,18 +1070,7 @@ export async function updateAssistantArchitect(id: number, updates: Record<strin
   `;
   
   const result = await executeSQL(sql, parameters);
-  const assistant = result[0];
-  
-  return {
-    id: assistant.id,
-    name: assistant.name,
-    description: assistant.description,
-    imagePath: assistant.image_path,
-    userId: assistant.user_id,
-    status: assistant.status,
-    createdAt: assistant.created_at,
-    updatedAt: assistant.updated_at
-  };
+  return result[0];
 }
 
 export async function deleteAssistantArchitect(id: number) {
@@ -1222,16 +1152,7 @@ export async function approveAssistantArchitect(id: number) {
     )
   `, [{ name: 'assistantId', value: { longValue: Number(assistant.id) } }]);
   
-  return {
-    id: assistant.id,
-    name: assistant.name,
-    description: assistant.description,
-    imagePath: assistant.image_path,
-    userId: assistant.user_id,
-    status: assistant.status,
-    createdAt: assistant.created_at,
-    updatedAt: assistant.updated_at
-  };
+  return assistant;
 }
 
 export async function rejectAssistantArchitect(id: number) {

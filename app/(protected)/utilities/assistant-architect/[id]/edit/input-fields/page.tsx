@@ -5,6 +5,7 @@ import { checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter"
 import { CreateLayout } from "../../../create/_components/create-layout"
 import { InputFieldsPageClient } from "./_components/input-fields-page-client"
 import Link from "next/link"
+import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 
 export default async function InputFieldsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -13,6 +14,9 @@ export default async function InputFieldsPage({ params }: { params: Promise<{ id
     notFound()
   }
   const tool = result.data
+  if (!tool) {
+    notFound()
+  }
   
   // Check authentication
   const session = await getServerSession()
@@ -21,7 +25,8 @@ export default async function InputFieldsPage({ params }: { params: Promise<{ id
   }
   
   const isAdmin = await checkUserRoleByCognitoSub(session.sub, "administrator")
-  const isCreator = session.userId === tool.userId
+  const currentUser = await getCurrentUserAction()
+  const isCreator = currentUser.isSuccess && currentUser.data?.user.id === tool.userId
   const canEdit = isAdmin || (isCreator && (tool.status === "draft" || tool.status === "pending_approval" || tool.status === "rejected" || tool.status === "approved"))
   if (!canEdit) {
     redirect(`/utilities/assistant-architect/${id}`)

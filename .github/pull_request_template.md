@@ -10,6 +10,9 @@
 - [ ] Lint passes (`npm run lint`)
 - [ ] All tests pass (`npm test`)
 - [ ] Types/interfaces follow project conventions
+- [ ] No type assertions (`as any`) without justification
+- [ ] Database field names use snake_case (automatic camelCase transformation handled by data API adapter)
+- [ ] TypeScript strict mode errors resolved
 - [ ] Environment variables handled securely and `.env.example` updated if needed
 - [ ] Documentation updated (if needed)
 - [ ] Code reviewed and approved

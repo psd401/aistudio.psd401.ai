@@ -36,7 +36,7 @@ export default async function ChatLayout({
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-white">
               {/* Add Page Title */}
               <h1 className="text-2xl font-semibold mb-4 text-gray-900">
-                AI Model Explorer
+                Chat with AI
               </h1>
               {/* Render the page content (ChatPage) */}
               <div className="flex-1 min-h-0 overflow-hidden">

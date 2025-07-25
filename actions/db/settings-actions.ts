@@ -7,7 +7,6 @@ import { ActionState } from "@/types/actions-types"
 import { createError, createSuccess, handleError } from "@/lib/error-utils"
 import logger from "@/lib/logger"
 import { revalidateSettingsCache } from "@/lib/settings-manager"
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 
 export interface Setting {
   id: number
@@ -70,9 +69,7 @@ export async function getSettingsAction(): Promise<ActionState<Setting[]>> {
       ORDER BY category, key
     `)
 
-    const settings = transformSnakeToCamel<Setting[]>(result)
-
-    return createSuccess(settings, "Settings retrieved successfully")
+    return createSuccess(result as unknown as Setting[], "Settings retrieved successfully")
   } catch (error) {
     logger.error("Error getting settings:", error)
     return handleError(error)
@@ -216,8 +213,7 @@ export async function upsertSettingAction(input: CreateSettingInput): Promise<Ac
       throw createError("Failed to save setting")
     }
 
-    const settings = transformSnakeToCamel<Setting[]>(result)
-    const setting = settings[0]
+    const setting = result[0] as unknown as Setting
 
     // Invalidate the settings cache
     await revalidateSettingsCache()

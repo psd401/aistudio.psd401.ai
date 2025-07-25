@@ -69,7 +69,7 @@ export function CreateForm({ initialData }: CreateFormProps) {
       let result
       if (initialData) {
         // Update existing assistant
-        result = await updateAssistantArchitectAction(initialData.id, values)
+        result = await updateAssistantArchitectAction(String(initialData.id), values)
         if (!result.isSuccess) {
           throw new Error(result.message)
         }

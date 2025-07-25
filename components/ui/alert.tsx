@@ -35,7 +35,7 @@ const Alert = React.forwardRef<
       icon?: React.ReactNode
     }
 >(({ className, variant, icon, children, ...props }, ref) => {
-  const Icon = icon || {
+  const IconComponent = icon || {
     default: Info,
     destructive: XCircle,
     success: CheckCircle2,
@@ -50,7 +50,7 @@ const Alert = React.forwardRef<
       className={cn(alertVariants({ variant }), className)}
       {...props}
     >
-      <Icon className="h-4 w-4" />
+      {React.isValidElement(IconComponent) ? IconComponent : React.createElement(IconComponent as React.ComponentType<{ className?: string }>, { className: "h-4 w-4" })}
       {children}
     </div>
   )

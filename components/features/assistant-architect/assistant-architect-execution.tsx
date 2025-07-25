@@ -31,7 +31,6 @@ import type { AssistantArchitectWithRelations } from "@/types/assistant-architec
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AssistantArchitectChat } from "./assistant-architect-chat"
 import { ChatErrorBoundary } from "./chat-error-boundary"
-import type { SelectPromptResult } from "@/types/db-types"
 import Image from "next/image"
 import PdfUploadButton from "@/components/ui/pdf-upload-button"
 import { updatePromptResultAction } from "@/actions/db/assistant-architect-actions"
@@ -127,8 +126,9 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     switch (event.type) {
       case 'metadata':
         // Initialize results structure
+        const tempId = jobId || 'streaming'
         const initialResults: ExtendedExecutionResultDetails = {
-          id: jobId || 'streaming',
+          id: tempId,
           toolId: tool?.id || 0,
           userId: 'current',
           status: 'running',
@@ -137,11 +137,11 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
           completedAt: null,
           errorMessage: null,
           assistantArchitectId: tool?.id,
-          promptResults: Array(event.totalPrompts).fill(null).map((_, i) => ({
+          promptResults: Array.from({ length: event.totalPrompts || 0 }, (_, i) => ({
             id: `prompt_${i}_temp`,
-            executionId: jobId || 'streaming',
+            executionId: tempId,
             promptId: `prompt_${i}`, // Use string ID temporarily, will be updated by prompt_start
-            inputData: '',
+            inputData: {} as Record<string, unknown>,
             outputData: '',
             status: 'pending' as const,
             startedAt: new Date(),
@@ -239,6 +239,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
           if (!prev) return null
           return {
             ...prev,
+            id: event.executionId || prev.id, // Use the actual execution ID from the event
             status: 'completed',
             completedAt: new Date()
           }
@@ -513,7 +514,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                 toolId: tool?.id || 0,
                 userId: job.userId,
                 status: job.status,
-                inputData: inputData,
+                inputData: inputData || {},
                 startedAt: new Date(job.createdAt),
                 completedAt: new Date(job.updatedAt),
                 errorMessage: jobError,
@@ -526,7 +527,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                 toolId: tool?.id || 0,
                 userId: job.userId,
                 status: job.status,
-                inputData: inputData,
+                inputData: inputData || {},
                 startedAt: new Date(job.createdAt),
                 completedAt: new Date(job.updatedAt),
                 errorMessage: jobError || "Execution failed, and output data was not available.",
@@ -890,10 +891,10 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
               )}
               {results?.promptResults && results.promptResults.length > 0 ? (
                 <div className="space-y-6">
-                  {results.promptResults.map((promptResult: SelectPromptResult, index: number) => (
+                  {results.promptResults.map((promptResult: ExtendedPromptResult, index: number) => (
                     <div key={promptResult.id} className="space-y-3 p-4 border rounded-md bg-card shadow-sm">
                       <button
-                        onClick={() => togglePromptExpand(promptResult.id)}
+                        onClick={() => togglePromptExpand(String(promptResult.id))}
                         className="w-full flex items-center justify-between text-sm font-medium mb-2"
                       >
                         <div className="flex items-center text-muted-foreground">
@@ -1131,7 +1132,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                     <div className="mt-8">
                       <ChatErrorBoundary>
                         <AssistantArchitectChat
-                          execution={results as ExecutionResultDetails}
+                          execution={results as unknown as ExecutionResultDetails}
                           conversationId={conversationId}
                           onConversationCreated={setConversationId}
                           isPreview={isPreview}

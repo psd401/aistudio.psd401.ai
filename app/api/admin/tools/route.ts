@@ -11,7 +11,7 @@ export async function GET() {
     // Get all tools
     const result = await executeSQL('SELECT id, name, identifier, description FROM tools ORDER BY name')
 
-    const tools = result.map((record: { id: string | number | boolean | null; name: string | number | boolean | null; identifier: string | number | boolean | null; description: string | number | boolean | null }) => ({
+    const tools = result.map((record) => ({
       id: String(record.id),
       name: String(record.name),
       identifier: String(record.identifier),

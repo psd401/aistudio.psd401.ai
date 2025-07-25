@@ -1,9 +1,9 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
-import { executeSQL } from '@/lib/db/data-api-adapter';
+import { executeSQL, executeTransaction } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
 import logger from '@/lib/logger';
-import { SqlParameter } from 'aws-sdk/clients/rdsdataservice';
+import { SqlParameter } from '@aws-sdk/client-rds-data';
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -55,7 +55,7 @@ export async function PATCH(
         
         const userId = userResult[0].id;
         updateFields.push('completed_by = :completedBy', 'completed_at = NOW()');
-        params.push({ name: 'completedBy', value: { stringValue: userId.toString() } });
+        params.push({ name: 'completedBy', value: { stringValue: String(userId || '') } });
       }
     }
 
@@ -95,8 +95,26 @@ export async function DELETE(
   try {
     const resolvedParams = await context.params;
     const { id } = resolvedParams;
-    const sql = 'DELETE FROM ideas WHERE id = :id';
-    await executeSQL(sql, [{ name: 'id', value: { longValue: parseInt(id) } }]);
+    const ideaId = parseInt(id);
+    
+    // Use transaction to ensure atomic deletion
+    const deleteStatements = [
+      {
+        sql: 'DELETE FROM idea_votes WHERE idea_id = :ideaId',
+        parameters: [{ name: 'ideaId', value: { longValue: ideaId } }]
+      },
+      {
+        sql: 'DELETE FROM idea_notes WHERE idea_id = :ideaId',
+        parameters: [{ name: 'ideaId', value: { longValue: ideaId } }]
+      },
+      {
+        sql: 'DELETE FROM ideas WHERE id = :ideaId',
+        parameters: [{ name: 'ideaId', value: { longValue: ideaId } }]
+      }
+    ];
+    
+    await executeTransaction(deleteStatements);
+    
     return new NextResponse(null, { status: 204 });
   } catch (error) {
     logger.error('Failed to delete idea:', error);

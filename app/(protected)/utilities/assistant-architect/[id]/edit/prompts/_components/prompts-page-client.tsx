@@ -95,21 +95,27 @@ interface PromptNodeData {
 }
 
 // Custom Node Component
-function PromptNode({ data, id }: NodeProps<PromptNodeData>) {
+function PromptNode({ data, id }: NodeProps) {
+  // Type guard to ensure data has the expected properties
+  const nodeData = data as unknown as PromptNodeData;
+  
   const handleEdit = () => {
-    data.onEdit(data.prompt)
+    if (nodeData.onEdit && nodeData.prompt) {
+      nodeData.onEdit(nodeData.prompt)
+    }
   }
 
   const handleDelete = () => {
-    data.onDelete(id)
+    if (nodeData.onDelete && id) {
+      nodeData.onDelete(id)
+    }
   }
 
-  const d = data
   return (
     <div className="min-w-[200px] shadow-lg rounded-lg bg-background border">
       <div className="p-3">
         <div className="flex items-center justify-between mb-2">
-          <div className="font-semibold text-base">{d.name as string}</div>
+          <div className="font-semibold text-base">{nodeData.name}</div>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
@@ -131,7 +137,7 @@ function PromptNode({ data, id }: NodeProps<PromptNodeData>) {
         </div>
 
         <Badge variant="secondary" className="text-xs">
-          {d.modelName as string}
+          {nodeData.modelName}
         </Badge>
       </div>
 
@@ -168,8 +174,10 @@ const Flow = React.forwardRef<FlowHandle, {
   onEdit, 
   onDelete
 }, ref) => {
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
-  const [edges, setEdges, _onEdgesChange] = useEdgesState<Edge>([])
+  const initialNodes: Node[] = []
+  const initialEdges: Edge[] = []
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
+  const [edges, setEdges, _onEdgesChange] = useEdgesState(initialEdges)
   const [isSaving, setIsSaving] = useState(false)
   const reactFlowInstance = useReactFlow()
   const isInitialRender = useRef(true)
@@ -248,7 +256,7 @@ const Flow = React.forwardRef<FlowHandle, {
     _onEdgesChange(changes)
     
     // Only save when edges are added or removed
-    const hasStructuralChanges = changes.some(change => 
+    const hasStructuralChanges = changes.some((change) => 
       change.type === 'remove' || change.type === 'add'
     )
     if (hasStructuralChanges && !isInitialRender.current) {
@@ -460,6 +468,9 @@ function slugify(str: string): string {
 // Custom Variable Insert Dropdown for MDXEditor toolbar
 interface MDXEditorHandle {
   insertMarkdown: (text: string) => void;
+  getMarkdown: () => string;
+  setMarkdown: (markdown: string) => void;
+  focus: () => void;
 }
 
 function VariableInsertDropdown({ variables, editorRef }: { variables: string[], editorRef: React.RefObject<MDXEditorHandle> }) {
@@ -532,7 +543,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
           name: promptName,
           content: promptContent,
           systemContext: systemContext || undefined,
-          modelId: parseInt(modelId),
+          modelId: parseInt(modelId as string),
           position: typeof prompts.length === 'number' ? prompts.length : 0,
         }
       )
@@ -573,7 +584,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         setIsLoading(false);
         return;
       }
-      const result = await updatePromptAction(editingPrompt.id, {
+      const result = await updatePromptAction(editingPrompt.id.toString(), {
         name: promptName,
         content: promptContent,
         systemContext: systemContext || undefined,
@@ -608,14 +619,14 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
     }
     
     try {
-      // Convert string ID back to integer for backend API
-      const promptIdInt = parseInt(promptId, 10);
-      const result = await deletePromptAction(promptIdInt)
+      // Use the string ID directly for the API call
+      const result = await deletePromptAction(promptId)
 
       if (result.isSuccess) {
         toast.success("Prompt deleted successfully")
         
         // Remove the deleted prompt from our local state
+        const promptIdInt = parseInt(promptId, 10);
         setPrompts(current => current.filter(p => p.id !== promptIdInt))
         
         // Update the graph with the latest execution order
@@ -623,12 +634,12 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
           const graphInstance = reactFlowInstanceRef.current;
           setTimeout(() => {
             // Remove the node
-            const updatedNodes = graphInstance.getNodes().filter((n: Node) => n.id !== promptId);
+            const updatedNodes = graphInstance.getNodes().filter(n => n.id !== promptId);
             graphInstance.setNodes(updatedNodes);
             
             // Remove edges connected to this node
             const updatedEdges = graphInstance.getEdges().filter(
-              (e: Edge) => e.source !== promptId && e.target !== promptId
+              e => e.source !== promptId && e.target !== promptId
             );
             graphInstance.setEdges(updatedEdges);
             
@@ -698,7 +709,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         setPromptName("");
         setPromptContent("");
         setSystemContext("");
-        setModelId("");
+        setModelId(null);
         setIsAddDialogOpen(true);
       }}>
         <PlusIcon className="h-4 w-4 mr-2" />

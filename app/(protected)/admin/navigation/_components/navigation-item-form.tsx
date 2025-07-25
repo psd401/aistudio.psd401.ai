@@ -69,7 +69,7 @@ export function NavigationItemForm({
       icon: (initialData?.icon as IconName) || "IconHome",
       link: initialData?.link || "",
       description: initialData?.description || "",
-      type: initialData?.type || "link",
+      type: (initialData?.type as "link" | "section" | "page") || "link",
       parentId: initialData?.parentId || undefined,
       toolId: initialData?.toolId || null,
       requiresRole: initialData?.requiresRole || null,
@@ -178,14 +178,14 @@ export function NavigationItemForm({
             <form id="navigation-form" onSubmit={form.handleSubmit(onFormSubmit)} className="space-y-4">
               <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <FormField
+                  <FormField<FormValues>
                     control={form.control}
                     name="label"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Label</FormLabel>
                         <FormControl>
-                          <Input {...field} />
+                          <Input {...field} value={typeof field.value === 'boolean' ? '' : (field.value || '')} />
                         </FormControl>
                         <FormDescription>
                           This is the label that will be displayed in the navigation.
@@ -195,7 +195,7 @@ export function NavigationItemForm({
                     )}
                   />
 
-                  <FormField
+                  <FormField<FormValues>
                     control={form.control}
                     name="type"
                     render={({ field }) => (
@@ -203,7 +203,7 @@ export function NavigationItemForm({
                         <FormLabel>Type</FormLabel>
                         <Select
                           onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          defaultValue={String(field.value || '')}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -226,7 +226,7 @@ export function NavigationItemForm({
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <FormField
+                  <FormField<FormValues>
                     control={form.control}
                     name="icon"
                     render={({ field }) => (
@@ -234,7 +234,7 @@ export function NavigationItemForm({
                         <FormLabel>Icon</FormLabel>
                         <Select
                           onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          defaultValue={String(field.value || '')}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -277,14 +277,14 @@ export function NavigationItemForm({
                     )}
                   />
 
-                  <FormField
+                  <FormField<FormValues>
                     control={form.control}
                     name="link"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Link</FormLabel>
                         <FormControl>
-                          <Input {...field} />
+                          <Input {...field} value={typeof field.value === 'boolean' ? '' : (field.value || '')} />
                         </FormControl>
                         <FormDescription>
                           This is the link that will be used when the item is clicked.
@@ -295,14 +295,14 @@ export function NavigationItemForm({
                   />
                 </div>
 
-                <FormField
+                <FormField<FormValues>
                   control={form.control}
                   name="description"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Textarea {...field} className="h-20" />
+                        <Textarea {...field} value={typeof field.value === 'boolean' ? '' : (field.value || '')} className="h-20" />
                       </FormControl>
                       <FormDescription>
                         This will be displayed when the navigation item is of type page.
@@ -313,7 +313,7 @@ export function NavigationItemForm({
                 />
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <FormField
+                  <FormField<FormValues>
                     control={form.control}
                     name="parentId"
                     render={({ field }) => (
@@ -345,7 +345,7 @@ export function NavigationItemForm({
                     )}
                   />
 
-                  <FormField
+                  <FormField<FormValues>
                     control={form.control}
                     name="toolId"
                     render={({ field }) => (
@@ -375,7 +375,7 @@ export function NavigationItemForm({
                   />
                 </div>
 
-                <FormField
+                <FormField<FormValues>
                   control={form.control}
                   name="requiresRole"
                   render={({ field }) => (
@@ -383,7 +383,7 @@ export function NavigationItemForm({
                       <FormLabel>Required Role</FormLabel>
                       <Select
                         onValueChange={(value) => field.onChange(value === "none" ? null : value)}
-                        defaultValue={field.value || "none"}
+                        defaultValue={String(field.value || "none")}
                       >
                         <FormControl>
                           <SelectTrigger>

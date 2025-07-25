@@ -24,7 +24,7 @@ export async function DELETE(
     }
 
     // Delete the user via Data API
-    const deletedUser = await deleteUser(targetUserId);
+    const deletedUser = await deleteUser(parseInt(targetUserId));
 
     if (!deletedUser) {
       return NextResponse.json(

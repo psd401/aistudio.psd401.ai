@@ -3,8 +3,7 @@
 import { InsertJob, SelectJob } from "@/types/db-types"
 import { ActionState } from "@/types"
 import logger from "@/lib/logger"
-import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter"
-import { transformSnakeToCamel } from '@/lib/db/field-mapper'
+import { executeSQL } from "@/lib/db/data-api-adapter"
 import { SqlParameter } from "@aws-sdk/client-rds-data"
 
 export async function createJobAction(
@@ -21,7 +20,7 @@ export async function createJobAction(
       return { isSuccess: false, message: "Invalid userId provided." };
     }
 
-    const result = await executeSQL<FormattedRow>(`
+    const result = await executeSQL<SelectJob>(`
       INSERT INTO jobs (user_id, status, type, input, output, error, created_at, updated_at)
       VALUES (:userId, :status::job_status, :type, :input, :output, :error, NOW(), NOW())
       RETURNING *
@@ -38,13 +37,11 @@ export async function createJobAction(
     if (!newJob) {
       throw new Error("Failed to create job: no record returned.");
     }
-    
-    const transformedJob = transformSnakeToCamel<SelectJob>(newJob);
 
     return {
       isSuccess: true,
       message: "Job created successfully",
-      data: transformedJob
+      data: newJob
     }
   } catch (error) {
     logger.error("Error creating job", { error })
@@ -59,7 +56,7 @@ export async function getJobAction(id: string): Promise<ActionState<SelectJob>> 
       return { isSuccess: false, message: "Invalid job ID" };
     }
 
-    const result = await executeSQL<FormattedRow>(
+    const result = await executeSQL<SelectJob>(
       'SELECT * FROM jobs WHERE id = :id',
       [{ name: 'id', value: { longValue: idNum } }]
     );
@@ -68,13 +65,11 @@ export async function getJobAction(id: string): Promise<ActionState<SelectJob>> 
     if (!job) {
       return { isSuccess: false, message: "Job not found" }
     }
-    
-    const transformedJob = transformSnakeToCamel<SelectJob>(job);
 
     return {
       isSuccess: true,
       message: "Job retrieved successfully",
-      data: transformedJob
+      data: job
     }
   } catch (error) {
     logger.error("Error getting job", { error })
@@ -89,17 +84,15 @@ export async function getUserJobsAction(userId: string): Promise<ActionState<Sel
       return { isSuccess: false, message: "Invalid user ID" };
     }
 
-    const result = await executeSQL<FormattedRow>(
+    const result = await executeSQL<SelectJob>(
       'SELECT * FROM jobs WHERE user_id = :userId',
       [{ name: 'userId', value: { longValue: userIdNum } }]
     );
 
-    const transformedJobs = result.map((job) => transformSnakeToCamel<SelectJob>(job));
-
     return {
       isSuccess: true,
       message: "Jobs retrieved successfully",
-      data: transformedJobs
+      data: result
     }
   } catch (error) {
     logger.error("Error getting jobs", { error })
@@ -149,7 +142,7 @@ export async function updateJobAction(
       }));
     parameters.push({ name: 'id', value: { longValue: idNum } });
     
-    const result = await executeSQL<FormattedRow>(
+    const result = await executeSQL<SelectJob>(
       `UPDATE jobs SET ${setClauses}, updated_at = NOW() WHERE id = :id RETURNING *`,
       parameters
     );
@@ -160,12 +153,10 @@ export async function updateJobAction(
         throw new Error("Failed to update job or job not found.");
     }
 
-    const transformedJob = transformSnakeToCamel<SelectJob>(updatedJob);
-
     return {
       isSuccess: true,
       message: "Job updated successfully",
-      data: transformedJob
+      data: updatedJob
     }
   } catch (error) {
     logger.error("Error updating job", { error })

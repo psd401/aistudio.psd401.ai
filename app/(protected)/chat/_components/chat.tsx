@@ -23,6 +23,7 @@ interface Document {
   url: string
   size?: number
   createdAt?: string
+  conversationId?: number
 }
 
 interface ChatProps {
@@ -51,7 +52,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     api: '/api/chat/stream-final',
     initialMessages,
     body: {
-      modelId: selectedModel?.model_id,
+      modelId: selectedModel?.modelId,
       conversationId: currentConversationId,
       documentId: currentConversationId === undefined && processingDocumentId ? processingDocumentId : undefined
     },
@@ -304,7 +305,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
           return
         }
         
-        const chatModels = modelsData.filter(model => model.chat_enabled === true)
+        const chatModels = modelsData.filter(model => model.chatEnabled === true)
         
         if (chatModels.length > 0) {
           setModels(chatModels)

@@ -5,7 +5,7 @@ export const config = {
       userPoolId: process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID || '',
       userPoolClientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID || '',
       region: process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
-      signUpVerificationMethod: "code",
+      signUpVerificationMethod: "code" as const,
       loginWith: {
         oauth: {
           domain: process.env.NEXT_PUBLIC_COGNITO_DOMAIN || '',
@@ -22,7 +22,7 @@ export const config = {
             "http://localhost:3000",
             "https://dev.aistudio.psd401.ai"
           ],
-          responseType: "code"
+          responseType: "code" as const
         }
       }
     }

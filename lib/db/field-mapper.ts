@@ -14,7 +14,7 @@ export function snakeToCamel(str: string): string {
  */
 export function transformSnakeToCamel<T = unknown>(obj: unknown): T {
   if (obj === null || obj === undefined) {
-    return obj;
+    return obj as T;
   }
 
   if (Array.isArray(obj)) {

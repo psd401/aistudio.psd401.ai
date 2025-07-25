@@ -14,7 +14,14 @@ export default async function AssistantArchitectsPage() {
     redirect("/sign-in")
   }
   
-  const cognitoSub = session.sub
+  
+  // Get current user's database ID
+  const { getCurrentUserAction } = await import("@/actions/db/get-current-user-action")
+  const currentUser = await getCurrentUserAction()
+  if (!currentUser.isSuccess || !currentUser.data) {
+    throw new Error("User not found")
+  }
+  const userId = currentUser.data.user.id
   
   // Get all assistants the user has access to
   const result = await getAssistantArchitectsAction()
@@ -24,8 +31,8 @@ export default async function AssistantArchitectsPage() {
   
   const tools = result.data
   
-  // Filter assistants by user and status using cognito_sub
-  const userTools = tools.filter((tool) => tool.cognito_sub === cognitoSub)
+  // Filter assistants by user and status using user_id
+  const userTools = tools.filter((tool) => tool.userId === userId)
   const draftTools = userTools.filter((tool) => tool.status === "draft")
   const pendingTools = userTools.filter((tool) => tool.status === "pending_approval")
   const approvedTools = userTools.filter((tool) => tool.status === "approved")

@@ -275,8 +275,8 @@ export function NavigationManager() {
                       className="transition-all duration-200"
                       style={{ 
                         paddingLeft: `${item.level * 2}rem`,
-                        opacity: collapsedSections.has(item.parentId || '') ? 0 : 1,
-                        height: collapsedSections.has(item.parentId || '') ? 0 : 'auto',
+                        opacity: item.parentId && collapsedSections.has(item.parentId) ? 0 : 1,
+                        height: item.parentId && collapsedSections.has(item.parentId) ? 0 : 'auto',
                         overflow: 'hidden'
                       }}
                     >

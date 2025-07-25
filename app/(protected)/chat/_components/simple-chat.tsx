@@ -22,7 +22,6 @@ interface SimpleChatProps {
 
 export function SimpleChat({ conversationId, initialMessages = [] }: SimpleChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
   
   const { messages, input, handleInputChange, handleSubmit: handleChatSubmit, isLoading, reload, stop } = useChat({
@@ -123,11 +122,7 @@ export function SimpleChat({ conversationId, initialMessages = [] }: SimpleChatP
     }
   }, [messages]);
 
-  useEffect(() => {
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [messages]);
+  // Auto-focus handled by ChatInput component
 
   return (
     <div className="flex flex-col h-full relative">
@@ -156,7 +151,6 @@ export function SimpleChat({ conversationId, initialMessages = [] }: SimpleChatP
       )}
 
       <ChatInput
-        ref={inputRef}
         input={input}
         handleInputChange={handleInputChange}
         handleSubmit={handleSubmit}

@@ -27,19 +27,12 @@ import * as z from "zod"
 import { addToolInputFieldAction, updateInputFieldAction } from "@/actions/db/assistant-architect-actions"
 import type { SelectToolInputField } from "@/types"
 
-const formSchema = (inputFields: SelectToolInputField[], editingField?: SelectToolInputField | null) => z.object({
+const baseFormSchema = z.object({
   name: z
     .string()
     .min(1, "Name is required")
     .max(24, "Name must be 24 characters or less")
-    .regex(/^[a-z0-9_]+$/, "Name must be a single word, lowercase, and only contain letters, numbers, or underscores (no spaces or special characters)")
-    .refine(
-      (val) => {
-        // Exclude the currently edited field from the duplicate check
-        return !inputFields.some(f => f.name === val && (!editingField || f.id !== editingField.id))
-      },
-      { message: "Name must be unique. Another field with this name already exists." }
-    ),
+    .regex(/^[a-z0-9_]+$/, "Name must be a single word, lowercase, and only contain letters, numbers, or underscores (no spaces or special characters)"),
   label: z.string().min(1, "Label is required"),
   fieldType: z.enum(["short_text", "long_text", "select", "multi_select", "file_upload"]),
   position: z.number().int().min(0),
@@ -51,7 +44,7 @@ const formSchema = (inputFields: SelectToolInputField[], editingField?: SelectTo
   ).optional()
 })
 
-type FormValues = z.infer<typeof formSchema>
+type FormValues = z.infer<typeof baseFormSchema>
 
 interface InputFieldsFormProps {
   assistantId: string
@@ -75,7 +68,15 @@ export function InputFieldsForm({
   const isEditing = !!editingField
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema(inputFields, editingField)),
+    resolver: zodResolver(
+      baseFormSchema.refine(
+        (values) => {
+          // Exclude the currently edited field from the duplicate check
+          return !inputFields.some(f => f.name === values.name && (!editingField || f.id !== editingField.id))
+        },
+        { message: "Name must be unique. Another field with this name already exists.", path: ["name"] }
+      )
+    ),
     defaultValues: {
       name: "",
       label: "",
@@ -85,7 +86,7 @@ export function InputFieldsForm({
     }
   })
 
-  const watchFieldType = form.watch("fieldType")
+  const watchFieldType = form.watch("fieldType") as FormValues["fieldType"]
 
   // Set form values when editing a field
   useEffect(() => {
@@ -116,7 +117,7 @@ export function InputFieldsForm({
     setShowOptions(shouldShowOptions)
     if (!shouldShowOptions) {
       setOptions([])
-      form.setValue("options", [])
+      form.setValue("options" as const, [])
     }
   }, [watchFieldType, form])
 
@@ -124,7 +125,7 @@ export function InputFieldsForm({
     if (newOption.label && newOption.value) {
       const updatedOptions = [...options, newOption]
       setOptions(updatedOptions)
-      form.setValue("options", updatedOptions)
+      form.setValue("options" as const, updatedOptions)
       setNewOption({ label: "", value: "" })
     }
   }
@@ -132,7 +133,7 @@ export function InputFieldsForm({
   function handleRemoveOption(index: number) {
     const updatedOptions = options.filter((_, i) => i !== index)
     setOptions(updatedOptions)
-    form.setValue("options", updatedOptions)
+    form.setValue("options" as const, updatedOptions)
   }
 
   async function onSubmit(values: FormValues) {
@@ -147,12 +148,12 @@ export function InputFieldsForm({
       if (isEditing && editingField) {
         // Update existing field
         result = await updateInputFieldAction(
-          editingField.id,
+          String(editingField.id),
           {
-            name: values.name,
-            label: values.label,
-            fieldType: values.fieldType,
-            position: values.position,
+            name: values.name as string,
+            label: values.label as string,
+            fieldType: values.fieldType as "short_text" | "long_text" | "select" | "multi_select" | "file_upload",
+            position: values.position as number,
             options: optionsToSave
           }
         )
@@ -165,10 +166,10 @@ export function InputFieldsForm({
         result = await addToolInputFieldAction(
           assistantId,
           {
-            name: values.name,
-            label: values.label,
-            type: values.fieldType,
-            position: values.position,
+            name: values.name as string,
+            label: values.label as string,
+            type: values.fieldType as "short_text" | "long_text" | "select" | "multi_select" | "file_upload",
+            position: values.position as number,
             options: optionsToSave
           }
         )
@@ -258,7 +259,7 @@ export function InputFieldsForm({
                       setShowOptions(shouldShowOptions)
                       if (!shouldShowOptions) {
                         setOptions([])
-                        form.setValue("options", [])
+                        form.setValue("options" as const, [])
                       }
                     }}
                     defaultValue={field.value}

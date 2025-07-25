@@ -23,7 +23,7 @@ export async function GET() {
     const response = NextResponse.redirect(cognitoLogoutUrl);
     
     // Clear NextAuth session cookies
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const allCookies = cookieStore.getAll();
     
     // Clear each auth-related cookie

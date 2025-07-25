@@ -25,7 +25,7 @@ export async function GET(
     `;
     const conversationParams = [
       { name: 'conversationId', value: { longValue: parseInt(conversationId, 10) } },
-      { name: 'userId', value: { stringValue: currentUser.data.user.id } }
+      { name: 'userId', value: { stringValue: String(currentUser.data.user.id) } }
     ];
     const conversationResult = await executeSQL(conversationQuery, conversationParams);
     const conversation = conversationResult[0];
@@ -83,7 +83,7 @@ export async function PUT(
   `;
   const checkParams = [
     { name: 'conversationId', value: { longValue: parseInt(conversationId, 10) } },
-    { name: 'userId', value: { stringValue: currentUser.data.user.id } }
+    { name: 'userId', value: { stringValue: String(currentUser.data.user.id) } }
   ];
   const checkResult = await executeSQL(checkQuery, checkParams);
 
@@ -134,7 +134,7 @@ export async function DELETE(
   `;
   const checkParams = [
     { name: 'conversationId', value: { longValue: parseInt(conversationId, 10) } },
-    { name: 'userId', value: { stringValue: currentUser.data.user.id } }
+    { name: 'userId', value: { stringValue: String(currentUser.data.user.id) } }
   ];
   const checkResult = await executeSQL(checkQuery, checkParams);
 

@@ -11,21 +11,8 @@ export async function GET() {
     // Get all navigation items (not just active ones for admin)
     const navItems = await getNavigationItems(false)
     
-    // Transform snake_case to camelCase
-    const transformedItems = navItems.map((item) => ({
-      id: item.id,
-      label: item.label,
-      icon: item.icon,
-      link: item.link,
-      description: item.description,
-      type: item.type,
-      parentId: item.parent_id,
-      toolId: item.tool_id,
-      requiresRole: item.requires_role,
-      position: item.position,
-      isActive: item.is_active,
-      createdAt: item.created_at
-    }))
+    // Items are already in camelCase from the data adapter
+    const transformedItems = navItems
 
     return NextResponse.json({
       isSuccess: true,

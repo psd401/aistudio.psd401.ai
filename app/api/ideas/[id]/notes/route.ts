@@ -34,8 +34,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
     return NextResponse.json(notes.map((note) => ({
       ...note,
-      createdBy: note.creator_name || note.user_id,
-      createdAt: note.created_at,
+      // creator_name is converted to creatorName by formatDataApiResponse
+      createdBy: note.creatorName || String(note.userId)
     })));
   } catch (error) {
     logger.error('Error fetching notes:', error);
@@ -80,23 +80,40 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     
     const userId = userResult[0].id;
 
-    const sql = `
+    // First insert the note
+    const insertSql = `
       INSERT INTO idea_notes (idea_id, content, user_id, created_at)
       VALUES (:ideaId, :content, :userId, NOW())
-      RETURNING *
+      RETURNING id
     `;
-    const params = [
+    const insertParams = [
       { name: 'ideaId', value: { longValue: ideaId } },
       { name: 'content', value: { stringValue: content } },
-      { name: 'userId', value: { longValue: userId } }
+      { name: 'userId', value: { longValue: Number(userId) } }
     ];
-    const result = await executeSQL(sql, params);
-    const newNote = result[0];
+    const insertResult = await executeSQL(insertSql, insertParams);
+    const newNoteId = insertResult[0].id;
 
+    // Then fetch it with the user name
+    const fetchSql = `
+      SELECT 
+        n.*,
+        COALESCE(
+          TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))),
+          u.email,
+          n.user_id::text
+        ) as creator_name
+      FROM idea_notes n
+      LEFT JOIN users u ON n.user_id = u.id
+      WHERE n.id = :noteId
+    `;
+    const fetchResult = await executeSQL(fetchSql, [{ name: 'noteId', value: { longValue: Number(newNoteId) } }]);
+    const newNote = fetchResult[0];
+
+    // The data is already converted to camelCase by formatDataApiResponse
     return NextResponse.json({
       ...newNote,
-      createdBy: newNote.user_id,
-      createdAt: newNote.created_at,
+      createdBy: newNote.creatorName || String(newNote.userId)
     });
   } catch (error) {
     logger.error('Error creating note:', error);
