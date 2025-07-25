@@ -9,22 +9,7 @@ export async function GET() {
     const authError = await requireAdmin();
     if (authError) return authError;
     
-    const modelsData = await getAIModels();
-    
-    // Transform snake_case to camelCase for consistency
-    const models = modelsData.map(model => ({
-      id: model.id,
-      name: model.name,
-      provider: model.provider,
-      modelId: model.model_id,
-      description: model.description,
-      capabilities: model.capabilities,
-      maxTokens: model.max_tokens,
-      active: model.active,
-      chatEnabled: model.chat_enabled,
-      createdAt: model.created_at,
-      updatedAt: model.updated_at
-    }));
+    const models = await getAIModels();
 
     return NextResponse.json({
       isSuccess: true,
@@ -59,26 +44,11 @@ export async function POST(request: Request) {
     };
 
     const model = await createAIModel(modelData);
-    
-    // Transform the response to camelCase
-    const transformedModel = {
-      id: model.id,
-      name: model.name,
-      provider: model.provider,
-      modelId: model.model_id,
-      description: model.description,
-      capabilities: model.capabilities,
-      maxTokens: model.max_tokens,
-      active: model.active,
-      chatEnabled: model.chat_enabled,
-      createdAt: model.created_at,
-      updatedAt: model.updated_at
-    };
 
     return NextResponse.json({
       isSuccess: true,
       message: 'Model created successfully',
-      data: transformedModel
+      data: model
     });
   } catch (error) {
     logger.error('Error creating model:', error);
@@ -104,26 +74,11 @@ export async function PUT(request: Request) {
     }
 
     const model = await updateAIModel(id, updates);
-    
-    // Transform the response to camelCase
-    const transformedModel = {
-      id: model.id,
-      name: model.name,
-      provider: model.provider,
-      modelId: model.model_id,
-      description: model.description,
-      capabilities: model.capabilities,
-      maxTokens: model.max_tokens,
-      active: model.active,
-      chatEnabled: model.chat_enabled,
-      createdAt: model.created_at,
-      updatedAt: model.updated_at
-    };
 
     return NextResponse.json({
       isSuccess: true,
       message: 'Model updated successfully',
-      data: transformedModel
+      data: model
     });
   } catch (error) {
     logger.error('Error updating model:', error);

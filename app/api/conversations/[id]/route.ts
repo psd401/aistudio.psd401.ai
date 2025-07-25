@@ -40,7 +40,7 @@ export async function DELETE(
     ];
     const conversation = await executeSQL(checkQuery, checkParams);
 
-    if (!conversation.length || conversation[0].userId !== userId) {
+    if (!conversation.length || !conversation[0] || conversation[0].userId !== userId) {
       return new Response('Not found', { status: 404 });
     }
 
@@ -120,7 +120,7 @@ export async function PATCH(
     ];
     const conversation = await executeSQL(checkQuery, checkParams);
 
-    if (!conversation.length || conversation[0].userId !== userId) {
+    if (!conversation.length || !conversation[0] || conversation[0].userId !== userId) {
       return new Response('Not found', { status: 404 });
     }
 

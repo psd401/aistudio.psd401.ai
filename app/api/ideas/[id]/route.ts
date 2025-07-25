@@ -1,6 +1,6 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
-import { executeSQL } from '@/lib/db/data-api-adapter';
+import { executeSQL, executeTransaction } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
 import logger from '@/lib/logger';
 import { SqlParameter } from '@aws-sdk/client-rds-data';
@@ -97,21 +97,23 @@ export async function DELETE(
     const { id } = resolvedParams;
     const ideaId = parseInt(id);
     
-    // Delete related records first (in order of dependencies)
-    // 1. Delete all votes for this idea
-    await executeSQL('DELETE FROM idea_votes WHERE idea_id = :ideaId', [
-      { name: 'ideaId', value: { longValue: ideaId } }
-    ]);
+    // Use transaction to ensure atomic deletion
+    const deleteStatements = [
+      {
+        sql: 'DELETE FROM idea_votes WHERE idea_id = :ideaId',
+        parameters: [{ name: 'ideaId', value: { longValue: ideaId } }]
+      },
+      {
+        sql: 'DELETE FROM idea_notes WHERE idea_id = :ideaId',
+        parameters: [{ name: 'ideaId', value: { longValue: ideaId } }]
+      },
+      {
+        sql: 'DELETE FROM ideas WHERE id = :ideaId',
+        parameters: [{ name: 'ideaId', value: { longValue: ideaId } }]
+      }
+    ];
     
-    // 2. Delete all notes for this idea
-    await executeSQL('DELETE FROM idea_notes WHERE idea_id = :ideaId', [
-      { name: 'ideaId', value: { longValue: ideaId } }
-    ]);
-    
-    // 3. Finally delete the idea itself
-    await executeSQL('DELETE FROM ideas WHERE id = :ideaId', [
-      { name: 'ideaId', value: { longValue: ideaId } }
-    ]);
+    await executeTransaction(deleteStatements);
     
     return new NextResponse(null, { status: 204 });
   } catch (error) {

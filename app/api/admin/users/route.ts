@@ -10,22 +10,21 @@ export async function GET() {
     
     // Get users from database via Data API
     const dbUsers = await getUsers();
-    const transformedUsers = dbUsers as Array<{id: number, cognitoSub: string, email: string, firstName: string, lastName: string, lastSignInAt: string, createdAt: string, updatedAt: string}>;
     
     // Get all user roles
     const userRoles = await getUserRoles();
-    const transformedRoles = userRoles as Array<{userId: number, roleName: string}>;
     
     // Group roles by userId
-    const rolesByUser = transformedRoles.reduce((acc, role) => {
-      acc[role.userId] = acc[role.userId] || [];
-      acc[role.userId].push(role.roleName);
+    const rolesByUser = userRoles.reduce((acc, role: any) => {
+      const userId = Number(role.userId);
+      acc[userId] = acc[userId] || [];
+      acc[userId].push(String(role.roleName));
       return acc;
     }, {} as Record<number, string[]>);
     
     // Map to the format expected by the UI
-    const users = transformedUsers.map(dbUser => {
-      const userRolesList = rolesByUser[dbUser.id] || []
+    const users = dbUsers.map((dbUser: any) => {
+      const userRolesList = rolesByUser[Number(dbUser.id)] || []
 
       return {
         ...dbUser,
