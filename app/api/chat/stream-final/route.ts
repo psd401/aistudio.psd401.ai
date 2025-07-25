@@ -328,11 +328,12 @@ export async function POST(req: Request) {
           // Validate executionId
           const execId = typeof conversation.execution_id === 'number' ? conversation.execution_id : parseInt(String(conversation.execution_id), 10);
           if (!isNaN(execId) && execId > 0) {
-            // Get execution details and prompt results in parallel for better performance
-            const [executionData, promptResults] = await Promise.all([
+            // Get execution details, prompt results, and assistant context in parallel for better performance
+            const [executionData, promptResults, assistantContext] = await Promise.all([
               executeSQL(
                 `SELECT te.input_data, te.status as exec_status, te.started_at, te.completed_at,
-                        aa.name as tool_name, aa.description as tool_description
+                        aa.name as tool_name, aa.description as tool_description, aa.instructions,
+                        te.assistant_architect_id
                 FROM tool_executions te
                 LEFT JOIN assistant_architects aa ON te.assistant_architect_id = aa.id
                 WHERE te.id = :executionId`,
@@ -340,11 +341,22 @@ export async function POST(req: Request) {
               ),
               executeSQL(
                 `SELECT pr.prompt_id, pr.input_data as prompt_input, pr.output_data, 
-                        pr.status as prompt_status, cp.name as prompt_name
+                        pr.status as prompt_status, cp.name as prompt_name, cp.system_context
                 FROM prompt_results pr
                 LEFT JOIN chain_prompts cp ON pr.prompt_id = cp.id
                 WHERE pr.execution_id = :executionId
                 ORDER BY pr.started_at ASC`,
+                [{ name: 'executionId', value: { longValue: execId } }]
+              ),
+              // Get all system contexts from chain prompts for this assistant
+              executeSQL(
+                `SELECT DISTINCT cp.system_context
+                FROM chain_prompts cp
+                WHERE cp.assistant_architect_id = (
+                  SELECT assistant_architect_id FROM tool_executions WHERE id = :executionId
+                )
+                AND cp.system_context IS NOT NULL
+                AND cp.system_context != ''`,
                 [{ name: 'executionId', value: { longValue: execId } }]
               )
             ]);
@@ -352,12 +364,30 @@ export async function POST(req: Request) {
             if (executionData.length > 0) {
               const execution = executionData[0];
               
-              // Build execution context
+              // Build execution context including assistant knowledge
+              let assistantKnowledge = '';
+              
+              // Combine all unique system contexts
+              if (assistantContext.length > 0) {
+                const contexts = assistantContext
+                  .map(row => String(row.systemContext || row.system_context || ''))
+                  .filter(ctx => ctx.trim() !== '');
+                if (contexts.length > 0) {
+                  assistantKnowledge = `\n\nAssistant Knowledge Base:\n${contexts.join('\n\n')}`;
+                }
+              }
+              
+              // Include instructions if available
+              if (execution.instructions) {
+                assistantKnowledge += `\n\nAssistant Instructions:\n${execution.instructions}`;
+              }
+              
               executionContext = `\n\nExecution Context:
 Tool: ${execution.tool_name}
 Description: ${execution.tool_description}
 Execution Status: ${execution.exec_status}
 Original Inputs: ${execution.input_data}
+${assistantKnowledge}
 
 Prompt Results:
 ${promptResults.map((pr, idx) => `
@@ -366,7 +396,7 @@ ${idx + 1}. ${pr.prompt_name}:
    Output: ${pr.output_data}
    Status: ${pr.prompt_status}`).join('\n')}
 
-This context provides the complete execution history that the user is asking about. Use this information to answer their questions accurately.`;
+This context provides the complete execution history including the assistant's knowledge base and instructions. Use this information to answer questions accurately about both the execution results and the knowledge/context that was used.`;
             }
           }
         }
@@ -382,10 +412,15 @@ Key responsibilities:
 1. Use the execution context provided to answer questions accurately about the tool execution
 2. Reference specific prompt results when relevant to the user's questions
 3. If asked about inputs, outputs, or the process, refer to the detailed execution history
-4. Stay focused on topics related to the execution results
-5. If a question is completely unrelated to the execution, politely suggest starting a new chat
+4. When asked about the knowledge, context, or information the assistant was given, refer to the "Assistant Knowledge Base" section
+5. Stay focused on topics related to the execution results and the assistant's capabilities
+6. If a question is completely unrelated to the execution, politely suggest starting a new chat
 
-Remember: You have access to the complete execution history including all inputs, outputs, and prompt results. Use this information to provide accurate and helpful responses.`
+Remember: You have access to:
+- The complete execution history including all inputs, outputs, and prompt results
+- The assistant's knowledge base and system context that was used during execution
+- The assistant's instructions and configuration
+Use all this information to provide accurate and helpful responses about both what happened and why.`
     : "You are a helpful AI assistant.";
   
   systemPrompt += documentContext;
