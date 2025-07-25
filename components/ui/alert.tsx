@@ -50,7 +50,7 @@ const Alert = React.forwardRef<
       className={cn(alertVariants({ variant }), className)}
       {...props}
     >
-      {React.isValidElement(IconComponent) ? IconComponent : React.createElement(IconComponent as any, { className: "h-4 w-4" })}
+      {React.isValidElement(IconComponent) ? IconComponent : React.createElement(IconComponent as React.ComponentType<{ className?: string }>, { className: "h-4 w-4" })}
       {children}
     </div>
   )

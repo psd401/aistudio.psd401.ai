@@ -5,7 +5,7 @@ import Image from "next/image"
 import Link from "next/link"
 import logger from "@/lib/logger"
 import { extractRDSString, ensureRDSNumber, toReactKey, ensureRDSString } from "@/lib/type-helpers"
-import type { SelectNavigationItem, SelectAssistantArchitect } from "@/types/db-types"
+import type { SelectAssistantArchitect } from "@/types/db-types"
 
 interface PageProps {
   params: Promise<{ pageId: string }>
@@ -43,7 +43,7 @@ export default async function PublicPage({ params }: PageProps) {
   ]);
 
   // Helper to extract toolId from a link like /tools/assistant-architect/{toolId}
-  function extractAssistantId(link: any): number | null {
+  function extractAssistantId(link: unknown): number | null {
     const linkStr = extractRDSString(link)
     if (!linkStr) return null
     const match = linkStr.match(/\/tools\/assistant-architect\/(\d+)/)

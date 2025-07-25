@@ -88,7 +88,7 @@ export function Message({ message, messageId }: MessageProps) {
               p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
               // Use default pre/code handling from prose for consistency?
               // Or keep custom highlighter if preferred.
-              code: ({ className, children, ...props }: any) => {
+              code: ({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) => {
                 const match = /language-(\w+)/.exec(className || "")
                 const language = match ? match[1] : ""
                 const inline = !language
@@ -116,7 +116,8 @@ export function Message({ message, messageId }: MessageProps) {
                     </div>
                     <SyntaxHighlighter
                       language={language}
-                      style={vscDarkPlus} // Can customize style
+                      // @ts-expect-error - react-syntax-highlighter types are incorrect
+                      style={vscDarkPlus}
                       PreTag="div"
                       className="!my-0 !bg-code-block !p-4 !font-mono !text-sm rounded-md overflow-x-auto"
                       showLineNumbers={false} // Optional: disable line numbers

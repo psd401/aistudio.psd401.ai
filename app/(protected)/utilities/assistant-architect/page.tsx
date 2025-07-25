@@ -14,7 +14,6 @@ export default async function AssistantArchitectsPage() {
     redirect("/sign-in")
   }
   
-  const cognitoSub = session.sub
   
   // Get current user's database ID
   const { getCurrentUserAction } = await import("@/actions/db/get-current-user-action")

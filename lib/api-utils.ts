@@ -51,14 +51,16 @@ export function withErrorHandling<T>(
         }
       }
       
-      return NextResponse.json(
-        {
-          success: false,
-          message: result.message,
-          ...((result as any).error && { error: (result as any).error })
-        }, 
-        { status: statusCode }
-      );
+      const errorData: { success: boolean; message: string; error?: unknown } = {
+        success: false,
+        message: result.message
+      };
+      
+      if ((result as { error?: unknown }).error) {
+        errorData.error = (result as { error?: unknown }).error;
+      }
+      
+      return NextResponse.json(errorData, { status: statusCode });
     });
 }
 

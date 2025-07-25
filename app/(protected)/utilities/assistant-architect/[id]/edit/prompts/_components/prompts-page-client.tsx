@@ -252,11 +252,11 @@ const Flow = React.forwardRef<FlowHandle, {
   }, [calculateExecutionOrder, assistantId]);
 
   // Handle edge changes and update positions
-  const onEdgesChange = useCallback((changes: any) => {
-    _onEdgesChange(changes as EdgeChange[])
+  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+    _onEdgesChange(changes)
     
     // Only save when edges are added or removed
-    const hasStructuralChanges = changes.some((change: any) => 
+    const hasStructuralChanges = changes.some((change) => 
       change.type === 'remove' || change.type === 'add'
     )
     if (hasStructuralChanges && !isInitialRender.current) {

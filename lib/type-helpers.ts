@@ -71,7 +71,9 @@ export function filterDefined<T>(array: (T | null | undefined)[]): T[] {
  */
 
 // RDS Data API Field value type
-export type RDSFieldValue = string | number | boolean | Uint8Array | any | null;
+import type { ArrayValue } from "@aws-sdk/client-rds-data";
+
+export type RDSFieldValue = string | number | boolean | Uint8Array | ArrayValue | null | undefined | unknown;
 
 /**
  * Type guard to check if RDS field value is a string

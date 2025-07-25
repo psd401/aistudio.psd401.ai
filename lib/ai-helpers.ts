@@ -46,7 +46,7 @@ export interface ToolDefinition {
   name: string
   description: string
   parameters: z.ZodType<unknown>
-  execute: (args: unknown, context?: { toolCallId: string; messages: CoreMessage[]; abortSignal: AbortSignal }) => Promise<unknown>
+  execute: (args: unknown) => Promise<unknown>
 }
 
 // Get the appropriate model client based on provider
@@ -207,7 +207,7 @@ export function createTool(definition: ToolDefinition): CoreTool {
     description: definition.description,
     parameters: definition.parameters,
     execute: definition.execute
-  } as any);
+  });
 }
 
 // Export error types for consumers

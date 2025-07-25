@@ -7,7 +7,7 @@ import { getCurrentUser } from "aws-amplify/auth"
 
 import { config } from "@/app/utils/amplifyConfig"
 
-Amplify.configure(config as any, { ssr: true })
+Amplify.configure(config, { ssr: true })
 
 export default function AmplifyProvider({ children }: PropsWithChildren) {
   useEffect(() => {

@@ -381,7 +381,7 @@ export async function POST(req: Request) {
       const key = await Settings.getGoogleAI();
       if (!key) throw new Error('Google key not configured');
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = key;
-      model = google(ensureRDSString(aiModel.modelId) as any);
+      model = google(ensureRDSString(aiModel.modelId));
       break;
     }
     case 'amazon-bedrock': {
@@ -392,7 +392,7 @@ export async function POST(req: Request) {
         accessKeyId: config.accessKeyId || undefined,
         secretAccessKey: config.secretAccessKey || undefined
       });
-      model = bedrock(ensureRDSString(aiModel.modelId) as any);
+      model = bedrock(ensureRDSString(aiModel.modelId));
       break;
     }
     default:
@@ -539,7 +539,7 @@ ${stored.formattedInputs || ''}
 ${stored.assistantKnowledge || ''}
 
 Execution Results:
-${stored.promptResults ? stored.promptResults.map((pr: any, idx: number) => `
+${stored.promptResults ? stored.promptResults.map((pr: { prompt_name: string; output_data: string; prompt_status: string }, idx: number) => `
 ${idx + 1}. ${pr.prompt_name}:
    Output: ${pr.output_data}
    Status: ${pr.prompt_status}`).join('\n') : 'No results available'}

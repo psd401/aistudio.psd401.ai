@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 
 interface FeatureProps {
-  icon: any; // lucide-react icons have complex types
+  icon: React.ElementType;
   title: string;
   description: string;
 }

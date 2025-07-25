@@ -28,7 +28,6 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
   const conversationIdParam = resolvedParams.conversation
   const conversationId = conversationIdParam ? parseInt(conversationIdParam) : undefined
 
-  let conversationTitle = "New Chat"; // Default title
 
   if (conversationId) {
     // Step 1: Verify conversation exists and belongs to the user
@@ -46,7 +45,7 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
     const conversation = await executeSQL(conversationQuery, conversationParams);
 
     if (conversation && conversation.length > 0) {
-      conversationTitle = ensureRDSString(conversation[0].title); // Set title from fetched conversation
+      // Conversation verified
 
       // Step 2: Fetch messages for the verified conversation
       const messagesQuery = `
