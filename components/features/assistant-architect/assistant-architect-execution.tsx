@@ -31,7 +31,6 @@ import type { AssistantArchitectWithRelations } from "@/types/assistant-architec
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AssistantArchitectChat } from "./assistant-architect-chat"
 import { ChatErrorBoundary } from "./chat-error-boundary"
-import type { SelectPromptResult } from "@/types/db-types"
 import Image from "next/image"
 import PdfUploadButton from "@/components/ui/pdf-upload-button"
 import { updatePromptResultAction } from "@/actions/db/assistant-architect-actions"

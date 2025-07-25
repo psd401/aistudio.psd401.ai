@@ -109,7 +109,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
         }
       })
     } as ExecutionContext;
-  }, [execution]);
+  }, [execution, currentConversationId]);
 
   // Store the conversation ID in a ref so it doesn't cause re-initialization
   const conversationIdRef = useRef<number | null>(currentConversationId);
@@ -145,7 +145,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
       executionId: validExecutionId,
       context: executionContext
     };
-  }, [actualModelId, isPreview, execution?.id, executionContext, currentConversationId]);
+  }, [actualModelId, isPreview, execution?.id, executionContext]);
 
   // Use Vercel AI SDK's useChat hook
   const { 

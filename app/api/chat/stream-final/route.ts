@@ -288,7 +288,6 @@ export async function POST(req: Request) {
   // For new conversations with executionId, load context first
   if (!existingConversationId && executionId) {
     // SAFEGUARD: Strict validation of executionId
-    const rawExecutionId = executionId;
     
     // Parse executionId to ensure it's a number
     execIdToUse = typeof executionId === 'string' ? parseInt(executionId, 10) : executionId;
