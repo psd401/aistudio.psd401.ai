@@ -11,6 +11,152 @@ import { Settings } from "@/lib/settings-manager";
 import logger from "@/lib/logger";
 import { ensureRDSString, ensureRDSNumber } from "@/lib/type-helpers";
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents";
+
+// Helper function to load complete execution context
+async function loadExecutionContext(execId: number) {
+  try {
+    // Get execution details, prompt results, and ALL assistant context in parallel
+    const [executionData, promptResults, allChainPrompts, toolInputFields] = await Promise.all([
+      executeSQL(
+        `SELECT te.input_data, te.status as exec_status, te.started_at, te.completed_at,
+                aa.name as tool_name, aa.description as tool_description, aa.instructions,
+                te.assistant_architect_id, te.input_values
+        FROM tool_executions te
+        LEFT JOIN assistant_architects aa ON te.assistant_architect_id = aa.id
+        WHERE te.id = :executionId`,
+        [{ name: 'executionId', value: { longValue: execId } }]
+      ),
+      executeSQL(
+        `SELECT pr.prompt_id, pr.input_data as prompt_input, pr.output_data, 
+                pr.status as prompt_status, cp.name as prompt_name, cp.system_context,
+                cp.content as prompt_content
+        FROM prompt_results pr
+        LEFT JOIN chain_prompts cp ON pr.prompt_id = cp.id
+        WHERE pr.execution_id = :executionId
+        ORDER BY pr.started_at ASC`,
+        [{ name: 'executionId', value: { longValue: execId } }]
+      ),
+      executeSQL(
+        `SELECT cp.id, cp.name, cp.content, cp.system_context, cp.position
+        FROM chain_prompts cp
+        WHERE cp.assistant_architect_id = (
+          SELECT assistant_architect_id FROM tool_executions WHERE id = :executionId
+        )
+        ORDER BY cp.position ASC`,
+        [{ name: 'executionId', value: { longValue: execId } }]
+      ),
+      executeSQL(
+        `SELECT tif.name, tif.label, tif.field_type
+        FROM tool_input_fields tif
+        WHERE tif.assistant_architect_id = (
+          SELECT assistant_architect_id FROM tool_executions WHERE id = :executionId
+        )
+        ORDER BY tif.position ASC`,
+        [{ name: 'executionId', value: { longValue: execId } }]
+      )
+    ]);
+    
+    if (executionData.length === 0) {
+      return null;
+    }
+    
+    const execution = executionData[0];
+    
+    // Build comprehensive execution context
+    let assistantKnowledge = '';
+    
+    // 1. Include assistant instructions and description
+    if (execution.instructions) {
+      assistantKnowledge += `\n\nAssistant Instructions:\n${execution.instructions}`;
+    }
+    if (execution.tool_description) {
+      assistantKnowledge += `\n\nAssistant Purpose:\n${execution.tool_description}`;
+    }
+    
+    // 2. Include ALL system contexts from chain prompts
+    const systemContexts = allChainPrompts
+      .map(row => String(row.systemContext || row.system_context || ''))
+      .filter(ctx => ctx.trim() !== '');
+    
+    if (systemContexts.length > 0) {
+      assistantKnowledge += `\n\nAssistant Knowledge Base (System Contexts):\n${systemContexts.join('\n\n---\n\n')}`;
+    }
+    
+    // 3. Include all prompt templates
+    const promptTemplates = allChainPrompts
+      .map(prompt => `${prompt.name}: ${prompt.content}`)
+      .join('\n\n');
+    
+    if (promptTemplates) {
+      assistantKnowledge += `\n\nAssistant Prompt Templates:\n${promptTemplates}`;
+    }
+    
+    // 4. Format user inputs with field labels
+    let formattedInputs = '';
+    if (execution.input_values) {
+      const inputValues = typeof execution.input_values === 'string' 
+        ? JSON.parse(execution.input_values) 
+        : execution.input_values;
+      
+      formattedInputs = '\n\nUser Inputs:\n';
+      for (const field of toolInputFields) {
+        const value = inputValues[field.name];
+        if (value !== undefined && value !== null && value !== '') {
+          formattedInputs += `- ${field.label}: ${value}\n`;
+        }
+      }
+    }
+    
+    const executionContext = `\n\nExecution Context:
+Tool: ${execution.tool_name}
+Description: ${execution.tool_description}
+Execution Status: ${execution.exec_status}
+${formattedInputs}
+${assistantKnowledge}
+
+Execution Results:
+${promptResults.map((pr, idx) => `
+${idx + 1}. ${pr.prompt_name}:
+   Prompt Template: ${pr.prompt_content || 'N/A'}
+   Processed Input: ${JSON.stringify(pr.prompt_input)}
+   Output: ${pr.output_data}
+   Status: ${pr.prompt_status}`).join('\n')}
+
+IMPORTANT: You have access to ALL the information above, including:
+- The complete assistant knowledge base with all system contexts
+- All prompt templates showing what the assistant knows
+- The user's original inputs
+- The execution results
+
+Use ALL of this information to answer questions accurately. When asked about specific knowledge (like "10 elements" or any other content), refer to the Assistant Knowledge Base section above.`;
+    
+    logger.info('[stream-final] Loaded execution context', {
+      executionId: execId,
+      hasAssistantKnowledge: assistantKnowledge.length > 0,
+      promptResultsCount: promptResults.length,
+      allChainPromptsCount: allChainPrompts.length,
+      systemContextsCount: systemContexts.length,
+      toolInputFieldsCount: toolInputFields.length,
+      contextLength: executionContext.length
+    });
+    
+    // Return both the formatted context and the complete data
+    return {
+      executionContext,
+      completeData: {
+        execution,
+        promptResults,
+        allChainPrompts,
+        toolInputFields,
+        assistantKnowledge,
+        systemContexts
+      }
+    };
+  } catch (error) {
+    logger.error('[stream-final] Error loading execution context:', error);
+    return null;
+  }
+}
 export async function POST(req: Request) {
   try {
     const session = await getServerSession();
@@ -76,6 +222,25 @@ export async function POST(req: Request) {
     aiModelStringId: aiModel?.modelId
   });
   
+  // Retrieve execution context BEFORE creating conversation so we can store it
+  let executionContext = "";
+  let fullContext = context;
+  let execIdToUse = null;
+  let completeExecutionData = null;
+  
+  // For new conversations with executionId, load context first
+  if (!existingConversationId && executionId) {
+    execIdToUse = executionId;
+    // Load the complete execution context
+    const execResult = await loadExecutionContext(execIdToUse);
+    if (execResult) {
+      executionContext = execResult.executionContext;
+      completeExecutionData = execResult.completeData;
+      // Store the complete execution data for the conversation context
+      fullContext = completeExecutionData;
+    }
+  }
+  
   // Handle conversation
   let conversationId = existingConversationId;
   
@@ -100,7 +265,7 @@ export async function POST(req: Request) {
         const parsed = typeof executionId === 'string' ? parseInt(executionId, 10) : executionId;
         return isNaN(parsed) ? { isNull: true } : { longValue: parsed };
       })() },
-      { name: 'context', value: context ? { stringValue: JSON.stringify(context) } : { isNull: true } }
+      { name: 'context', value: fullContext ? { stringValue: JSON.stringify(fullContext) } : { isNull: true } }
     ]);
     conversationId = newConversation[0].id;
   }
@@ -264,14 +429,8 @@ export async function POST(req: Request) {
     // Continue without document context if there's an error
   }
 
-  // Retrieve execution context if this conversation is linked to an execution
-  let executionContext = "";
-  let fullContext = context;
-  let execIdToUse = null;
-  
-  // Determine which execution ID to use
-  if (existingConversationId) {
-    // For existing conversations, get the execution_id from the conversation
+  // Handle existing conversations - retrieve stored context
+  if (existingConversationId && !executionContext) {
     const parsedConvId = typeof existingConversationId === 'string' ? parseInt(existingConversationId, 10) : existingConversationId;
     if (!isNaN(parsedConvId) && parsedConvId > 0) {
       const conversationData = await executeSQL(
@@ -283,132 +442,61 @@ export async function POST(req: Request) {
       
       if (conversationData.length > 0) {
         const conversation = conversationData[0];
-        execIdToUse = conversation.execution_id;
         
-        // Parse stored context with error handling
+        // Try to use stored context first
         try {
           const contextStr = conversation.context as string | null;
-          fullContext = contextStr ? JSON.parse(contextStr) : null;
-          // Validate context structure
-          if (fullContext && typeof fullContext !== 'object') {
-            throw new Error('Invalid context format');
-          }
-          // Validate context size - smart truncation instead of nullifying
-          if (fullContext && JSON.stringify(fullContext).length > 100000) {
-            logger.warn('Context data too large, applying smart truncation', { 
-              conversationId: parsedConvId,
-              contextSize: JSON.stringify(fullContext).length
-            });
-            // Preserve core context while truncating prompt results
-            if (fullContext.promptResults && Array.isArray(fullContext.promptResults)) {
-              const truncatedContext = {
-                ...fullContext,
-                promptResults: fullContext.promptResults.slice(0, 5), // Keep first 5 results
-                truncated: true,
-                originalPromptCount: fullContext.promptResults.length
-              };
-              fullContext = truncatedContext;
-              logger.info('Context truncated to preserve core data', {
-                originalPromptCount: fullContext.originalPromptCount,
-                keptPromptCount: 5
-              });
+          if (contextStr) {
+            fullContext = JSON.parse(contextStr);
+            
+            // If we have stored context with execution data, use it
+            if (fullContext && fullContext.execution) {
+              logger.info('[stream-final] Using stored context from conversation');
+              
+              // Build execution context from stored data
+              const stored = fullContext;
+              executionContext = `\n\nExecution Context:
+Tool: ${stored.execution.tool_name}
+Description: ${stored.execution.tool_description}
+${stored.formattedInputs || ''}
+${stored.assistantKnowledge || ''}
+
+Execution Results:
+${stored.promptResults ? stored.promptResults.map((pr: any, idx: number) => `
+${idx + 1}. ${pr.prompt_name}:
+   Output: ${pr.output_data}
+   Status: ${pr.prompt_status}`).join('\n') : 'No results available'}
+
+IMPORTANT: You have access to ALL the information above. Use it to answer questions accurately.`;
             }
           }
         } catch (parseError) {
           logger.warn('Failed to parse conversation context', { 
-            conversationId: parsedConvId, 
-            contextLength: conversation.context ? String(conversation.context).length : 0,
+            conversationId: parsedConvId,
             error: parseError instanceof Error ? parseError.message : 'Unknown error' 
           });
-          fullContext = null;
+        }
+        
+        // If no stored context but we have execution_id, load it
+        if (!executionContext && conversation.execution_id) {
+          execIdToUse = conversation.execution_id;
         }
       }
     }
-  } else if (executionId) {
-    // For new conversations with executionId parameter, use that
-    execIdToUse = executionId;
   }
   
-  // Load execution context if we have an execution ID
-  if (execIdToUse) {
+  // Load execution context if needed
+  if (!executionContext && execIdToUse) {
     // Validate executionId
     const execId = typeof execIdToUse === 'number' ? execIdToUse : parseInt(String(execIdToUse), 10);
     if (!isNaN(execId) && execId > 0) {
-      // Get execution details, prompt results, and assistant context in parallel for better performance
-      const [executionData, promptResults, assistantContext] = await Promise.all([
-        executeSQL(
-          `SELECT te.input_data, te.status as exec_status, te.started_at, te.completed_at,
-                  aa.name as tool_name, aa.description as tool_description, aa.instructions,
-                  te.assistant_architect_id
-          FROM tool_executions te
-          LEFT JOIN assistant_architects aa ON te.assistant_architect_id = aa.id
-          WHERE te.id = :executionId`,
-          [{ name: 'executionId', value: { longValue: execId } }]
-        ),
-        executeSQL(
-          `SELECT pr.prompt_id, pr.input_data as prompt_input, pr.output_data, 
-                  pr.status as prompt_status, cp.name as prompt_name, cp.system_context
-          FROM prompt_results pr
-          LEFT JOIN chain_prompts cp ON pr.prompt_id = cp.id
-          WHERE pr.execution_id = :executionId
-          ORDER BY pr.started_at ASC`,
-          [{ name: 'executionId', value: { longValue: execId } }]
-        ),
-        // Get all system contexts from chain prompts for this assistant
-        executeSQL(
-          `SELECT DISTINCT cp.system_context
-          FROM chain_prompts cp
-          WHERE cp.assistant_architect_id = (
-            SELECT assistant_architect_id FROM tool_executions WHERE id = :executionId
-          )
-          AND cp.system_context IS NOT NULL
-          AND cp.system_context != ''`,
-          [{ name: 'executionId', value: { longValue: execId } }]
-        )
-      ]);
-      
-      if (executionData.length > 0) {
-        const execution = executionData[0];
-        
-        // Build execution context including assistant knowledge
-        let assistantKnowledge = '';
-        
-        // Combine all unique system contexts
-        if (assistantContext.length > 0) {
-          const contexts = assistantContext
-            .map(row => String(row.systemContext || row.system_context || ''))
-            .filter(ctx => ctx.trim() !== '');
-          if (contexts.length > 0) {
-            assistantKnowledge = `\n\nAssistant Knowledge Base:\n${contexts.join('\n\n')}`;
-          }
+      const result = await loadExecutionContext(execId);
+      if (result) {
+        executionContext = result.executionContext;
+        // Store the complete data for future use
+        if (!fullContext) {
+          fullContext = result.completeData;
         }
-        
-        // Include instructions if available
-        if (execution.instructions) {
-          assistantKnowledge += `\n\nAssistant Instructions:\n${execution.instructions}`;
-        }
-        
-        executionContext = `\n\nExecution Context:
-Tool: ${execution.tool_name}
-Description: ${execution.tool_description}
-Execution Status: ${execution.exec_status}
-Original Inputs: ${execution.input_data}
-${assistantKnowledge}
-
-Prompt Results:
-${promptResults.map((pr, idx) => `
-${idx + 1}. ${pr.prompt_name}:
-   Input: ${JSON.stringify(pr.prompt_input)}
-   Output: ${pr.output_data}
-   Status: ${pr.prompt_status}`).join('\n')}
-
-This context provides the complete execution history including the assistant's knowledge base and instructions. Use this information to answer questions accurately about both the execution results and the knowledge/context that was used.`;
-        
-        logger.info('[stream-final] Loaded execution context', {
-          executionId: execId,
-          hasAssistantKnowledge: assistantKnowledge.length > 0,
-          promptResultsCount: promptResults.length
-        });
       }
     }
   }
