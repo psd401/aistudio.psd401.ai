@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, memo } from "react"
+import { useState, useRef, useEffect, memo, useMemo } from "react"
 import { useChat } from 'ai/react'
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -17,7 +17,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type { SelectMessage } from "@/types/schema-types"
-import type { SelectPromptResult } from "@/types/db-types"
 
 interface PromptResult {
   promptId: number
@@ -69,9 +68,51 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
   
   // Use the passed modelId or default to 3 (first model in most systems)
   const actualModelId = modelId || 3
+  
+  // Track if we're currently streaming to prevent re-initialization
+  const [isStreaming, setIsStreaming] = useState(false)
+  // Track when we just finished streaming to prevent history fetch race condition
+  const [justFinishedStreaming, setJustFinishedStreaming] = useState(false)
 
 
-  // Use Vercel AI SDK's useChat hook with safe defaults
+  // Create a stable context that doesn't change
+  const executionContext = useMemo(() => {
+    if (currentConversationId !== null || !execution?.promptResults?.length) {
+      return null;
+    }
+    return {
+      executionId: execution.id || 0,
+      toolId: execution.assistantArchitectId || 0,
+      inputData: execution.inputData || {},
+      promptResults: (execution.promptResults || []).map(result => {
+        const extendedResult = result as ExtendedPromptResult;
+        return {
+          promptId: extendedResult.chainPromptId || extendedResult.id || 0,
+          input: extendedResult.inputData || {},
+          output: extendedResult.outputData || extendedResult.result || '',
+          status: extendedResult.status || 'completed'
+        }
+      })
+    } as ExecutionContext;
+  }, [execution]);
+
+  // Store the conversation ID in a ref so it doesn't cause re-initialization
+  const conversationIdRef = useRef<number | null>(currentConversationId);
+  
+  // Update the ref when conversation ID changes
+  useEffect(() => {
+    conversationIdRef.current = currentConversationId;
+  }, [currentConversationId]);
+
+  // Create stable body without conversation ID to prevent re-initialization
+  const stableBody = useMemo(() => ({
+    modelId: actualModelId,
+    source: "assistant_execution",
+    executionId: isPreview ? null : execution?.id || null,
+    context: executionContext
+  }), [actualModelId, isPreview, execution?.id, executionContext]);
+
+  // Use Vercel AI SDK's useChat hook
   const { 
     messages, 
     input, 
@@ -79,48 +120,31 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
     handleSubmit: handleChatSubmit, 
     isLoading, 
     stop,
-    setMessages 
+    setMessages
   } = useChat({
     api: '/api/chat/stream-final',
-    body: {
-      modelId: actualModelId, // Use the actual model from the execution
-      conversationId: currentConversationId,
-      source: "assistant_execution",
-      executionId: isPreview ? null : execution?.id || null,
-      context: currentConversationId === null && execution?.promptResults?.length > 0 ? {
-        executionId: execution.id || 0,
-        toolId: execution.assistantArchitectId || 0,
-        inputData: execution.inputData || {},
-        promptResults: (execution.promptResults || []).map(result => {
-          // The actual data from the database includes additional fields beyond SelectPromptResult
-          const extendedResult = result as ExtendedPromptResult;
-          return {
-            promptId: extendedResult.chainPromptId || extendedResult.id || 0,
-            input: extendedResult.inputData || {},
-            output: extendedResult.outputData || extendedResult.result || '',
-            status: extendedResult.status || 'completed'
-          }
-        })
-      } as ExecutionContext : null
-    },
+    body: stableBody,
     initialMessages: [],
     onResponse: (response) => {
+      setIsStreaming(true);
       try {
         // Get conversation ID from header if this is a new conversation
         const conversationIdHeader = response.headers.get('X-Conversation-Id')
         if (!currentConversationId && conversationIdHeader) {
           const newConvId = parseInt(conversationIdHeader, 10)
           if (Number.isInteger(newConvId) && newConvId > 0) {
+            setIsNewConversation(true);
+            conversationIdRef.current = newConvId;
             setCurrentConversationId(newConvId)
             onConversationCreated?.(newConvId)
           }
         }
       } catch (error) {
-        console.error("Error processing response", error)
-        // Don't throw - just log the error
+        console.error("Error processing response headers", error)
       }
     },
     onError: (error) => {
+      setIsStreaming(false);
       toast({
         title: "Error",
         description: error.message || "Failed to send message",
@@ -128,6 +152,10 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
       })
     },
     onFinish: () => {
+      setIsStreaming(false);
+      setJustFinishedStreaming(true);
+      // Clear the flag after a short delay
+      setTimeout(() => setJustFinishedStreaming(false), 1000);
       // Scroll to bottom when message is complete
       if (scrollRef.current) {
         scrollRef.current.scrollTo({
@@ -135,28 +163,64 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
           behavior: "smooth"
         })
       }
+    },
+    // Override fetch to inject conversation ID dynamically
+    fetch: async (url, options) => {
+      const body = JSON.parse(options?.body as string || '{}');
+      body.conversationId = conversationIdRef.current;
+      return fetch(url, {
+        ...options,
+        body: JSON.stringify(body)
+      });
     }
   })
 
   // Update internal conversation ID when prop changes
   useEffect(() => {
     setCurrentConversationId(conversationId)
+    conversationIdRef.current = conversationId;
   }, [conversationId])
+
+  // Track if we just created a new conversation to avoid fetching empty history
+  const [isNewConversation, setIsNewConversation] = useState(false);
+  
+  // Debug logging for messages
+  useEffect(() => {
+    console.log('[Chat] Messages updated:', messages.length, 'messages, isLoading:', isLoading);
+  }, [messages, isLoading]);
 
   // Fetch conversation history when conversationId changes
   useEffect(() => {
-    if (!currentConversationId) return;
+    if (!currentConversationId || isStreaming || justFinishedStreaming) return;
+    
+    // Skip fetching if we just created this conversation (it will be empty)
+    if (isNewConversation) {
+      setIsNewConversation(false);
+      return;
+    }
+    
+    // Skip fetching if we already have messages (prevents overwriting streaming responses)
+    if (messages.length > 0) {
+      return;
+    }
+    
     const fetchConversationHistory = async () => {
       try {
         const response = await fetch(`/api/chat?conversationId=${currentConversationId}`);
         if (response.ok) {
           const data = await response.json();
-          if (Array.isArray(data.messages)) {
-            setMessages(data.messages.map((msg: SelectMessage) => ({
-              id: msg.id.toString(),
-              role: msg.role,
-              content: msg.content
-            })));
+          if (Array.isArray(data.messages) && data.messages.length > 0) {
+            // Only set messages if we don't have any (prevents race condition)
+            setMessages(prevMessages => {
+              if (prevMessages.length === 0) {
+                return data.messages.map((msg: SelectMessage) => ({
+                  id: msg.id.toString(),
+                  role: msg.role,
+                  content: msg.content
+                }));
+              }
+              return prevMessages;
+            });
           }
         } else {
           console.error("Failed to fetch conversation history");
@@ -166,7 +230,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
       }
     };
     fetchConversationHistory();
-  }, [currentConversationId, setMessages]);
+  }, [currentConversationId, isNewConversation, isStreaming, justFinishedStreaming, messages.length]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()

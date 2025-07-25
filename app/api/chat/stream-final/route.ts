@@ -73,7 +73,7 @@ export async function POST(req: Request) {
     aiModelId: aiModel?.id,
     aiModelName: aiModel?.name,
     aiModelProvider: aiModel?.provider,
-    aiModelStringId: aiModel?.model_id
+    aiModelStringId: aiModel?.modelId
   });
   
   // Handle conversation
@@ -125,21 +125,21 @@ export async function POST(req: Request) {
         const key = await Settings.getOpenAI();
         if (!key) throw new Error('OpenAI key not configured');
         const openai = createOpenAI({ apiKey: key });
-        model = openai(ensureRDSString(aiModel.model_id));
+        model = openai(ensureRDSString(aiModel.modelId));
         break;
       }
     case 'azure': {
       const config = await Settings.getAzureOpenAI();
       if (!config.key || !config.resourceName) throw new Error('Azure not configured');
       const azure = createAzure({ apiKey: config.key, resourceName: config.resourceName });
-      model = azure(ensureRDSString(aiModel.model_id));
+      model = azure(ensureRDSString(aiModel.modelId));
       break;
     }
     case 'google': {
       const key = await Settings.getGoogleAI();
       if (!key) throw new Error('Google key not configured');
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = key;
-      model = google(ensureRDSString(aiModel.model_id) as any);
+      model = google(ensureRDSString(aiModel.modelId) as any);
       break;
     }
     case 'amazon-bedrock': {
@@ -150,7 +150,7 @@ export async function POST(req: Request) {
         accessKeyId: config.accessKeyId || undefined,
         secretAccessKey: config.secretAccessKey || undefined
       });
-      model = bedrock(ensureRDSString(aiModel.model_id) as any);
+      model = bedrock(ensureRDSString(aiModel.modelId) as any);
       break;
     }
     default:
@@ -406,7 +406,7 @@ Remember: You have access to the complete execution history including all inputs
     conversationId,
     messageCount: aiMessages.length,
     modelProvider: aiModel.provider,
-    modelId: aiModel.model_id
+    modelId: aiModel.modelId
   });
 
   // Stream the response
@@ -414,6 +414,7 @@ Remember: You have access to the complete execution history including all inputs
     model,
     messages: aiMessages,
     onFinish: async ({ text }) => {
+      logger.info('[stream-final] Stream finished with text length:', text?.length || 0);
       // Save assistant message
       try {
         await executeSQL<FormattedRow>(
@@ -424,7 +425,7 @@ Remember: You have access to the complete execution history including all inputs
             { name: 'content', value: { stringValue: text } }
           ]
         );
-        // Assistant response saved
+        logger.info('[stream-final] Assistant response saved');
       } catch (error) {
         logger.error('[stream-final] Error saving response:', error);
       }
@@ -438,17 +439,16 @@ Remember: You have access to the complete execution history including all inputs
     }
   });
   } catch (error) {
-    logger.error('[stream-final] Unhandled error:', error);
-    // Return a proper error response that won't cause page reset
-    return new Response(
-      JSON.stringify({ 
-        error: 'An error occurred while processing your request',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      }), 
-      { 
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
+    logger.error('[stream-final] Error in chat stream:', error);
+    
+    // Return a proper error response for non-streaming errors
+    // Check if this is a critical error that should stop execution
+    if (error instanceof Error && error.message.includes('Model not found')) {
+      return new Response('Model not found', { status: 404 });
+    }
+    
+    // For other errors, try to continue with streaming if possible
+    // This allows the chat to work even if there are minor issues
+    throw error;
   }
 }
