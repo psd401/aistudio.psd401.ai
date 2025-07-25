@@ -95,7 +95,7 @@ export class ContextLoadingMonitor {
   }) {
     const loadTime = Date.now() - startTime;
     const metrics: ContextLoadingMetrics = {
-      executionId: result.executionId,
+      executionId: result.executionId as (number | string | null),
       hasSystemContext: (result.systemContexts?.length || 0) > 0,
       systemContextCount: result.systemContexts?.length || 0,
       chainPromptsCount: result.chainPrompts?.length || 0,
@@ -107,11 +107,7 @@ export class ContextLoadingMonitor {
     this.addMetric(metrics);
     this.checkForIssues(metrics);
 
-    // Log metrics for debugging
-    logger.info('[ContextMonitor] Context load tracked', {
-      ...metrics,
-      loadTimeMs: loadTime
-    });
+    // Metrics tracked
   }
 
   /**

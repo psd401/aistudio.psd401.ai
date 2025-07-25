@@ -24,8 +24,7 @@ async function loadExecutionContext(execId: number) {
   const loadStartTime = Date.now();
   
   try {
-    // SAFEGUARD: Log context loading attempt for debugging
-    logger.info('[stream-final] Starting loadExecutionContext for executionId:', execId);
+    // Start loading context
     
     // Get execution details, prompt results, and ALL assistant context in parallel
     const [executionData, promptResults, allChainPrompts, toolInputFields] = await Promise.all([
@@ -84,15 +83,7 @@ async function loadExecutionContext(execId: number) {
     }
     
     // 2. Include ALL system contexts from chain prompts
-    // SAFEGUARD: Detailed logging of chain prompts structure
-    logger.info('[stream-final] Chain prompts data sample:', {
-      count: allChainPrompts.length,
-      firstRow: allChainPrompts[0] ? Object.keys(allChainPrompts[0]) : [],
-      hasSystemContext: allChainPrompts[0] ? !!(allChainPrompts[0].system_context || allChainPrompts[0].systemContext) : false,
-      sampleSystemContext: allChainPrompts[0] && (allChainPrompts[0].system_context || allChainPrompts[0].systemContext) 
-        ? String(allChainPrompts[0].system_context || allChainPrompts[0].systemContext).substring(0, 100) + '...'
-        : 'No system context found'
-    });
+    // Process chain prompts
     
     // SAFEGUARD: Robust system context extraction with validation
     const systemContexts = allChainPrompts
@@ -185,7 +176,7 @@ Use ALL of this information to answer questions accurately. When asked about spe
       hasPromptTemplates: promptTemplates.length > 0
     };
     
-    logger.info('[stream-final] Loaded execution context', contextValidation);
+    // Context loaded successfully
     
     // SAFEGUARD: Warn if context seems incomplete
     if (!contextValidation.hasMinimumContent || !contextValidation.hasSystemContexts) {
@@ -238,14 +229,7 @@ export async function POST(req: Request) {
 
     const { messages, modelId: textModelId, conversationId: existingConversationId, documentId, source, executionId, context } = await req.json();
     
-    logger.info('[stream-final] Request received:', {
-      hasExistingConversationId: !!existingConversationId,
-      existingConversationId,
-      hasExecutionId: !!executionId,
-      executionId,
-      source,
-      messageCount: messages?.length
-    });
+    // Process chat request
 
   // Get model info - handle both numeric ID and string model_id
   const isNumericId = typeof textModelId === 'number' || /^\d+$/.test(String(textModelId));
@@ -293,15 +277,7 @@ export async function POST(req: Request) {
   
   const aiModel = modelResult[0];
   
-  // Log for debugging
-  logger.info('[stream-final] Model resolved:', {
-    textModelId,
-    isNumericId,
-    aiModelId: aiModel?.id,
-    aiModelName: aiModel?.name,
-    aiModelProvider: aiModel?.provider,
-    aiModelStringId: aiModel?.modelId
-  });
+  // Model resolved
   
   // Retrieve execution context BEFORE creating conversation so we can store it
   let executionContext = "";
@@ -323,11 +299,7 @@ export async function POST(req: Request) {
       execIdToUse = null;
     }
     
-    logger.info('[stream-final] Loading context for new conversation:', { 
-      rawExecutionId, 
-      execIdToUse,
-      isValid: !isNaN(execIdToUse) && execIdToUse > 0
-    });
+    // Load context for new conversation
     
     if (!isNaN(execIdToUse) && execIdToUse > 0) {
       // Load the complete execution context
@@ -337,7 +309,7 @@ export async function POST(req: Request) {
         completeExecutionData = execResult.completeData;
         // Store the complete execution data for the conversation context
         fullContext = completeExecutionData;
-        logger.info('[stream-final] Context loaded successfully');
+        // Context loaded successfully
       } else {
         // SAFEGUARD: Critical error if context loading fails
         logger.error('[stream-final] CRITICAL: Failed to load execution context for valid executionId!', {
@@ -345,11 +317,6 @@ export async function POST(req: Request) {
         });
       }
     }
-  } else {
-    logger.info('[stream-final] Not loading context:', {
-      hasExistingConversationId: !!existingConversationId,
-      hasExecutionId: !!executionId
-    });
   }
   
   // Handle conversation
@@ -458,14 +425,14 @@ export async function POST(req: Request) {
       const singleDoc = await getDocumentById({ id: documentId });
       if (singleDoc && !documents.find((d: SelectDocument) => d.id === documentId)) {
         documents.push(singleDoc);
-        logger.info(`Added document ${documentId} to context (total documents: ${documents.length})`);
+        // Added document to context
       }
     }
     
-    logger.info(`Processing chat with conversationId: ${conversationId}, documentId: ${documentId}, found ${documents.length} documents`);
+    // Process documents for context
     
     if (documents.length > 0) {
-      logger.info(`Found ${documents.length} documents for conversation ${conversationId}`);
+      // Found documents for conversation
       // Get the user's latest message for context search
       const latestUserMessage = messages[messages.length - 1].content;
       
@@ -478,7 +445,7 @@ export async function POST(req: Request) {
       
       // If no chunks found and we just uploaded a document, wait a bit and retry
       if (allDocumentChunks.length === 0 && documentId) {
-        logger.info("No chunks found immediately, waiting 500ms for chunks to be saved...");
+        // Wait for chunks to be saved
         await new Promise(resolve => setTimeout(resolve, 500));
         
         const retryChunksPromises = documents.map(doc => 
@@ -488,7 +455,7 @@ export async function POST(req: Request) {
         allDocumentChunks = retryChunksArrays.flat();
       }
       
-      logger.info(`Found ${allDocumentChunks.length} total chunks`);
+      // Process document chunks
 
       // Simple keyword matching to find relevant chunks
       const generalDocumentQueries = ['this', 'document', 'file', 'pdf', 'uploaded', 'attachment'];
@@ -523,12 +490,12 @@ export async function POST(req: Request) {
             `[Document Excerpt ${index + 1}]:\n${chunk.content}`
           ).join('\n\n')
         }\n\nPlease use this document content to answer the user's questions when relevant.`;
-        logger.info(`Including ${relevantChunks.length} relevant chunks in AI context`);
+        // Include relevant chunks in context
       } else if (allDocumentChunks.length === 0 && documents.length > 0) {
         documentContext = `\n\nNote: A document was uploaded but its content could not be extracted or is still being processed. The document name is: ${documents.map(d => d.name).join(", ")}`;
         logger.warn(`Document exists but no chunks found for documents: ${documents.map(d => d.id).join(", ")}`);
       } else {
-        logger.info(`No relevant chunks found for message: "${latestUserMessage}"`);
+        // No relevant chunks found
       }
     }
   } catch (docError) {
@@ -562,7 +529,7 @@ export async function POST(req: Request) {
             
             // If we have stored context with execution data, use it
             if (fullContext && fullContext.execution) {
-              logger.info('[stream-final] Using stored context from conversation');
+              // Using stored context from conversation
               
               // Build execution context from stored data
               const stored = fullContext;
@@ -644,20 +611,14 @@ Use all this information to provide accurate and helpful responses about both wh
     }))
   ];
 
-  // Log before streaming
-  logger.info('[stream-final] Starting stream with:', {
-    conversationId,
-    messageCount: aiMessages.length,
-    modelProvider: aiModel.provider,
-    modelId: aiModel.modelId
-  });
+  // Start streaming
 
   // Stream the response
   const result = await streamText({
     model,
     messages: aiMessages,
     onFinish: async ({ text }) => {
-      logger.info('[stream-final] Stream finished with text length:', text?.length || 0);
+      // Stream finished
       // Save assistant message
       try {
         await executeSQL<FormattedRow>(
@@ -668,7 +629,7 @@ Use all this information to provide accurate and helpful responses about both wh
             { name: 'content', value: { stringValue: text } }
           ]
         );
-        logger.info('[stream-final] Assistant response saved');
+        // Assistant response saved
       } catch (error) {
         logger.error('[stream-final] Error saving response:', error);
       }

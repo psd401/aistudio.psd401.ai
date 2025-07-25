@@ -217,14 +217,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
           }
         }
         
-        // SAFEGUARD: Log the request for debugging
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[assistant-chat] Sending chat request with:', {
-            conversationId: body.conversationId,
-            executionId: body.executionId,
-            hasContext: !!body.context
-          });
-        }
+        // Send chat request
         
         return fetch(url, {
           ...options,
@@ -247,11 +240,9 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
   // Track if we just created a new conversation to avoid fetching empty history
   const [isNewConversation, setIsNewConversation] = useState(false);
   
-  // Debug logging for messages
+  // Track message updates
   useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[Chat] Messages updated:', messages.length, 'messages, isLoading:', isLoading);
-    }
+    // Messages updated
   }, [messages, isLoading]);
 
   // Fetch conversation history when conversationId changes
