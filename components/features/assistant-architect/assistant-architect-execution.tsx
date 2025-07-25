@@ -127,8 +127,9 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     switch (event.type) {
       case 'metadata':
         // Initialize results structure
+        const tempId = jobId || 'streaming'
         const initialResults: ExtendedExecutionResultDetails = {
-          id: jobId || 'streaming',
+          id: tempId,
           toolId: tool?.id || 0,
           userId: 'current',
           status: 'running',
@@ -139,7 +140,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
           assistantArchitectId: tool?.id,
           promptResults: Array.from({ length: event.totalPrompts || 0 }, (_, i) => ({
             id: `prompt_${i}_temp`,
-            executionId: jobId || 'streaming',
+            executionId: tempId,
             promptId: `prompt_${i}`, // Use string ID temporarily, will be updated by prompt_start
             inputData: {} as Record<string, unknown>,
             outputData: '',
@@ -239,6 +240,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
           if (!prev) return null
           return {
             ...prev,
+            id: event.executionId || prev.id, // Use the actual execution ID from the event
             status: 'completed',
             completedAt: new Date()
           }

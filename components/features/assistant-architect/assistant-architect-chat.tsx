@@ -80,8 +80,23 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
     if (currentConversationId !== null || !execution?.promptResults?.length) {
       return null;
     }
+    
+    // SAFEGUARD: Validate execution ID
+    const execId = execution.id;
+    if (!execId || (typeof execId === 'string' && execId === 'streaming')) {
+      console.error('[assistant-chat] Invalid execution ID in context:', execId);
+      return null;
+    }
+    
+    // SAFEGUARD: Ensure numeric execution ID
+    const numericExecId = typeof execId === 'number' ? execId : parseInt(String(execId), 10);
+    if (isNaN(numericExecId) || numericExecId <= 0) {
+      console.error('[assistant-chat] Non-numeric or invalid execution ID:', execId);
+      return null;
+    }
+    
     return {
-      executionId: execution.id || 0,
+      executionId: numericExecId,
       toolId: execution.assistantArchitectId || 0,
       inputData: execution.inputData || {},
       promptResults: (execution.promptResults || []).map(result => {
@@ -105,12 +120,32 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
   }, [currentConversationId]);
 
   // Create stable body without conversation ID to prevent re-initialization
-  const stableBody = useMemo(() => ({
-    modelId: actualModelId,
-    source: "assistant_execution",
-    executionId: isPreview ? null : execution?.id || null,
-    context: executionContext
-  }), [actualModelId, isPreview, execution?.id, executionContext]);
+  const stableBody = useMemo(() => {
+    // SAFEGUARD: Validate and sanitize execution ID
+    let validExecutionId = null;
+    if (!isPreview && execution?.id) {
+      const execId = execution.id;
+      // SAFEGUARD: Reject 'streaming' or other invalid string values
+      if (typeof execId === 'string' && (execId === 'streaming' || execId === 'undefined')) {
+        console.error('[assistant-chat] Invalid execution ID for API call:', execId);
+      } else {
+        // Ensure numeric ID
+        const numId = typeof execId === 'number' ? execId : parseInt(String(execId), 10);
+        if (!isNaN(numId) && numId > 0) {
+          validExecutionId = numId;
+        } else {
+          console.error('[assistant-chat] Failed to parse valid execution ID:', execId);
+        }
+      }
+    }
+    
+    return {
+      modelId: actualModelId,
+      source: "assistant_execution",
+      executionId: validExecutionId,
+      context: executionContext
+    };
+  }, [actualModelId, isPreview, execution?.id, executionContext, currentConversationId]);
 
   // Use Vercel AI SDK's useChat hook
   const { 
@@ -166,12 +201,40 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
     },
     // Override fetch to inject conversation ID dynamically
     fetch: async (url, options) => {
-      const body = JSON.parse(options?.body as string || '{}');
-      body.conversationId = conversationIdRef.current;
-      return fetch(url, {
-        ...options,
-        body: JSON.stringify(body)
-      });
+      try {
+        const body = JSON.parse(options?.body as string || '{}');
+        body.conversationId = conversationIdRef.current;
+        
+        // SAFEGUARD: Final validation of executionId before sending
+        if (body.executionId !== null && body.executionId !== undefined) {
+          const execId = body.executionId;
+          if (typeof execId === 'string' && (execId === 'streaming' || execId === 'undefined')) {
+            console.error('[assistant-chat] Blocking invalid executionId in request:', execId);
+            body.executionId = null;
+          } else if (typeof execId === 'number' && execId <= 0) {
+            console.error('[assistant-chat] Blocking invalid numeric executionId:', execId);
+            body.executionId = null;
+          }
+        }
+        
+        // SAFEGUARD: Log the request for debugging
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[assistant-chat] Sending chat request with:', {
+            conversationId: body.conversationId,
+            executionId: body.executionId,
+            hasContext: !!body.context
+          });
+        }
+        
+        return fetch(url, {
+          ...options,
+          body: JSON.stringify(body)
+        });
+      } catch (error) {
+        console.error('[Chat] Error in fetch override:', error);
+        // Return the original fetch if parsing fails
+        return fetch(url, options);
+      }
     }
   })
 
@@ -186,7 +249,9 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
   
   // Debug logging for messages
   useEffect(() => {
-    console.log('[Chat] Messages updated:', messages.length, 'messages, isLoading:', isLoading);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Chat] Messages updated:', messages.length, 'messages, isLoading:', isLoading);
+    }
   }, [messages, isLoading]);
 
   // Fetch conversation history when conversationId changes
@@ -230,7 +295,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
       }
     };
     fetchConversationHistory();
-  }, [currentConversationId, isNewConversation, isStreaming, justFinishedStreaming, messages.length]);
+  }, [currentConversationId, isNewConversation, isStreaming, justFinishedStreaming, messages.length, setMessages]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()

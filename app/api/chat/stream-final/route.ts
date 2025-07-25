@@ -11,24 +11,37 @@ import { Settings } from "@/lib/settings-manager";
 import logger from "@/lib/logger";
 import { ensureRDSString, ensureRDSNumber } from "@/lib/type-helpers";
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents";
+import { contextMonitor } from "@/lib/monitoring/context-loading-monitor";
 
 // Helper function to load complete execution context
 async function loadExecutionContext(execId: number) {
+  // CRITICAL SAFEGUARD: Validate execution ID
+  if (!execId || isNaN(execId) || execId <= 0) {
+    logger.error('[stream-final] Invalid execution ID provided to loadExecutionContext:', { execId });
+    return null;
+  }
+  
+  const loadStartTime = Date.now();
+  
   try {
+    // SAFEGUARD: Log context loading attempt for debugging
+    logger.info('[stream-final] Starting loadExecutionContext for executionId:', execId);
+    
     // Get execution details, prompt results, and ALL assistant context in parallel
     const [executionData, promptResults, allChainPrompts, toolInputFields] = await Promise.all([
       executeSQL(
         `SELECT te.input_data, te.status as exec_status, te.started_at, te.completed_at,
-                aa.name as tool_name, aa.description as tool_description, aa.instructions,
-                te.assistant_architect_id, te.input_values
+                aa.name as tool_name, aa.description as tool_description,
+                te.assistant_architect_id
         FROM tool_executions te
         LEFT JOIN assistant_architects aa ON te.assistant_architect_id = aa.id
         WHERE te.id = :executionId`,
         [{ name: 'executionId', value: { longValue: execId } }]
       ),
       executeSQL(
-        `SELECT pr.prompt_id, pr.input_data as prompt_input, pr.output_data, 
-                pr.status as prompt_status, cp.name as prompt_name, cp.system_context,
+        `SELECT pr.prompt_id, pr.input_data, pr.output_data, 
+                pr.status, pr.started_at, pr.completed_at,
+                cp.name as prompt_name, cp.system_context,
                 cp.content as prompt_content
         FROM prompt_results pr
         LEFT JOIN chain_prompts cp ON pr.prompt_id = cp.id
@@ -65,18 +78,44 @@ async function loadExecutionContext(execId: number) {
     // Build comprehensive execution context
     let assistantKnowledge = '';
     
-    // 1. Include assistant instructions and description
-    if (execution.instructions) {
-      assistantKnowledge += `\n\nAssistant Instructions:\n${execution.instructions}`;
-    }
+    // 1. Include assistant description
     if (execution.tool_description) {
       assistantKnowledge += `\n\nAssistant Purpose:\n${execution.tool_description}`;
     }
     
     // 2. Include ALL system contexts from chain prompts
+    // SAFEGUARD: Detailed logging of chain prompts structure
+    logger.info('[stream-final] Chain prompts data sample:', {
+      count: allChainPrompts.length,
+      firstRow: allChainPrompts[0] ? Object.keys(allChainPrompts[0]) : [],
+      hasSystemContext: allChainPrompts[0] ? !!(allChainPrompts[0].system_context || allChainPrompts[0].systemContext) : false,
+      sampleSystemContext: allChainPrompts[0] && (allChainPrompts[0].system_context || allChainPrompts[0].systemContext) 
+        ? String(allChainPrompts[0].system_context || allChainPrompts[0].systemContext).substring(0, 100) + '...'
+        : 'No system context found'
+    });
+    
+    // SAFEGUARD: Robust system context extraction with validation
     const systemContexts = allChainPrompts
-      .map(row => String(row.systemContext || row.system_context || ''))
+      .map((row, index) => {
+        // RDS Data API returns snake_case column names
+        const context = row.system_context || row.systemContext || '';
+        
+        // SAFEGUARD: Log if we find empty contexts
+        if (!context || String(context).trim() === '') {
+          logger.warn(`[stream-final] Empty system_context found for chain prompt at index ${index}`);
+        }
+        
+        return String(context);
+      })
       .filter(ctx => ctx.trim() !== '');
+    
+    // SAFEGUARD: Alert if no system contexts found when we expect them
+    if (systemContexts.length === 0 && allChainPrompts.length > 0) {
+      logger.error('[stream-final] WARNING: No system contexts found despite having chain prompts!', {
+        chainPromptsCount: allChainPrompts.length,
+        firstPromptKeys: allChainPrompts[0] ? Object.keys(allChainPrompts[0]) : []
+      });
+    }
     
     if (systemContexts.length > 0) {
       assistantKnowledge += `\n\nAssistant Knowledge Base (System Contexts):\n${systemContexts.join('\n\n---\n\n')}`;
@@ -93,14 +132,15 @@ async function loadExecutionContext(execId: number) {
     
     // 4. Format user inputs with field labels
     let formattedInputs = '';
-    if (execution.input_values) {
-      const inputValues = typeof execution.input_values === 'string' 
-        ? JSON.parse(execution.input_values) 
-        : execution.input_values;
+    if (execution.input_data) {
+      const inputValues = typeof execution.input_data === 'string' 
+        ? JSON.parse(execution.input_data) 
+        : execution.input_data;
       
       formattedInputs = '\n\nUser Inputs:\n';
       for (const field of toolInputFields) {
-        const value = inputValues[field.name];
+        const fieldName = String(field.name);
+        const value = inputValues[fieldName];
         if (value !== undefined && value !== null && value !== '') {
           formattedInputs += `- ${field.label}: ${value}\n`;
         }
@@ -116,11 +156,11 @@ ${assistantKnowledge}
 
 Execution Results:
 ${promptResults.map((pr, idx) => `
-${idx + 1}. ${pr.prompt_name}:
+${idx + 1}. ${pr.prompt_name || 'Prompt'}:
    Prompt Template: ${pr.prompt_content || 'N/A'}
-   Processed Input: ${JSON.stringify(pr.prompt_input)}
-   Output: ${pr.output_data}
-   Status: ${pr.prompt_status}`).join('\n')}
+   Processed Input: ${JSON.stringify(pr.input_data || {})}
+   Output: ${pr.output_data || ''}
+   Status: ${pr.status || 'unknown'}`).join('\n')}
 
 IMPORTANT: You have access to ALL the information above, including:
 - The complete assistant knowledge base with all system contexts
@@ -130,13 +170,33 @@ IMPORTANT: You have access to ALL the information above, including:
 
 Use ALL of this information to answer questions accurately. When asked about specific knowledge (like "10 elements" or any other content), refer to the Assistant Knowledge Base section above.`;
     
-    logger.info('[stream-final] Loaded execution context', {
+    // SAFEGUARD: Comprehensive validation before returning
+    const contextValidation = {
       executionId: execId,
       hasAssistantKnowledge: assistantKnowledge.length > 0,
       promptResultsCount: promptResults.length,
       allChainPromptsCount: allChainPrompts.length,
       systemContextsCount: systemContexts.length,
       toolInputFieldsCount: toolInputFields.length,
+      contextLength: executionContext.length,
+      // CRITICAL: Validate we have meaningful content
+      hasMinimumContent: executionContext.length > 500,
+      hasSystemContexts: systemContexts.length > 0,
+      hasPromptTemplates: promptTemplates.length > 0
+    };
+    
+    logger.info('[stream-final] Loaded execution context', contextValidation);
+    
+    // SAFEGUARD: Warn if context seems incomplete
+    if (!contextValidation.hasMinimumContent || !contextValidation.hasSystemContexts) {
+      logger.warn('[stream-final] Context may be incomplete!', contextValidation);
+    }
+    
+    // SAFEGUARD: Track metrics for monitoring
+    contextMonitor.trackContextLoad(loadStartTime, {
+      executionId: execId,
+      systemContexts,
+      chainPrompts: allChainPrompts,
       contextLength: executionContext.length
     });
     
@@ -153,7 +213,19 @@ Use ALL of this information to answer questions accurately. When asked about spe
       }
     };
   } catch (error) {
-    logger.error('[stream-final] Error loading execution context:', error);
+    // SAFEGUARD: Detailed error logging
+    logger.error('[stream-final] Error loading execution context:', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      executionId: execId
+    });
+    
+    // SAFEGUARD: Track error in monitoring
+    contextMonitor.trackContextLoad(loadStartTime, {
+      executionId: execId,
+      error: error instanceof Error ? error : new Error(String(error))
+    });
+    
     return null;
   }
 }
@@ -165,6 +237,15 @@ export async function POST(req: Request) {
     }
 
     const { messages, modelId: textModelId, conversationId: existingConversationId, documentId, source, executionId, context } = await req.json();
+    
+    logger.info('[stream-final] Request received:', {
+      hasExistingConversationId: !!existingConversationId,
+      existingConversationId,
+      hasExecutionId: !!executionId,
+      executionId,
+      source,
+      messageCount: messages?.length
+    });
 
   // Get model info - handle both numeric ID and string model_id
   const isNumericId = typeof textModelId === 'number' || /^\d+$/.test(String(textModelId));
@@ -230,15 +311,45 @@ export async function POST(req: Request) {
   
   // For new conversations with executionId, load context first
   if (!existingConversationId && executionId) {
-    execIdToUse = executionId;
-    // Load the complete execution context
-    const execResult = await loadExecutionContext(execIdToUse);
-    if (execResult) {
-      executionContext = execResult.executionContext;
-      completeExecutionData = execResult.completeData;
-      // Store the complete execution data for the conversation context
-      fullContext = completeExecutionData;
+    // SAFEGUARD: Strict validation of executionId
+    const rawExecutionId = executionId;
+    
+    // Parse executionId to ensure it's a number
+    execIdToUse = typeof executionId === 'string' ? parseInt(executionId, 10) : executionId;
+    
+    // SAFEGUARD: Reject 'streaming' or other invalid values immediately
+    if (executionId === 'streaming' || executionId === 'undefined' || executionId === 'null') {
+      logger.error('[stream-final] Invalid executionId received:', { executionId, type: typeof executionId });
+      execIdToUse = null;
     }
+    
+    logger.info('[stream-final] Loading context for new conversation:', { 
+      rawExecutionId, 
+      execIdToUse,
+      isValid: !isNaN(execIdToUse) && execIdToUse > 0
+    });
+    
+    if (!isNaN(execIdToUse) && execIdToUse > 0) {
+      // Load the complete execution context
+      const execResult = await loadExecutionContext(execIdToUse);
+      if (execResult) {
+        executionContext = execResult.executionContext;
+        completeExecutionData = execResult.completeData;
+        // Store the complete execution data for the conversation context
+        fullContext = completeExecutionData;
+        logger.info('[stream-final] Context loaded successfully');
+      } else {
+        // SAFEGUARD: Critical error if context loading fails
+        logger.error('[stream-final] CRITICAL: Failed to load execution context for valid executionId!', {
+          executionId: execIdToUse
+        });
+      }
+    }
+  } else {
+    logger.info('[stream-final] Not loading context:', {
+      hasExistingConversationId: !!existingConversationId,
+      hasExecutionId: !!executionId
+    });
   }
   
   // Handle conversation
