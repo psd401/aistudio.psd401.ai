@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
 import logger from '@/lib/logger';
-import { SqlParameter } from 'aws-sdk/clients/rdsdataservice';
+import { SqlParameter } from '@aws-sdk/client-rds-data';
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const session = await getServerSession();
   if (!session?.sub) {
@@ -45,7 +45,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       
       const userId = userResult[0].id;
       sql += ', completed_by = :completedBy, completed_at = NOW()';
-      params.push({ name: 'completedBy', value: { stringValue: userId.toString() } });
+      params.push({ name: 'completedBy', value: { stringValue: String(userId || '') } });
     }
 
     sql += ' WHERE id = :ideaId RETURNING *';

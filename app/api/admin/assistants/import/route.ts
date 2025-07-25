@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
           { name: 'imagePath', value: assistant.image_path ? { stringValue: assistant.image_path } : { isNull: true } },
           { name: 'isParallel', value: { booleanValue: assistant.is_parallel || false } },
           { name: 'timeoutSeconds', value: assistant.timeout_seconds ? { longValue: assistant.timeout_seconds } : { isNull: true } },
-          { name: 'userId', value: { longValue: userId } }
+          { name: 'userId', value: { longValue: Number(userId) } }
         ])
 
         const assistantId = assistantResult[0].id
@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
               NOW(), NOW()
             )
           `, [
-            { name: 'assistantId', value: { longValue: assistantId } },
+            { name: 'assistantId', value: { longValue: Number(assistantId) } },
             { name: 'name', value: { stringValue: prompt.name } },
             { name: 'content', value: { stringValue: prompt.content } },
             { name: 'systemContext', value: prompt.system_context ? { stringValue: prompt.system_context } : { isNull: true } },
@@ -161,7 +161,7 @@ export async function POST(request: NextRequest) {
               :position, :options::jsonb, NOW(), NOW()
             )
           `, [
-            { name: 'assistantId', value: { longValue: assistantId } },
+            { name: 'assistantId', value: { longValue: Number(assistantId) } },
             { name: 'name', value: { stringValue: field.name } },
             { name: 'label', value: { stringValue: field.label } },
             { name: 'fieldType', value: { stringValue: field.field_type } },

@@ -2,7 +2,6 @@ import { NextResponse } from "next/server"
 import { getUsers, getUserRoles, createUser, updateUser, deleteUser } from "@/lib/db/data-api-adapter"
 import { requireAdmin } from "@/lib/auth/admin-check"
 import logger from "@/lib/logger"
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 export async function GET() {
   try {
     // Check admin authorization
@@ -11,22 +10,21 @@ export async function GET() {
     
     // Get users from database via Data API
     const dbUsers = await getUsers();
-    const transformedUsers = transformSnakeToCamel<Array<{id: number, cognitoSub: string, email: string, firstName: string, lastName: string, lastSignInAt: string, createdAt: string, updatedAt: string}>>(dbUsers);
     
     // Get all user roles
     const userRoles = await getUserRoles();
-    const transformedRoles = transformSnakeToCamel<Array<{userId: number, roleName: string}>>(userRoles);
     
     // Group roles by userId
-    const rolesByUser = transformedRoles.reduce((acc, role) => {
-      acc[role.userId] = acc[role.userId] || [];
-      acc[role.userId].push(role.roleName);
+    const rolesByUser = userRoles.reduce((acc, role: any) => {
+      const userId = Number(role.userId);
+      acc[userId] = acc[userId] || [];
+      acc[userId].push(String(role.roleName));
       return acc;
     }, {} as Record<number, string[]>);
     
     // Map to the format expected by the UI
-    const users = transformedUsers.map(dbUser => {
-      const userRolesList = rolesByUser[dbUser.id] || []
+    const users = dbUsers.map((dbUser: any) => {
+      const userRolesList = rolesByUser[Number(dbUser.id)] || []
 
       return {
         ...dbUser,
@@ -64,12 +62,11 @@ export async function POST(request: Request) {
     }
 
     const user = await createUser(userData)
-    const transformedUser = transformSnakeToCamel(user)
 
     return NextResponse.json({
       isSuccess: true,
       message: "User created successfully",
-      data: transformedUser
+      data: user
     })
   } catch (error) {
     logger.error("Error creating user:", error)
@@ -89,13 +86,12 @@ export async function PUT(request: Request) {
     const body = await request.json()
     const { id, ...updates } = body
 
-    const user = await updateUser(String(id), updates)
-    const transformedUser = transformSnakeToCamel(user)
+    const user = await updateUser(parseInt(String(id)), updates)
 
     return NextResponse.json({
       isSuccess: true,
       message: "User updated successfully",
-      data: transformedUser
+      data: user
     })
   } catch (error) {
     logger.error("Error updating user:", error)
@@ -122,7 +118,7 @@ export async function DELETE(request: Request) {
       )
     }
 
-    const user = await deleteUser(id)
+    const user = await deleteUser(parseInt(String(id)))
 
     return NextResponse.json({
       isSuccess: true,

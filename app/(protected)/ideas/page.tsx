@@ -59,9 +59,7 @@ export default function IdeasPage() {
     priorityLevel: '',
   });
 
-  useEffect(() => {
-    fetchIdeas();
-  }, [fetchIdeas]);
+  // Moved useEffect after fetchIdeas declaration
 
   const sortIdeas = (ideasToSort: Idea[]) => {
     return [...ideasToSort].sort((a, b) => {
@@ -101,6 +99,10 @@ export default function IdeasPage() {
       setIdeas([]);
     }
   }, [toast]);
+
+  useEffect(() => {
+    fetchIdeas();
+  }, [fetchIdeas]);
 
   const handleSubmit = async () => {
     setLoading(true);

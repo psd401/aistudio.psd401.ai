@@ -214,7 +214,7 @@ export function ConversationsList() {
       });
     } catch (error) {
       // Only show error toast if it wasn't an abort
-      if (error.name !== 'AbortError') {
+      if (error instanceof Error && error.name !== 'AbortError') {
         toast({
           title: "Error",
           description: "Failed to delete conversation",
@@ -306,7 +306,7 @@ export function ConversationsList() {
       });
     } catch (error) {
       // Only show error toast if it wasn't an abort
-      if (error.name !== 'AbortError') {
+      if (error instanceof Error && error.name !== 'AbortError') {
         toast({
           title: "Error",
           description: "Failed to rename conversation",

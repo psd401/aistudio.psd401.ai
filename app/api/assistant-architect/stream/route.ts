@@ -3,7 +3,6 @@ import { executeSQL } from "@/lib/db/data-api-adapter";
 import { streamCompletion } from "@/lib/ai-helpers";
 import logger from "@/lib/logger";
 import { rateLimit } from "@/lib/rate-limit";
-import { transformSnakeToCamel } from '@/lib/db/field-mapper';
 import { NextRequest } from 'next/server';
 
 interface StreamRequest {
@@ -63,7 +62,7 @@ export async function POST(req: NextRequest) {
       return new Response('Tool not found or inactive', { status: 404 });
     }
 
-    const tool = transformSnakeToCamel<{ id: number; name: string; description: string; status: string }>(toolResult[0]);
+    const tool = toolResult[0] as { id: number; name: string; description: string; status: string };
 
     // Get prompts for this tool
     const promptsQuery = `
@@ -78,7 +77,7 @@ export async function POST(req: NextRequest) {
     const promptsRaw = await executeSQL(promptsQuery, [
       { name: 'toolId', value: { longValue: toolId } }
     ]);
-    const prompts = transformSnakeToCamel<Array<{
+    const prompts = promptsRaw as Array<{
       id: number;
       name: string;
       content: string;
@@ -88,7 +87,7 @@ export async function POST(req: NextRequest) {
       modelId: string;
       provider: string;
       modelName: string;
-    }>>(promptsRaw);
+    }>;
 
 
     if (!prompts.length) {
@@ -103,7 +102,7 @@ export async function POST(req: NextRequest) {
     const executionResultRaw = await executeSQL(executionQuery, [
       { name: 'executionId', value: { longValue: executionId } }
     ]);
-    const executionResult = transformSnakeToCamel<Array<{ id: number; status: string }>>(executionResultRaw);
+    const executionResult = executionResultRaw as Array<{ id: number; status: string }>;
 
     if (!executionResult.length) {
       return new Response('Execution not found', { status: 404 });
@@ -197,7 +196,7 @@ export async function POST(req: NextRequest) {
                 const previousResultsRaw = await executeSQL(previousResultsQuery, [
                   { name: 'executionId', value: { longValue: executionId } }
                 ]);
-                const previousResults = transformSnakeToCamel<Array<{ result: string }>>(previousResultsRaw);
+                const previousResults = previousResultsRaw as Array<{ result: string }>;
 
                 previousResults.forEach((result, index) => {
                   const resultPlaceholder = `{{result_${index + 1}}}`;
@@ -221,7 +220,7 @@ export async function POST(req: NextRequest) {
                 { name: 'promptId', value: { longValue: prompt.id } },
                 { name: 'inputData', value: { stringValue: JSON.stringify({ prompt: processedPrompt }) } }
               ]);
-              const promptResultInsert = transformSnakeToCamel<Array<{ id: number }>>(promptResultInsertRaw);
+              const promptResultInsert = promptResultInsertRaw as Array<{ id: number }>;
               promptResultId = promptResultInsert[0].id;
 
               // Stream the AI response

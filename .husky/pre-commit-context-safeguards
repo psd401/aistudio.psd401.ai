@@ -1,0 +1,52 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Context Loading Safeguards Pre-commit Hook
+# Prevents common issues that break follow-up chat context loading
+
+echo "🛡️  Running context loading safeguards check..."
+
+# Check for 'streaming' as executionId
+if grep -r "executionId.*=.*['\"]streaming['\"]" --include="*.ts" --include="*.tsx" .; then
+  echo "❌ ERROR: Found 'streaming' being assigned to executionId"
+  echo "This will break context loading. Use a proper numeric ID."
+  exit 1
+fi
+
+# Check for incorrect SQL column names
+if grep -r "aa\.instructions" --include="*.ts" --include="*.tsx" .; then
+  echo "❌ ERROR: Found reference to aa.instructions (column doesn't exist)"
+  echo "The assistant_architects table doesn't have an instructions column"
+  exit 1
+fi
+
+if grep -r "te\.input_values" --include="*.ts" --include="*.tsx" .; then
+  echo "❌ ERROR: Found reference to te.input_values (should be te.input_data)"
+  echo "The tool_executions table uses input_data, not input_values"
+  exit 1
+fi
+
+# Check for missing preventDefault in chat forms
+if grep -B5 -A5 "handleSubmit.*chat" --include="*.tsx" . | grep -v "preventDefault"; then
+  echo "⚠️  WARNING: Found chat submit handler without explicit preventDefault"
+  echo "This might cause page reloads. Please verify preventDefault is called."
+fi
+
+# Check for executionId validation
+VALIDATION_COUNT=$(grep -r "executionId.*streaming.*undefined.*null" --include="*.ts" --include="*.tsx" . | wc -l)
+if [ "$VALIDATION_COUNT" -lt 2 ]; then
+  echo "⚠️  WARNING: ExecutionId validation might be missing"
+  echo "Found only $VALIDATION_COUNT validation checks (expected at least 2)"
+fi
+
+# Run context loading tests if they exist
+if [ -f "tests/context-loading-safeguards.test.ts" ]; then
+  echo "🧪 Running context loading tests..."
+  npm test context-loading-safeguards.test.ts --silent
+  if [ $? -ne 0 ]; then
+    echo "❌ Context loading tests failed"
+    exit 1
+  fi
+fi
+
+echo "✅ Context loading safeguards check passed"

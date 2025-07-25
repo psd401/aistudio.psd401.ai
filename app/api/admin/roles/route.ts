@@ -12,7 +12,7 @@ export async function GET() {
     // Get all roles
     const result = await executeSQL('SELECT id, name FROM roles ORDER BY name')
 
-    const roles = result.map((record: { id: string | number | boolean | null; name: string | number | boolean | null }) => ({
+    const roles = result.map((record) => ({
       id: String(record.id),
       name: String(record.name),
     }))

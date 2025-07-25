@@ -123,7 +123,7 @@ export async function GET() {
       healthCheck.checks.authentication = {
         status: "healthy",
         hasSession: !!session,
-        sessionUser: session?.user?.email || "no session",
+        sessionUser: session?.email || "no session",
         authConfigured: true
       }
     } catch (error) {

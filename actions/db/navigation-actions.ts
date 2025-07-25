@@ -4,28 +4,21 @@ import {
   getNavigationItems, 
   createNavigationItem, 
   updateNavigationItem, 
-  deleteNavigationItem,
-  FormattedRow
+  deleteNavigationItem
 } from "@/lib/db/data-api-adapter"
 import { ActionState } from "@/types"
 import type { InsertNavigationItem, SelectNavigationItem } from "@/types/db-types"
 import logger from "@/lib/logger"
-import { transformSnakeToCamel } from '@/lib/db/field-mapper'
 // UUID import removed - using auto-increment IDs
 
 export async function getNavigationItemsAction(): Promise<ActionState<SelectNavigationItem[]>> {
   try {
     const items = await getNavigationItems(false) // Get all items, not just active
     
-    // Transform snake_case to camelCase
-    const transformedItems = items.map((item: FormattedRow) => 
-      transformSnakeToCamel<SelectNavigationItem>(item)
-    )
-    
     return {
       isSuccess: true,
       message: "Navigation items retrieved successfully",
-      data: transformedItems
+      data: items as unknown as SelectNavigationItem[]
     }
   } catch (error) {
     logger.error("Error getting navigation items:", error)
@@ -50,13 +43,10 @@ export async function createNavigationItemAction(
       isActive: data.isActive ?? true
     })
     
-    // Transform snake_case to camelCase
-    const transformedItem = transformSnakeToCamel<SelectNavigationItem>(newItem as FormattedRow)
-    
     return {
       isSuccess: true,
       message: "Navigation item created successfully",
-      data: transformedItem
+      data: newItem as unknown as SelectNavigationItem
     }
   } catch (error) {
     logger.error("Error creating navigation item:", error)
@@ -96,13 +86,10 @@ export async function updateNavigationItemAction(
     
     const updatedItem = await updateNavigationItem(Number(id), updateData)
     
-    // Transform snake_case to camelCase
-    const transformedItem = transformSnakeToCamel<SelectNavigationItem>(updatedItem as FormattedRow)
-    
     return {
       isSuccess: true,
       message: "Navigation item updated successfully",
-      data: transformedItem
+      data: updatedItem as unknown as SelectNavigationItem
     }
   } catch (error) {
     logger.error("Error updating navigation item:", error)

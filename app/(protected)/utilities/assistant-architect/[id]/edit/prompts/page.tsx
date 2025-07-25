@@ -2,10 +2,11 @@ import { redirect, notFound } from "next/navigation"
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { getAiModelsAction } from "@/actions/db/ai-models-actions"
 import { getServerSession } from "@/lib/auth/server-session"
-import { checkUserRoleByCognitoSub, executeSQL } from "@/lib/db/data-api-adapter"
+import { checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter"
 import { CreateLayout } from "../../../create/_components/create-layout"
 import { PromptsPageClient } from "./_components/prompts-page-client"
 import Link from "next/link"
+import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 
 export default async function PromptsPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = await params
@@ -15,6 +16,9 @@ export default async function PromptsPage({ params }: { params: Promise<{ id: st
     notFound()
   }
   const tool = result.data
+  if (!tool) {
+    notFound()
+  }
   
   // Check authentication
   const session = await getServerSession()
@@ -23,14 +27,8 @@ export default async function PromptsPage({ params }: { params: Promise<{ id: st
   }
   
   const isAdmin = await checkUserRoleByCognitoSub(session.sub, "administrator")
-  
-  // Get the current user's database ID to check ownership
-  const currentUserResult = await executeSQL(`
-    SELECT id FROM users WHERE cognito_sub = :cognitoSub
-  `, [{ name: 'cognitoSub', value: { stringValue: session.sub } }])
-  
-  const currentUserId = currentUserResult.length > 0 ? currentUserResult[0].id : null
-  const isCreator = currentUserId && currentUserId === tool.userId
+  const currentUser = await getCurrentUserAction()
+  const isCreator = currentUser.isSuccess && currentUser.data?.user.id === tool.userId
   
   const canEdit = isAdmin || (isCreator && (tool.status === "draft" || tool.status === "pending_approval" || tool.status === "rejected" || tool.status === "approved"))
   if (!canEdit) {

@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { executeSQL } from '@/lib/db/data-api-adapter';
-import { Field } from '@aws-sdk/client-rds-data';
+import { SqlParameter } from '@aws-sdk/client-rds-data';
 import logger from '@/lib/logger';
 
 export async function DELETE(
@@ -35,12 +35,12 @@ export async function DELETE(
       FROM conversations 
       WHERE id = :conversationId
     `;
-    const checkParams = [
-      { name: 'conversationId', value: { longValue: conversationId } as Field }
+    const checkParams: SqlParameter[] = [
+      { name: 'conversationId', value: { longValue: conversationId } }
     ];
     const conversation = await executeSQL(checkQuery, checkParams);
 
-    if (!conversation.length || conversation[0].user_id !== userId) {
+    if (!conversation.length || !conversation[0] || conversation[0].userId !== userId) {
       return new Response('Not found', { status: 404 });
     }
 
@@ -115,12 +115,12 @@ export async function PATCH(
       FROM conversations 
       WHERE id = :conversationId
     `;
-    const checkParams = [
-      { name: 'conversationId', value: { longValue: conversationId } as Field }
+    const checkParams: SqlParameter[] = [
+      { name: 'conversationId', value: { longValue: conversationId } }
     ];
     const conversation = await executeSQL(checkQuery, checkParams);
 
-    if (!conversation.length || conversation[0].user_id !== userId) {
+    if (!conversation.length || !conversation[0] || conversation[0].userId !== userId) {
       return new Response('Not found', { status: 404 });
     }
 
@@ -134,9 +134,9 @@ export async function PATCH(
       SET title = :title, updated_at = NOW() 
       WHERE id = :conversationId
     `;
-    const updateParams = [
+    const updateParams: SqlParameter[] = [
       { name: 'title', value: { stringValue: body.title.slice(0, 100) } },
-      { name: 'conversationId', value: { longValue: conversationId } as Field }
+      { name: 'conversationId', value: { longValue: conversationId } }
     ];
     await executeSQL(updateQuery, updateParams);
 

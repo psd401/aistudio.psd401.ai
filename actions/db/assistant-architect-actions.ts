@@ -27,7 +27,7 @@ import { hasRole, getUserTools } from "@/utils/roles";
 import { createNavigationItemAction } from "@/actions/db/navigation-actions"
 import logger from "@/lib/logger"
 import { getServerSession } from "@/lib/auth/server-session";
-import { executeSQL, checkUserRoleByCognitoSub, type FormattedRow } from "@/lib/db/data-api-adapter";
+import { executeSQL, checkUserRoleByCognitoSub, hasToolAccess, type FormattedRow } from "@/lib/db/data-api-adapter";
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action";
 import { RDSDataClient, BeginTransactionCommand, ExecuteStatementCommand, CommitTransactionCommand, RollbackTransactionCommand, SqlParameter } from "@aws-sdk/client-rds-data";
 
@@ -1105,7 +1105,7 @@ export async function approveAssistantArchitectAction(
       `, [
         { name: 'identifier', value: { stringValue: identifier } },
         { name: 'name', value: { stringValue: updatedTool.name } },
-        { name: 'description', value: { stringValue: updatedTool.description } },
+        { name: 'description', value: { stringValue: updatedTool.description || '' } },
         { name: 'id', value: { longValue: parseInt(id, 10) } }
       ]);
       finalToolId = existingToolResult[0].id as string;
@@ -1127,7 +1127,7 @@ export async function approveAssistantArchitectAction(
       `, [
         { name: 'identifier', value: { stringValue: identifier } },
         { name: 'name', value: { stringValue: updatedTool.name } },
-        { name: 'description', value: { stringValue: updatedTool.description } },
+        { name: 'description', value: { stringValue: updatedTool.description || '' } },
         { name: 'assistantArchitectId', value: { longValue: parseInt(id, 10) } }
       ]);
       finalToolId = newToolResult[0].id as string;
@@ -1484,7 +1484,9 @@ async function executeAssistantArchitectJob(
         }
         newPromptResultId = (insertPromptResultResult.records[0][0] as any).longValue as number;
         
-        const modelRecord = (await executeSQL<any>('SELECT model_id, provider FROM ai_models WHERE id = :id', [{name: 'id', value: {longValue: typeof prompt.modelId === 'string' ? parseInt(prompt.modelId, 10) : prompt.modelId}}]))[0] as any;
+        if (!prompt.modelId) throw new Error("No model ID specified for prompt");
+        const modelId = typeof prompt.modelId === 'string' ? parseInt(prompt.modelId, 10) : prompt.modelId;
+        const modelRecord = (await executeSQL<any>('SELECT model_id, provider FROM ai_models WHERE id = :id', [{name: 'id', value: {longValue: modelId}}]))[0] as any;
         if (!modelRecord) throw new Error("Model not found");
 
         const messages: CoreMessage[] = [
@@ -1959,7 +1961,7 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
 
     // Get related data for each tool
     const toolsWithRelations = await Promise.all(
-      toolsResult.map(async (toolRecord: FormattedRow) => {
+      toolsResult.map(async (toolRecord) => {
         const toolId = String(toolRecord.id || '')
         
         // Run input fields and prompts queries in parallel

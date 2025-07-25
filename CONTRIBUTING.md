@@ -54,6 +54,7 @@ Thank you for contributing to this project! Please follow these standards to ens
 - **Secrets Management**: Use AWS Secrets Manager for all sensitive configuration. Never hardcode secrets.
 
 ### Database Access
+- **Field Naming Convention**: Database column names use snake_case. The RDS Data API adapter automatically transforms these to camelCase for TypeScript compatibility. Never manually transform field names.
 - **Parameterized Queries**: Always use parameterized queries with the RDS Data API:
   ```typescript
   await executeSQL(
@@ -63,6 +64,11 @@ Thank you for contributing to this project! Please follow these standards to ens
   ```
 - **Transaction Management**: Use `executeTransaction()` for operations that modify multiple tables.
 - **Connection Security**: Access the database only through RDS Data API, never direct connections.
+- **Type Casting**: When the automatic transformation doesn't match your type interface, use double casting:
+  ```typescript
+  const result = await executeSQL(query)
+  return result as unknown as YourType[]
+  ```
 
 ## Server-Side Rendering (SSR) & Next.js
 

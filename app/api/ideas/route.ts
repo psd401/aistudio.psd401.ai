@@ -49,38 +49,13 @@ export async function GET() {
     let userVotedIdeaIds = new Set();
     if (currentUserId) {
       const userVotesSql = 'SELECT idea_id FROM idea_votes WHERE user_id = :userId';
-      const userVotes = await executeSQL(userVotesSql, [{ name: 'userId', value: { longValue: currentUserId } }]);
-      interface VoteRow {
-        idea_id: number;
-      }
-      userVotedIdeaIds = new Set(userVotes.map((vote: VoteRow) => vote.idea_id));
+      const userVotes = await executeSQL(userVotesSql, [{ name: 'userId', value: { longValue: Number(currentUserId) } }]);
+      userVotedIdeaIds = new Set(userVotes.map((vote) => Number(vote.ideaId)));
     }
 
-    interface IdeaRow {
-      id: number;
-      title: string;
-      description: string;
-      priority_level: string;
-      status: string;
-      user_id: number;
-      creator_name: string;
-      created_at: string;
-      updated_at: string;
-      completed_at?: string;
-      completed_by?: string;
-      completed_by_name?: string;
-      votes: number;
-      notes: number;
-    }
 
-    const ideasWithVotes = allIdeas.map((idea: IdeaRow) => ({
+    const ideasWithVotes = allIdeas.map((idea) => ({
       ...idea,
-      priorityLevel: idea.priority_level,
-      createdBy: idea.creator_name || idea.user_id,
-      createdAt: idea.created_at,
-      updatedAt: idea.updated_at,
-      completedAt: idea.completed_at,
-      completedBy: idea.completed_by_name || idea.completed_by,
       hasVoted: userVotedIdeaIds.has(idea.id)
     }));
     
@@ -130,16 +105,15 @@ export async function POST(request: Request) {
       { name: 'title', value: { stringValue: title } },
       { name: 'description', value: { stringValue: description } },
       { name: 'priorityLevel', value: { stringValue: priorityLevel } },
-      { name: 'userId', value: { longValue: userId } }
+      { name: 'userId', value: { longValue: Number(userId) } }
     ];
     const result = await executeSQL(sql, params);
     const newIdea = result[0];
 
+    // The data is already converted to camelCase by formatDataApiResponse
     return NextResponse.json({
       ...newIdea,
-      priorityLevel: newIdea.priority_level,
-      createdBy: newIdea.user_id,
-      createdAt: newIdea.created_at
+      createdBy: String(newIdea.userId)
     });
   } catch (error) {
     logger.error('Error creating idea:', error);

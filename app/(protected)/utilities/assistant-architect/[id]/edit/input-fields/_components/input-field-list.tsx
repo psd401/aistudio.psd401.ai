@@ -20,8 +20,8 @@ export function InputFieldList({ inputFields, onEdit }: InputFieldListProps) {
 
   async function handleDelete(field: SelectToolInputField) {
     try {
-      setIsDeleting(field.id)
-      const result = await deleteInputFieldAction(field.id)
+      setIsDeleting(String(field.id))
+      const result = await deleteInputFieldAction(String(field.id))
       if (!result.isSuccess) {
         throw new Error(result.message)
       }
@@ -68,7 +68,7 @@ export function InputFieldList({ inputFields, onEdit }: InputFieldListProps) {
           <div className="space-y-1">
             <div className="font-medium">{field.label || field.name}</div>
             <div className="text-sm text-muted-foreground">
-              Type: {getDisplayType(field.fieldType || field.field_type)}
+              Type: {getDisplayType(field.fieldType)}
             </div>
           </div>
 
@@ -84,7 +84,7 @@ export function InputFieldList({ inputFields, onEdit }: InputFieldListProps) {
               variant="ghost"
               size="icon"
               onClick={() => handleDelete(field)}
-              disabled={isDeleting === field.id}
+              disabled={isDeleting === String(field.id)}
             >
               <Trash2 className="h-4 w-4 text-destructive" />
             </Button>

@@ -6,15 +6,13 @@ import {
   getRoleByName,
   assignRoleToUser,
   getUserRolesByCognitoSub,
-  executeSQL,
-  FormattedRow
+  executeSQL
 } from "@/lib/db/data-api-adapter"
 import { SqlParameter } from "@aws-sdk/client-rds-data"
 import { getServerSession } from "@/lib/auth/server-session"
 import { ActionState } from "@/types"
 import { SelectUser } from "@/types/db-types"
 import logger from "@/lib/logger"
-import { transformSnakeToCamel } from '@/lib/db/field-mapper'
 
 interface CurrentUserWithRoles {
   user: SelectUser
@@ -34,7 +32,7 @@ export async function getCurrentUserAction(): Promise<
     let user: SelectUser | null = null
     const userResult = await getUserByCognitoSub(session.sub)
     if (userResult) {
-      user = transformSnakeToCamel<SelectUser>(userResult as FormattedRow)
+      user = userResult as unknown as SelectUser
     }
 
     // If not found by cognito_sub, check if user exists by email
@@ -48,12 +46,12 @@ export async function getCurrentUserAction(): Promise<
       const parameters = [
         { name: "email", value: { stringValue: session.email } }
       ]
-      const result = await executeSQL<FormattedRow>(query, parameters)
+      const result = await executeSQL<SelectUser>(query, parameters)
       
       if (result.length > 0) {
         // User exists with this email but different cognito_sub
         // Update the cognito_sub to link to the new auth system
-        const existingUser = transformSnakeToCamel<SelectUser>(result[0])
+        const existingUser = result[0]
         
         const updateQuery = `
           UPDATE users
@@ -65,8 +63,8 @@ export async function getCurrentUserAction(): Promise<
           { name: "cognitoSub", value: { stringValue: session.sub } },
           { name: "userId", value: { longValue: existingUser.id } }
         ]
-        const updateResult = await executeSQL<FormattedRow>(updateQuery, updateParams)
-        user = transformSnakeToCamel<SelectUser>(updateResult[0])
+        const updateResult = await executeSQL<SelectUser>(updateQuery, updateParams)
+        user = updateResult[0]
       }
     }
 
@@ -77,12 +75,12 @@ export async function getCurrentUserAction(): Promise<
         email: session.email || `${session.sub}@cognito.local`,
         firstName: session.email?.split("@")[0] || "User"
       })
-      user = transformSnakeToCamel<SelectUser>(newUserResult as FormattedRow)
+      user = newUserResult as unknown as SelectUser
 
       // Assign default "student" role to new users
       const studentRoleResult = await getRoleByName("student")
       if (studentRoleResult.length > 0) {
-        const studentRole = studentRoleResult[0] as FormattedRow
+        const studentRole = studentRoleResult[0]
         const roleId = studentRole.id as number
         await assignRoleToUser(user!.id, roleId)
       }
@@ -98,8 +96,8 @@ export async function getCurrentUserAction(): Promise<
     const updateLastSignInParams: SqlParameter[] = [
       { name: "userId", value: { longValue: user.id } }
     ]
-    const updateResult = await executeSQL<FormattedRow>(updateLastSignInQuery, updateLastSignInParams)
-    user = transformSnakeToCamel<SelectUser>(updateResult[0])
+    const updateResult = await executeSQL<SelectUser>(updateLastSignInQuery, updateLastSignInParams)
+    user = updateResult[0]
 
     // Get user's roles
     const roleNames = await getUserRolesByCognitoSub(session.sub)
@@ -107,7 +105,7 @@ export async function getCurrentUserAction(): Promise<
       roleNames.map(async name => {
         const roleResult = await getRoleByName(name)
         if (roleResult.length > 0) {
-          const role = roleResult[0] as FormattedRow
+          const role = roleResult[0]
           return {
             id: role.id as number,
             name: role.name as string,

@@ -4,14 +4,19 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
-import { SelectAssistantArchitect } from "@/types/db-types"
+import { SelectAssistantArchitect, SelectToolInputField, SelectChainPrompt } from "@/types/db-types"
 import { submitAssistantArchitectForApprovalAction } from "@/actions/db/assistant-architect-actions"
 import { toast } from "sonner"
 import { AlertCircle, CheckCircle2 } from "lucide-react"
 
+type ArchitectWithRelations = SelectAssistantArchitect & {
+  inputFields?: SelectToolInputField[]
+  prompts?: SelectChainPrompt[]
+}
+
 interface Props {
   id: string
-  tool: SelectAssistantArchitect
+  tool: ArchitectWithRelations
 }
 
 export function SubmitForm({ id, tool }: Props) {
@@ -60,12 +65,12 @@ export function SubmitForm({ id, tool }: Props) {
               />
               <RequirementItem
                 title="Input Fields"
-                isComplete={tool.inputFields?.length > 0}
+                isComplete={(tool.inputFields?.length ?? 0) > 0}
                 description="At least one input field defined"
               />
               <RequirementItem
                 title="Prompts"
-                isComplete={tool.prompts?.length > 0}
+                isComplete={(tool.prompts?.length ?? 0) > 0}
                 description="At least one prompt configured"
               />
             </div>
@@ -107,11 +112,11 @@ function RequirementItem({ title, isComplete, description }: RequirementItemProp
   )
 }
 
-function isComplete(tool: SelectAssistantArchitect): boolean {
+function isComplete(tool: ArchitectWithRelations): boolean {
   return !!(
     tool.name &&
     tool.description &&
-    tool.inputFields?.length > 0 &&
-    tool.prompts?.length > 0
+    (tool.inputFields?.length ?? 0) > 0 &&
+    (tool.prompts?.length ?? 0) > 0
   )
 } 

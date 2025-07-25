@@ -4,6 +4,7 @@ import { hasRole } from '@/utils/roles';
 import { withErrorHandling, unauthorized } from '@/lib/api-utils';
 import { createError } from '@/lib/error-utils';
 import { getErrorMessage } from '@/types/errors';
+import { ErrorLevel } from '@/types/actions-types';
 
 export async function POST(request: Request) {
   const session = await getServerSession();
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
     if (!isAdmin) {
       throw createError('Only administrators can promote users to administrator role', {
         code: 'FORBIDDEN',
-        level: 'warn',
+        level: ErrorLevel.WARN,
         details: { cognitoSub: session.sub, action: 'promote_user' }
       });
     }
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
     if (!targetUserId) {
       throw createError('Target user ID is required', {
         code: 'VALIDATION',
-        level: 'warn',
+        level: ErrorLevel.WARN,
         details: { field: 'targetUserId' }
       });
     }
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
       if (!result || result.length === 0) {
         throw createError('User not found', {
           code: 'NOT_FOUND',
-          level: 'warn',
+          level: ErrorLevel.WARN,
           details: { targetUserId }
         });
       }
@@ -59,7 +60,7 @@ export async function POST(request: Request) {
       if (getErrorMessage(error).includes('not found')) {
         throw createError('User or role not found', {
           code: 'NOT_FOUND',
-          level: 'warn',
+          level: ErrorLevel.WARN,
           details: { targetUserId }
         });
       }

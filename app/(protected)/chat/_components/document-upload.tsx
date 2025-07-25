@@ -37,12 +37,7 @@ export function DocumentUpload({
   const hasAttemptedUpload = useRef(false)
 
   // Handle automatic upload when conversation ID is available
-  useEffect(() => {
-    if (conversationId && selectedFile && !hasAttemptedUpload.current) {
-      hasAttemptedUpload.current = true;
-      uploadDocument(selectedFile);
-    }
-  }, [conversationId, selectedFile, uploadDocument]);
+  // Moved useEffect after uploadDocument declaration
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -212,10 +207,18 @@ export function DocumentUpload({
     }
   }, [onUploadComplete, fileInputRef])
 
+  // Effect to auto-upload when conversation is created
+  useEffect(() => {
+    if (conversationId && selectedFile && !hasAttemptedUpload.current) {
+      hasAttemptedUpload.current = true;
+      uploadDocument(selectedFile);
+    }
+  }, [conversationId, selectedFile, uploadDocument])
+
   const cancelSelection = () => { // Renamed for clarity
     setSelectedFile(null)
     setUploadCompleted(false)
-    setPendingDocument(null) // Also clear pending state if user cancels
+    // Also clear pending state if user cancels
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }

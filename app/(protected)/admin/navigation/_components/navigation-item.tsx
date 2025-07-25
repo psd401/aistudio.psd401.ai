@@ -98,7 +98,7 @@ export function NavigationItem({
   }
 
   // Get the icon component from the icon map, fallback to home icon
-  const IconComponent = iconMap[item.icon] || iconMap.IconHome
+  const IconComponent = iconMap[item.icon as keyof typeof iconMap] || iconMap.IconHome
 
   // Get type icon
   const getTypeIcon = () => {
@@ -225,9 +225,9 @@ export function NavigationItem({
         {/* Active/Inactive indicator */}
         <div className="absolute right-2 top-2">
           {item.isActive ? (
-            <Eye className="h-3 w-3 text-muted-foreground" title="Visible" />
+            <Eye className="h-3 w-3 text-muted-foreground" />
           ) : (
-            <EyeOff className="h-3 w-3 text-muted-foreground" title="Hidden" />
+            <EyeOff className="h-3 w-3 text-muted-foreground" />
           )}
         </div>
       </div>

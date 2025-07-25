@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Type Safety and Code Quality Requirements
+
+**CRITICAL**: All code changes MUST be type-safe and pass linting checks:
+- Write fully type-safe TypeScript code - no `any` types, proper type annotations
+- All code MUST pass `npm run lint` without errors or warnings
+- All code MUST pass TypeScript type checking without errors
+- Never modify linting rules or type checking configuration to bypass errors
+- Fix the code to meet the standards, don't lower the standards
+- Run linting and type checking before considering any task complete
+
 ## Build, Lint, Test Commands
 
 ```bash
@@ -12,8 +22,9 @@ npm run dev               # Start dev server on port 3000
 npm run build             # Build for production (Next.js)
 npm run start             # Start production server
 
-# Linting
-npm run lint              # Run Next.js linting
+# Code Quality Checks (MUST PASS)
+npm run lint              # Run Next.js linting - MUST have zero errors
+npm run typecheck         # Run TypeScript type checking (if available)
 
 # Testing
 npm run test              # Run all tests

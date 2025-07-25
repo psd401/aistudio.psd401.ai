@@ -4,6 +4,7 @@ import { CreateLayout } from "../../../create/_components/create-layout"
 import { redirect, notFound } from "next/navigation"
 import { getServerSession } from "@/lib/auth/server-session"
 import { checkUserRoleByCognitoSub } from "@/lib/db/data-api-adapter"
+import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 
 interface PreviewPageProps {
   params: Promise<{ id: string }>
@@ -28,7 +29,8 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
   }
 
   const isAdmin = await checkUserRoleByCognitoSub(session.sub, "administrator")
-  const isCreator = session.sub === tool.creatorId
+  const currentUser = await getCurrentUserAction()
+  const isCreator = currentUser.isSuccess && currentUser.data?.user.id === tool.userId
   const canEdit = isAdmin || (isCreator && (tool.status === "draft" || tool.status === "pending_approval" || tool.status === "rejected" || tool.status === "approved"))
 
   if (!canEdit) {
@@ -53,7 +55,7 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
 
         <PreviewPageClient
           assistantId={id}
-          tool={tool}
+          tool={{...tool, inputFields: tool.inputFields || [], prompts: tool.prompts || []}}
         />
       </div>
 

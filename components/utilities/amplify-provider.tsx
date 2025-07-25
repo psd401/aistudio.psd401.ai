@@ -26,13 +26,10 @@ export default function AmplifyProvider({ children }: PropsWithChildren) {
     const hubListener = Hub.listen("auth", ({ payload }) => {
       switch (payload.event) {
         case "signedIn":
-        case "signIn":
         case "tokenRefresh":
           checkUser()
           break
         case "signedOut":
-        case "signOut":
-        case "signIn_failure":
           // User is signed out
           break
       }

@@ -216,7 +216,7 @@ async function processPdfInBackground(jobId: number, jobInput: JobInput) {
     logger.info(`[PDF-to-Markdown Background] Calling LLM for job ${jobId}...`);
     const startTime = Date.now();
     const markdown = await generateCompletion(
-      { provider: model.provider as string, modelId: model.model_id as string },
+      { provider: model.provider as string, modelId: model.modelId as string },
       messages
     );
     
