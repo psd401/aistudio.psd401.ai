@@ -87,7 +87,8 @@ export function RepositoryItemList({
     const hasPendingItems = items.some(item => 
       item.processingStatus === 'pending' || 
       item.processingStatus === 'processing' ||
-      item.processingStatus === 'processing_embeddings'
+      item.processingStatus === 'processing_embeddings' ||
+      item.processingStatus === 'processing_ocr'
     )
     
     if (hasPendingItems) {
@@ -176,6 +177,13 @@ export function RepositoryItemList({
           <Badge variant="secondary" className="gap-1">
             <Clock className="h-3 w-3" />
             Generating Embeddings
+          </Badge>
+        )
+      case "processing_ocr":
+        return (
+          <Badge variant="secondary" className="gap-1">
+            <Clock className="h-3 w-3" />
+            Processing OCR
           </Badge>
         )
       case "failed":

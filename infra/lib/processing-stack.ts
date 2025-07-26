@@ -7,6 +7,8 @@ import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as path from 'path';
 
 export interface ProcessingStackProps extends cdk.StackProps {
@@ -20,6 +22,7 @@ export class ProcessingStack extends cdk.Stack {
   public readonly fileProcessingQueue: sqs.Queue;
   public readonly embeddingQueue: sqs.Queue;
   public readonly jobStatusTable: dynamodb.Table;
+  public readonly textractCompletionTopic: sns.Topic;
 
   constructor(scope: Construct, id: string, props: ProcessingStackProps) {
     super(scope, id, props);
@@ -72,6 +75,21 @@ export class ProcessingStack extends cdk.Stack {
       },
     });
 
+    // SNS Topic for Textract completion notifications
+    this.textractCompletionTopic = new sns.Topic(this, 'TextractCompletionTopic', {
+      topicName: `aistudio-${props.environment}-textract-completion`,
+      displayName: 'Textract Job Completion Notifications',
+    });
+
+    // IAM Role for Textract to publish to SNS
+    const textractRole = new iam.Role(this, 'TextractServiceRole', {
+      assumedBy: new iam.ServicePrincipal('textract.amazonaws.com'),
+      roleName: `aistudio-${props.environment}-textract-service-role`,
+    });
+
+    // Grant Textract permission to publish to SNS
+    this.textractCompletionTopic.grantPublish(textractRole);
+
     // Lambda Layer for shared dependencies
     const processingLayer = new lambda.LayerVersion(this, 'ProcessingLayer', {
       code: lambda.Code.fromAsset(path.join(__dirname, '../layers/processing')),
@@ -95,6 +113,8 @@ export class ProcessingStack extends cdk.Stack {
         DATABASE_NAME: 'aistudio',
         ENVIRONMENT: props.environment,
         EMBEDDING_QUEUE_URL: this.embeddingQueue.queueUrl,
+        TEXTRACT_SNS_TOPIC_ARN: this.textractCompletionTopic.topicArn,
+        TEXTRACT_ROLE_ARN: textractRole.roleArn,
       },
       layers: [processingLayer],
     });
@@ -134,11 +154,35 @@ export class ProcessingStack extends cdk.Stack {
       layers: [processingLayer],
     });
 
+    // Textract Processor Lambda
+    const textractProcessor = new lambda.Function(this, 'TextractProcessor', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/textract-processor')),
+      timeout: cdk.Duration.minutes(10),
+      memorySize: 1024, // 1GB
+      environment: {
+        NODE_OPTIONS: '--enable-source-maps',
+        DATABASE_RESOURCE_ARN: props.databaseResourceArn,
+        DATABASE_SECRET_ARN: props.databaseSecretArn,
+        DATABASE_NAME: 'aistudio',
+        EMBEDDING_QUEUE_URL: this.embeddingQueue.queueUrl,
+        ENVIRONMENT: props.environment,
+      },
+      layers: [processingLayer],
+    });
+
+    // Subscribe Textract processor to SNS topic
+    this.textractCompletionTopic.addSubscription(
+      new snsSubscriptions.LambdaSubscription(textractProcessor)
+    );
+
     // Grant permissions
     documentsBucket.grantRead(fileProcessor);
     this.jobStatusTable.grantReadWriteData(fileProcessor);
     this.jobStatusTable.grantReadWriteData(urlProcessor);
     this.embeddingQueue.grantSendMessages(fileProcessor);
+    this.embeddingQueue.grantSendMessages(textractProcessor);
 
     // Grant RDS Data API permissions
     const rdsDataApiPolicy = new iam.PolicyStatement({
@@ -163,6 +207,23 @@ export class ProcessingStack extends cdk.Stack {
     urlProcessor.addToRolePolicy(secretsManagerPolicy);
     embeddingGenerator.addToRolePolicy(rdsDataApiPolicy);
     embeddingGenerator.addToRolePolicy(secretsManagerPolicy);
+    textractProcessor.addToRolePolicy(rdsDataApiPolicy);
+    textractProcessor.addToRolePolicy(secretsManagerPolicy);
+
+    // Grant Textract permissions to file processor
+    const textractPolicy = new iam.PolicyStatement({
+      actions: [
+        'textract:StartDocumentTextDetection',
+        'textract:StartDocumentAnalysis',
+        'textract:GetDocumentTextDetection',
+        'textract:GetDocumentAnalysis',
+      ],
+      resources: ['*'],
+    });
+    fileProcessor.addToRolePolicy(textractPolicy);
+
+    // Grant Textract result retrieval permissions to textract processor
+    textractProcessor.addToRolePolicy(textractPolicy);
 
     // SQS event source for file processor
     fileProcessor.addEventSource(new lambdaEventSources.SqsEventSource(this.fileProcessingQueue, {
@@ -223,6 +284,24 @@ export class ProcessingStack extends cdk.Stack {
       value: embeddingGenerator.functionName,
       description: 'Name of the embedding generator Lambda function',
       exportName: `${props.environment}-EmbeddingGeneratorFunctionName`,
+    });
+
+    new cdk.CfnOutput(this, 'TextractCompletionTopicArn', {
+      value: this.textractCompletionTopic.topicArn,
+      description: 'ARN of the Textract completion SNS topic',
+      exportName: `${props.environment}-TextractCompletionTopicArn`,
+    });
+
+    new cdk.CfnOutput(this, 'TextractServiceRoleArn', {
+      value: textractRole.roleArn,
+      description: 'ARN of the Textract service role',
+      exportName: `${props.environment}-TextractServiceRoleArn`,
+    });
+
+    new cdk.CfnOutput(this, 'TextractProcessorFunctionName', {
+      value: textractProcessor.functionName,
+      description: 'Name of the Textract processor Lambda function',
+      exportName: `${props.environment}-TextractProcessorFunctionName`,
     });
   }
 }

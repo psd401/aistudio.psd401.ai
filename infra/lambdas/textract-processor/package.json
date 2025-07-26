@@ -1,0 +1,11 @@
+{
+  "name": "textract-processor",
+  "version": "1.0.0",
+  "description": "Textract completion processor Lambda function",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-textract": "^3.0.0",
+    "@aws-sdk/client-rds-data": "^3.0.0",
+    "@aws-sdk/client-sqs": "^3.0.0"
+  }
+}

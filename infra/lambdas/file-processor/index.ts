@@ -3,17 +3,20 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { RDSDataClient, ExecuteStatementCommand, BatchExecuteStatementCommand, SqlParameter } from '@aws-sdk/client-rds-data';
 import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { TextractClient, StartDocumentAnalysisCommand, StartDocumentTextDetectionCommand } from '@aws-sdk/client-textract';
 import { Readable } from 'stream';
 import pdfParse from 'pdf-parse';
 import * as mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import { parse as csvParse } from 'csv-parse/sync';
 import { marked } from 'marked';
+import { TextractUsageTracker } from './textract-usage';
 
 const s3Client = new S3Client({});
 const rdsClient = new RDSDataClient({});
 const dynamoClient = new DynamoDBClient({});
 const sqsClient = new SQSClient({});
+const textractClient = new TextractClient({});
 
 const DOCUMENTS_BUCKET = process.env.DOCUMENTS_BUCKET!;
 const JOB_STATUS_TABLE = process.env.JOB_STATUS_TABLE!;
@@ -21,6 +24,8 @@ const DATABASE_RESOURCE_ARN = process.env.DATABASE_RESOURCE_ARN!;
 const DATABASE_SECRET_ARN = process.env.DATABASE_SECRET_ARN!;
 const DATABASE_NAME = process.env.DATABASE_NAME!;
 const EMBEDDING_QUEUE_URL = process.env.EMBEDDING_QUEUE_URL;
+const TEXTRACT_SNS_TOPIC_ARN = process.env.TEXTRACT_SNS_TOPIC_ARN;
+const TEXTRACT_ROLE_ARN = process.env.TEXTRACT_ROLE_ARN;
 
 // Helper function to create SQL parameters with proper types
 function createSqlParameter(name: string, value: string | number | boolean | null): SqlParameter {
@@ -80,6 +85,84 @@ async function updateJobStatus(
   );
 }
 
+// Start Textract job for PDF OCR
+async function startTextractJob(
+  bucketName: string,
+  fileKey: string,
+  itemId: number,
+  fileName: string,
+  pageCount: number = 1
+): Promise<string | null> {
+  try {
+    console.log(`Starting Textract job for ${fileName} (${pageCount} pages)`);
+    
+    // Check if we have free tier capacity
+    const usageTracker = new TextractUsageTracker(
+      DATABASE_RESOURCE_ARN,
+      DATABASE_SECRET_ARN,
+      DATABASE_NAME
+    );
+    
+    const canProcess = await usageTracker.canProcessPages(pageCount);
+    if (!canProcess) {
+      const remaining = await usageTracker.getRemainingPages();
+      console.warn(`Textract free tier limit would be exceeded. Remaining pages: ${remaining}`);
+      throw new Error(`Cannot process ${pageCount} pages. Only ${remaining} pages remaining in free tier this month.`);
+    }
+    
+    const params = {
+      DocumentLocation: {
+        S3Object: {
+          Bucket: bucketName,
+          Name: fileKey
+        }
+      }
+    };
+
+    // Add notification if SNS topic is configured
+    if (TEXTRACT_SNS_TOPIC_ARN && TEXTRACT_ROLE_ARN) {
+      (params as any).NotificationChannel = {
+        RoleArn: TEXTRACT_ROLE_ARN,
+        SNSTopicArn: TEXTRACT_SNS_TOPIC_ARN
+      };
+    }
+
+    // Use StartDocumentTextDetection instead of StartDocumentAnalysis to save costs
+    // Text detection is cheaper and sufficient for most PDFs
+    const response = await textractClient.send(new StartDocumentTextDetectionCommand(params));
+    
+    if (response.JobId) {
+      // Store job metadata for later processing
+      await rdsClient.send(
+        new ExecuteStatementCommand({
+          resourceArn: DATABASE_RESOURCE_ARN,
+          secretArn: DATABASE_SECRET_ARN,
+          database: DATABASE_NAME,
+          sql: `INSERT INTO textract_jobs (job_id, item_id, file_name, created_at)
+                VALUES (:jobId, :itemId, :fileName, CURRENT_TIMESTAMP)`,
+          parameters: [
+            createSqlParameter('jobId', response.JobId),
+            createSqlParameter('itemId', itemId),
+            createSqlParameter('fileName', fileName)
+          ]
+        })
+      );
+      
+      console.log(`Textract job started with ID: ${response.JobId}`);
+      
+      // Record usage
+      await usageTracker.recordUsage(pageCount);
+      
+      return response.JobId;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error starting Textract job:', error);
+    return null;
+  }
+}
+
 // Update repository item status in database
 async function updateItemStatus(
   itemId: number,
@@ -128,9 +211,47 @@ async function streamToBuffer(stream: Readable): Promise<Buffer> {
 }
 
 // Text extraction functions for different file types
-async function extractTextFromPDF(buffer: Buffer): Promise<string> {
-  const data = await pdfParse(buffer);
-  return data.text;
+async function extractTextFromPDF(buffer: Buffer): Promise<string | null> {
+  try {
+    console.log(`Attempting to parse PDF, buffer size: ${buffer.length} bytes`);
+    
+    // Try parsing the PDF
+    const data = await pdfParse(buffer);
+    console.log(`PDF parsed successfully, text length: ${data.text?.length || 0} characters`);
+    console.log(`PDF info - pages: ${data.numpages}, version: ${data.version}`);
+    
+    // Store page count for later use if OCR is needed
+    (pdfParse as any).lastPageCount = data.numpages || 1;
+    
+    // If no text extracted, it might be a scanned PDF
+    if (!data.text || data.text.trim().length === 0) {
+      console.warn('No text found in PDF - it might be a scanned image PDF');
+      // Return null to indicate OCR is needed
+      return null;
+    }
+    
+    // Also check if extracted text is suspiciously short for the number of pages
+    const avgCharsPerPage = data.text.length / (data.numpages || 1);
+    if (avgCharsPerPage < 100 && data.numpages > 1) {
+      console.warn(`Suspiciously low text content: ${avgCharsPerPage} chars/page for ${data.numpages} pages`);
+      return null;
+    }
+    
+    return data.text;
+  } catch (error) {
+    console.error('PDF parsing error:', error);
+    // Try a more basic extraction as fallback
+    try {
+      const basicData = await pdfParse(buffer);
+      if (basicData.text) {
+        console.log('Basic extraction succeeded');
+        return basicData.text;
+      }
+    } catch (fallbackError) {
+      console.error('Fallback PDF parsing also failed:', fallbackError);
+    }
+    throw new Error(`Failed to parse PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 async function extractTextFromDOCX(buffer: Buffer): Promise<string> {
@@ -169,7 +290,7 @@ async function extractTextFromMarkdown(buffer: Buffer): Promise<string> {
 }
 
 // Main text extraction dispatcher
-async function extractText(buffer: Buffer, fileType: string): Promise<string> {
+async function extractText(buffer: Buffer, fileType: string): Promise<string | null> {
   const lowerType = fileType.toLowerCase();
   
   if (lowerType.includes('pdf')) {
@@ -314,12 +435,45 @@ async function processFile(job: ProcessingJob) {
       Key: job.fileKey,
     });
     
+    console.log(`Downloading from S3: ${job.bucketName}/${job.fileKey}`);
     const response = await s3Client.send(getObjectCommand);
     const stream = response.Body as Readable;
     const buffer = await streamToBuffer(stream);
+    console.log(`Downloaded ${buffer.length} bytes from S3`);
     
     // Extract text
-    const text = await extractText(buffer, job.fileType);
+    let text = await extractText(buffer, job.fileType);
+    
+    // Check if this is a PDF that needs OCR
+    if (text === null && job.fileType.toLowerCase().includes('pdf')) {
+      console.log('PDF needs OCR processing, starting Textract job...');
+      
+      // Get page count from previous PDF parsing attempt
+      const pageCount = (pdfParse as any).lastPageCount || 1;
+      
+      const textractJobId = await startTextractJob(
+        job.bucketName,
+        job.fileKey,
+        job.itemId,
+        job.fileName,
+        pageCount
+      );
+      
+      if (textractJobId) {
+        // Update status to indicate OCR processing
+        await updateItemStatus(job.itemId, 'processing_ocr');
+        await updateJobStatus(job.jobId, 'ocr_processing', { 
+          fileName: job.fileName,
+          textractJobId 
+        });
+        
+        // Exit early - Textract will handle the rest via SNS
+        console.log('File queued for OCR processing');
+        return;
+      } else {
+        throw new Error('Failed to start Textract job for OCR processing');
+      }
+    }
     
     if (!text || text.trim().length === 0) {
       throw new Error('No text content extracted from file');
