@@ -6,11 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **CRITICAL**: All code changes MUST be type-safe and pass linting checks:
 - Write fully type-safe TypeScript code - no `any` types, proper type annotations
-- All code MUST pass `npm run lint` without errors or warnings
-- All code MUST pass TypeScript type checking without errors
+- All code MUST pass `npm run lint` without errors or warnings for the ENTIRE codebase, not just modified files
+- All code MUST pass TypeScript type checking without errors for the ENTIRE codebase, not just modified files
 - Never modify linting rules or type checking configuration to bypass errors
 - Fix the code to meet the standards, don't lower the standards
-- Run linting and type checking before considering any task complete
+- Run linting and type checking on the ENTIRE codebase before considering any task complete
+- Both `npm run lint` and `npm run typecheck` must pass with zero errors before any commit
 
 ## Build, Lint, Test Commands
 
@@ -191,5 +192,9 @@ Required environment variables are documented in `/docs/ENVIRONMENT_VARIABLES.md
 - No direct database connections (Data API only)
 
 ### Commit & PR Process
+- **CRITICAL**: All pull requests MUST target the `dev` branch, NEVER the `main` branch
+- The `dev` branch is the default development branch for all changes
+- Only create PRs against `main` if explicitly instructed by the user
 - You are never to attribute commits or pull requests to yourself, DO NOT ever add yourself as the author
-- Always write very detailed intricate commit messages to document fully what was changed in the code you were working on.
+- Always write very detailed intricate commit messages to document fully what was changed in the code you were working on
+- Before ANY commit: Run `npm run lint` and `npm run typecheck` on the ENTIRE codebase - both must pass with zero errors
