@@ -236,7 +236,7 @@ async function beginTransaction() {
   const command = new BeginTransactionCommand({
     resourceArn: process.env.RDS_RESOURCE_ARN!,
     secretArn: process.env.RDS_SECRET_ARN!,
-    database: process.env.RDS_DATABASE_NAME
+    database: process.env.RDS_DATABASE_NAME || 'aistudio'
   });
   const response = await getRDSClient().send(command);
   return response.transactionId!;
