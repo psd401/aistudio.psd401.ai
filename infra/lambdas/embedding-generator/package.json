@@ -1,0 +1,19 @@
+{
+  "name": "embedding-generator",
+  "version": "1.0.0",
+  "description": "Lambda function for generating embeddings",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-rds-data": "^3.499.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.499.0",
+    "openai": "^4.28.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.134",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  },
+  "scripts": {
+    "build": "tsc"
+  }
+}

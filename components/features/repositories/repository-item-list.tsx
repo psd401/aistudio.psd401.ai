@@ -85,7 +85,9 @@ export function RepositoryItemList({
   // Auto-refresh every 5 seconds if there are pending items
   useEffect(() => {
     const hasPendingItems = items.some(item => 
-      item.processingStatus === 'pending' || item.processingStatus === 'processing'
+      item.processingStatus === 'pending' || 
+      item.processingStatus === 'processing' ||
+      item.processingStatus === 'processing_embeddings'
     )
     
     if (hasPendingItems) {
@@ -155,6 +157,13 @@ export function RepositoryItemList({
             Processed
           </Badge>
         )
+      case "embedded":
+        return (
+          <Badge variant="default" className="gap-1">
+            <CheckCircle className="h-3 w-3" />
+            Embedded
+          </Badge>
+        )
       case "processing":
         return (
           <Badge variant="secondary" className="gap-1">
@@ -162,11 +171,25 @@ export function RepositoryItemList({
             Processing
           </Badge>
         )
+      case "processing_embeddings":
+        return (
+          <Badge variant="secondary" className="gap-1">
+            <Clock className="h-3 w-3" />
+            Generating Embeddings
+          </Badge>
+        )
       case "failed":
         return (
           <Badge variant="destructive" className="gap-1">
             <AlertCircle className="h-3 w-3" />
             Failed
+          </Badge>
+        )
+      case "embedding_failed":
+        return (
+          <Badge variant="destructive" className="gap-1">
+            <AlertCircle className="h-3 w-3" />
+            Embedding Failed
           </Badge>
         )
       default:

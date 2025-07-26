@@ -39,6 +39,8 @@ This document provides a comprehensive guide to all environment variables requir
 | `URL_PROCESSOR_FUNCTION_NAME` | Lambda function name for URL processing | From ProcessingStack outputs | ✅ |
 | `DOCUMENTS_BUCKET_NAME` | S3 bucket name for document storage | From StorageStack outputs | ✅ |
 | `JOB_STATUS_TABLE_NAME` | DynamoDB table for job tracking | From ProcessingStack outputs | ❌ |
+| `EMBEDDING_QUEUE_URL` | SQS queue URL for embedding generation | From ProcessingStack outputs | ❌ |
+| `EMBEDDING_GENERATOR_FUNCTION_NAME` | Lambda function for embedding generation | From ProcessingStack outputs | ❌ |
 | `MAX_FILE_SIZE_MB` | Maximum file size in MB | `100` | ❌ (defaults to 100) |
 
 ### AWS SDK Variables
@@ -77,6 +79,8 @@ aws amplify update-app \
     FILE_PROCESSING_QUEUE_URL=<your-queue-url> \
     URL_PROCESSOR_FUNCTION_NAME=<your-function-name> \
     DOCUMENTS_BUCKET_NAME=<your-bucket-name> \
+    EMBEDDING_QUEUE_URL=<your-embedding-queue-url> \
+    EMBEDDING_GENERATOR_FUNCTION_NAME=<your-embedding-function-name> \
     MAX_FILE_SIZE_MB=100
 ```
 
@@ -85,7 +89,7 @@ aws amplify update-app \
 ### Build Process
 - The `amplify.yml` and CDK buildSpec are configured to write environment variables to a `.env` file during build
 - This ensures runtime access to these variables in the Next.js application
-- The pattern `'^AUTH_|^NEXT_PUBLIC_|^RDS_|^SQL_|^FILE_|^URL_|^DOCUMENTS_|^JOB_|^MAX_'` captures all required variables
+- The pattern `'^AUTH_|^NEXT_PUBLIC_|^RDS_|^SQL_|^FILE_|^URL_|^DOCUMENTS_|^JOB_|^MAX_|^EMBEDDING_'` captures all required variables
 - AWS-prefixed variables cannot be set in the Amplify console but are provided automatically by Amplify at runtime
 
 ### AWS Credentials
@@ -169,7 +173,7 @@ aws cloudformation describe-stacks \
 - **DatabaseStack**: `ClusterArn`, `DbSecretArn`
 - **AuthStack**: `UserPoolId`, `UserPoolClientId`, `CognitoDomain`
 - **StorageStack**: `DocumentsBucketName`
-- **ProcessingStack**: `FileProcessingQueueUrl`, `URLProcessorFunctionName`, `JobStatusTableName`
+- **ProcessingStack**: `FileProcessingQueueUrl`, `URLProcessorFunctionName`, `JobStatusTableName`, `EmbeddingQueueUrl`, `EmbeddingGeneratorFunctionName`
 
 ## Additional Resources
 

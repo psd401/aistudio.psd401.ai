@@ -18,6 +18,7 @@ export interface ProcessingStackProps extends cdk.StackProps {
 
 export class ProcessingStack extends cdk.Stack {
   public readonly fileProcessingQueue: sqs.Queue;
+  public readonly embeddingQueue: sqs.Queue;
   public readonly jobStatusTable: dynamodb.Table;
 
   constructor(scope: Construct, id: string, props: ProcessingStackProps) {
@@ -55,6 +56,22 @@ export class ProcessingStack extends cdk.Stack {
       },
     });
 
+    // Dead Letter Queue for failed embedding jobs
+    const embeddingDlq = new sqs.Queue(this, 'EmbeddingDLQ', {
+      queueName: `aistudio-${props.environment}-embedding-dlq`,
+      retentionPeriod: cdk.Duration.days(14),
+    });
+
+    // Embedding generation queue
+    this.embeddingQueue = new sqs.Queue(this, 'EmbeddingQueue', {
+      queueName: `aistudio-${props.environment}-embedding-queue`,
+      visibilityTimeout: cdk.Duration.minutes(10), // Longer than Lambda timeout
+      deadLetterQueue: {
+        queue: embeddingDlq,
+        maxReceiveCount: 3,
+      },
+    });
+
     // Lambda Layer for shared dependencies
     const processingLayer = new lambda.LayerVersion(this, 'ProcessingLayer', {
       code: lambda.Code.fromAsset(path.join(__dirname, '../layers/processing')),
@@ -68,7 +85,7 @@ export class ProcessingStack extends cdk.Stack {
       handler: 'index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/file-processor')),
       timeout: cdk.Duration.minutes(10),
-      memorySize: 3072, // 3GB
+      memorySize: 3008, // 3GB (adjusted to force update)
       environment: {
         NODE_OPTIONS: '--enable-source-maps',
         DOCUMENTS_BUCKET: documentsBucket.bucketName,
@@ -77,6 +94,7 @@ export class ProcessingStack extends cdk.Stack {
         DATABASE_SECRET_ARN: props.databaseSecretArn,
         DATABASE_NAME: 'aistudio',
         ENVIRONMENT: props.environment,
+        EMBEDDING_QUEUE_URL: this.embeddingQueue.queueUrl,
       },
       layers: [processingLayer],
     });
@@ -99,10 +117,28 @@ export class ProcessingStack extends cdk.Stack {
       layers: [processingLayer],
     });
 
+    // Embedding Generator Lambda
+    const embeddingGenerator = new lambda.Function(this, 'EmbeddingGenerator', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/embedding-generator')),
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 1024, // 1GB
+      environment: {
+        NODE_OPTIONS: '--enable-source-maps',
+        DB_CLUSTER_ARN: props.databaseResourceArn,
+        DB_SECRET_ARN: props.databaseSecretArn,
+        DB_NAME: 'aistudio',
+        ENVIRONMENT: props.environment,
+      },
+      layers: [processingLayer],
+    });
+
     // Grant permissions
     documentsBucket.grantRead(fileProcessor);
     this.jobStatusTable.grantReadWriteData(fileProcessor);
     this.jobStatusTable.grantReadWriteData(urlProcessor);
+    this.embeddingQueue.grantSendMessages(fileProcessor);
 
     // Grant RDS Data API permissions
     const rdsDataApiPolicy = new iam.PolicyStatement({
@@ -125,10 +161,18 @@ export class ProcessingStack extends cdk.Stack {
     fileProcessor.addToRolePolicy(secretsManagerPolicy);
     urlProcessor.addToRolePolicy(rdsDataApiPolicy);
     urlProcessor.addToRolePolicy(secretsManagerPolicy);
+    embeddingGenerator.addToRolePolicy(rdsDataApiPolicy);
+    embeddingGenerator.addToRolePolicy(secretsManagerPolicy);
 
     // SQS event source for file processor
     fileProcessor.addEventSource(new lambdaEventSources.SqsEventSource(this.fileProcessingQueue, {
       batchSize: 1, // Process one file at a time
+      maxBatchingWindow: cdk.Duration.seconds(5),
+    }));
+
+    // SQS event source for embedding generator
+    embeddingGenerator.addEventSource(new lambdaEventSources.SqsEventSource(this.embeddingQueue, {
+      batchSize: 1, // Process one item at a time to avoid rate limits
       maxBatchingWindow: cdk.Duration.seconds(5),
     }));
 
@@ -161,6 +205,24 @@ export class ProcessingStack extends cdk.Stack {
       value: urlProcessor.functionName,
       description: 'Name of the URL processor Lambda function',
       exportName: `${props.environment}-URLProcessorFunctionName`,
+    });
+
+    new cdk.CfnOutput(this, 'EmbeddingQueueUrl', {
+      value: this.embeddingQueue.queueUrl,
+      description: 'URL of the embedding generation queue',
+      exportName: `${props.environment}-EmbeddingQueueUrl`,
+    });
+
+    new cdk.CfnOutput(this, 'EmbeddingQueueArn', {
+      value: this.embeddingQueue.queueArn,
+      description: 'ARN of the embedding generation queue',
+      exportName: `${props.environment}-EmbeddingQueueArn`,
+    });
+
+    new cdk.CfnOutput(this, 'EmbeddingGeneratorFunctionName', {
+      value: embeddingGenerator.functionName,
+      description: 'Name of the embedding generator Lambda function',
+      exportName: `${props.environment}-EmbeddingGeneratorFunctionName`,
     });
   }
 }

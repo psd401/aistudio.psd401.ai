@@ -2,6 +2,7 @@ import { SQSEvent, SQSRecord } from 'aws-lambda';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { RDSDataClient, ExecuteStatementCommand, BatchExecuteStatementCommand, SqlParameter } from '@aws-sdk/client-rds-data';
 import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { Readable } from 'stream';
 import pdfParse from 'pdf-parse';
 import * as mammoth from 'mammoth';
@@ -12,12 +13,14 @@ import { marked } from 'marked';
 const s3Client = new S3Client({});
 const rdsClient = new RDSDataClient({});
 const dynamoClient = new DynamoDBClient({});
+const sqsClient = new SQSClient({});
 
 const DOCUMENTS_BUCKET = process.env.DOCUMENTS_BUCKET!;
 const JOB_STATUS_TABLE = process.env.JOB_STATUS_TABLE!;
 const DATABASE_RESOURCE_ARN = process.env.DATABASE_RESOURCE_ARN!;
 const DATABASE_SECRET_ARN = process.env.DATABASE_SECRET_ARN!;
 const DATABASE_NAME = process.env.DATABASE_NAME!;
+const EMBEDDING_QUEUE_URL = process.env.EMBEDDING_QUEUE_URL;
 
 // Helper function to create SQL parameters with proper types
 function createSqlParameter(name: string, value: string | number | boolean | null): SqlParameter {
@@ -219,9 +222,9 @@ function chunkText(text: string, maxChunkSize: number = 2000): ChunkData[] {
   return chunks;
 }
 
-// Store chunks in database
-async function storeChunks(itemId: number, chunks: ChunkData[]) {
-  if (chunks.length === 0) return;
+// Store chunks in database and return chunk IDs
+async function storeChunks(itemId: number, chunks: ChunkData[]): Promise<{ chunkIds: number[]; texts: string[] }> {
+  if (chunks.length === 0) return { chunkIds: [], texts: [] };
   
   // First, delete existing chunks for this item
   await rdsClient.send(
@@ -233,6 +236,9 @@ async function storeChunks(itemId: number, chunks: ChunkData[]) {
       parameters: [createSqlParameter('itemId', itemId)],
     })
   );
+  
+  const chunkIds: number[] = [];
+  const texts: string[] = [];
   
   // Batch insert new chunks
   const parameterSets: SqlParameter[][] = chunks.map(chunk => [
@@ -247,6 +253,7 @@ async function storeChunks(itemId: number, chunks: ChunkData[]) {
   const batchSize = 25;
   for (let i = 0; i < parameterSets.length; i += batchSize) {
     const batch = parameterSets.slice(i, i + batchSize);
+    const batchChunks = chunks.slice(i, i + batchSize);
     
     await rdsClient.send(
       new BatchExecuteStatementCommand({
@@ -259,7 +266,37 @@ async function storeChunks(itemId: number, chunks: ChunkData[]) {
         parameterSets: batch,
       })
     );
+    
+    // BatchExecuteStatement doesn't support RETURNING, so query for the IDs
+    const chunkResult = await rdsClient.send(
+      new ExecuteStatementCommand({
+        resourceArn: DATABASE_RESOURCE_ARN,
+        secretArn: DATABASE_SECRET_ARN,
+        database: DATABASE_NAME,
+        sql: `SELECT id, content FROM repository_item_chunks 
+              WHERE item_id = :itemId 
+              AND chunk_index >= :startIndex 
+              AND chunk_index < :endIndex
+              ORDER BY chunk_index`,
+        parameters: [
+          createSqlParameter('itemId', itemId),
+          createSqlParameter('startIndex', i),
+          createSqlParameter('endIndex', i + batch.length)
+        ]
+      })
+    );
+    
+    if (chunkResult.records) {
+      chunkResult.records.forEach(record => {
+        if (record[0]?.longValue && record[1]?.stringValue) {
+          chunkIds.push(record[0].longValue);
+          texts.push(record[1].stringValue);
+        }
+      });
+    }
   }
+  
+  return { chunkIds, texts };
 }
 
 // Process a single file
@@ -292,11 +329,35 @@ async function processFile(job: ProcessingJob) {
     const chunks = chunkText(text);
     console.log(`Extracted ${chunks.length} chunks from ${job.fileName}`);
     
-    // Store chunks
-    await storeChunks(job.itemId, chunks);
+    // Store chunks and get their IDs
+    const { chunkIds, texts } = await storeChunks(job.itemId, chunks);
     
-    // Update status to completed
-    await updateItemStatus(job.itemId, 'completed');
+    // Queue embeddings if enabled and chunks were created
+    if (EMBEDDING_QUEUE_URL && chunkIds.length > 0) {
+      try {
+        await sqsClient.send(
+          new SendMessageCommand({
+            QueueUrl: EMBEDDING_QUEUE_URL,
+            MessageBody: JSON.stringify({
+              itemId: job.itemId,
+              chunkIds,
+              texts
+            })
+          })
+        );
+        console.log(`Successfully queued ${chunkIds.length} chunks for embedding generation`);
+        // Update status to indicate embeddings are being processed
+        await updateItemStatus(job.itemId, 'processing_embeddings');
+      } catch (error) {
+        console.error('Failed to queue embeddings:', error);
+        // Don't fail the whole job if embedding queueing fails
+        await updateItemStatus(job.itemId, 'completed');
+      }
+    } else {
+      // Update status to completed if no embedding queue configured
+      await updateItemStatus(job.itemId, 'completed');
+    }
+    
     await updateJobStatus(job.jobId, 'completed', {
       fileName: job.fileName,
       chunksCreated: chunks.length,
