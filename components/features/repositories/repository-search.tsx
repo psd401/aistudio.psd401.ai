@@ -1,15 +1,22 @@
 "use client"
 
 import { useState } from "react"
-import { type RepositoryItem, type RepositoryItemChunk } from "@/actions/repositories/repository-items.actions"
-import { searchRepositoryItems } from "@/actions/repositories/repository-items.actions"
+import { searchRepository } from "@/actions/repositories/search.actions"
 import { useAction } from "@/lib/hooks/use-action"
+import { SearchResults } from "./search-results"
+import { SearchResult } from "@/lib/repositories/search-service"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Search, FileText, Link, Type, Loader2 } from "lucide-react"
-import { Separator } from "@/components/ui/separator"
+import { Label } from "@/components/ui/label"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Slider } from "@/components/ui/slider"
+import { Search, Loader2, Settings2 } from "lucide-react"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 
 interface RepositorySearchProps {
   repositoryId: number
@@ -17,52 +24,28 @@ interface RepositorySearchProps {
 
 export function RepositorySearch({ repositoryId }: RepositorySearchProps) {
   const [query, setQuery] = useState("")
-  const [results, setResults] = useState<{
-    items: RepositoryItem[]
-    chunks: (RepositoryItemChunk & { itemName: string })[]
-  } | null>(null)
+  const [searchType, setSearchType] = useState<'hybrid' | 'vector' | 'keyword'>('hybrid')
+  const [vectorWeight, setVectorWeight] = useState([0.7])
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [results, setResults] = useState<SearchResult[]>([])
 
-  const { execute: executeSearch, isPending: isLoading } = useAction(
-    (params: { repositoryId: number; query: string }) => 
-      searchRepositoryItems(params.repositoryId, params.query)
-  )
+  const { execute: executeSearch, isPending: isLoading } = useAction(searchRepository)
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault()
     if (!query.trim()) return
 
-    const result = await executeSearch({ repositoryId, query })
+    const result = await executeSearch({
+      query,
+      repositoryId,
+      searchType,
+      vectorWeight: vectorWeight[0],
+      limit: 20
+    })
+
     if (result.isSuccess && result.data) {
-      setResults(result.data as { items: RepositoryItem[]; chunks: (RepositoryItemChunk & { itemName: string })[] })
+      setResults(result.data as SearchResult[])
     }
-  }
-
-  function getItemIcon(type: string) {
-    switch (type) {
-      case "document":
-        return <FileText className="h-4 w-4" />
-      case "url":
-        return <Link className="h-4 w-4" />
-      case "text":
-        return <Type className="h-4 w-4" />
-      default:
-        return null
-    }
-  }
-
-  function highlightMatch(text: string, query: string) {
-    const regex = new RegExp(`(${query})`, "gi")
-    const parts = text.split(regex)
-    
-    return parts.map((part, index) => 
-      regex.test(part) ? (
-        <mark key={index} className="bg-yellow-200 dark:bg-yellow-900">
-          {part}
-        </mark>
-      ) : (
-        <span key={index}>{part}</span>
-      )
-    )
   }
 
   return (
@@ -70,84 +53,93 @@ export function RepositorySearch({ repositoryId }: RepositorySearchProps) {
       <CardHeader>
         <CardTitle>Search Repository</CardTitle>
         <CardDescription>
-          Search for content within this repository
+          Search for content within this repository using AI-powered semantic search
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSearch} className="flex gap-2 mb-6">
-          <Input
-            placeholder="Search for documents, URLs, or text content..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="flex-1"
-          />
-          <Button type="submit" disabled={isLoading}>
-            {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Search className="h-4 w-4" />
-            )}
-          </Button>
+        <form onSubmit={handleSearch} className="space-y-4">
+          <div className="flex gap-2">
+            <Input
+              placeholder="Search for documents, URLs, or text content..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="flex-1"
+            />
+            <Button type="submit" disabled={isLoading}>
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+
+          <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="gap-2">
+                <Settings2 className="h-4 w-4" />
+                Advanced Options
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-4 pt-4">
+              <div className="space-y-3">
+                <Label>Search Type</Label>
+                <RadioGroup value={searchType} onValueChange={(value: string) => setSearchType(value as 'hybrid' | 'vector' | 'keyword')}>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="hybrid" id="hybrid" />
+                    <Label htmlFor="hybrid" className="font-normal cursor-pointer">
+                      Hybrid Search (Recommended)
+                      <span className="block text-xs text-muted-foreground">
+                        Combines semantic understanding with keyword matching
+                      </span>
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="vector" id="vector" />
+                    <Label htmlFor="vector" className="font-normal cursor-pointer">
+                      Semantic Search
+                      <span className="block text-xs text-muted-foreground">
+                        Uses AI to understand meaning and context
+                      </span>
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="keyword" id="keyword" />
+                    <Label htmlFor="keyword" className="font-normal cursor-pointer">
+                      Keyword Search
+                      <span className="block text-xs text-muted-foreground">
+                        Traditional text matching
+                      </span>
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+
+              {searchType === 'hybrid' && (
+                <div className="space-y-3">
+                  <Label>
+                    Semantic Weight: {Math.round(vectorWeight[0] * 100)}%
+                    <span className="text-xs text-muted-foreground ml-2">
+                      (Keyword: {Math.round((1 - vectorWeight[0]) * 100)}%)
+                    </span>
+                  </Label>
+                  <Slider
+                    value={vectorWeight}
+                    onValueChange={setVectorWeight}
+                    min={0}
+                    max={1}
+                    step={0.1}
+                    className="w-full"
+                  />
+                </div>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
         </form>
 
-        {results && (
-          <div className="space-y-6">
-            {results.items.length > 0 && (
-              <div>
-                <h3 className="text-sm font-medium mb-3">Matching Items</h3>
-                <div className="space-y-2">
-                  {results.items.map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center gap-3 p-3 rounded-lg border"
-                    >
-                      {getItemIcon(item.type)}
-                      <div className="flex-1">
-                        <div className="font-medium">
-                          {highlightMatch(item.name, query)}
-                        </div>
-                        <div className="text-sm text-muted-foreground capitalize">
-                          {item.type}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {results.items.length > 0 && results.chunks.length > 0 && (
-              <Separator />
-            )}
-
-            {results.chunks.length > 0 && (
-              <div>
-                <h3 className="text-sm font-medium mb-3">Content Matches</h3>
-                <div className="space-y-3">
-                  {results.chunks.map((chunk) => (
-                    <div key={chunk.id} className="p-4 rounded-lg border">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-sm font-medium">
-                          {chunk.itemName}
-                        </div>
-                        <Badge variant="outline">
-                          Chunk {chunk.chunkIndex + 1}
-                        </Badge>
-                      </div>
-                      <div className="text-sm text-muted-foreground line-clamp-3">
-                        {highlightMatch(chunk.content, query)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {results.items.length === 0 && results.chunks.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground">
-                No results found for &quot;{query}&quot;
-              </div>
-            )}
+        {results.length > 0 && (
+          <div className="mt-6">
+            <SearchResults results={results} query={query} isLoading={isLoading} />
           </div>
         )}
       </CardContent>

@@ -22,7 +22,7 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { createOpenAI } from '@ai-sdk/openai'
 import { z } from 'zod'
 import logger from "@/lib/logger"
-import { Settings } from "@/lib/settings-manager"
+import { Settings, getSettings } from "@/lib/settings-manager"
 
 interface ModelConfig {
   provider: string
@@ -231,14 +231,62 @@ export interface EmbeddingConfig {
 
 // Get embedding configuration from settings
 export async function getEmbeddingConfig(): Promise<EmbeddingConfig> {
-  const settings = await Settings.getAll()
+  const settings = await getSettings([
+    'EMBEDDING_MODEL_PROVIDER',
+    'EMBEDDING_MODEL_ID', 
+    'EMBEDDING_DIMENSIONS',
+    'EMBEDDING_MAX_TOKENS',
+    'EMBEDDING_BATCH_SIZE'
+  ])
+  
+  if (!settings['EMBEDDING_MODEL_PROVIDER'] || !settings['EMBEDDING_MODEL_ID']) {
+    throw new Error('Embedding configuration not found in settings. Please configure embeddings in admin settings.')
+  }
   
   return {
-    provider: settings.EMBEDDING_MODEL_PROVIDER || 'openai',
-    modelId: settings.EMBEDDING_MODEL_ID || 'text-embedding-3-small',
-    dimensions: parseInt(settings.EMBEDDING_DIMENSIONS || '1536', 10),
-    maxTokens: parseInt(settings.EMBEDDING_MAX_TOKENS || '8191', 10),
-    batchSize: parseInt(settings.EMBEDDING_BATCH_SIZE || '100', 10)
+    provider: settings['EMBEDDING_MODEL_PROVIDER'],
+    modelId: settings['EMBEDDING_MODEL_ID'],
+    dimensions: parseInt(settings['EMBEDDING_DIMENSIONS'] || '0', 10),
+    maxTokens: parseInt(settings['EMBEDDING_MAX_TOKENS'] || '0', 10),
+    batchSize: parseInt(settings['EMBEDDING_BATCH_SIZE'] || '0', 10)
+  }
+}
+
+// Get embedding model client
+async function getEmbeddingModelClient(config: ModelConfig) {
+  switch (config.provider) {
+    case 'openai': {
+      const openAIKey = await Settings.getOpenAI();
+      
+      if (!openAIKey) {
+        throw new Error('OpenAI API key not configured');
+      }
+      
+      const openai = createOpenAI({
+        apiKey: openAIKey
+      });
+      
+      return openai.embedding(config.modelId);
+    }
+    
+    case 'amazon-bedrock': {
+      const bedrockConfig = await Settings.getBedrock();
+      
+      if (!bedrockConfig.accessKeyId || !bedrockConfig.secretAccessKey || !bedrockConfig.region) {
+        throw new Error('AWS Bedrock credentials not configured');
+      }
+      
+      const bedrock = createAmazonBedrock({
+        accessKeyId: bedrockConfig.accessKeyId,
+        secretAccessKey: bedrockConfig.secretAccessKey,
+        region: bedrockConfig.region
+      });
+      
+      return bedrock.embedding(config.modelId);
+    }
+    
+    default:
+      throw new Error(`Unsupported embedding provider: ${config.provider}`)
   }
 }
 
@@ -254,7 +302,7 @@ export async function generateEmbedding(
     modelId: embeddingConfig.modelId
   }
   
-  const model = await getModelClient(modelConfig)
+  const model = await getEmbeddingModelClient(modelConfig)
   
   try {
     const result = await embed({
@@ -281,7 +329,7 @@ export async function generateEmbeddings(
     modelId: embeddingConfig.modelId
   }
   
-  const model = await getModelClient(modelConfig)
+  const model = await getEmbeddingModelClient(modelConfig)
   
   try {
     // Process in batches according to configured batch size
