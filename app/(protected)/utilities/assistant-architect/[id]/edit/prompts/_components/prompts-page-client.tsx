@@ -473,7 +473,7 @@ interface MDXEditorHandle {
   focus: () => void;
 }
 
-function VariableInsertDropdown({ variables, editorRef }: { variables: string[], editorRef: React.RefObject<MDXEditorHandle> }) {
+function VariableInsertDropdown({ variables, editorRef }: { variables: string[], editorRef: React.RefObject<MDXEditorHandle | null> }) {
   return (
     <select
       className="border rounded px-2 py-1 text-xs bg-muted mr-2"

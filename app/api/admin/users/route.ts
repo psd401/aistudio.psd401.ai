@@ -15,15 +15,15 @@ export async function GET() {
     const userRoles = await getUserRoles();
     
     // Group roles by userId
-    const rolesByUser = userRoles.reduce((acc, role: any) => {
-      const userId = Number(role.userId);
+    const rolesByUser = userRoles.reduce((acc, role) => {
+      const userId = Number(role.user_id);
       acc[userId] = acc[userId] || [];
-      acc[userId].push(String(role.roleName));
+      acc[userId].push(String(role.role_name));
       return acc;
     }, {} as Record<number, string[]>);
     
     // Map to the format expected by the UI
-    const users = dbUsers.map((dbUser: any) => {
+    const users = dbUsers.map((dbUser) => {
       const userRolesList = rolesByUser[Number(dbUser.id)] || []
 
       return {
