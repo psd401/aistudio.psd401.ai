@@ -1076,16 +1076,17 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                       font-size: 0.9em;
                                     }
                                   `}</style>
-                                  <ReactMarkdown
-                                    className="markdown-output"
-                                    components={{
+                                  <div className="markdown-output">
+                                    <ReactMarkdown
+                                      components={{
                                       h1: (props) => <h2 {...props} />,
                                       h2: (props) => <h3 {...props} />,
                                       h3: (props) => <h4 {...props} />,
                                     }}
                                   >
                                     {promptTexts[index] || promptResult.outputData || ""}
-                                  </ReactMarkdown>
+                                    </ReactMarkdown>
+                                  </div>
                                 </div>
                                 <div className="flex items-center gap-2 justify-end mt-4">
                                   <Button
