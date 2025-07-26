@@ -1,139 +1,113 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
+@import "tailwindcss";
 @import '@mdxeditor/editor/style.css';
 
-@layer base {
-  :root {
-    --background: 43 27% 91%; /* Sea Foam */
-    --foreground: 200 34% 22%; /* Pacific */
-
-    --card: 0 0% 100%; /* White */
-    --card-foreground: 200 34% 22%; /* Pacific */
-
-    --popover: 0 0% 100%; /* White */
-    --popover-foreground: 200 34% 22%; /* Pacific */
-
-    --primary: 202 41% 35%; /* Whulge */
-    --primary-foreground: 45 100% 96%; /* Skylight */
-
-    --secondary: 41 24% 80%; /* Driftwood */
-    --secondary-foreground: 200 34% 22%; /* Pacific */
-
-    --muted: 41 24% 80%; /* Driftwood */
-    --muted-foreground: 151 20% 34%; /* Cedar */
-
-    --accent: 155 21% 53%; /* Sea Glass */
-    --accent-foreground: 200 34% 22%; /* Pacific */
-
-    --destructive: 0 84% 60%; /* Keep old red */
-    --destructive-foreground: 0 0% 100%; /* White */
-
-    --border: 41 24% 85%; /* Slightly lighter Driftwood */
-    --input: 41 24% 85%; /* Slightly lighter Driftwood */
-    --ring: 202 41% 35%; /* Whulge */
-
-    --radius: 0.75rem; /* Increased radius */
-
-    /* Spacing System */
-    --spacing-1: 0.25rem;    /* 4px */
-    --spacing-2: 0.5rem;     /* 8px */
-    --spacing-3: 0.75rem;    /* 12px */
-    --spacing-4: 1rem;       /* 16px */
-    --spacing-5: 1.25rem;    /* 20px */
-    --spacing-6: 1.5rem;     /* 24px */
-    --spacing-8: 2rem;       /* 32px */
-    --spacing-10: 2.5rem;    /* 40px */
-    --spacing-12: 3rem;      /* 48px */
-  }
-
-  .dark {
-    --background: 200 34% 22%; /* Pacific */
-    --foreground: 43 27% 91%; /* Sea Foam */
-
-    --card: 200 34% 27%; /* Darker Pacific */
-    --card-foreground: 43 27% 91%; /* Sea Foam */
-
-    --popover: 200 34% 27%; /* Darker Pacific */
-    --popover-foreground: 43 27% 91%; /* Sea Foam */
-
-    --primary: 205 19% 58%; /* Ocean */
-    --primary-foreground: 200 34% 15%; /* Very Dark Pacific */
-
-    --secondary: 151 20% 34%; /* Cedar */
-    --secondary-foreground: 43 27% 91%; /* Sea Foam */
-
-    --muted: 151 20% 34%; /* Cedar */
-    --muted-foreground: 205 19% 58%; /* Ocean */
-
-    --accent: 139 22% 46%; /* Meadow */
-    --accent-foreground: 43 27% 91%; /* Sea Foam */
-
-    --destructive: 0 63% 31%; /* Keep old dark red */
-    --destructive-foreground: 0 0% 100%; /* White */
-
-    --border: 202 41% 35%; /* Whulge */
-    --input: 202 41% 35%; /* Whulge */
-    --ring: 205 19% 58%; /* Ocean */
-  }
+/* Define custom theme colors using Tailwind CSS v4 syntax */
+@theme {
+  /* Sea Foam - hsl(43 27% 91%) */
+  --color-background: oklch(0.926 0.024 89.88);
+  /* Pacific - hsl(200 34% 22%) */
+  --color-foreground: oklch(0.362 0.056 237.37);
+  
+  /* White */
+  --color-card: oklch(1 0 0);
+  --color-card-foreground: oklch(0.362 0.056 237.37);
+  
+  --color-popover: oklch(1 0 0);
+  --color-popover-foreground: oklch(0.362 0.056 237.37);
+  
+  /* Whulge - hsl(202 41% 35%) */
+  --color-primary: oklch(0.47 0.089 237.66);
+  /* Skylight - hsl(45 100% 96%) */
+  --color-primary-foreground: oklch(0.975 0.039 95.76);
+  
+  /* Driftwood - hsl(41 24% 80%) */
+  --color-secondary: oklch(0.855 0.034 87.83);
+  --color-secondary-foreground: oklch(0.362 0.056 237.37);
+  
+  /* Driftwood */
+  --color-muted: oklch(0.855 0.034 87.83);
+  /* Cedar - hsl(151 20% 34%) */
+  --color-muted-foreground: oklch(0.487 0.056 170.15);
+  
+  /* Sea Glass - hsl(155 21% 53%) */
+  --color-accent: oklch(0.646 0.053 173.27);
+  --color-accent-foreground: oklch(0.362 0.056 237.37);
+  
+  /* Red for errors - hsl(0 84% 60%) */
+  --color-destructive: oklch(0.637 0.237 25.34);
+  --color-destructive-foreground: oklch(1 0 0);
+  
+  /* Slightly lighter Driftwood for borders - hsl(41 24% 85%) */
+  --color-border: oklch(0.892 0.023 87.83);
+  --color-input: oklch(0.892 0.023 87.83);
+  --color-ring: oklch(0.47 0.089 237.66);
 }
 
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
-  }
-}
-
-/* Content Spacing */
-.content-spacing {
-  @apply p-6 md:p-8;
-}
-
-.content-spacing-sm {
-  @apply p-4 md:p-6;
-}
-
-.content-spacing-lg {
-  @apply p-8 md:p-10;
-}
-
-/* Section Spacing */
-.section-spacing {
-  @apply space-y-6 md:space-y-8;
-}
-
-.section-spacing-sm {
-  @apply space-y-4 md:space-y-6;
-}
-
-.section-spacing-lg {
-  @apply space-y-8 md:space-y-10;
-}
-
-/* Card Spacing */
-.card-spacing {
-  @apply p-6 md:p-8;
-}
-
-.card-spacing-sm {
-  @apply p-4 md:p-6;
-}
-
-.card-spacing-lg {
-  @apply p-8 md:p-10;
+/* Base styles */
+* {
+  border-color: var(--color-border);
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-feature-settings: "rlig" 1, "calt" 1;
 }
 
+/* Dark mode styles */
+.dark body {
+  /* Pacific - hsl(200 34% 22%) background */
+  background-color: oklch(0.362 0.056 237.37);
+  /* Sea Foam - hsl(43 27% 91%) text */
+  color: oklch(0.926 0.024 89.88);
+}
+
+.dark * {
+  /* Whulge - hsl(202 41% 35%) borders */
+  border-color: oklch(0.47 0.089 237.66);
+}
+
+/* Utility classes for spacing */
+.content-spacing {
+  padding: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .content-spacing {
+    padding: 2rem;
+  }
+}
+
+.content-spacing-sm {
+  padding: 1rem;
+}
+
+@media (min-width: 768px) {
+  .content-spacing-sm {
+    padding: 1.5rem;
+  }
+}
+
+.content-spacing-lg {
+  padding: 2rem;
+}
+
+@media (min-width: 768px) {
+  .content-spacing-lg {
+    padding: 2.5rem;
+  }
+}
+
+/* Animation utilities */
+.animate-smooth {
+  transition: all 300ms ease-in-out;
+}
+
+.animate-fast {
+  transition: all 150ms ease-in-out;
+}
+
+/* Hover visibility */
 .hover-visible {
   opacity: 0;
   transition: opacity 0.2s ease-in-out;
@@ -141,25 +115,4 @@ body {
 
 *:hover > .hover-visible {
   opacity: 1;
-}
-
-/* Spacing adjustments */
-.card {
-  @apply p-6;
-}
-
-.card-header {
-  @apply pb-4;
-}
-
-.card-content {
-  @apply space-y-4;
-}
-
-.section-container {
-  @apply space-y-6;
-}
-
-.page-header {
-  @apply mb-8 space-y-2;
 }
