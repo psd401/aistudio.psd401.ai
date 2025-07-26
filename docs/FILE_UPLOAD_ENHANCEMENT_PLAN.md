@@ -36,9 +36,30 @@ This document outlines the plan to enhance the file upload system across the AI 
 - No actual file processing yet (items remain in "pending" status)
 - File download not yet implemented
 
-### 🔄 Phase 2: File Processing Infrastructure - NEXT UP
+### ✅ Phase 2: File Processing Infrastructure - COMPLETED (2025-01-26)
 
-### ⏳ Phase 3: Embeddings & Vector Search - PLANNED
+**What was implemented:**
+- CDK ProcessingStack with SQS queue, DynamoDB table, and Lambda functions
+- FileProcessor Lambda for document text extraction and chunking
+- URLProcessor Lambda for web content extraction
+- Shared Lambda layer with processing dependencies
+- File processing service with presigned URL generation
+- Integration with repository items to trigger processing
+- Support for PDF, Word, Excel, CSV, Text, and Markdown files
+
+**Key infrastructure created:**
+- `/infra/lib/processing-stack.ts` - CDK stack definition
+- `/infra/lambdas/file-processor/` - Document processing Lambda
+- `/infra/lambdas/url-processor/` - URL processing Lambda
+- `/lib/services/file-processing-service.ts` - Processing service
+
+**Current limitations:**
+- Requires CDK deployment to test
+- No embedding generation yet
+- No progress tracking UI
+- File download not implemented
+
+### 🔄 Phase 3: Embeddings & Vector Search - NEXT UP
 
 ### ⏳ Phase 4: Assistant Integration - PLANNED
 
