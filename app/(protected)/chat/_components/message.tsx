@@ -82,9 +82,9 @@ export function Message({ message, messageId }: MessageProps) {
           >
             {isAssistant ? "Assistant" : "You"}
           </span>
-          <ReactMarkdown
-            className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0"
-            components={{
+          <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0">
+            <ReactMarkdown
+              components={{
               p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
               // Use default pre/code handling from prose for consistency?
               // Or keep custom highlighter if preferred.
@@ -138,7 +138,8 @@ export function Message({ message, messageId }: MessageProps) {
             }}
           >
             {message.content}
-          </ReactMarkdown>
+            </ReactMarkdown>
+          </div>
         </div>
 
         {/* Action Buttons (Show on Hover, ONLY for Assistant) */}

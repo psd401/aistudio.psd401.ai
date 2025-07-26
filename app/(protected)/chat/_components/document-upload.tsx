@@ -14,7 +14,7 @@ interface Document {
 
 interface DocumentUploadProps {
   conversationId?: number
-  externalInputRef?: React.RefObject<HTMLInputElement>
+  externalInputRef?: React.RefObject<HTMLInputElement | null>
   onUploadComplete: (documentInfo: Document) => void
   onFileSelected?: (documentInfo: Partial<Document>) => void
   pendingDocument?: Partial<Document> | null
