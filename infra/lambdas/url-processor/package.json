@@ -1,0 +1,13 @@
+{
+  "name": "url-processor",
+  "version": "1.0.0",
+  "description": "URL processing Lambda function",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-rds-data": "^3.0.0",
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "node-fetch": "^2.7.0",
+    "cheerio": "^1.0.0",
+    "marked": "^15.0.4"
+  }
+}

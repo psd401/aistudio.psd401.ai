@@ -13,26 +13,26 @@ import { queueFileForProcessing, processUrl } from "@/lib/services/file-processi
 
 export interface RepositoryItem {
   id: number
-  repository_id: number
+  repositoryId: number
   type: 'document' | 'url' | 'text'
   name: string
   source: string
   metadata: Record<string, any>
-  processing_status: string
-  processing_error: string | null
-  created_at: Date
-  updated_at: Date
+  processingStatus: string
+  processingError: string | null
+  createdAt: Date
+  updatedAt: Date
 }
 
 export interface RepositoryItemChunk {
   id: number
-  item_id: number
+  itemId: number
   content: string
-  embedding_vector: number[] | null
+  embeddingVector: number[] | null
   metadata: Record<string, any>
-  chunk_index: number
+  chunkIndex: number
   tokens: number | null
-  created_at: Date
+  createdAt: Date
 }
 
 export interface AddDocumentInput {
@@ -42,6 +42,7 @@ export interface AddDocumentInput {
     content: Buffer | Uint8Array | string
     contentType: string
     size: number
+    fileName?: string
   }
 }
 
@@ -80,11 +81,21 @@ export async function addDocumentItem(
 
     const userId = userResult[0].id
 
+    // Convert base64 string back to Buffer if needed
+    let fileContent: Buffer
+    if (typeof input.file.content === 'string') {
+      // It's a base64 string from the client
+      fileContent = Buffer.from(input.file.content, 'base64')
+    } else {
+      // It's already a Buffer or Uint8Array
+      fileContent = Buffer.from(input.file.content)
+    }
+
     // Upload to S3
     const { key, url } = await uploadDocument({
       userId: userId.toString(),
-      fileName: input.name,
-      fileContent: input.file.content,
+      fileName: input.file.fileName || input.name,
+      fileContent,
       contentType: input.file.contentType,
       metadata: {
         repository_id: input.repository_id.toString(),
@@ -104,7 +115,8 @@ export async function addDocumentItem(
         { name: "metadata", value: { stringValue: JSON.stringify({
           contentType: input.file.contentType,
           size: input.file.size,
-          s3_url: url
+          s3_url: url,
+          originalFileName: input.file.fileName
         }) } }
       ]
     )
@@ -289,7 +301,7 @@ export async function removeRepositoryItem(
       [{ name: "id", value: { longValue: itemId } }]
     )
 
-    revalidatePath(`/admin/repositories/${item.repository_id}`)
+    revalidatePath(`/admin/repositories/${item.repositoryId}`)
     return { isSuccess: true, message: "Item removed successfully", data: undefined as any }
   } catch (error) {
     return handleError(error, "Failed to remove item")
@@ -348,7 +360,7 @@ export async function searchRepositoryItems(
     )
 
     // Search in chunk content
-    const chunks = await executeSQL<RepositoryItemChunk & { item_name: string }>(
+    const chunks = await executeSQL<RepositoryItemChunk & { itemName: string }>(
       `SELECT 
         c.*,
         i.name as item_name
@@ -423,5 +435,79 @@ export async function updateItemProcessingStatus(
     return { isSuccess: true, message: "Status updated successfully", data: undefined as any }
   } catch (error) {
     return handleError(error, "Failed to update processing status")
+  }
+}
+
+export async function getDocumentDownloadUrl(
+  itemId: number
+): Promise<ActionState<string>> {
+  try {
+    const session = await getServerSession()
+    if (!session) {
+      return { isSuccess: false, message: "Unauthorized" }
+    }
+
+    await requireRole("administrator")
+
+    // Get the item to check if it's a document
+    const items = await executeSQL<RepositoryItem>(
+      `SELECT * FROM repository_items WHERE id = :id`,
+      [{ name: "id", value: { longValue: itemId } }]
+    )
+
+    if (items.length === 0) {
+      return { isSuccess: false, message: "Item not found" }
+    }
+
+    const item = items[0]
+
+    if (item.type !== 'document') {
+      return { isSuccess: false, message: "Item is not a document" }
+    }
+
+    // Generate a presigned URL for download
+    const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner')
+    const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3')
+    
+    const s3Client = new S3Client({})
+    const bucketName = process.env.DOCUMENTS_BUCKET_NAME
+    
+    if (!bucketName) {
+      return { isSuccess: false, message: "Storage not configured" }
+    }
+
+    // Extract file extension from the original S3 key or metadata
+    let filename = item.name
+    const metadata = item.metadata as any
+    
+    // Try to get extension from original filename or S3 key
+    let extension = ''
+    
+    if (metadata?.originalFileName) {
+      // Use the original filename's extension
+      extension = metadata.originalFileName.split('.').pop() || ''
+    } else {
+      // Extract from S3 key
+      const urlParts = item.source.split('/')
+      const s3Filename = urlParts[urlParts.length - 1]
+      extension = s3Filename.split('.').pop() || ''
+    }
+    
+    // Add extension if not already present in the name
+    if (extension && !filename.toLowerCase().endsWith(`.${extension.toLowerCase()}`)) {
+      filename = `${filename}.${extension}`
+    }
+
+    const command = new GetObjectCommand({
+      Bucket: bucketName,
+      Key: item.source,
+      ResponseContentDisposition: `attachment; filename="${filename}"`
+    })
+
+    const downloadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 }) // 1 hour
+
+    return { isSuccess: true, message: "Download URL generated", data: downloadUrl }
+  } catch (error) {
+    return handleError(error, "Failed to generate download URL")
   }
 }

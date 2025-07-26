@@ -73,9 +73,10 @@ To track costs by project, environment, or owner in AWS Cost Explorer and billin
 
 > **Important:** If you have previously deployed stacks without the `AIStudio-` prefix, you must destroy them before deploying the new stacks. Use `cdk list` to see all stacks, and `cdk destroy ...` to remove the old ones.
 
-## 1. Install Dependencies
+## 1. Install Dependencies and Build
 ```sh
 npm install
+npm run build:lambdas  # Build Lambda functions for ProcessingStack
 ```
 
 ## 2. Bootstrap the CDK Environment
@@ -100,13 +101,13 @@ cdk destroy DatabaseStack-Dev AuthStack-Dev StorageStack-Dev FrontendStack-Dev \
 ## 5. Deploy Stacks
 ### Deploy all dev stacks (with Google client ID and base domain context):
 ```sh
-cdk deploy AIStudio-DatabaseStack-Dev AIStudio-AuthStack-Dev AIStudio-StorageStack-Dev AIStudio-FrontendStack-Dev \
+cdk deploy AIStudio-DatabaseStack-Dev AIStudio-AuthStack-Dev AIStudio-StorageStack-Dev AIStudio-ProcessingStack-Dev AIStudio-FrontendStack-Dev \
   --parameters AIStudio-AuthStack-Dev:GoogleClientId=your-dev-client-id \
   --context baseDomain=yourdomain.com
 ```
 ### Deploy all prod stacks (with Google client ID and base domain context):
 ```sh
-cdk deploy AIStudio-DatabaseStack-Prod AIStudio-AuthStack-Prod AIStudio-StorageStack-Prod AIStudio-FrontendStack-Prod \
+cdk deploy AIStudio-DatabaseStack-Prod AIStudio-AuthStack-Prod AIStudio-StorageStack-Prod AIStudio-ProcessingStack-Prod AIStudio-FrontendStack-Prod \
   --parameters AIStudio-AuthStack-Prod:GoogleClientId=your-prod-client-id \
   --context baseDomain=yourdomain.com
 ```
@@ -175,7 +176,63 @@ These are output by the CDK stacks and must be set in Amplify:
 - `RDS_SECRET_ARN`
 - `SQL_LOGGING` - Set to `false` for production
 
-## 12. First Administrator Setup
+## 12. Getting Stack Outputs
+
+To get the required values from your CDK deployment:
+
+```bash
+# List all stacks
+aws cloudformation list-stacks
+
+# Get specific stack outputs
+aws cloudformation describe-stacks \
+  --stack-name AIStudio-DatabaseStack-Dev \
+  --query 'Stacks[0].Outputs'
+
+aws cloudformation describe-stacks \
+  --stack-name AIStudio-AuthStack-Dev \
+  --query 'Stacks[0].Outputs'
+
+aws cloudformation describe-stacks \
+  --stack-name AIStudio-StorageStack-Dev \
+  --query 'Stacks[0].Outputs'
+
+aws cloudformation describe-stacks \
+  --stack-name AIStudio-ProcessingStack-Dev \
+  --query 'Stacks[0].Outputs'
+```
+
+### Key Outputs to Look For:
+- **DatabaseStack**: `ClusterArn`, `DbSecretArn`
+- **AuthStack**: `UserPoolId`, `UserPoolClientId`, `CognitoDomain`
+- **StorageStack**: `DocumentsBucketName`
+- **ProcessingStack**: `FileProcessingQueueUrl`, `URLProcessorFunctionName`, `JobStatusTableName`
+
+## 13. Post-Deployment Verification
+
+After deploying all stacks, verify the file processing infrastructure:
+
+1. **Check Lambda Functions**:
+   ```bash
+   aws lambda list-functions --query "Functions[?contains(FunctionName, 'FileProcessor') || contains(FunctionName, 'URLProcessor')].FunctionName"
+   ```
+
+2. **Check SQS Queue**:
+   ```bash
+   aws sqs list-queues --query "QueueUrls[?contains(@, 'file-processing')]"
+   ```
+
+3. **Test File Processing** (after setting environment variables):
+   - Upload a test document through the Admin Repository interface
+   - Check CloudWatch logs for the FileProcessor Lambda
+   - Verify chunks are created in the database
+
+4. **Monitor Processing**:
+   - CloudWatch Logs: Check Lambda execution logs
+   - SQS Console: Monitor queue depth and DLQ
+   - DynamoDB Console: Check job status entries
+
+## 14. First Administrator Setup
 After deploying the application, the first user who signs up needs to be granted administrator privileges:
 
 1. **Sign up as the first user** through the web interface

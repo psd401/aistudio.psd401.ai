@@ -2,7 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as lambdaNodejs from 'aws-cdk-lib/aws-lambda-nodejs';
+// import * as lambdaNodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -63,10 +63,10 @@ export class ProcessingStack extends cdk.Stack {
     });
 
     // File Processor Lambda
-    const fileProcessor = new lambdaNodejs.NodejsFunction(this, 'FileProcessor', {
+    const fileProcessor = new lambda.Function(this, 'FileProcessor', {
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'handler',
-      entry: path.join(__dirname, '../lambdas/file-processor/index.ts'),
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/file-processor')),
       timeout: cdk.Duration.minutes(10),
       memorySize: 3072, // 3GB
       environment: {
@@ -79,21 +79,13 @@ export class ProcessingStack extends cdk.Stack {
         ENVIRONMENT: props.environment,
       },
       layers: [processingLayer],
-      bundling: {
-        minify: false,
-        sourceMap: true,
-        externalModules: [
-          'aws-sdk',
-          '@aws-sdk/*',
-        ],
-      },
     });
 
     // URL Processor Lambda
-    const urlProcessor = new lambdaNodejs.NodejsFunction(this, 'URLProcessor', {
+    const urlProcessor = new lambda.Function(this, 'URLProcessor', {
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'handler',
-      entry: path.join(__dirname, '../lambdas/url-processor/index.ts'),
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/url-processor')),
       timeout: cdk.Duration.minutes(5),
       memorySize: 1024, // 1GB
       environment: {
@@ -105,14 +97,6 @@ export class ProcessingStack extends cdk.Stack {
         ENVIRONMENT: props.environment,
       },
       layers: [processingLayer],
-      bundling: {
-        minify: false,
-        sourceMap: true,
-        externalModules: [
-          'aws-sdk',
-          '@aws-sdk/*',
-        ],
-      },
     });
 
     // Grant permissions

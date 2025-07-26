@@ -12,19 +12,19 @@ export interface Repository {
   id: number
   name: string
   description: string | null
-  owner_id: number
-  is_public: boolean
+  ownerId: number
+  isPublic: boolean
   metadata: Record<string, any>
-  created_at: Date
-  updated_at: Date
-  owner_name?: string
-  item_count?: number
+  createdAt: Date
+  updatedAt: Date
+  ownerName?: string
+  itemCount?: number
 }
 
 export interface CreateRepositoryInput {
   name: string
   description?: string
-  is_public?: boolean
+  isPublic?: boolean
   metadata?: Record<string, any>
 }
 
@@ -32,7 +32,7 @@ export interface UpdateRepositoryInput {
   id: number
   name?: string
   description?: string
-  is_public?: boolean
+  isPublic?: boolean
   metadata?: Record<string, any>
 }
 
@@ -67,7 +67,7 @@ export async function createRepository(
         { name: "name", value: { stringValue: input.name } },
         { name: "description", value: input.description ? { stringValue: input.description } : { isNull: true } },
         { name: "owner_id", value: { longValue: userId } },
-        { name: "is_public", value: { booleanValue: input.is_public || false } },
+        { name: "is_public", value: { booleanValue: input.isPublic || false } },
         { name: "metadata", value: { stringValue: JSON.stringify(input.metadata || {}) } }
       ]
     )
@@ -105,9 +105,9 @@ export async function updateRepository(
       params.push({ name: "description", value: input.description ? { stringValue: input.description } : { isNull: true } })
     }
 
-    if (input.is_public !== undefined) {
+    if (input.isPublic !== undefined) {
       updates.push("is_public = :is_public")
-      params.push({ name: "is_public", value: { booleanValue: input.is_public } })
+      params.push({ name: "is_public", value: { booleanValue: input.isPublic } })
     }
 
     if (input.metadata !== undefined) {
@@ -152,6 +152,28 @@ export async function deleteRepository(
 
     await requireRole("administrator")
 
+    // First, get all document items to delete from S3
+    const items = await executeSQL<{ id: number; type: string; source: string }>(
+      `SELECT id, type, source FROM repository_items 
+       WHERE repository_id = :repository_id AND type = 'document'`,
+      [{ name: "repository_id", value: { longValue: id } }]
+    )
+
+    // Delete all documents from S3
+    if (items.length > 0) {
+      const { deleteDocument } = await import("@/lib/aws/s3-client")
+      
+      for (const item of items) {
+        try {
+          await deleteDocument(item.source)
+        } catch (error) {
+          // Log error but continue with deletion
+          console.error(`Failed to delete S3 file ${item.source}:`, error)
+        }
+      }
+    }
+
+    // Now delete the repository (this will cascade delete all items and chunks)
     await executeSQL(
       `DELETE FROM knowledge_repositories WHERE id = :id`,
       [{ name: "id", value: { longValue: id } }]
@@ -211,7 +233,7 @@ export async function getRepository(
        LEFT JOIN users u ON r.owner_id = u.id
        LEFT JOIN repository_items ri ON r.id = ri.repository_id
        WHERE r.id = :id
-       GROUP BY r.id, u.first_name, u.last_name`,
+       GROUP BY r.id, r.name, r.description, r.owner_id, r.is_public, r.metadata, r.created_at, r.updated_at, u.first_name, u.last_name`,
       [{ name: "id", value: { longValue: id } }]
     )
 

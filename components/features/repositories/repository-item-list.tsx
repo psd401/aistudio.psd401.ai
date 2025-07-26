@@ -5,6 +5,7 @@ import {
   type RepositoryItem,
   listRepositoryItems,
   removeRepositoryItem,
+  getDocumentDownloadUrl,
 } from "@/actions/repositories/repository-items.actions"
 import { Button } from "@/components/ui/button"
 import {
@@ -81,6 +82,21 @@ export function RepositoryItemList({
     loadItems()
   }, [repositoryId, refreshTrigger]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-refresh every 5 seconds if there are pending items
+  useEffect(() => {
+    const hasPendingItems = items.some(item => 
+      item.processingStatus === 'pending' || item.processingStatus === 'processing'
+    )
+    
+    if (hasPendingItems) {
+      const interval = setInterval(() => {
+        setRefreshTrigger(prev => prev + 1)
+      }, 5000)
+      
+      return () => clearInterval(interval)
+    }
+  }, [items])
+
   async function handleDelete() {
     if (!deleteTarget) return
 
@@ -104,11 +120,17 @@ export function RepositoryItemList({
   async function handleDownload(item: RepositoryItem) {
     if (item.type !== "document") return
 
-    // For now, just show a message. We'll implement proper download via server action later
-    toast({
-      title: "Download",
-      description: "File download will be implemented soon",
-    })
+    const result = await getDocumentDownloadUrl(item.id)
+    if (result.isSuccess && result.data) {
+      // Open the download URL in a new window
+      window.open(result.data, '_blank')
+    } else {
+      toast({
+        title: "Error",
+        description: result.message || "Failed to generate download link",
+        variant: "destructive",
+      })
+    }
   }
 
   function getItemIcon(type: string) {
@@ -213,16 +235,16 @@ export function RepositoryItemList({
                             {item.source}
                           </div>
                         )}
-                        {item.processing_error && (
+                        {item.processingError && (
                           <div className="text-sm text-destructive mt-1">
-                            {item.processing_error}
+                            {item.processingError}
                           </div>
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>{getStatusBadge(item.processing_status)}</TableCell>
+                    <TableCell>{getStatusBadge(item.processingStatus)}</TableCell>
                     <TableCell>
-                      {item.created_at ? format(new Date(item.created_at), "MMM d, yyyy") : "-"}
+                      {item.createdAt ? format(new Date(item.createdAt), "MMM d, yyyy") : "-"}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">

@@ -1,9 +1,9 @@
 import { SQSEvent, SQSRecord } from 'aws-lambda';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
-import { RDSDataClient, ExecuteStatementCommand, BatchExecuteStatementCommand } from '@aws-sdk/client-rds-data';
+import { RDSDataClient, ExecuteStatementCommand, BatchExecuteStatementCommand, SqlParameter } from '@aws-sdk/client-rds-data';
 import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
 import { Readable } from 'stream';
-import * as pdfParse from 'pdf-parse';
+import pdfParse from 'pdf-parse';
 import * as mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import { parse as csvParse } from 'csv-parse/sync';
@@ -18,6 +18,23 @@ const JOB_STATUS_TABLE = process.env.JOB_STATUS_TABLE!;
 const DATABASE_RESOURCE_ARN = process.env.DATABASE_RESOURCE_ARN!;
 const DATABASE_SECRET_ARN = process.env.DATABASE_SECRET_ARN!;
 const DATABASE_NAME = process.env.DATABASE_NAME!;
+
+// Helper function to create SQL parameters with proper types
+function createSqlParameter(name: string, value: string | number | boolean | null): SqlParameter {
+  if (value === null) {
+    return { name, value: { isNull: true } };
+  }
+  if (typeof value === 'string') {
+    return { name, value: { stringValue: value } };
+  }
+  if (typeof value === 'number') {
+    return { name, value: { longValue: value } };
+  }
+  if (typeof value === 'boolean') {
+    return { name, value: { booleanValue: value } };
+  }
+  throw new Error(`Unsupported parameter type for ${name}: ${typeof value}`);
+}
 
 interface ProcessingJob {
   jobId: string;
@@ -78,13 +95,13 @@ async function updateItemStatus(
            updated_at = CURRENT_TIMESTAMP
        WHERE id = :itemId`;
 
-  const parameters = [
-    { name: 'itemId', value: { longValue: itemId } },
-    { name: 'status', value: { stringValue: status } },
+  const parameters: SqlParameter[] = [
+    createSqlParameter('itemId', itemId),
+    createSqlParameter('status', status),
   ];
 
   if (error) {
-    parameters.push({ name: 'error', value: { stringValue: error } });
+    parameters.push(createSqlParameter('error', error));
   }
 
   await rdsClient.send(
@@ -122,7 +139,7 @@ async function extractTextFromExcel(buffer: Buffer): Promise<string> {
   const workbook = XLSX.read(buffer);
   let text = '';
   
-  workbook.SheetNames.forEach(sheetName => {
+  workbook.SheetNames.forEach((sheetName: string) => {
     const sheet = workbook.Sheets[sheetName];
     const csv = XLSX.utils.sheet_to_csv(sheet);
     text += `\n\n## Sheet: ${sheetName}\n${csv}`;
@@ -212,18 +229,18 @@ async function storeChunks(itemId: number, chunks: ChunkData[]) {
       resourceArn: DATABASE_RESOURCE_ARN,
       secretArn: DATABASE_SECRET_ARN,
       database: DATABASE_NAME,
-      sql: 'DELETE FROM document_chunks WHERE item_id = :itemId',
-      parameters: [{ name: 'itemId', value: { longValue: itemId } }],
+      sql: 'DELETE FROM repository_item_chunks WHERE item_id = :itemId',
+      parameters: [createSqlParameter('itemId', itemId)],
     })
   );
   
   // Batch insert new chunks
-  const parameterSets = chunks.map(chunk => [
-    { name: 'itemId', value: { longValue: itemId } },
-    { name: 'content', value: { stringValue: chunk.content } },
-    { name: 'metadata', value: { stringValue: JSON.stringify(chunk.metadata) } },
-    { name: 'chunkIndex', value: { longValue: chunk.chunkIndex } },
-    { name: 'tokens', value: chunk.tokens ? { longValue: chunk.tokens } : { isNull: true } },
+  const parameterSets: SqlParameter[][] = chunks.map(chunk => [
+    createSqlParameter('itemId', itemId),
+    createSqlParameter('content', chunk.content),
+    createSqlParameter('metadata', JSON.stringify(chunk.metadata)),
+    createSqlParameter('chunkIndex', chunk.chunkIndex),
+    createSqlParameter('tokens', chunk.tokens ?? null),
   ]);
   
   // BatchExecuteStatement has a limit of 25 parameter sets
@@ -236,7 +253,7 @@ async function storeChunks(itemId: number, chunks: ChunkData[]) {
         resourceArn: DATABASE_RESOURCE_ARN,
         secretArn: DATABASE_SECRET_ARN,
         database: DATABASE_NAME,
-        sql: `INSERT INTO document_chunks 
+        sql: `INSERT INTO repository_item_chunks 
               (item_id, content, metadata, chunk_index, tokens)
               VALUES (:itemId, :content, :metadata::jsonb, :chunkIndex, :tokens)`,
         parameterSets: batch,

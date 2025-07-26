@@ -141,14 +141,14 @@ export function RepositoryList() {
                         </span>
                       )}
                     </TableCell>
-                    <TableCell>{repo.owner_name || "Unknown"}</TableCell>
+                    <TableCell>{repo.ownerName || "Unknown"}</TableCell>
                     <TableCell>
                       <Badge variant="secondary">
-                        {repo.item_count || 0} items
+                        {repo.itemCount || 0} items
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {repo.is_public ? (
+                      {repo.isPublic ? (
                         <div className="flex items-center gap-1">
                           <Globe className="h-4 w-4" />
                           <span>Public</span>
@@ -161,7 +161,7 @@ export function RepositoryList() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {repo.created_at ? format(new Date(repo.created_at), "MMM d, yyyy") : "-"}
+                      {repo.createdAt ? format(new Date(repo.createdAt), "MMM d, yyyy") : "-"}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">

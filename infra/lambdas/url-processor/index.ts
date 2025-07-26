@@ -1,5 +1,5 @@
 import { APIGatewayProxyEvent } from 'aws-lambda';
-import { RDSDataClient, ExecuteStatementCommand, BatchExecuteStatementCommand } from '@aws-sdk/client-rds-data';
+import { RDSDataClient, ExecuteStatementCommand, BatchExecuteStatementCommand, SqlParameter } from '@aws-sdk/client-rds-data';
 import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
 import fetch from 'node-fetch';
 import * as cheerio from 'cheerio';
@@ -12,6 +12,23 @@ const JOB_STATUS_TABLE = process.env.JOB_STATUS_TABLE!;
 const DATABASE_RESOURCE_ARN = process.env.DATABASE_RESOURCE_ARN!;
 const DATABASE_SECRET_ARN = process.env.DATABASE_SECRET_ARN!;
 const DATABASE_NAME = process.env.DATABASE_NAME!;
+
+// Helper function to create SQL parameters with proper types
+function createSqlParameter(name: string, value: string | number | boolean | null): SqlParameter {
+  if (value === null) {
+    return { name, value: { isNull: true } };
+  }
+  if (typeof value === 'string') {
+    return { name, value: { stringValue: value } };
+  }
+  if (typeof value === 'number') {
+    return { name, value: { longValue: value } };
+  }
+  if (typeof value === 'boolean') {
+    return { name, value: { booleanValue: value } };
+  }
+  throw new Error(`Unsupported parameter type for ${name}: ${typeof value}`);
+}
 
 interface URLProcessingJob {
   jobId: string;
@@ -70,13 +87,13 @@ async function updateItemStatus(
            updated_at = CURRENT_TIMESTAMP
        WHERE id = :itemId`;
 
-  const parameters = [
-    { name: 'itemId', value: { longValue: itemId } },
-    { name: 'status', value: { stringValue: status } },
+  const parameters: SqlParameter[] = [
+    createSqlParameter('itemId', itemId),
+    createSqlParameter('status', status),
   ];
 
   if (error) {
-    parameters.push({ name: 'error', value: { stringValue: error } });
+    parameters.push(createSqlParameter('error', error));
   }
 
   await rdsClient.send(
@@ -93,32 +110,39 @@ async function updateItemStatus(
 // Fetch and extract text content from URL
 async function fetchAndExtractContent(url: string): Promise<string> {
   try {
-    // Fetch the URL with a timeout
-    const response = await fetch(url, {
-      timeout: 30000, // 30 seconds
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; AIStudioBot/1.0; +https://aistudio.psd401.ai)',
-      },
-    });
+    // Create an AbortController for timeout
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000); // 30 seconds
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
+    try {
+      // Fetch the URL with a timeout
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; AIStudioBot/1.0; +https://aistudio.psd401.ai)',
+        },
+      });
+      
+      clearTimeout(timeout);
 
-    const contentType = response.headers.get('content-type') || '';
-    const html = await response.text();
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
-    // Parse HTML and extract text
-    const $ = cheerio.load(html);
+      const contentType = response.headers.get('content-type') || '';
+      const html = await response.text();
 
-    // Remove script and style elements
-    $('script, style, noscript').remove();
+      // Parse HTML and extract text
+      const $ = cheerio.load(html);
 
-    // Try to find main content areas
-    let content = '';
+      // Remove script and style elements
+      $('script, style, noscript').remove();
+
+      // Try to find main content areas
+      let content = '';
     
-    // Common content selectors
-    const contentSelectors = [
+      // Common content selectors
+      const contentSelectors = [
       'main',
       'article',
       '[role="main"]',
@@ -129,45 +153,52 @@ async function fetchAndExtractContent(url: string): Promise<string> {
       '.article-content',
     ];
 
-    for (const selector of contentSelectors) {
-      const element = $(selector);
-      if (element.length > 0) {
-        content = element.text();
-        break;
+      for (const selector of contentSelectors) {
+        const element = $(selector);
+        if (element.length > 0) {
+          content = element.text();
+          break;
+        }
       }
-    }
 
-    // If no specific content area found, get all text
-    if (!content) {
-      content = $('body').text();
-    }
+      // If no specific content area found, get all text
+      if (!content) {
+        content = $('body').text();
+      }
 
-    // Clean up the text
-    content = content
+      // Clean up the text
+      content = content
       .replace(/\s+/g, ' ') // Replace multiple whitespace with single space
       .replace(/\n{3,}/g, '\n\n') // Replace multiple newlines with double newline
       .trim();
 
-    // If content is markdown or has markdown-like content, process it
-    if (contentType.includes('markdown') || url.endsWith('.md')) {
-      const htmlContent = await marked.parse(content);
-      content = htmlContent.replace(/<[^>]*>/g, '').trim();
-    }
+      // If content is markdown or has markdown-like content, process it
+      if (contentType.includes('markdown') || url.endsWith('.md')) {
+        const htmlContent = await marked.parse(content);
+        content = htmlContent.replace(/<[^>]*>/g, '').trim();
+      }
 
-    // Extract metadata
-    const title = $('title').text() || $('h1').first().text() || '';
-    const description = $('meta[name="description"]').attr('content') || 
-                       $('meta[property="og:description"]').attr('content') || '';
+      // Extract metadata
+      const title = $('title').text() || $('h1').first().text() || '';
+      const description = $('meta[name="description"]').attr('content') || 
+                         $('meta[property="og:description"]').attr('content') || '';
 
-    // Prepend metadata to content
-    if (title) {
-      content = `Title: ${title}\n\n${content}`;
-    }
-    if (description) {
-      content = `Description: ${description}\n\n${content}`;
-    }
+      // Prepend metadata to content
+      if (title) {
+        content = `Title: ${title}\n\n${content}`;
+      }
+      if (description) {
+        content = `Description: ${description}\n\n${content}`;
+      }
 
-    return content;
+      return content;
+    } catch (fetchError: any) {
+      clearTimeout(timeout);
+      if (fetchError.name === 'AbortError') {
+        throw new Error('Request timeout after 30 seconds');
+      }
+      throw fetchError;
+    }
   } catch (error) {
     console.error('Error fetching URL:', error);
     throw new Error(`Failed to fetch URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -218,17 +249,17 @@ async function storeChunks(itemId: number, chunks: ChunkData[]) {
       secretArn: DATABASE_SECRET_ARN,
       database: DATABASE_NAME,
       sql: 'DELETE FROM document_chunks WHERE item_id = :itemId',
-      parameters: [{ name: 'itemId', value: { longValue: itemId } }],
+      parameters: [createSqlParameter('itemId', itemId)],
     })
   );
   
   // Batch insert new chunks
-  const parameterSets = chunks.map(chunk => [
-    { name: 'itemId', value: { longValue: itemId } },
-    { name: 'content', value: { stringValue: chunk.content } },
-    { name: 'metadata', value: { stringValue: JSON.stringify(chunk.metadata) } },
-    { name: 'chunkIndex', value: { longValue: chunk.chunkIndex } },
-    { name: 'tokens', value: chunk.tokens ? { longValue: chunk.tokens } : { isNull: true } },
+  const parameterSets: SqlParameter[][] = chunks.map(chunk => [
+    createSqlParameter('itemId', itemId),
+    createSqlParameter('content', chunk.content),
+    createSqlParameter('metadata', JSON.stringify(chunk.metadata)),
+    createSqlParameter('chunkIndex', chunk.chunkIndex),
+    createSqlParameter('tokens', chunk.tokens ?? null),
   ]);
   
   // BatchExecuteStatement has a limit of 25 parameter sets

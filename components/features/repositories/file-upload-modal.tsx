@@ -118,14 +118,25 @@ export function FileUploadModal({
   async function onDocumentSubmit(data: z.infer<typeof documentSchema>) {
     const file = data.file[0]
     const buffer = await file.arrayBuffer()
+    
+    // Convert to base64 string for serialization
+    const uint8Array = new Uint8Array(buffer)
+    let binary = ''
+    const chunkSize = 0x8000 // Process in 32KB chunks to avoid call stack issues
+    for (let i = 0; i < uint8Array.length; i += chunkSize) {
+      const chunk = uint8Array.subarray(i, i + chunkSize)
+      binary += String.fromCharCode.apply(null, Array.from(chunk))
+    }
+    const base64 = btoa(binary)
 
     const result = await executeAddDocument({
       repository_id: repositoryId,
       name: data.name,
       file: {
-        content: Buffer.from(buffer),
+        content: base64,
         contentType: file.type,
         size: file.size,
+        fileName: file.name,
       },
     })
 
@@ -246,12 +257,14 @@ export function FileUploadModal({
                 <FormField
                   control={documentForm.control}
                   name="file"
+                  // eslint-disable-next-line @typescript-eslint/no-unused-vars
                   render={({ field: { onChange, value, ...field } }) => (
                     <FormItem>
                       <FormLabel>File</FormLabel>
                       <FormControl>
                         <Input
                           {...field}
+                          value={undefined}
                           type="file"
                           accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.csv"
                           onChange={(e) => onChange(e.target.files)}

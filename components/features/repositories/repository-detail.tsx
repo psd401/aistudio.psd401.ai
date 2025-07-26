@@ -62,14 +62,14 @@ export function RepositoryDetail({ repository }: RepositoryDetailProps) {
                 <dt className="text-sm font-medium text-muted-foreground">
                   Owner
                 </dt>
-                <dd className="mt-1 text-sm">{repository.owner_name}</dd>
+                <dd className="mt-1 text-sm">{repository.ownerName || "-"}</dd>
               </div>
               <div>
                 <dt className="text-sm font-medium text-muted-foreground">
                   Visibility
                 </dt>
                 <dd className="mt-1">
-                  {repository.is_public ? (
+                  {repository.isPublic ? (
                     <Badge variant="outline" className="gap-1">
                       <Globe className="h-3 w-3" />
                       Public
@@ -87,7 +87,7 @@ export function RepositoryDetail({ repository }: RepositoryDetailProps) {
                   Created
                 </dt>
                 <dd className="mt-1 text-sm">
-                  {repository.created_at ? format(new Date(repository.created_at), "PPP") : "-"}
+                  {repository.createdAt ? format(new Date(repository.createdAt), "PPP") : "-"}
                 </dd>
               </div>
               <div>
@@ -95,7 +95,7 @@ export function RepositoryDetail({ repository }: RepositoryDetailProps) {
                   Last Updated
                 </dt>
                 <dd className="mt-1 text-sm">
-                  {repository.updated_at ? format(new Date(repository.updated_at), "PPP") : "-"}
+                  {repository.updatedAt ? format(new Date(repository.updatedAt), "PPP") : "-"}
                 </dd>
               </div>
             </dl>

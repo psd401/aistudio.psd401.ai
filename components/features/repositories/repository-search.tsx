@@ -19,7 +19,7 @@ export function RepositorySearch({ repositoryId }: RepositorySearchProps) {
   const [query, setQuery] = useState("")
   const [results, setResults] = useState<{
     items: RepositoryItem[]
-    chunks: (RepositoryItemChunk & { item_name: string })[]
+    chunks: (RepositoryItemChunk & { itemName: string })[]
   } | null>(null)
 
   const { execute: executeSearch, isPending: isLoading } = useAction(
@@ -33,7 +33,7 @@ export function RepositorySearch({ repositoryId }: RepositorySearchProps) {
 
     const result = await executeSearch({ repositoryId, query })
     if (result.isSuccess && result.data) {
-      setResults(result.data as { items: RepositoryItem[]; chunks: (RepositoryItemChunk & { item_name: string })[] })
+      setResults(result.data as { items: RepositoryItem[]; chunks: (RepositoryItemChunk & { itemName: string })[] })
     }
   }
 
@@ -128,10 +128,10 @@ export function RepositorySearch({ repositoryId }: RepositorySearchProps) {
                     <div key={chunk.id} className="p-4 rounded-lg border">
                       <div className="flex items-center justify-between mb-2">
                         <div className="text-sm font-medium">
-                          {chunk.item_name}
+                          {chunk.itemName}
                         </div>
                         <Badge variant="outline">
-                          Chunk {chunk.chunk_index + 1}
+                          Chunk {chunk.chunkIndex + 1}
                         </Badge>
                       </div>
                       <div className="text-sm text-muted-foreground line-clamp-3">

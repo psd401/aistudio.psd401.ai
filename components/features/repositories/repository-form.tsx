@@ -49,7 +49,7 @@ export function RepositoryForm({ repository }: RepositoryFormProps) {
     defaultValues: {
       name: repository?.name || "",
       description: repository?.description || "",
-      is_public: repository?.is_public || false,
+      is_public: repository?.isPublic || false,
     },
   })
 
