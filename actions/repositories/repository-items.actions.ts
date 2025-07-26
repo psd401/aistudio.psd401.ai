@@ -9,6 +9,7 @@ import { createError } from "@/lib/error-utils"
 import { revalidatePath } from "next/cache"
 import { uploadDocument, deleteDocument } from "@/lib/aws/s3-client"
 import { createJobAction } from "@/actions/db/jobs-actions"
+import { queueFileForProcessing, processUrl } from "@/lib/services/file-processing-service"
 
 export interface RepositoryItem {
   id: number
@@ -110,16 +111,18 @@ export async function addDocumentItem(
 
     const item = result[0]
 
-    // Create a job to process the document
-    await createJobAction({
-      userId: userId,
-      type: 'process_repository_document',
-      input: JSON.stringify({
-        item_id: item.id,
-        s3_key: key,
-        content_type: input.file.contentType
-      })
-    })
+    // Queue the document for processing
+    try {
+      await queueFileForProcessing(
+        item.id,
+        key,
+        input.name,
+        input.file.contentType
+      )
+    } catch (error) {
+      console.error("Failed to queue file for processing:", error)
+      // Don't fail the upload if queueing fails, just log it
+    }
 
     revalidatePath(`/admin/repositories/${input.repository_id}`)
     return { isSuccess: true, message: "Document uploaded successfully", data: item }
@@ -172,15 +175,17 @@ export async function addUrlItem(
 
     const item = result[0]
 
-    // Create a job to process the URL
-    await createJobAction({
-      userId: userId,
-      type: 'process_repository_url',
-      input: JSON.stringify({
-        item_id: item.id,
-        url: input.url
-      })
-    })
+    // Process the URL
+    try {
+      await processUrl(
+        item.id,
+        input.url,
+        input.name
+      )
+    } catch (error) {
+      console.error("Failed to process URL:", error)
+      // Don't fail the creation if processing fails, just log it
+    }
 
     revalidatePath(`/admin/repositories/${input.repository_id}`)
     return { isSuccess: true, message: "URL added successfully", data: item }
@@ -222,7 +227,7 @@ export async function addTextItem(
     // Add the chunk in a second transaction call
     await executeTransaction([
       {
-        sql: `INSERT INTO repository_item_chunks (item_id, content, chunk_index, metadata)
+        sql: `INSERT INTO document_chunks (item_id, content, chunk_index, metadata)
               VALUES (:item_id, :content, 0, :metadata::jsonb)`,
         parameters: [
           { name: "item_id", value: { longValue: itemId } },

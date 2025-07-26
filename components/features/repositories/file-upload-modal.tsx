@@ -246,7 +246,7 @@ export function FileUploadModal({
                 <FormField
                   control={documentForm.control}
                   name="file"
-                  render={({ field: { onChange, ...field } }) => (
+                  render={({ field: { onChange, value, ...field } }) => (
                     <FormItem>
                       <FormLabel>File</FormLabel>
                       <FormControl>

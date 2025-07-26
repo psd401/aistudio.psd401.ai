@@ -1,0 +1,14 @@
+{
+  "name": "processing-layer",
+  "version": "1.0.0",
+  "description": "Shared dependencies for file processing Lambda functions",
+  "dependencies": {
+    "pdf-parse": "^1.1.1",
+    "mammoth": "^1.6.0",
+    "xlsx": "^0.18.5",
+    "csv-parse": "^5.5.3",
+    "cheerio": "^1.0.0-rc.12",
+    "marked": "^11.1.1",
+    "node-fetch": "^3.3.2"
+  }
+}
