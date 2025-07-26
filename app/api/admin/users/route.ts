@@ -16,9 +16,9 @@ export async function GET() {
     
     // Group roles by userId
     const rolesByUser = userRoles.reduce((acc, role) => {
-      const userId = Number(role.user_id);
+      const userId = Number(role.userId);
       acc[userId] = acc[userId] || [];
-      acc[userId].push(String(role.role_name));
+      acc[userId].push(String(role.roleName));
       return acc;
     }, {} as Record<number, string[]>);
     
