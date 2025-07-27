@@ -139,6 +139,38 @@ interface EmbeddingMessage {
   texts: string[]
 }
 
+// Retry utility with exponential backoff
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): Promise<T> {
+  let lastError: any;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      
+      // Don't retry on non-retryable errors
+      if (error instanceof Error && 
+          (error.message.includes('Invalid API key') || 
+           error.message.includes('quota exceeded'))) {
+        throw error;
+      }
+      
+      if (attempt < maxRetries - 1) {
+        const delay = baseDelay * Math.pow(2, attempt);
+        console.log(`Retry attempt ${attempt + 1} after ${delay}ms delay`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  
+  throw lastError;
+}
+
 export async function handler(event: SQSEvent) {
   console.log('Processing embedding requests:', event.Records.length)
 
@@ -160,8 +192,12 @@ async function processRecord(record: SQSRecord, settings: any) {
   console.log(`Processing embeddings for item ${message.itemId} with ${message.chunkIds.length} chunks`)
 
   try {
-    // Generate embeddings
-    const embeddings = await generateEmbeddings(message.texts, settings)
+    // Generate embeddings with retry logic
+    const embeddings = await retryWithBackoff(
+      () => generateEmbeddings(message.texts, settings),
+      3, // max retries
+      2000 // base delay of 2 seconds
+    )
 
     // Update chunks with embeddings
     for (let i = 0; i < message.chunkIds.length; i++) {
