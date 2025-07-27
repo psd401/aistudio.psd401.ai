@@ -39,54 +39,13 @@ export async function handler(event: CustomResourceEvent): Promise<any> {
   const { ClusterArn, SecretArn, DatabaseName, Environment } = event.ResourceProperties;
 
   try {
-    // First, check if the database has already been initialized
-    const isInitialized = await checkIfInitialized(ClusterArn, SecretArn, DatabaseName);
+    // Skip all database initialization - schema is managed manually
+    console.log('Database initialization skipped - schema is managed manually');
     
-    if (isInitialized) {
-      console.log('Database already initialized, skipping initialization');
-      return {
-        PhysicalResourceId: 'db-init',
-        Status: 'SUCCESS',
-        Reason: 'Database already initialized'
-      };
-    }
-
-    console.log('Starting database initialization...');
-    
-    // Execute each SQL file in order
-    for (const sqlFile of SQL_FILES) {
-      console.log(`Executing ${sqlFile}...`);
-      const sql = await getSqlContent(sqlFile);
-      
-      // Split SQL into individual statements (handling multi-line statements)
-      const statements = splitSqlStatements(sql);
-      
-      for (const statement of statements) {
-        if (statement.trim()) {
-          try {
-            await executeSql(ClusterArn, SecretArn, DatabaseName, statement);
-          } catch (error: any) {
-            // Log error but continue if it's a "already exists" type error
-            if (error.message?.includes('already exists') || 
-                error.message?.includes('duplicate key')) {
-              console.log(`Skipping (already exists): ${error.message}`);
-            } else {
-              throw error;
-            }
-          }
-        }
-      }
-      
-      console.log(`Completed ${sqlFile}`);
-    }
-
-    // Mark database as initialized
-    await markAsInitialized(ClusterArn, SecretArn, DatabaseName);
-
     return {
       PhysicalResourceId: 'db-init',
-      Status: 'SUCCESS',
-      Reason: 'Database initialized successfully'
+      Status: 'SUCCESS', 
+      Reason: 'Database initialization skipped - managed manually'
     };
 
   } catch (error) {
@@ -99,44 +58,7 @@ export async function handler(event: CustomResourceEvent): Promise<any> {
   }
 }
 
-async function checkIfInitialized(
-  clusterArn: string,
-  secretArn: string,
-  database: string
-): Promise<boolean> {
-  try {
-    // Check if the migration_log table exists and has the init record
-    const result = await executeSql(
-      clusterArn,
-      secretArn,
-      database,
-      `SELECT COUNT(*) as count FROM migration_log WHERE migration_name = 'initial-schema'`
-    );
-    
-    return result.records && result.records.length > 0 && 
-           result.records[0][0].longValue > 0;
-  } catch (error: any) {
-    // If the table doesn't exist, database is not initialized
-    if (error.message?.includes('does not exist')) {
-      return false;
-    }
-    throw error;
-  }
-}
-
-async function markAsInitialized(
-  clusterArn: string,
-  secretArn: string,
-  database: string
-): Promise<void> {
-  await executeSql(
-    clusterArn,
-    secretArn,
-    database,
-    `INSERT INTO migration_log (migration_name, execution_time_ms, success) 
-     VALUES ('initial-schema', 0, true)`
-  );
-}
+// Removed migration checking functions - database schema is managed manually
 
 async function executeSql(
   clusterArn: string,

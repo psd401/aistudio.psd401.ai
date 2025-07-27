@@ -60,7 +60,7 @@ export function SearchResults({ results, query, isLoading }: SearchResultsProps)
     const parts = text.split(new RegExp(`(${query})`, 'gi'))
     return parts.map((part, i) => 
       part.toLowerCase() === query.toLowerCase() ? 
-        <mark key={i} className="bg-yellow-200 dark:bg-yellow-800">{part}</mark> : 
+        <mark key={`highlight-${i}-${part}`} className="bg-yellow-200 dark:bg-yellow-800">{part}</mark> : 
         part
     )
   }
@@ -89,9 +89,9 @@ export function SearchResults({ results, query, isLoading }: SearchResultsProps)
         Found {results.length} result{results.length !== 1 ? 's' : ''}
       </div>
 
-      {results.map((result) => (
+      {results.map((result, index) => (
         <Card 
-          key={`${result.itemId}-${result.chunkId}`}
+          key={`${result.itemId}-${result.chunkId}-${index}`}
           className={cn(
             "transition-colors hover:bg-muted/50",
             result.similarity > 0.9 && "border-green-500/50",
