@@ -53,7 +53,7 @@ const nextConfig = {
   },
   experimental: {
     serverActions: {
-      bodySizeLimit: '10mb',
+      bodySizeLimit: '100mb', // Match the file upload limit from settings
       // Increase the timeout for server actions
       timeout: 300
     },
