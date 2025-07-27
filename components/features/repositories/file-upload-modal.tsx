@@ -33,7 +33,7 @@ import {
 import { FileText, Link, Type, Upload, Loader2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 
-const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB
+const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100MB - matches server settings
 const ACCEPTED_FILE_TYPES = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -272,7 +272,7 @@ export function FileUploadModal({
                       </FormControl>
                       <FormDescription>
                         Supported: PDF, Word, Excel, PowerPoint, Text, Markdown,
-                        CSV (max 25MB)
+                        CSV (max 100MB)
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
