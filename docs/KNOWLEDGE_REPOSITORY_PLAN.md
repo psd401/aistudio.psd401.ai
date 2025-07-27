@@ -42,6 +42,15 @@ Building a comprehensive knowledge repository system with document processing, e
 - [x] Error handling and NaN fixes
 - [x] End-to-end testing successful
 
+#### OCR Support (Added in Phase 3)
+- [x] AWS Textract integration for scanned PDFs
+- [x] Automatic detection of PDFs requiring OCR
+- [x] Textract job management with SNS notifications
+- [x] Free tier usage tracking (1,000 pages/month)
+- [x] Processing status indicators for OCR
+- [x] Error handling for OCR failures
+- [x] Database tables for Textract job tracking
+
 #### Optional Future Enhancements
 - [ ] Backfill embeddings for existing content
 - [ ] Add embedding model comparison
@@ -66,9 +75,10 @@ Building a comprehensive knowledge repository system with document processing, e
 
 ### Current Implementation
 - **Storage**: AWS S3 for documents
-- **Database**: PostgreSQL with array support for vectors
+- **Database**: PostgreSQL with pgvector extension for similarity search
 - **Processing**: AWS Lambda + SQS for async processing
-- **Embeddings**: OpenAI text-embedding-ada-002 (configurable)
+- **Embeddings**: OpenAI text-embedding-3-small (configurable)
+- **OCR**: AWS Textract for scanned documents
 - **Frontend**: Next.js with Server Actions
 - **Infrastructure**: AWS CDK for IaC
 
@@ -82,38 +92,51 @@ Building a comprehensive knowledge repository system with document processing, e
 ### What's Working
 - ✅ Complete document upload and processing pipeline
 - ✅ Text extraction from multiple file formats
+- ✅ OCR support for scanned PDFs via AWS Textract
 - ✅ Intelligent text chunking
 - ✅ Embedding generation with multiple AI providers
 - ✅ Proper status tracking through the entire pipeline
 - ✅ Error handling and retry mechanisms
 - ✅ UI real-time updates
-- ✅ Vector similarity search with cosine similarity
+- ✅ Vector similarity search with pgvector
 - ✅ Keyword search with PostgreSQL full-text
 - ✅ Hybrid search with configurable weights
 - ✅ Advanced search UI with multiple options
 
 ### Recent Achievements
-- Implemented complete search infrastructure
+- Implemented complete search infrastructure with pgvector
 - Created intuitive search UI with advanced options
+- Added AWS Textract OCR support for scanned documents
 - Fixed NaN display issues in search results
 - Successfully tested semantic, keyword, and hybrid search
 - Achieved sub-second search performance
 - Search results show relevance scores and highlighted matches
+- Implemented free tier usage tracking for Textract
+- Fixed file upload limits and navigation errors
 
 ### Phase 3 Completion
-All core search functionality is now operational:
+All core search and OCR functionality is now operational:
 - Users can search repositories using natural language
 - System finds semantically similar content even without exact matches
 - Hybrid mode balances semantic understanding with keyword precision
 - Clean, responsive UI provides excellent user experience
+- OCR automatically processes scanned PDFs for searchable content
+- Processing status indicators show real-time progress
+- Comprehensive error handling and recovery mechanisms
 
 ## Notes
-- Phase 3 completed as of 2025-07-26
-- Embedding infrastructure fully operational
-- Using OpenAI text-embedding-ada-002 (1536 dimensions)
+- Phase 3 completed as of 2025-07-27
+- Embedding infrastructure fully operational with pgvector
+- Using OpenAI text-embedding-3-small (1536 dimensions)
+- OCR support via AWS Textract for scanned documents
 - Search functionality tested and working:
-  - Vector similarity search using cosine similarity
+  - Vector similarity search using pgvector
   - Keyword search using PostgreSQL full-text search
   - Hybrid search with configurable semantic/keyword weights
 - Performance: Sub-second search responses
+- Free tier tracking for Textract (1,000 pages/month)
+- Fixed critical bugs:
+  - File upload body size limit (10MB → 100MB)
+  - Navigation API column errors
+  - React duplicate key warnings
 - Ready for Phase 4: Tool Integration
