@@ -211,7 +211,12 @@ async function streamToBuffer(stream: Readable): Promise<Buffer> {
 }
 
 // Text extraction functions for different file types
-async function extractTextFromPDF(buffer: Buffer): Promise<string | null> {
+interface PDFExtractionResult {
+  text: string | null;
+  pageCount: number;
+}
+
+async function extractTextFromPDF(buffer: Buffer): Promise<PDFExtractionResult> {
   try {
     console.log(`Attempting to parse PDF, buffer size: ${buffer.length} bytes`);
     
@@ -220,24 +225,23 @@ async function extractTextFromPDF(buffer: Buffer): Promise<string | null> {
     console.log(`PDF parsed successfully, text length: ${data.text?.length || 0} characters`);
     console.log(`PDF info - pages: ${data.numpages}, version: ${data.version}`);
     
-    // Store page count for later use if OCR is needed
-    (pdfParse as any).lastPageCount = data.numpages || 1;
+    const pageCount = data.numpages || 1;
     
     // If no text extracted, it might be a scanned PDF
     if (!data.text || data.text.trim().length === 0) {
       console.warn('No text found in PDF - it might be a scanned image PDF');
       // Return null to indicate OCR is needed
-      return null;
+      return { text: null, pageCount };
     }
     
     // Also check if extracted text is suspiciously short for the number of pages
-    const avgCharsPerPage = data.text.length / (data.numpages || 1);
-    if (avgCharsPerPage < 100 && data.numpages > 1) {
-      console.warn(`Suspiciously low text content: ${avgCharsPerPage} chars/page for ${data.numpages} pages`);
-      return null;
+    const avgCharsPerPage = data.text.length / pageCount;
+    if (avgCharsPerPage < 100 && pageCount > 1) {
+      console.warn(`Suspiciously low text content: ${avgCharsPerPage} chars/page for ${pageCount} pages`);
+      return { text: null, pageCount };
     }
     
-    return data.text;
+    return { text: data.text, pageCount };
   } catch (error) {
     console.error('PDF parsing error:', error);
     // Try a more basic extraction as fallback
@@ -245,12 +249,14 @@ async function extractTextFromPDF(buffer: Buffer): Promise<string | null> {
       const basicData = await pdfParse(buffer);
       if (basicData.text) {
         console.log('Basic extraction succeeded');
-        return basicData.text;
+        return { text: basicData.text, pageCount: basicData.numpages || 1 };
       }
     } catch (fallbackError) {
       console.error('Fallback PDF parsing also failed:', fallbackError);
     }
-    throw new Error(`Failed to parse PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    // Return null text to trigger OCR
+    console.error(`Failed to parse PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    return { text: null, pageCount: 1 };
   }
 }
 
@@ -289,22 +295,32 @@ async function extractTextFromMarkdown(buffer: Buffer): Promise<string> {
   return html.replace(/<[^>]*>/g, '').trim();
 }
 
+// Result type for text extraction
+interface TextExtractionResult {
+  text: string | null;
+  pageCount?: number;
+}
+
 // Main text extraction dispatcher
-async function extractText(buffer: Buffer, fileType: string): Promise<string | null> {
+async function extractText(buffer: Buffer, fileType: string): Promise<TextExtractionResult> {
   const lowerType = fileType.toLowerCase();
   
   if (lowerType.includes('pdf')) {
     return extractTextFromPDF(buffer);
   } else if (lowerType.includes('word') || lowerType.endsWith('.docx')) {
-    return extractTextFromDOCX(buffer);
+    const text = await extractTextFromDOCX(buffer);
+    return { text };
   } else if (lowerType.includes('sheet') || lowerType.endsWith('.xlsx') || lowerType.endsWith('.xls')) {
-    return extractTextFromExcel(buffer);
+    const text = await extractTextFromExcel(buffer);
+    return { text };
   } else if (lowerType.endsWith('.csv')) {
-    return extractTextFromCSV(buffer);
+    const text = await extractTextFromCSV(buffer);
+    return { text };
   } else if (lowerType.endsWith('.md') || lowerType.includes('markdown')) {
-    return extractTextFromMarkdown(buffer);
+    const text = await extractTextFromMarkdown(buffer);
+    return { text };
   } else if (lowerType.endsWith('.txt') || lowerType.includes('text')) {
-    return buffer.toString();
+    return { text: buffer.toString() };
   } else {
     throw new Error(`Unsupported file type: ${fileType}`);
   }
@@ -442,14 +458,15 @@ async function processFile(job: ProcessingJob) {
     console.log(`Downloaded ${buffer.length} bytes from S3`);
     
     // Extract text
-    let text = await extractText(buffer, job.fileType);
+    const extractionResult = await extractText(buffer, job.fileType);
+    let text = extractionResult.text;
     
     // Check if this is a PDF that needs OCR
     if (text === null && job.fileType.toLowerCase().includes('pdf')) {
       console.log('PDF needs OCR processing, starting Textract job...');
       
-      // Get page count from previous PDF parsing attempt
-      const pageCount = (pdfParse as any).lastPageCount || 1;
+      // Use page count from extraction result
+      const pageCount = extractionResult.pageCount || 1;
       
       const textractJobId = await startTextractJob(
         job.bucketName,

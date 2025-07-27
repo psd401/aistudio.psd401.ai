@@ -45,9 +45,6 @@ export async function vectorSearch(
   // Generate embedding for the query
   const queryEmbedding = await generateEmbedding(query)
   
-  // Convert to PostgreSQL array format
-  const embeddingStr = `{${queryEmbedding.join(',')}}`
-  
   // Build the SQL query
   let sql = `
     WITH query_vec AS (

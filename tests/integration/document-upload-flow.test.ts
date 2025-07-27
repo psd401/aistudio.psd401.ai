@@ -6,6 +6,11 @@ import { POST as chatAPI } from '@/app/api/chat/route';
 import { POST as linkAPI } from '@/app/api/documents/link/route';
 import { NextRequest } from 'next/server';
 
+// Add TextEncoder/TextDecoder polyfills for Node.js test environment
+import { TextEncoder, TextDecoder } from 'util';
+global.TextEncoder = TextEncoder;
+global.TextDecoder = TextDecoder as any;
+
 // Mock all dependencies
 jest.mock('@/lib/auth/server-session');
 jest.mock('@/actions/db/get-current-user-action');

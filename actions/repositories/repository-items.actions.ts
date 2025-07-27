@@ -239,7 +239,7 @@ export async function addTextItem(
     // Add the chunk in a second transaction call
     await executeTransaction([
       {
-        sql: `INSERT INTO document_chunks (item_id, content, chunk_index, metadata)
+        sql: `INSERT INTO repository_item_chunks (item_id, content, chunk_index, metadata)
               VALUES (:item_id, :content, 0, :metadata::jsonb)`,
         parameters: [
           { name: "item_id", value: { longValue: itemId } },

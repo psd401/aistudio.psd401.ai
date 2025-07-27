@@ -34,7 +34,7 @@ global.File = MockFile as any;
 
 describe('POST /api/documents/upload', () => {
   const mockUserId = 'user-123';
-  const mockSession = { user: { id: mockUserId } };
+  const mockSession = { sub: mockUserId, email: 'test@example.com' };
   const mockUser = {
     isSuccess: true,
     data: { user: { id: mockUserId } },
