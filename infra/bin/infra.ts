@@ -5,6 +5,7 @@ import { DatabaseStack } from '../lib/database-stack';
 import { AuthStack } from '../lib/auth-stack';
 import { StorageStack } from '../lib/storage-stack';
 import { FrontendStack } from '../lib/frontend-stack';
+import { ProcessingStack } from '../lib/processing-stack';
 import { SecretValue } from 'aws-cdk-lib';
 
 const app = new cdk.App();
@@ -83,6 +84,18 @@ const devStorageStack = new StorageStack(app, 'AIStudio-StorageStack-Dev', {
 cdk.Tags.of(devStorageStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devStorageStack).add(key, value));
 
+const devProcessingStack = new ProcessingStack(app, 'AIStudio-ProcessingStack-Dev', {
+  environment: 'dev',
+  documentsBucketName: devStorageStack.documentsBucketName,
+  databaseResourceArn: devDbStack.databaseResourceArn,
+  databaseSecretArn: devDbStack.databaseSecretArn,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+devProcessingStack.addDependency(devStorageStack);
+devProcessingStack.addDependency(devDbStack);
+cdk.Tags.of(devProcessingStack).add('Environment', 'Dev');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devProcessingStack).add(key, value));
+
 // Remove the isSynthOrDeploy conditional and always instantiate FrontendStack(s) if baseDomain is present
 if (baseDomain) {
   const devFrontendStack = new FrontendStack(app, 'AIStudio-FrontendStack-Dev', {
@@ -133,6 +146,18 @@ const prodStorageStack = new StorageStack(app, 'AIStudio-StorageStack-Prod', {
 });
 cdk.Tags.of(prodStorageStack).add('Environment', 'Prod');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodStorageStack).add(key, value));
+
+const prodProcessingStack = new ProcessingStack(app, 'AIStudio-ProcessingStack-Prod', {
+  environment: 'prod',
+  documentsBucketName: prodStorageStack.documentsBucketName,
+  databaseResourceArn: prodDbStack.databaseResourceArn,
+  databaseSecretArn: prodDbStack.databaseSecretArn,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+prodProcessingStack.addDependency(prodStorageStack);
+prodProcessingStack.addDependency(prodDbStack);
+cdk.Tags.of(prodProcessingStack).add('Environment', 'Prod');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodProcessingStack).add(key, value));
 
 new InfraStack(app, 'AIStudio-InfraStack', {
   /* If you don't specify 'env', this stack will be environment-agnostic.

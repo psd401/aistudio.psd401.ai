@@ -292,21 +292,4 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Migration log table: Track database migrations
-CREATE TABLE IF NOT EXISTS migration_log (
-    id SERIAL PRIMARY KEY,
-    migration_name VARCHAR(255) NOT NULL,
-    executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    execution_time_ms INTEGER,
-    success BOOLEAN DEFAULT true,
-    error_message TEXT
-);
-
--- Migration mappings table: Track ID mappings during migrations
-CREATE TABLE IF NOT EXISTS migration_mappings (
-    table_name VARCHAR(100) NOT NULL,
-    old_id TEXT NOT NULL,
-    new_id INTEGER NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    PRIMARY KEY (table_name, old_id)
-);
+-- Migration tables removed - database schema is managed manually

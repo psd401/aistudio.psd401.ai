@@ -27,6 +27,8 @@ This project provisions all core infrastructure using AWS CDK, following the AWS
 - Type-safe database operations with RDS Data API
 - AI-powered chat and utilities
 - Document management with S3 integration
+- Knowledge repository with embedding generation and vector search
+- Asynchronous file processing with text extraction and chunking
 - Test-driven development setup
 
 ## Getting Started

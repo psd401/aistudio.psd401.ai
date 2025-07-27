@@ -15,6 +15,7 @@ This directory contains all technical documentation for the AIStudio project.
 
 ### Features & Implementation
 - **[AI_IMPROVEMENTS.md](./AI_IMPROVEMENTS.md)** - AI capabilities and improvement roadmap
+- **[FILE_UPLOAD_ENHANCEMENT_PLAN.md](./FILE_UPLOAD_ENHANCEMENT_PLAN.md)** - Knowledge repository and file processing system (Phases 1-2 complete)
 - **[project-plan-s3-large-uploads.md](./project-plan-s3-large-uploads.md)** - Large file upload implementation plan
 
 ### Archive

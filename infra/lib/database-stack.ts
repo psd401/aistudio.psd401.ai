@@ -14,6 +14,9 @@ export interface DatabaseStackProps extends cdk.StackProps {
 }
 
 export class DatabaseStack extends cdk.Stack {
+  public readonly databaseResourceArn: string;
+  public readonly databaseSecretArn: string;
+  
   constructor(scope: Construct, id: string, props: DatabaseStackProps) {
     super(scope, id, props);
 
@@ -200,6 +203,10 @@ export class DatabaseStack extends cdk.Stack {
       description: 'Aurora cluster reader endpoint',
       exportName: `${props.environment}-ClusterReaderEndpoint`,
     });
+    
+    // Store ARNs for use by other stacks
+    this.databaseResourceArn = cluster.clusterArn;
+    this.databaseSecretArn = dbSecret.secretArn;
     
     new cdk.CfnOutput(this, 'ClusterArn', {
       value: cluster.clusterArn,

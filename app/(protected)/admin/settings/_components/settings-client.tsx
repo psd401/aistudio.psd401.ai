@@ -189,6 +189,10 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
       title: "External Services",
       description: "API keys and configuration for external integrations"
     },
+    embeddings: {
+      title: "Embeddings",
+      description: "Configuration for embedding generation and vector search"
+    },
     uncategorized: {
       title: "Other",
       description: "Uncategorized settings"
