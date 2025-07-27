@@ -58,6 +58,16 @@ export interface AddTextInput {
   content: string
 }
 
+// Sanitize filename to prevent directory traversal and other security issues
+function sanitizeFilename(filename: string): string {
+  // Remove any directory components and special characters
+  return filename
+    .replace(/[^a-zA-Z0-9.-]/g, '_') // Replace special chars with underscore
+    .replace(/\.{2,}/g, '.') // Replace multiple dots with single dot
+    .replace(/^\.+|\.+$/g, '') // Remove leading/trailing dots
+    .slice(0, 255); // Limit length
+}
+
 export async function addDocumentItem(
   input: AddDocumentInput
 ): Promise<ActionState<RepositoryItem>> {
@@ -68,6 +78,18 @@ export async function addDocumentItem(
     }
 
     await requireRole("administrator")
+    
+    // Validate and sanitize inputs
+    if (!input.name || input.name.trim().length === 0) {
+      return { isSuccess: false, message: "Name is required" }
+    }
+    
+    if (!input.file || !input.file.content) {
+      return { isSuccess: false, message: "File content is required" }
+    }
+    
+    // Sanitize the filename
+    const sanitizedFilename = sanitizeFilename(input.file.fileName || input.name);
 
     // Get the user ID from the cognito_sub
     const userResult = await executeSQL<{ id: number }>(
@@ -94,7 +116,7 @@ export async function addDocumentItem(
     // Upload to S3
     const { key, url } = await uploadDocument({
       userId: userId.toString(),
-      fileName: input.file.fileName || input.name,
+      fileName: sanitizedFilename,
       fileContent,
       contentType: input.file.contentType,
       metadata: {
@@ -143,6 +165,16 @@ export async function addDocumentItem(
   }
 }
 
+// Validate URL to ensure it's a valid HTTP/HTTPS URL
+function validateUrl(url: string): boolean {
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 export async function addUrlItem(
   input: AddUrlInput
 ): Promise<ActionState<RepositoryItem>> {
@@ -153,6 +185,15 @@ export async function addUrlItem(
     }
 
     await requireRole("administrator")
+    
+    // Validate inputs
+    if (!input.name || input.name.trim().length === 0) {
+      return { isSuccess: false, message: "Name is required" }
+    }
+    
+    if (!input.url || !validateUrl(input.url)) {
+      return { isSuccess: false, message: "Valid HTTP/HTTPS URL is required" }
+    }
 
     // Get the user ID from the cognito_sub
     const userResult = await executeSQL<{ id: number }>(

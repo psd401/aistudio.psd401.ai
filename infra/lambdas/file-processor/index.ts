@@ -546,6 +546,18 @@ async function processFile(job: ProcessingJob) {
   }
 }
 
+// Validate S3 key to prevent path traversal attacks
+function validateS3Key(key: string): boolean {
+  // Reject keys with path traversal patterns
+  if (key.includes('../') || key.includes('..\\') || key.startsWith('/')) {
+    return false;
+  }
+  
+  // Ensure key matches expected pattern: repositories/{repoId}/{itemId}/{filename}
+  const validKeyPattern = /^repositories\/\d+\/\d+\/[^/]+$/;
+  return validKeyPattern.test(key);
+}
+
 // Lambda handler
 export async function handler(event: SQSEvent) {
   console.log('Received SQS event:', JSON.stringify(event, null, 2));
@@ -553,6 +565,13 @@ export async function handler(event: SQSEvent) {
   for (const record of event.Records) {
     try {
       const job: ProcessingJob = JSON.parse(record.body);
+      
+      // Validate file key before processing
+      if (!validateS3Key(job.fileKey)) {
+        console.error(`Invalid S3 key detected: ${job.fileKey}`);
+        throw new Error(`Invalid S3 key: ${job.fileKey}`);
+      }
+      
       await processFile(job);
     } catch (error) {
       console.error('Failed to process record:', error);

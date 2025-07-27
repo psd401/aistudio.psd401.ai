@@ -7,6 +7,8 @@ const rdsClient = new RDSData({})
 
 // Get settings from environment or database
 async function getEmbeddingSettings() {
+  // TODO: Consider migrating API keys to AWS Secrets Manager instead of database storage
+  // This would provide better security through encryption at rest and access control
   const result = await rdsClient.executeStatement({
     resourceArn: process.env.DB_CLUSTER_ARN!,
     secretArn: process.env.DB_SECRET_ARN!,
