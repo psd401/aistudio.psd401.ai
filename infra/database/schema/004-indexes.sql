@@ -1,5 +1,5 @@
 -- 004-indexes.sql: Create performance indexes
--- This file creates indexes to optimize query performance
+-- This file creates indexes based on ACTUAL table columns
 
 -- Users table indexes
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -54,3 +54,20 @@ CREATE INDEX IF NOT EXISTS idx_ideas_created_at ON ideas(created_at);
 -- Settings indexes
 CREATE INDEX IF NOT EXISTS idx_settings_key ON settings(key);
 CREATE INDEX IF NOT EXISTS idx_settings_category ON settings(category);
+
+-- Assistant architects indexes
+CREATE INDEX IF NOT EXISTS idx_assistant_architects_user_id ON assistant_architects(user_id);
+CREATE INDEX IF NOT EXISTS idx_assistant_architects_status ON assistant_architects(status);
+
+-- Chain prompts indexes
+CREATE INDEX IF NOT EXISTS idx_chain_prompts_assistant_architect_id ON chain_prompts(assistant_architect_id);
+CREATE INDEX IF NOT EXISTS idx_chain_prompts_position ON chain_prompts(position);
+
+-- Tool executions indexes
+CREATE INDEX IF NOT EXISTS idx_tool_executions_assistant_architect_id ON tool_executions(assistant_architect_id);
+CREATE INDEX IF NOT EXISTS idx_tool_executions_user_id ON tool_executions(user_id);
+CREATE INDEX IF NOT EXISTS idx_tool_executions_status ON tool_executions(status);
+
+-- Prompt results indexes
+CREATE INDEX IF NOT EXISTS idx_prompt_results_execution_id ON prompt_results(execution_id);
+CREATE INDEX IF NOT EXISTS idx_prompt_results_prompt_id ON prompt_results(prompt_id);

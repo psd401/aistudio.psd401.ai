@@ -10,19 +10,5 @@ CREATE TABLE IF NOT EXISTS textract_jobs (
 CREATE INDEX IF NOT EXISTS idx_textract_jobs_item_id ON textract_jobs(item_id);
 CREATE INDEX IF NOT EXISTS idx_textract_jobs_created_at ON textract_jobs(created_at);
 
--- Add new processing status for OCR (if not already added)
-DO $$ 
-BEGIN
-    -- Check if constraint already exists
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conname = 'check_processing_status_ocr'
-    ) THEN
-        ALTER TABLE repository_items 
-        DROP CONSTRAINT IF EXISTS repository_items_processing_status_check;
-        
-        ALTER TABLE repository_items 
-        ADD CONSTRAINT check_processing_status_ocr 
-        CHECK (processing_status IN ('pending', 'processing', 'processing_ocr', 'processing_embeddings', 'completed', 'embedded', 'failed', 'embedding_failed'));
-    END IF;
-END $$;
+-- The repository_items table already has the correct processing_status constraint
+-- that includes all the necessary statuses, so no modification needed
