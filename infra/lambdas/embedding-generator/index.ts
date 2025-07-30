@@ -173,6 +173,7 @@ async function retryWithBackoff<T>(
 
 export async function handler(event: SQSEvent) {
   console.log('Processing embedding requests:', event.Records.length)
+  // Updated: 2025-07-30 - Fixed embedding column name
 
   const settings = await getEmbeddingSettings()
 
@@ -205,13 +206,16 @@ async function processRecord(record: SQSRecord, settings: any) {
       const embedding = embeddings[i]
 
       // Store embedding as PostgreSQL array
-      const embeddingStr = `{${embedding.join(',')}}`
+      const embeddingStr = `[${embedding.join(',')}]`
+      
+      console.log(`Updating chunk ${chunkId} with embedding length: ${embedding.length}`)
+      console.log(`Embedding string preview: ${embeddingStr.substring(0, 50)}...`)
 
       await rdsClient.executeStatement({
         resourceArn: process.env.DB_CLUSTER_ARN!,
         secretArn: process.env.DB_SECRET_ARN!,
         database: process.env.DB_NAME || 'aistudio',
-        sql: 'UPDATE repository_item_chunks SET embedding_vector = :embedding::real[] WHERE id = :id',
+        sql: 'UPDATE repository_item_chunks SET embedding = :embedding::vector WHERE id = :id',
         parameters: [
           {
             name: 'embedding',

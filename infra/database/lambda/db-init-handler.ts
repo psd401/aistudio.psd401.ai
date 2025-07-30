@@ -52,7 +52,6 @@ export async function handler(event: CustomResourceEvent): Promise<any> {
   console.log('Handler version: 2024-07-28-v5 - Fixed 11_textract_jobs.sql constraint issue');
   
   // SAFETY CHECK: Log what mode we're in
-  const { ClusterArn, SecretArn, DatabaseName } = event.ResourceProperties;
   console.log(`🔍 Checking database state for safety...`);
 
   // Only run on Create or Update

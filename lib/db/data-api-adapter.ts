@@ -265,13 +265,13 @@ async function rollbackTransaction(transactionId: string) {
  */
 export async function getNavigationItems(activeOnly: boolean = false) {
   const sql = activeOnly ? `
-    SELECT id, label, icon, link, parent_id, description,
+    SELECT id, label, icon, link, parent_id, description, type,
            tool_id, requires_role, position, is_active, created_at
     FROM navigation_items 
     WHERE is_active = true 
     ORDER BY position ASC
   ` : `
-    SELECT id, label, icon, link, parent_id, description,
+    SELECT id, label, icon, link, parent_id, description, type,
            tool_id, requires_role, position, is_active, created_at
     FROM navigation_items 
     ORDER BY position ASC

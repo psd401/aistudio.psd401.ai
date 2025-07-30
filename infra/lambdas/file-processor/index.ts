@@ -553,9 +553,13 @@ function validateS3Key(key: string): boolean {
     return false;
   }
   
-  // Ensure key matches expected pattern: repositories/{repoId}/{itemId}/{filename}
-  const validKeyPattern = /^repositories\/\d+\/\d+\/[^/]+$/;
-  return validKeyPattern.test(key);
+  // Accept two valid patterns:
+  // 1. New format: repositories/{repoId}/{itemId}/{filename}
+  // 2. Legacy format: {userId}/{timestamp}-{filename}
+  const newFormatPattern = /^repositories\/\d+\/\d+\/[^/]+$/;
+  const legacyFormatPattern = /^\d+\/\d+-[^/]+$/;
+  
+  return newFormatPattern.test(key) || legacyFormatPattern.test(key);
 }
 
 // Lambda handler
