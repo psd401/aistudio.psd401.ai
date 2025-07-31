@@ -106,6 +106,33 @@ export class FrontendStack extends cdk.Stack {
                 `arn:aws:s3:::${props.documentsBucketName}`,
                 `arn:aws:s3:::${props.documentsBucketName}/*`
               ]
+            }),
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'sqs:SendMessage',
+                'sqs:GetQueueAttributes',
+                'sqs:GetQueueUrl'
+              ],
+              resources: ['*'] // TODO: Scope this down to specific queues
+            }),
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'lambda:InvokeFunction'
+              ],
+              resources: ['*'] // TODO: Scope this down to specific functions
+            }),
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'dynamodb:GetItem',
+                'dynamodb:PutItem',
+                'dynamodb:UpdateItem',
+                'dynamodb:Query',
+                'dynamodb:Scan'
+              ],
+              resources: ['*'] // TODO: Scope this down to specific tables
             })
           ]
         })
