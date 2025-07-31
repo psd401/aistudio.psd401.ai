@@ -6,7 +6,11 @@ import { Chat } from '@/app/(protected)/chat/_components/chat';
 import { toast } from '@/components/ui/use-toast';
 
 // Mock components
-jest.mock('@/components/ui/use-toast');
+jest.mock('@/components/ui/use-toast', () => ({
+  useToast: jest.fn(() => ({
+    toast: jest.fn()
+  }))
+}));
 jest.mock('@/app/(protected)/chat/_components/model-selector', () => ({
   ModelSelector: ({ onModelSelect }: any) => {
     React.useEffect(() => {

@@ -6,7 +6,9 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { NextRequest } from 'next/server';
 
 // Mock dependencies
-jest.mock('@/lib/auth/server-session');
+jest.mock('@/lib/auth/server-session', () => ({
+  getServerSession: jest.fn()
+}));
 jest.mock('@/actions/db/get-current-user-action');
 jest.mock('@/lib/aws/s3-client');
 jest.mock('@/lib/db/queries/documents');
