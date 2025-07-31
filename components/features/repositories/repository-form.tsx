@@ -76,7 +76,7 @@ export function RepositoryForm({ repository }: RepositoryFormProps) {
           title: "Repository updated",
           description: "Your changes have been saved.",
         })
-        router.push(`/admin/repositories/${repository.id}`)
+        router.push(`/repositories/${repository.id}`)
       } else {
         toast({
           title: "Error",
@@ -92,7 +92,7 @@ export function RepositoryForm({ repository }: RepositoryFormProps) {
           title: "Repository created",
           description: "Your repository has been created successfully.",
         })
-        router.push(`/admin/repositories/${(result.data as Repository).id}`)
+        router.push(`/repositories/${(result.data as Repository).id}`)
       } else {
         toast({
           title: "Error",
@@ -187,7 +187,7 @@ export function RepositoryForm({ repository }: RepositoryFormProps) {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => router.push("/admin/repositories")}
+                onClick={() => router.push("/repositories")}
               >
                 Cancel
               </Button>

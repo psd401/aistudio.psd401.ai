@@ -3,7 +3,7 @@
 import { getServerSession } from "@/lib/auth/server-session"
 import { executeSQL, executeTransaction } from "@/lib/db/data-api-adapter"
 import { type ActionState } from "@/types/actions-types"
-import { requireRole } from "@/lib/auth/role-helpers"
+import { hasToolAccess } from "@/utils/roles"
 import { handleError } from "@/lib/error-utils"
 import { createError } from "@/lib/error-utils"
 import { revalidatePath } from "next/cache"
@@ -77,7 +77,10 @@ export async function addDocumentItem(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
     
     // Validate and sanitize inputs
     if (!input.name || input.name.trim().length === 0) {
@@ -158,7 +161,7 @@ export async function addDocumentItem(
       // Don't fail the upload if queueing fails, just log it
     }
 
-    revalidatePath(`/admin/repositories/${input.repository_id}`)
+    revalidatePath(`/repositories/${input.repository_id}`)
     return { isSuccess: true, message: "Document uploaded successfully", data: item }
   } catch (error) {
     return handleError(error, "Failed to add document")
@@ -184,7 +187,10 @@ export async function addUrlItem(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
     
     // Validate inputs
     if (!input.name || input.name.trim().length === 0) {
@@ -240,7 +246,7 @@ export async function addUrlItem(
       // Don't fail the creation if processing fails, just log it
     }
 
-    revalidatePath(`/admin/repositories/${input.repository_id}`)
+    revalidatePath(`/repositories/${input.repository_id}`)
     return { isSuccess: true, message: "URL added successfully", data: item }
   } catch (error) {
     return handleError(error, "Failed to add URL")
@@ -256,7 +262,10 @@ export async function addTextItem(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
 
     // Start a transaction to add both the item and its chunk
     const transactionResults = await executeTransaction<{ id: number }>([
@@ -296,7 +305,7 @@ export async function addTextItem(
       [{ name: "id", value: { longValue: itemId } }]
     )
 
-    revalidatePath(`/admin/repositories/${input.repository_id}`)
+    revalidatePath(`/repositories/${input.repository_id}`)
     return { isSuccess: true, message: "Text added successfully", data: result[0] }
   } catch (error) {
     return handleError(error, "Failed to add text")
@@ -312,7 +321,10 @@ export async function removeRepositoryItem(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
 
     // Get the item to check if it's a document (need to delete from S3)
     const items = await executeSQL<RepositoryItem>(
@@ -342,7 +354,7 @@ export async function removeRepositoryItem(
       [{ name: "id", value: { longValue: itemId } }]
     )
 
-    revalidatePath(`/admin/repositories/${item.repositoryId}`)
+    revalidatePath(`/repositories/${item.repositoryId}`)
     return { isSuccess: true, message: "Item removed successfully", data: undefined as any }
   } catch (error) {
     return handleError(error, "Failed to remove item")
@@ -358,7 +370,10 @@ export async function listRepositoryItems(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
 
     const items = await executeSQL<RepositoryItem>(
       `SELECT * FROM repository_items 
@@ -386,7 +401,10 @@ export async function searchRepositoryItems(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
 
     // Search in item names
     const items = await executeSQL<RepositoryItem>(
@@ -432,7 +450,10 @@ export async function getItemChunks(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
 
     const chunks = await executeSQL<RepositoryItemChunk>(
       `SELECT * FROM repository_item_chunks 
@@ -458,7 +479,10 @@ export async function updateItemProcessingStatus(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
 
     await executeSQL(
       `UPDATE repository_items 
@@ -488,7 +512,10 @@ export async function getDocumentDownloadUrl(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
 
     // Get the item to check if it's a document
     const items = await executeSQL<RepositoryItem>(

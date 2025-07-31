@@ -1,6 +1,6 @@
-import { requireRole } from "@/lib/auth/role-helpers"
+import { redirect, notFound } from "next/navigation"
+import { getServerSession } from "@/lib/auth/server-session"
 import { getRepository } from "@/actions/repositories/repository.actions"
-import { notFound } from "next/navigation"
 import { RepositoryDetail } from "@/components/features/repositories/repository-detail"
 
 interface RepositoryPageProps {
@@ -10,7 +10,10 @@ interface RepositoryPageProps {
 }
 
 export default async function RepositoryPage({ params }: RepositoryPageProps) {
-  await requireRole("administrator")
+  const session = await getServerSession()
+  if (!session) {
+    redirect("/sign-in")
+  }
 
   const { id } = await params
   const repositoryId = parseInt(id)

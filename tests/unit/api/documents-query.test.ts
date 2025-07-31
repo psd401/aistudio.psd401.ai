@@ -5,7 +5,9 @@ import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId } from '@/lib/db/queries/documents';
 
 // Mock dependencies
-jest.mock('@/lib/auth/server-session');
+jest.mock('@/lib/auth/server-session', () => ({
+  getServerSession: jest.fn()
+}));
 jest.mock('@/actions/db/get-current-user-action');
 jest.mock('@/lib/db/queries/documents');
 jest.mock('@/lib/logger', () => ({
