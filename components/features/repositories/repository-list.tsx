@@ -93,7 +93,7 @@ export function RepositoryList() {
                 Manage knowledge bases for AI assistants
               </CardDescription>
             </div>
-            <Button onClick={() => router.push("/admin/repositories/new")}>
+            <Button onClick={() => router.push("/repositories/new")}>
               <Plus className="mr-2 h-4 w-4" />
               New Repository
             </Button>
@@ -111,7 +111,7 @@ export function RepositoryList() {
               </p>
               <Button
                 variant="outline"
-                onClick={() => router.push("/admin/repositories/new")}
+                onClick={() => router.push("/repositories/new")}
               >
                 <Plus className="mr-2 h-4 w-4" />
                 Create your first repository
@@ -169,7 +169,7 @@ export function RepositoryList() {
                           variant="ghost"
                           size="sm"
                           onClick={() =>
-                            router.push(`/admin/repositories/${repo.id}`)
+                            router.push(`/repositories/${repo.id}`)
                           }
                         >
                           <FolderOpen className="h-4 w-4" />

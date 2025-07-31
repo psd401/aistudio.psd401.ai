@@ -33,7 +33,8 @@ interface CustomResourceEvent {
 const MIGRATION_FILES = [
   '010-knowledge-repositories.sql',
   '11_textract_jobs.sql',
-  '12_textract_usage.sql'
+  '12_textract_usage.sql',
+  '013-add-knowledge-repositories-tool.sql'
   // ADD NEW MIGRATIONS HERE - they will run once and be tracked
 ];
 
@@ -49,7 +50,7 @@ const INITIAL_SETUP_FILES = [
 
 export async function handler(event: CustomResourceEvent): Promise<any> {
   console.log('Database initialization event:', JSON.stringify(event, null, 2));
-  console.log('Handler version: 2024-07-28-v5 - Fixed 11_textract_jobs.sql constraint issue');
+  console.log('Handler version: 2025-07-31-v8 - Added required icon field');
   
   // SAFETY CHECK: Log what mode we're in
   console.log(`🔍 Checking database state for safety...`);

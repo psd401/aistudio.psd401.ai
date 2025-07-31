@@ -3,7 +3,7 @@
 import { getServerSession } from "@/lib/auth/server-session"
 import { executeSQL, executeTransaction } from "@/lib/db/data-api-adapter"
 import { type ActionState } from "@/types/actions-types"
-import { requireRole } from "@/lib/auth/role-helpers"
+import { hasToolAccess } from "@/utils/roles"
 import { handleError } from "@/lib/error-utils"
 import { createError } from "@/lib/error-utils"
 import { revalidatePath } from "next/cache"
@@ -45,7 +45,10 @@ export async function createRepository(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
 
     // Get the user ID from the cognito_sub
     const userResult = await executeSQL<{ id: number }>(
@@ -72,7 +75,7 @@ export async function createRepository(
       ]
     )
 
-    revalidatePath("/admin/repositories")
+    revalidatePath("/repositories")
     return { isSuccess: true, message: "Repository created successfully", data: result[0] }
   } catch (error) {
     return handleError(error, "Failed to create repository")
@@ -88,7 +91,10 @@ export async function updateRepository(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
 
     const updates: string[] = []
     const params: any[] = [
@@ -133,8 +139,8 @@ export async function updateRepository(
       return { isSuccess: false, message: "Repository not found" }
     }
 
-    revalidatePath("/admin/repositories")
-    revalidatePath(`/admin/repositories/${input.id}`)
+    revalidatePath("/repositories")
+    revalidatePath(`/repositories/${input.id}`)
     return { isSuccess: true, message: "Repository updated successfully", data: result[0] }
   } catch (error) {
     return handleError(error, "Failed to update repository")
@@ -150,7 +156,10 @@ export async function deleteRepository(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
 
     // First, get all document items to delete from S3
     const items = await executeSQL<{ id: number; type: string; source: string }>(
@@ -179,7 +188,7 @@ export async function deleteRepository(
       [{ name: "id", value: { longValue: id } }]
     )
 
-    revalidatePath("/admin/repositories")
+    revalidatePath("/repositories")
     return { isSuccess: true, message: "Repository deleted successfully", data: undefined as any }
   } catch (error) {
     return handleError(error, "Failed to delete repository")
@@ -193,7 +202,10 @@ export async function listRepositories(): Promise<ActionState<Repository[]>> {
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
 
     const repositories = await executeSQL<Repository>(
       `SELECT 
@@ -222,7 +234,10 @@ export async function getRepository(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
 
     const result = await executeSQL<Repository>(
       `SELECT 
@@ -256,7 +271,10 @@ export async function getRepositoryAccess(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
 
     const access = await executeSQL(
       `SELECT 
@@ -289,7 +307,10 @@ export async function grantRepositoryAccess(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
 
     if (!userId && !roleId) {
       return { isSuccess: false, message: "Must specify either user or role" }
@@ -307,7 +328,7 @@ export async function grantRepositoryAccess(
       ]
     )
 
-    revalidatePath(`/admin/repositories/${repositoryId}`)
+    revalidatePath(`/repositories/${repositoryId}`)
     return { isSuccess: true, message: "Access granted successfully", data: undefined as any }
   } catch (error) {
     return handleError(error, "Failed to grant repository access")
@@ -323,7 +344,10 @@ export async function revokeRepositoryAccess(
       return { isSuccess: false, message: "Unauthorized" }
     }
 
-    await requireRole("administrator")
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
 
     await executeSQL(
       `DELETE FROM repository_access WHERE id = :id`,

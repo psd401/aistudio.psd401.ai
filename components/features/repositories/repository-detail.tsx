@@ -30,7 +30,7 @@ export function RepositoryDetail({ repository }: RepositoryDetailProps) {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => router.push("/admin/repositories")}
+              onClick={() => router.push("/repositories")}
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
@@ -45,7 +45,7 @@ export function RepositoryDetail({ repository }: RepositoryDetailProps) {
           </div>
           <Button
             variant="outline"
-            onClick={() => router.push(`/admin/repositories/${repository.id}/edit`)}
+            onClick={() => router.push(`/repositories/${repository.id}/edit`)}
           >
             <Edit className="mr-2 h-4 w-4" />
             Edit
