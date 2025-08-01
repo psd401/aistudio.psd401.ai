@@ -1,6 +1,6 @@
 "use server"
 
-import { auth } from "@/auth";
+import { createAuth } from "@/auth";
 import logger from "@/lib/logger";
 
 export interface CognitoSession {
@@ -15,6 +15,8 @@ export interface CognitoSession {
  */
 export async function getServerSession(): Promise<CognitoSession | null> {
   try {
+    // Create new auth instance per request
+    const { auth } = createAuth();
     const session = await auth();
     
     if (!session?.user?.id) {

@@ -1,9 +1,10 @@
 "use server"
 
-import { auth, signOut } from "@/auth"
+import { createAuth } from "@/auth"
 import { redirect } from "next/navigation"
 
 export async function signOutAction() {
+  const { auth, signOut } = createAuth();
   const session = await auth();
   
   if (session) {

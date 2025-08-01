@@ -139,4 +139,19 @@ export const authConfig: NextAuthConfig = {
   },
 }
 
-export const { handlers, auth, signIn, signOut } = NextAuth(authConfig)
+// Factory function - creates new instance per request
+export function createAuth() {
+  return NextAuth(authConfig)
+}
+
+// For middleware only - stateless operations
+// This is safe because middleware doesn't maintain user-specific state
+const middlewareAuth = NextAuth(authConfig)
+export const { auth: authMiddleware } = middlewareAuth
+
+// Export auth handlers for route.ts files
+// These need to be created per-request in the route handlers
+export function createAuthHandlers() {
+  const { handlers } = createAuth()
+  return handlers
+}

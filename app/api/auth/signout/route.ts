@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth, signOut } from "@/auth";
+import { createAuth } from "@/auth";
 import logger from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
+    // Create auth instance for this request
+    const { auth, signOut } = createAuth();
+    
     // Get the current session BEFORE signing out
     const session = await auth();
     

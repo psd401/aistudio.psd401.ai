@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { authMiddleware } from "@/auth";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
@@ -14,7 +14,7 @@ const PUBLIC_PATHS = [
   "/auth/error",
 ];
 
-export default auth((req) => {
+export default authMiddleware((req) => {
   const { nextUrl, auth } = req;
   const isLoggedIn = !!auth;
 
