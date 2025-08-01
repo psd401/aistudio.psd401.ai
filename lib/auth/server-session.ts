@@ -45,8 +45,15 @@ export async function getServerSession(): Promise<CognitoSession | null> {
       email: session.user.email || undefined,
     };
   } catch (error) {
+    // Sanitize error to prevent exposing sensitive information
+    const sanitizedError = {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      name: error instanceof Error ? error.name : 'Error',
+      // Don't log stack traces or full error objects that might contain sensitive data
+    };
+    
     logger.error("Session retrieval failed:", { 
-      error, 
+      error: sanitizedError, 
       requestId: context.requestId 
     });
     return null;
