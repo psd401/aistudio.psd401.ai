@@ -11,6 +11,17 @@ const mockRequest = class Request {
     this.headers = new Headers(init?.headers);
     this.body = init?.body;
   }
+
+  async json() {
+    if (typeof this.body === 'string') {
+      try {
+        return JSON.parse(this.body);
+      } catch (e) {
+        throw new Error('Invalid JSON');
+      }
+    }
+    return this.body;
+  }
 } as any;
 
 const mockResponse = class Response {
@@ -42,7 +53,11 @@ global.Headers = mockHeaders;
 // Mock NextResponse and NextRequest
 jest.mock('next/server', () => ({
   NextResponse: {
-    json: jest.fn().mockImplementation((data) => new mockResponse(data))
+    json: jest.fn().mockImplementation((data, init) => {
+      const response = new mockResponse(JSON.stringify(data), init);
+      response.json = async () => data;
+      return response;
+    })
   },
   NextRequest: mockRequest
 })); 

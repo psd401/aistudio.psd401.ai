@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { authMiddleware } from "@/auth";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
@@ -14,7 +14,7 @@ const PUBLIC_PATHS = [
   "/auth/error",
 ];
 
-export default auth((req) => {
+export default authMiddleware((req) => {
   const { nextUrl, auth } = req;
   const isLoggedIn = !!auth;
 
@@ -23,26 +23,38 @@ export default auth((req) => {
     nextUrl.pathname === path || nextUrl.pathname.startsWith(path + "/")
   );
 
+  // Create response with security headers
+  let response: NextResponse;
+
   // Allow public paths
   if (isPublicPath) {
-    return NextResponse.next();
+    response = NextResponse.next();
   }
-
   // Allow static assets
-  if (
+  else if (
     nextUrl.pathname.startsWith("/_next") ||
     nextUrl.pathname.startsWith("/static") ||
     nextUrl.pathname.match(/\.(jpg|jpeg|png|gif|ico|css|js)$/i)
   ) {
-    return NextResponse.next();
+    response = NextResponse.next();
   }
-
   // Redirect unauthenticated users to sign-in
-  if (!isLoggedIn) {
-    return NextResponse.redirect(new URL(`/api/auth/signin?callbackUrl=${encodeURIComponent(nextUrl.pathname)}`, nextUrl));
+  else if (!isLoggedIn) {
+    response = NextResponse.redirect(new URL(`/api/auth/signin?callbackUrl=${encodeURIComponent(nextUrl.pathname)}`, nextUrl));
+  }
+  else {
+    response = NextResponse.next();
   }
 
-  return NextResponse.next();
+  // Add security headers to all responses
+  response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  response.headers.set('Pragma', 'no-cache');
+  response.headers.set('Expires', '0');
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  response.headers.set('X-Frame-Options', 'DENY');
+  response.headers.set('X-XSS-Protection', '1; mode=block');
+  
+  return response;
 });
 
 export const config = {
