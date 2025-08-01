@@ -34,7 +34,9 @@ const MIGRATION_FILES = [
   '010-knowledge-repositories.sql',
   '11_textract_jobs.sql',
   '12_textract_usage.sql',
-  '013-add-knowledge-repositories-tool.sql'
+  '013-add-knowledge-repositories-tool.sql',
+  '014-model-comparisons.sql',
+  '015-add-model-compare-tool.sql'
   // ADD NEW MIGRATIONS HERE - they will run once and be tracked
 ];
 
