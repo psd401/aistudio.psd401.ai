@@ -177,7 +177,7 @@ export class DatabaseStack extends cdk.Stack {
         SecretArn: dbSecret.secretArn,
         DatabaseName: 'aistudio',
         Environment: props.environment,
-        // Add a timestamp to force update on stack updates if needed
+        // Add a timestamp to force update on stack updates if needed - v1.0.15
         Timestamp: new Date().toISOString(),
       },
     });
