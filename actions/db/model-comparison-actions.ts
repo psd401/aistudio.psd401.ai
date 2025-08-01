@@ -6,6 +6,20 @@ import { type ActionState } from "@/types/actions-types"
 import { hasToolAccess } from "@/utils/roles"
 import { handleError } from "@/lib/error-utils"
 
+// Helper function to get user ID from session
+async function getUserIdFromSession(cognitoSub: string): Promise<number | null> {
+  const userResult = await executeSQL(
+    "SELECT id FROM users WHERE cognito_sub = :userId",
+    [{ name: 'userId', value: { stringValue: cognitoSub } }]
+  )
+
+  if (userResult.length === 0) {
+    return null
+  }
+
+  return Number(userResult[0].id)
+}
+
 export interface ModelComparison {
   id: number
   prompt: string
@@ -36,16 +50,10 @@ export async function getModelComparisons(
     }
 
     // Get user ID
-    const userResult = await executeSQL(
-      "SELECT id FROM users WHERE cognito_sub = :userId",
-      [{ name: 'userId', value: { stringValue: session.sub } }]
-    )
-
-    if (userResult.length === 0) {
+    const userId = await getUserIdFromSession(session.sub)
+    if (!userId) {
       return { isSuccess: false, message: "User not found" }
     }
-
-    const userId = Number(userResult[0].id)
 
     const comparisons = await executeSQL(
       `SELECT 
@@ -110,16 +118,10 @@ export async function getModelComparison(
     }
 
     // Get user ID
-    const userResult = await executeSQL(
-      "SELECT id FROM users WHERE cognito_sub = :userId",
-      [{ name: 'userId', value: { stringValue: session.sub } }]
-    )
-
-    if (userResult.length === 0) {
+    const userId = await getUserIdFromSession(session.sub)
+    if (!userId) {
       return { isSuccess: false, message: "User not found" }
     }
-
-    const userId = Number(userResult[0].id)
 
     const comparisons = await executeSQL(
       `SELECT 
@@ -186,16 +188,10 @@ export async function deleteModelComparison(
     }
 
     // Get user ID
-    const userResult = await executeSQL(
-      "SELECT id FROM users WHERE cognito_sub = :userId",
-      [{ name: 'userId', value: { stringValue: session.sub } }]
-    )
-
-    if (userResult.length === 0) {
+    const userId = await getUserIdFromSession(session.sub)
+    if (!userId) {
       return { isSuccess: false, message: "User not found" }
     }
-
-    const userId = Number(userResult[0].id)
 
     await executeSQL(
       "DELETE FROM model_comparisons WHERE id = :comparisonId AND user_id = :userId",

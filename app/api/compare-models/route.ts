@@ -10,6 +10,7 @@ import { executeSQL } from "@/lib/db/data-api-adapter"
 import { Settings } from "@/lib/settings-manager"
 import logger from "@/lib/logger"
 import { ensureRDSString } from "@/lib/type-helpers"
+import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,8 +33,20 @@ export async function POST(req: NextRequest) {
       return new Response('Missing required fields', { status: 400 })
     }
 
+    // Get user ID for database persistence
+    const userResult = await executeSQL(
+      "SELECT id FROM users WHERE cognito_sub = :userId",
+      [{ name: 'userId', value: { stringValue: session.sub } }]
+    )
+
+    if (userResult.length === 0) {
+      return new Response('User not found', { status: 404 })
+    }
+
+    const userId = Number(userResult[0].id)
+
     // Get models from database
-    const models = await executeSQL(
+    const modelsRaw = await executeSQL(
       `SELECT id, model_id, provider, name FROM ai_models 
        WHERE model_id IN (:model1Id, :model2Id) AND active = true AND chat_enabled = true`,
       [
@@ -42,9 +55,12 @@ export async function POST(req: NextRequest) {
       ]
     )
 
-    if (models.length !== 2) {
+    if (modelsRaw.length !== 2) {
       return new Response('Invalid model selection', { status: 400 })
     }
+
+    // Transform snake_case fields to camelCase
+    const models = modelsRaw.map(m => transformSnakeToCamel<ModelData>(m))
 
     const model1 = models.find(m => m.modelId === model1Id)
     const model2 = models.find(m => m.modelId === model2Id)
@@ -62,6 +78,13 @@ export async function POST(req: NextRequest) {
       { role: 'user' as const, content: prompt }
     ]
 
+    // Variables to track responses and execution times
+    let response1 = ''
+    let response2 = ''
+    let executionTime1: number | null = null
+    let executionTime2: number | null = null
+    let aborted = false
+
     // Create a ReadableStream that merges both model streams
     const stream = new ReadableStream({
       async start(controller) {
@@ -69,52 +92,109 @@ export async function POST(req: NextRequest) {
         
         // Helper to send SSE data
         const sendData = (data: Record<string, unknown>) => {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+          if (!aborted) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+          }
         }
+
+        // Handle abort signal
+        const cleanup = () => {
+          aborted = true
+          logger.info('Model comparison request aborted by client')
+        }
+        req.signal.addEventListener('abort', cleanup)
         
         // Start both streams in parallel
         const promises = [
           (async () => {
+            const startTime = Date.now()
             try {
-              const result = await streamText({
+              const result = streamText({
                 model: modelInstance1,
                 messages,
+                abortSignal: req.signal,
               })
               
               for await (const chunk of result.textStream) {
+                if (aborted) break
+                response1 += chunk
                 sendData({ model1: chunk })
               }
+              executionTime1 = Date.now() - startTime
               sendData({ model1Finished: true })
             } catch (error) {
-              logger.error('Model 1 streaming error:', error)
-              sendData({ model1Error: error instanceof Error ? error.message : 'Unknown error' })
+              if (!aborted) {
+                logger.error('Model 1 streaming error:', error)
+                sendData({ model1Error: error instanceof Error ? error.message : 'Unknown error' })
+              }
             }
           })(),
 
           (async () => {
+            const startTime = Date.now()
             try {
-              const result = await streamText({
+              const result = streamText({
                 model: modelInstance2,
                 messages,
+                abortSignal: req.signal,
               })
               
               for await (const chunk of result.textStream) {
+                if (aborted) break
+                response2 += chunk
                 sendData({ model2: chunk })
               }
+              executionTime2 = Date.now() - startTime
               sendData({ model2Finished: true })
             } catch (error) {
-              logger.error('Model 2 streaming error:', error)
-              sendData({ model2Error: error instanceof Error ? error.message : 'Unknown error' })
+              if (!aborted) {
+                logger.error('Model 2 streaming error:', error)
+                sendData({ model2Error: error instanceof Error ? error.message : 'Unknown error' })
+              }
             }
           })()
         ]
         
         // Wait for both streams to complete
         await Promise.all(promises)
+
+        // Save comparison to database if not aborted and at least one response was generated
+        if (!aborted && (response1 || response2)) {
+          try {
+            await executeSQL(
+              `INSERT INTO model_comparisons 
+               (user_id, prompt, model1_id, model2_id, response1, response2, 
+                model1_name, model2_name, execution_time_ms1, execution_time_ms2)
+               VALUES (:userId, :prompt, :model1Id, :model2Id, :response1, :response2,
+                :model1Name, :model2Name, :executionTime1, :executionTime2)`,
+              [
+                { name: 'userId', value: { longValue: userId } },
+                { name: 'prompt', value: { stringValue: prompt } },
+                { name: 'model1Id', value: { longValue: model1.id } },
+                { name: 'model2Id', value: { longValue: model2.id } },
+                { name: 'response1', value: response1 ? { stringValue: response1 } : { isNull: true } },
+                { name: 'response2', value: response2 ? { stringValue: response2 } : { isNull: true } },
+                { name: 'model1Name', value: { stringValue: model1.name } },
+                { name: 'model2Name', value: { stringValue: model2.name } },
+                { name: 'executionTime1', value: executionTime1 ? { longValue: executionTime1 } : { isNull: true } },
+                { name: 'executionTime2', value: executionTime2 ? { longValue: executionTime2 } : { isNull: true } }
+              ]
+            )
+            logger.info(`Saved model comparison for user ${userId}`)
+          } catch (error) {
+            logger.error('Failed to save model comparison:', error)
+            // Don't fail the stream if save fails
+          }
+        }
         
         // Send done signal and close the stream
-        sendData({ done: true })
+        if (!aborted) {
+          sendData({ done: true })
+        }
         controller.close()
+
+        // Remove event listener
+        req.signal.removeEventListener('abort', cleanup)
       }
     })
 
@@ -136,8 +216,10 @@ export async function POST(req: NextRequest) {
 }
 
 interface ModelData {
+  id: number
   provider: string
   modelId: string
+  name: string
   [key: string]: unknown
 }
 
