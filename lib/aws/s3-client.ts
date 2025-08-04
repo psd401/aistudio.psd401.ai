@@ -13,6 +13,7 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import { createError } from "@/lib/error-utils"
 import { Settings } from "@/lib/settings-manager"
+import { Readable } from "stream"
 
 // Cache S3 config to avoid repeated async calls
 let s3ConfigCache: { bucket: string | null; region: string | null } | null = null
@@ -65,6 +66,15 @@ export interface UploadDocumentParams {
 
 export interface DocumentUrlParams {
   key: string
+  expiresIn?: number // seconds, default 3600 (1 hour)
+}
+
+export interface PresignedUploadUrlParams {
+  userId: string
+  fileName: string
+  contentType: string
+  fileSize: number
+  metadata?: Record<string, string>
   expiresIn?: number // seconds, default 3600 (1 hour)
 }
 
@@ -291,6 +301,102 @@ export async function listUserDocuments(
       details: {
         error: error instanceof Error ? error.message : String(error),
         userId,
+      }
+    })
+  }
+}
+
+// Generate a presigned URL for uploading a document
+export async function generateUploadPresignedUrl({
+  userId,
+  fileName,
+  contentType,
+  fileSize,
+  metadata = {},
+  expiresIn = 3600,
+}: PresignedUploadUrlParams): Promise<{ url: string; key: string; fields: Record<string, string> }> {
+  await ensureDocumentsBucket()
+  
+  const s3Client = await getS3Client()
+  const config = await getS3Config()
+  const bucketName = config.bucket!
+
+  const timestamp = Date.now()
+  const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9_.-]/g, '_')
+  const key = `${userId}/${timestamp}-${sanitizedFileName}`
+
+  try {
+    const command = new PutObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+      ContentType: contentType,
+      ContentLength: fileSize,
+      Metadata: {
+        ...metadata,
+        userId,
+        uploadedAt: new Date().toISOString(),
+        originalName: fileName,
+      },
+    })
+
+    const url = await getSignedUrl(s3Client, command, { expiresIn })
+
+    // Return additional fields that might be needed for the upload
+    const fields = {
+      'Content-Type': contentType,
+      'Content-Length': fileSize.toString(),
+    }
+
+    return { url, key, fields }
+  } catch (error) {
+    throw createError("Failed to generate presigned upload URL", {
+      code: "S3_PRESIGNED_URL_ERROR",
+      details: {
+        error: error instanceof Error ? error.message : String(error),
+        fileName,
+      }
+    })
+  }
+}
+
+// Get object as a stream for efficient processing
+export async function getObjectStream(key: string): Promise<{ 
+  stream: Readable
+  contentType?: string
+  contentLength?: number
+  metadata?: Record<string, string>
+}> {
+  const s3Client = await getS3Client()
+  const config = await getS3Config()
+  const bucketName = config.bucket!
+  
+  try {
+    const command = new GetObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+    })
+
+    const response = await s3Client.send(command)
+    
+    if (!response.Body) {
+      throw new Error("No body returned from S3")
+    }
+
+    // Convert Web Streams API to Node.js Readable stream
+    const stream = response.Body as Readable
+
+    return {
+      stream,
+      contentType: response.ContentType,
+      contentLength: response.ContentLength,
+      metadata: response.Metadata,
+    }
+  } catch (error) {
+    throw createError("Failed to get object stream from S3", {
+      code: "S3_GET_STREAM_ERROR",
+      details: {
+        error: error instanceof Error ? error.message : String(error),
+        key,
       }
     })
   }
