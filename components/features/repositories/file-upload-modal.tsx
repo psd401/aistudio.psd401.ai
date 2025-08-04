@@ -120,20 +120,12 @@ export function FileUploadModal({
     name: z.string().min(1, "Name is required"),
     file: z
       .custom<FileList>()
-      .refine((files) => {
-        const hasFile = files?.length === 1
-        if (!hasFile) console.error('[FileUpload] Validation: No file selected')
-        return hasFile
-      }, "File is required")
+      .refine((files) => files?.length === 1, "File is required")
       .refine(
         (files) => {
           const file = files?.[0]
           if (!file) return false
-          const validSize = file.size <= MAX_FILE_SIZE
-          if (!validSize) {
-            console.error(`[FileUpload] Validation: File too large - ${file.size} bytes (max: ${MAX_FILE_SIZE})`)
-          }
-          return validSize
+          return file.size <= MAX_FILE_SIZE
         },
         `File size must be less than ${USE_PRESIGNED_URL ? `${MAX_FILE_SIZE / 1024 / 1024}MB` : `${MAX_FILE_SIZE / 1024}KB`}`
       )
@@ -141,12 +133,7 @@ export function FileUploadModal({
         (files) => {
           const file = files?.[0]
           if (!file) return false
-          const validType = isValidFileType(file)
-          if (!validType) {
-            console.error(`[FileUpload] Validation: Invalid file type - "${file.type}" for file "${file.name}"`)
-            console.error(`[FileUpload] Accepted MIME types:`, ACCEPTED_FILE_TYPES)
-          }
-          return validType
+          return isValidFileType(file)
         },
         "File type not supported"
       ),
@@ -188,24 +175,9 @@ export function FileUploadModal({
 
   const isLoading = isAddingDocument || isAddingUrl || isAddingText
   
-  // Debug form state
-  const formState = documentForm.formState
-  console.error('[FileUpload Debug] Form state:', {
-    isValid: formState.isValid,
-    isSubmitting: formState.isSubmitting,
-    errors: formState.errors,
-    isLoading,
-    isAddingDocument
-  })
 
   async function onDocumentSubmit(data: z.infer<typeof dynamicDocumentSchema>) {
-    console.error('[FileUpload Debug] onDocumentSubmit called with data:', data)
     const file = data.file[0]
-    console.error('[FileUpload Debug] File details:', {
-      name: file.name,
-      type: file.type,
-      size: file.size
-    })
     
     try {
       let result
