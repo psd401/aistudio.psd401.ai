@@ -7,6 +7,7 @@ import { hasToolAccess } from "@/utils/roles"
 import { handleError } from "@/lib/error-utils"
 import { createError } from "@/lib/error-utils"
 import { revalidatePath } from "next/cache"
+import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 
 export interface Repository {
   id: number
@@ -357,5 +358,96 @@ export async function revokeRepositoryAccess(
     return { isSuccess: true, message: "Access revoked successfully", data: undefined as any }
   } catch (error) {
     return handleError(error, "Failed to revoke repository access")
+  }
+}
+
+export async function getUserAccessibleRepositoriesAction(): Promise<ActionState<Array<{
+  id: number
+  name: string
+  description: string | null
+  isPublic: boolean
+  itemCount: number
+  lastUpdated: Date | null
+}>>> {
+  try {
+    const session = await getServerSession()
+    if (!session) {
+      return { isSuccess: false, message: "Unauthorized" }
+    }
+
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
+
+    // Get the user ID from the cognito_sub
+    const userResult = await executeSQL<{ id: number }>(
+      `SELECT id FROM users WHERE cognito_sub = :cognitoSub`,
+      [{ name: 'cognitoSub', value: { stringValue: session.sub } }]
+    )
+    
+    if (!userResult || userResult.length === 0) {
+      return { isSuccess: false, message: "User not found" }
+    }
+    
+    const userId = userResult[0].id
+
+    // Get repositories the user has access to
+    const repositories = await executeSQL<any>(
+      `WITH accessible_repos AS (
+        SELECT DISTINCT r.id, r.name, r.description, r.is_public
+        FROM knowledge_repositories r
+        WHERE 
+          r.is_public = true
+          OR r.owner_id = :userId
+          OR EXISTS (
+            SELECT 1 FROM repository_access ra
+            WHERE ra.repository_id = r.id AND ra.user_id = :userId
+          )
+          OR EXISTS (
+            SELECT 1 FROM repository_access ra
+            JOIN user_roles ur ON ur.role_id = ra.role_id
+            WHERE ra.repository_id = r.id AND ur.user_id = :userId
+          )
+      )
+      SELECT 
+        ar.id,
+        ar.name,
+        ar.description,
+        ar.is_public,
+        COALESCE(COUNT(ri.id), 0) as item_count,
+        MAX(ri.updated_at) as last_updated
+      FROM accessible_repos ar
+      LEFT JOIN repository_items ri ON ar.id = ri.repository_id
+      GROUP BY ar.id, ar.name, ar.description, ar.is_public
+      ORDER BY ar.name ASC`,
+      [{ name: 'userId', value: { longValue: userId } }]
+    )
+
+    // Transform snake_case to camelCase using the standard field mapper
+    const transformedRepos = repositories.map(repo => {
+      const transformed = transformSnakeToCamel<{
+        id: number
+        name: string
+        description: string | null
+        isPublic: boolean
+        itemCount: number
+        lastUpdated: Date | null
+      }>(repo)
+      
+      // Ensure itemCount is a number
+      return {
+        ...transformed,
+        itemCount: Number(transformed.itemCount) || 0
+      }
+    })
+
+    return { 
+      isSuccess: true, 
+      message: "Repositories loaded successfully", 
+      data: transformedRepos 
+    }
+  } catch (error) {
+    return handleError(error, "Failed to load accessible repositories")
   }
 }

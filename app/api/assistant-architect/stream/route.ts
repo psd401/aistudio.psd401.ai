@@ -5,6 +5,9 @@ import logger from "@/lib/logger";
 import { rateLimit } from "@/lib/rate-limit";
 import { NextRequest } from 'next/server';
 
+// Try static import again to see the actual error
+import { retrieveKnowledgeForPrompt, formatKnowledgeContext } from "@/lib/assistant-architect/knowledge-retrieval";
+
 interface StreamRequest {
   toolId: number;
   executionId: number;
@@ -14,7 +17,7 @@ interface StreamRequest {
 // Add a function to decode HTML entities and remove escapes for variable placeholders
 function decodePromptVariables(content: string): string {
   // Replace HTML entity for $ with $
-  let decoded = content.replace(/&#x24;|&\#36;/g, '$');
+  let decoded = content.replace(/&#x24;|&#36;/g, '$');
   // Remove backslash escapes before $
   decoded = decoded.replace(/\\\$/g, '$');
   // Remove backslash escapes before {
@@ -34,6 +37,8 @@ const limiter = rateLimit({
 });
 
 export async function POST(req: NextRequest) {
+  logger.info('[STREAM] Route handler called');
+  
   // Apply rate limiting
   const rateLimitResponse = await limiter(req);
   if (rateLimitResponse) {
@@ -45,29 +50,36 @@ export async function POST(req: NextRequest) {
     return new Response('Unauthorized', { status: 401 });
   }
 
+  logger.info('[STREAM] Session authenticated:', session.sub);
+
   try {
     const { toolId, executionId, inputs }: StreamRequest = await req.json();
 
     // Get tool configuration and prompts
+    // Allow both approved tools and draft tools that belong to the current user
     const toolQuery = `
-      SELECT aa.id, aa.name, aa.description, aa.status
+      SELECT aa.id, aa.name, aa.description, aa.status, aa.user_id
       FROM assistant_architects aa
-      WHERE aa.id = :toolId AND aa.status = 'approved'
+      LEFT JOIN users u ON aa.user_id = u.id
+      WHERE aa.id = :toolId 
+        AND (aa.status = 'approved' 
+          OR (aa.status = 'draft' AND u.cognito_sub = :userSub))
     `;
     const toolResult = await executeSQL(toolQuery, [
-      { name: 'toolId', value: { longValue: toolId } }
+      { name: 'toolId', value: { longValue: toolId } },
+      { name: 'userSub', value: { stringValue: session.sub } }
     ]);
 
     if (!toolResult.length) {
-      return new Response('Tool not found or inactive', { status: 404 });
+      return new Response('Tool not found or you do not have access', { status: 404 });
     }
 
-    const tool = toolResult[0] as { id: number; name: string; description: string; status: string };
+    const tool = toolResult[0] as { id: number; name: string; description: string; status: string; userId: number };
 
     // Get prompts for this tool
     const promptsQuery = `
       SELECT cp.id, cp.name, cp.content, cp.position, cp.model_id as ai_model_id,
-             cp.system_context,
+             cp.system_context, cp.repository_ids,
              am.model_id, am.provider, am.name as model_name
       FROM chain_prompts cp
       JOIN ai_models am ON cp.model_id = am.id
@@ -84,6 +96,7 @@ export async function POST(req: NextRequest) {
       position: number;
       aiModelId: number;
       systemContext: string | null;
+      repositoryIds: number[] | string | null;
       modelId: string;
       provider: string;
       modelName: string;
@@ -223,12 +236,73 @@ export async function POST(req: NextRequest) {
               const promptResultInsert = promptResultInsertRaw as Array<{ id: number }>;
               promptResultId = promptResultInsert[0].id;
 
+              // Retrieve knowledge from repositories if configured
+              let knowledgeContext = '';
+              
+              // Parse repository IDs if they come as a string from the database
+              let repositoryIds: number[] | null = null;
+              if (prompt.repositoryIds) {
+                if (typeof prompt.repositoryIds === 'string') {
+                  try {
+                    repositoryIds = JSON.parse(prompt.repositoryIds);
+                  } catch (e) {
+                    logger.error('Failed to parse repository_ids:', e);
+                    repositoryIds = null;
+                  }
+                } else if (Array.isArray(prompt.repositoryIds)) {
+                  repositoryIds = prompt.repositoryIds;
+                }
+              }
+              
+              if (repositoryIds && repositoryIds.length > 0) {
+                try {
+                  controller.enqueue(encoder.encode(
+                    `data: ${JSON.stringify({
+                      type: 'status',
+                      message: 'Retrieving knowledge from repositories...',
+                      promptIndex: i
+                    })}\n\n`
+                  ));
+
+                  const knowledgeChunks = await retrieveKnowledgeForPrompt(
+                    processedPrompt,
+                    repositoryIds,
+                    session.sub,
+                    {
+                      maxChunks: 10,
+                      maxTokens: 4000,
+                      searchType: 'hybrid',
+                      vectorWeight: 0.8
+                    }
+                  );
+
+                  if (knowledgeChunks.length > 0) {
+                    knowledgeContext = formatKnowledgeContext(knowledgeChunks);
+                    logger.info(`Retrieved ${knowledgeChunks.length} knowledge chunks for prompt ${prompt.id}`);
+                  }
+                } catch (knowledgeError) {
+                  logger.error('Error retrieving knowledge:', knowledgeError);
+                  // Continue without knowledge - don't fail the entire prompt
+                }
+              }
+
               // Stream the AI response
               let fullResponse = '';
+              
+              // Construct system context with both original context and retrieved knowledge
+              let combinedSystemContext = '';
+              if (prompt.systemContext && knowledgeContext) {
+                combinedSystemContext = `${prompt.systemContext}\n\n${knowledgeContext}`;
+              } else if (prompt.systemContext) {
+                combinedSystemContext = prompt.systemContext;
+              } else if (knowledgeContext) {
+                combinedSystemContext = knowledgeContext;
+              }
+
               const messages = [
-                ...(prompt.systemContext ? [{ 
+                ...(combinedSystemContext ? [{ 
                   role: 'system' as const, 
-                  content: prompt.systemContext 
+                  content: combinedSystemContext 
                 }] : []),
                 { 
                   role: 'user' as const, 
@@ -417,9 +491,16 @@ export async function POST(req: NextRequest) {
 
   } catch (error) {
     logger.error('API error:', error);
+    logger.error('[STREAM] Full error:', error);
     return new Response(
-      error instanceof Error ? error.message : 'Internal server error',
-      { status: 500 }
+      JSON.stringify({ 
+        error: error instanceof Error ? error.message : 'Internal server error',
+        stack: error instanceof Error ? error.stack : undefined
+      }),
+      { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      }
     );
   }
 }

@@ -163,10 +163,10 @@ export async function executeSQL<T = FormattedRow>(sql: string, parameters: Data
   const maxRetries = 3;
   let lastError: Error | undefined;
   
+  
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const config = getDataApiConfig();
-      // SQL execution logging removed for security
       
       const command = new ExecuteStatementCommand({
         ...config,
@@ -176,7 +176,6 @@ export async function executeSQL<T = FormattedRow>(sql: string, parameters: Data
       });
 
       const response = await getRDSClient().send(command);
-      // SQL success logging removed for security
       return formatDataApiResponse(response as DataApiResponse) as T[];
     } catch (error) {
       logger.error(`Data API Error (attempt ${attempt}/${maxRetries}):`, error);

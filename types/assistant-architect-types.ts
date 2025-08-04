@@ -54,6 +54,7 @@ export interface CreateChainPromptForm {
   parallelGroup?: number
   inputMapping?: Record<string, string>
   timeoutSeconds?: number
+  repositoryIds?: number[]
 }
 
 // Execution types
@@ -108,6 +109,7 @@ export interface ChainPrompt {
   parallelGroup?: number
   inputMapping?: Record<string, string>
   timeoutSeconds: number
+  repositoryIds?: number[]
   createdAt: Date
   updatedAt: Date
 }

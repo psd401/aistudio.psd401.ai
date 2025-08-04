@@ -22,7 +22,6 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { createOpenAI } from '@ai-sdk/openai'
 import { z } from 'zod'
 import logger from "@/lib/logger"
-import { Settings, getSettings } from "@/lib/settings-manager"
 
 interface ModelConfig {
   provider: string
@@ -53,6 +52,8 @@ export interface ToolDefinition {
 
 // Get the appropriate model client based on provider
 async function getModelClient(modelConfig: ModelConfig) {
+  const { Settings } = await import('@/lib/settings-manager');
+  
   switch (modelConfig.provider) {
     case 'amazon-bedrock': {
       const bedrockConfig = await Settings.getBedrock();
@@ -231,6 +232,7 @@ export interface EmbeddingConfig {
 
 // Get embedding configuration from settings
 export async function getEmbeddingConfig(): Promise<EmbeddingConfig> {
+  const { getSettings } = await import('@/lib/settings-manager');
   const settings = await getSettings([
     'EMBEDDING_MODEL_PROVIDER',
     'EMBEDDING_MODEL_ID', 
@@ -254,6 +256,8 @@ export async function getEmbeddingConfig(): Promise<EmbeddingConfig> {
 
 // Get embedding model client
 async function getEmbeddingModelClient(config: ModelConfig) {
+  const { Settings } = await import('@/lib/settings-manager');
+  
   switch (config.provider) {
     case 'openai': {
       const openAIKey = await Settings.getOpenAI();
