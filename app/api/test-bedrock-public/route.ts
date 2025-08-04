@@ -36,7 +36,7 @@ export async function GET() {
     })
     
     const bedrock = createAmazonBedrock(bedrockOptions)
-    const model = bedrock('anthropic.claude-3-haiku-20240307-v1:0')
+    const model = bedrock('us.anthropic.claude-3-5-haiku-20241022-v1:0')
     
     // Test 1: generateText (we know this works)
     try {

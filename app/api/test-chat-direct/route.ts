@@ -31,7 +31,7 @@ export async function GET() {
       },
       body: JSON.stringify({
         messages: [{ role: 'user', content: 'Say "test"' }],
-        modelId: 'anthropic.claude-3-haiku-20240307-v1:0',
+        modelId: 'us.anthropic.claude-3-5-haiku-20241022-v1:0',
         source: 'test'
       })
     })

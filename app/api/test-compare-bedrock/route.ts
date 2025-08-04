@@ -15,7 +15,7 @@ export async function GET() {
   
   try {
     // Test the exact initialization code from compare-models
-    const modelId = 'anthropic.claude-3-haiku-20240307-v1:0'
+    const modelId = 'us.anthropic.claude-3-5-haiku-20241022-v1:0'
     
     logger.info('[test-compare] Starting Bedrock initialization for model:', modelId)
     

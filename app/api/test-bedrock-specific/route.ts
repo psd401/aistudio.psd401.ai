@@ -65,7 +65,7 @@ export async function POST(req: Request) {
     }
     
     const bedrock = createAmazonBedrock(bedrockOptions)
-    const bedrockModel = bedrock('anthropic.claude-3-haiku-20240307-v1:0')
+    const bedrockModel = bedrock('us.anthropic.claude-3-5-haiku-20241022-v1:0')
     
     // Test with await
     try {

@@ -98,7 +98,7 @@ export async function GET() {
     
     const bedrock = createAmazonBedrock(bedrockOptions)
     // Create model instance to test initialization
-    bedrock('anthropic.claude-3-haiku-20240307-v1:0')
+    bedrock('us.anthropic.claude-3-5-haiku-20241022-v1:0')
     
     results.tests.aiSdkWithSettings = {
       success: true,
@@ -129,7 +129,7 @@ export async function GET() {
     
     const bedrock = createAmazonBedrock(bedrockOptions)
     // Create model instance to test initialization
-    bedrock('anthropic.claude-3-haiku-20240307-v1:0')
+    bedrock('us.anthropic.claude-3-5-haiku-20241022-v1:0')
     
     results.tests.aiSdkWithCredentialProvider = {
       success: true,
@@ -156,7 +156,7 @@ export async function GET() {
     }
     
     const bedrock = createAmazonBedrock(bedrockOptions)
-    const model = bedrock('anthropic.claude-3-haiku-20240307-v1:0')
+    const model = bedrock('us.anthropic.claude-3-5-haiku-20241022-v1:0')
     
     // Try to actually use the model
     const { generateText } = await import('ai')
@@ -203,7 +203,7 @@ export async function GET() {
     }
     
     const bedrock = createAmazonBedrock(bedrockOptions)
-    const model = bedrock('anthropic.claude-3-haiku-20240307-v1:0')
+    const model = bedrock('us.anthropic.claude-3-5-haiku-20241022-v1:0')
     
     // Try to actually use the model
     const { generateText } = await import('ai')
