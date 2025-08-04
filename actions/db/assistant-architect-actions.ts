@@ -16,6 +16,7 @@ import {
 } from "@/types/db-types"
 import { CoreMessage } from "ai"
 import { transformSnakeToCamel } from '@/lib/db/field-mapper'
+import { parseRepositoryIds, serializeRepositoryIds } from "@/lib/utils/repository-utils"
 
 import { createJobAction, updateJobAction, getJobAction } from "@/actions/db/jobs-actions";
 import { generateCompletion } from "@/lib/ai-helpers";
@@ -130,15 +131,8 @@ export async function getAssistantArchitectsAction(): Promise<
         const inputFields = inputFieldsRaw.map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
         const prompts = promptsRaw.map((prompt: any) => {
           const transformed = transformSnakeToCamel<SelectChainPrompt>(prompt);
-          // Parse repository_ids if it's a JSON string
-          if (typeof transformed.repositoryIds === 'string') {
-            try {
-              transformed.repositoryIds = JSON.parse(transformed.repositoryIds);
-            } catch (e) {
-              logger.error('Failed to parse repository_ids:', e);
-              transformed.repositoryIds = [];
-            }
-          }
+          // Parse repository_ids using utility function
+          transformed.repositoryIds = parseRepositoryIds(transformed.repositoryIds);
           return transformed;
         });
         const transformedArchitect = transformSnakeToCamel<SelectAssistantArchitect>(architect);
@@ -217,15 +211,8 @@ export async function getAssistantArchitectByIdAction(
     const transformedInputFields = (inputFieldsRaw || []).map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
     const transformedPrompts = (promptsRaw || []).map((prompt: any) => {
       const transformed = transformSnakeToCamel<SelectChainPrompt>(prompt);
-      // Parse repository_ids if it's a JSON string
-      if (typeof transformed.repositoryIds === 'string') {
-        try {
-          transformed.repositoryIds = JSON.parse(transformed.repositoryIds);
-        } catch (e) {
-          logger.error('Failed to parse repository_ids:', e);
-          transformed.repositoryIds = [];
-        }
-      }
+      // Parse repository_ids using utility function
+      transformed.repositoryIds = parseRepositoryIds(transformed.repositoryIds);
       return transformed;
     });
 
@@ -288,15 +275,8 @@ export async function getPendingAssistantArchitectsAction(): Promise<
         const inputFields = inputFieldsRaw.map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
         const prompts = promptsRaw.map((prompt: any) => {
           const transformed = transformSnakeToCamel<SelectChainPrompt>(prompt);
-          // Parse repository_ids if it's a JSON string
-          if (typeof transformed.repositoryIds === 'string') {
-            try {
-              transformed.repositoryIds = JSON.parse(transformed.repositoryIds);
-            } catch (e) {
-              logger.error('Failed to parse repository_ids:', e);
-              transformed.repositoryIds = [];
-            }
-          }
+          // Parse repository_ids using utility function
+          transformed.repositoryIds = parseRepositoryIds(transformed.repositoryIds);
           return transformed;
         });
 
@@ -776,7 +756,7 @@ export async function addChainPromptAction(
       { name: 'modelId', value: { longValue: data.modelId } },
       { name: 'position', value: { longValue: data.position } },
       { name: 'inputMapping', value: data.inputMapping ? { stringValue: JSON.stringify(data.inputMapping) } : { isNull: true } },
-      { name: 'repositoryIds', value: data.repositoryIds ? { stringValue: JSON.stringify(data.repositoryIds) } : { stringValue: '[]' } }
+      { name: 'repositoryIds', value: { stringValue: serializeRepositoryIds(data.repositoryIds) || '[]' } }
     ]);
 
     return {
@@ -899,7 +879,10 @@ export async function updatePromptAction(
           paramValue = { stringValue: value || '' };
         } else if (typeof value === 'object') {
           // Special handling for arrays and objects
-          if (Array.isArray(value)) {
+          if (key === 'repositoryIds' && Array.isArray(value)) {
+            // Use the serialization utility for repository IDs
+            paramValue = { stringValue: serializeRepositoryIds(value) || '[]' };
+          } else if (Array.isArray(value)) {
             // Always stringify arrays, even empty ones
             // This ensures empty arrays are stored as '[]' not NULL
             const cleanArray = value.filter(v => v !== undefined);

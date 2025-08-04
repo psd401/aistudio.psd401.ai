@@ -5,6 +5,20 @@ import '@testing-library/jest-dom';
 import { Chat } from '@/app/(protected)/chat/_components/chat';
 import { toast } from '@/components/ui/use-toast';
 
+// Mock ai/react
+jest.mock('ai/react', () => ({
+  useChat: jest.fn(() => ({
+    messages: [],
+    input: '',
+    handleInputChange: jest.fn(),
+    handleSubmit: jest.fn(),
+    isLoading: false,
+    stop: jest.fn(),
+    setMessages: jest.fn(),
+    setInput: jest.fn(),
+  })),
+}));
+
 // Mock components
 jest.mock('@/components/ui/use-toast', () => ({
   useToast: jest.fn(() => ({
@@ -48,6 +62,19 @@ jest.mock('@/app/(protected)/chat/_components/document-list', () => ({
       ))}
     </div>
   ),
+}));
+jest.mock('@/app/(protected)/chat/_components/document-upload', () => ({
+  DocumentUpload: ({ onUploadComplete, conversationId }: any) => (
+    <div data-testid="document-upload">
+      <h3>Upload Document</h3>
+      <button onClick={() => onUploadComplete?.({ id: 'doc-1', name: 'test.pdf' })}>
+        Upload Test Document
+      </button>
+    </div>
+  ),
+}));
+jest.mock('@/app/(protected)/chat/_components/ai-thinking-indicator', () => ({
+  AiThinkingIndicator: () => <div>Thinking...</div>,
 }));
 
 // Mock fetch

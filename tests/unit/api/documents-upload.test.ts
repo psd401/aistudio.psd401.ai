@@ -1,3 +1,33 @@
+// Mock Next.js server components first
+jest.mock('next/server', () => ({
+  NextRequest: jest.fn(),
+  NextResponse: class NextResponse {
+    body: string;
+    status: number;
+    headers: Map<string, string>;
+    
+    constructor(body: string, init?: { status?: number; headers?: Record<string, string> }) {
+      this.body = body;
+      this.status = init?.status || 200;
+      this.headers = new Map(Object.entries(init?.headers || {}));
+    }
+    
+    json() {
+      return Promise.resolve(JSON.parse(this.body));
+    }
+    
+    static json(data: unknown, init?: { status?: number; headers?: Record<string, string> }) {
+      return new NextResponse(JSON.stringify(data), {
+        ...init,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(init?.headers || {})
+        }
+      });
+    }
+  }
+}));
+
 import { POST } from '@/app/api/documents/upload/route';
 import { uploadDocument } from '@/lib/aws/s3-client';
 import { saveDocument, saveDocumentChunk, batchInsertDocumentChunks } from '@/lib/db/queries/documents';

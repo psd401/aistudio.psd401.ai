@@ -7,6 +7,7 @@ import { NextRequest } from 'next/server';
 
 // Try static import again to see the actual error
 import { retrieveKnowledgeForPrompt, formatKnowledgeContext } from "@/lib/assistant-architect/knowledge-retrieval";
+import { parseRepositoryIds } from "@/lib/utils/repository-utils";
 
 interface StreamRequest {
   toolId: number;
@@ -239,19 +240,23 @@ export async function POST(req: NextRequest) {
               // Retrieve knowledge from repositories if configured
               let knowledgeContext = '';
               
-              // Parse repository IDs if they come as a string from the database
-              let repositoryIds: number[] | null = null;
-              if (prompt.repositoryIds) {
-                if (typeof prompt.repositoryIds === 'string') {
-                  try {
-                    repositoryIds = JSON.parse(prompt.repositoryIds);
-                  } catch (e) {
-                    logger.error('Failed to parse repository_ids:', e);
-                    repositoryIds = null;
-                  }
-                } else if (Array.isArray(prompt.repositoryIds)) {
-                  repositoryIds = prompt.repositoryIds;
-                }
+              // Parse repository IDs using utility function
+              const repositoryIds = parseRepositoryIds(prompt.repositoryIds);
+              
+              // Notify user if parsing failed but repositoryIds was provided
+              if (prompt.repositoryIds && repositoryIds.length === 0) {
+                logger.warn('Repository IDs provided but parsing resulted in empty array:', {
+                  promptId: prompt.id,
+                  promptName: prompt.name,
+                  originalValue: prompt.repositoryIds
+                });
+                controller.enqueue(encoder.encode(
+                  `data: ${JSON.stringify({
+                    type: 'warning',
+                    message: `Warning: Could not parse knowledge repository settings for prompt "${prompt.name}". Continuing without external knowledge.`,
+                    promptIndex: i
+                  })}\n\n`
+                ));
               }
               
               if (repositoryIds && repositoryIds.length > 0) {
@@ -297,6 +302,35 @@ export async function POST(req: NextRequest) {
                 combinedSystemContext = prompt.systemContext;
               } else if (knowledgeContext) {
                 combinedSystemContext = knowledgeContext;
+              }
+              
+              // Validate combined context length (approximate token count)
+              // Most models have a context window limit, let's warn if approaching common limits
+              const approximateTokens = Math.ceil(combinedSystemContext.length / 4); // rough approximation
+              const MODEL_CONTEXT_LIMITS: Record<string, number> = {
+                'gpt-4': 8192,
+                'gpt-4-turbo': 128000,
+                'gpt-3.5-turbo': 4096,
+                'claude-2': 100000,
+                'claude-3': 200000,
+                // Add more models as needed
+              };
+              
+              const modelLimit = MODEL_CONTEXT_LIMITS[prompt.modelId] || 8192; // default to conservative limit
+              if (approximateTokens > modelLimit * 0.8) { // Warn at 80% of limit
+                logger.warn(`Combined context approaching model limit for prompt ${prompt.id}:`, {
+                  approximateTokens,
+                  modelLimit,
+                  promptName: prompt.name,
+                  model: prompt.modelId
+                });
+                controller.enqueue(encoder.encode(
+                  `data: ${JSON.stringify({
+                    type: 'warning',
+                    message: `Warning: Combined context is large (≈${approximateTokens} tokens). Model limit is ${modelLimit} tokens.`,
+                    promptIndex: i
+                  })}\n\n`
+                ));
               }
 
               const messages = [
