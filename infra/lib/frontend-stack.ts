@@ -133,6 +133,14 @@ export class FrontendStack extends cdk.Stack {
                 'dynamodb:Scan'
               ],
               resources: ['*'] // TODO: Scope this down to specific tables
+            }),
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'bedrock:InvokeModel',
+                'bedrock:InvokeModelWithResponseStream'
+              ],
+              resources: ['arn:aws:bedrock:*::foundation-model/*'] // Scoped to foundation models
             })
           ]
         })

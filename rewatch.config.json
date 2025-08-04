@@ -1,0 +1,13 @@
+{
+    "processes": {
+      "nextjs": {
+        "command": "npm",
+        "args": ["run", "dev"],
+        "cwd": "./",
+        "env": {
+          "PORT": "3000"
+        },
+        "startupDelay": 4000
+      }
+    }
+  }

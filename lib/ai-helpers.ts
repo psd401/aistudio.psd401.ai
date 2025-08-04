@@ -58,15 +58,18 @@ async function getModelClient(modelConfig: ModelConfig) {
     case 'amazon-bedrock': {
       const bedrockConfig = await Settings.getBedrock();
       
-      if (!bedrockConfig.accessKeyId || !bedrockConfig.secretAccessKey || !bedrockConfig.region) {
-        throw new Error('Amazon Bedrock is not configured. Please set the required settings in the admin panel.')
+      // Use IAM role credentials if no explicit credentials are provided
+      const bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
+        region: bedrockConfig.region || 'us-east-1'
+      };
+      
+      // Only add credentials if they exist (for local development)
+      if (bedrockConfig.accessKeyId && bedrockConfig.secretAccessKey) {
+        bedrockOptions.accessKeyId = bedrockConfig.accessKeyId;
+        bedrockOptions.secretAccessKey = bedrockConfig.secretAccessKey;
       }
       
-      const bedrock = createAmazonBedrock({
-        region: bedrockConfig.region,
-        accessKeyId: bedrockConfig.accessKeyId,
-        secretAccessKey: bedrockConfig.secretAccessKey
-      })
+      const bedrock = createAmazonBedrock(bedrockOptions)
 
       return bedrock(modelConfig.modelId)
     }
@@ -276,15 +279,18 @@ async function getEmbeddingModelClient(config: ModelConfig) {
     case 'amazon-bedrock': {
       const bedrockConfig = await Settings.getBedrock();
       
-      if (!bedrockConfig.accessKeyId || !bedrockConfig.secretAccessKey || !bedrockConfig.region) {
-        throw new Error('AWS Bedrock credentials not configured');
+      // Use IAM role credentials if no explicit credentials are provided
+      const bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
+        region: bedrockConfig.region || 'us-east-1'
+      };
+      
+      // Only add credentials if they exist (for local development)
+      if (bedrockConfig.accessKeyId && bedrockConfig.secretAccessKey) {
+        bedrockOptions.accessKeyId = bedrockConfig.accessKeyId;
+        bedrockOptions.secretAccessKey = bedrockConfig.secretAccessKey;
       }
       
-      const bedrock = createAmazonBedrock({
-        accessKeyId: bedrockConfig.accessKeyId,
-        secretAccessKey: bedrockConfig.secretAccessKey,
-        region: bedrockConfig.region
-      });
+      const bedrock = createAmazonBedrock(bedrockOptions);
       
       return bedrock.embedding(config.modelId);
     }

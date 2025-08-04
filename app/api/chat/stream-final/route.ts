@@ -400,12 +400,18 @@ export async function POST(req: Request) {
     }
     case 'amazon-bedrock': {
       const config = await Settings.getBedrock();
-      if (!config.accessKeyId) throw new Error('Bedrock not configured');
-      const bedrock = createAmazonBedrock({
-        region: config.region || undefined,
-        accessKeyId: config.accessKeyId || undefined,
-        secretAccessKey: config.secretAccessKey || undefined
-      });
+      // Use IAM role credentials if no explicit credentials are provided
+      const bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
+        region: config.region || 'us-east-1'
+      };
+      
+      // Only add credentials if they exist (for local development)
+      if (config.accessKeyId && config.secretAccessKey) {
+        bedrockOptions.accessKeyId = config.accessKeyId;
+        bedrockOptions.secretAccessKey = config.secretAccessKey;
+      }
+      
+      const bedrock = createAmazonBedrock(bedrockOptions);
       model = bedrock(ensureRDSString(aiModel.modelId));
       break;
     }
