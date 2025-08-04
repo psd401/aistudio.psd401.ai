@@ -401,8 +401,8 @@ export async function POST(req: Request) {
     }
     case 'amazon-bedrock': {
       const config = await Settings.getBedrock();
-      // Use IAM role credentials if no explicit credentials are provided
-      const bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
+      
+      let bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
         region: config.region || 'us-east-1'
       };
       
@@ -411,8 +411,16 @@ export async function POST(req: Request) {
         bedrockOptions.accessKeyId = config.accessKeyId;
         bedrockOptions.secretAccessKey = config.secretAccessKey;
       } else {
-        // AWS environment - use IAM role credentials via credential provider
-        bedrockOptions.credentialProvider = fromNodeProviderChain();
+        // AWS environment - get credentials from IAM role
+        const credentialsProvider = fromNodeProviderChain();
+        const credentials = await credentialsProvider();
+        
+        bedrockOptions = {
+          ...bedrockOptions,
+          accessKeyId: credentials.accessKeyId,
+          secretAccessKey: credentials.secretAccessKey,
+          sessionToken: credentials.sessionToken,
+        };
       }
       
       const bedrock = createAmazonBedrock(bedrockOptions);
