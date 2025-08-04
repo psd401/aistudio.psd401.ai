@@ -120,17 +120,47 @@ export async function GET() {
     }
   }
 
-  // Test 5: Test direct AWS SDK call (skipped - package not installed)
-  results.tests.directAwsSdk = {
-    success: false,
-    error: 'Test skipped - @aws-sdk/client-bedrock-runtime not installed'
+  // Test 5: Test SDK without explicit credentials
+  try {
+    const bedrockConfig = await Settings.getBedrock()
+    
+    // Only pass region, let SDK handle credentials
+    const bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
+      region: bedrockConfig.region || 'us-east-1'
+    }
+    
+    const bedrock = createAmazonBedrock(bedrockOptions)
+    const model = bedrock('anthropic.claude-3-haiku-20240307-v1:0')
+    
+    // Try to actually use the model
+    const { generateText } = await import('ai')
+    const result = await generateText({
+      model,
+      messages: [{ role: 'user', content: 'Say "test"' }],
+      maxTokens: 10
+    })
+    
+    results.tests.sdkDefaultCredentials = {
+      success: true,
+      message: 'SDK with default credentials works',
+      response: result.text
+    }
+  } catch (error) {
+    results.tests.sdkDefaultCredentials = {
+      success: false,
+      error: error instanceof Error ? {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      } : String(error)
+    }
   }
 
   // Test 6: Test our actual implementation
   try {
     const bedrockConfig = await Settings.getBedrock()
     
-    let bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
+    const bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
       region: bedrockConfig.region || 'us-east-1'
     }
     
@@ -138,15 +168,7 @@ export async function GET() {
       bedrockOptions.accessKeyId = bedrockConfig.accessKeyId
       bedrockOptions.secretAccessKey = bedrockConfig.secretAccessKey
     } else {
-      const credentialsProvider = fromNodeProviderChain()
-      const credentials = await credentialsProvider()
-      
-      bedrockOptions = {
-        ...bedrockOptions,
-        accessKeyId: credentials.accessKeyId,
-        secretAccessKey: credentials.secretAccessKey,
-        sessionToken: credentials.sessionToken,
-      }
+      // Let SDK handle credentials automatically - don't explicitly set them
     }
     
     const bedrock = createAmazonBedrock(bedrockOptions)

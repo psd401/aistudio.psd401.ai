@@ -20,7 +20,7 @@ import { createAzure } from '@ai-sdk/azure'
 import { google } from '@ai-sdk/google'
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { createOpenAI } from '@ai-sdk/openai'
-import { fromNodeProviderChain } from '@aws-sdk/credential-providers'
+// Removed fromNodeProviderChain - not needed when using default credential chain
 import { z } from 'zod'
 import logger from "@/lib/logger"
 
@@ -68,7 +68,7 @@ async function getModelClient(modelConfig: ModelConfig) {
           environment: process.env.AWS_EXECUTION_ENV || 'local'
         });
         
-        let bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
+        const bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
           region: bedrockConfig.region || 'us-east-1'
         };
         
@@ -78,34 +78,10 @@ async function getModelClient(modelConfig: ModelConfig) {
           bedrockOptions.accessKeyId = bedrockConfig.accessKeyId;
           bedrockOptions.secretAccessKey = bedrockConfig.secretAccessKey;
         } else {
-          // AWS environment - get credentials from IAM role
-          logger.info('[ai-helpers] No explicit credentials, attempting IAM role credentials');
-          try {
-            const credentialsProvider = fromNodeProviderChain();
-            const credentials = await credentialsProvider();
-            logger.info('[ai-helpers] IAM credentials obtained:', {
-              hasAccessKeyId: !!credentials.accessKeyId,
-              hasSecretAccessKey: !!credentials.secretAccessKey,
-              hasSessionToken: !!credentials.sessionToken,
-              expiration: credentials.expiration?.toISOString()
-            });
-            
-            bedrockOptions = {
-              ...bedrockOptions,
-              accessKeyId: credentials.accessKeyId,
-              secretAccessKey: credentials.secretAccessKey,
-              sessionToken: credentials.sessionToken,
-            };
-          } catch (credError) {
-            logger.error('[ai-helpers] Failed to get IAM credentials:', {
-              error: credError instanceof Error ? {
-                name: credError.name,
-                message: credError.message,
-                stack: credError.stack
-              } : String(credError)
-            });
-            throw new Error(`Failed to obtain AWS credentials: ${credError instanceof Error ? credError.message : String(credError)}`);
-          }
+          // AWS environment - let SDK handle credentials automatically
+          logger.info('[ai-helpers] No explicit credentials, using default AWS credential chain');
+          // Don't set any credentials - let the SDK use the default credential provider chain
+          // This will use IAM role credentials in Lambda, which work properly with cross-region calls
         }
         
         logger.info('[ai-helpers] Creating Bedrock client with options:', {
@@ -358,7 +334,7 @@ async function getEmbeddingModelClient(config: ModelConfig) {
           environment: process.env.AWS_EXECUTION_ENV || 'local'
         });
         
-        let bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
+        const bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
           region: bedrockConfig.region || 'us-east-1'
         };
         
@@ -368,34 +344,10 @@ async function getEmbeddingModelClient(config: ModelConfig) {
           bedrockOptions.accessKeyId = bedrockConfig.accessKeyId;
           bedrockOptions.secretAccessKey = bedrockConfig.secretAccessKey;
         } else {
-          // AWS environment - get credentials from IAM role
-          logger.info('[ai-helpers] No explicit credentials for embeddings, attempting IAM role');
-          try {
-            const credentialsProvider = fromNodeProviderChain();
-            const credentials = await credentialsProvider();
-            logger.info('[ai-helpers] IAM embedding credentials obtained:', {
-              hasAccessKeyId: !!credentials.accessKeyId,
-              hasSecretAccessKey: !!credentials.secretAccessKey,
-              hasSessionToken: !!credentials.sessionToken,
-              expiration: credentials.expiration?.toISOString()
-            });
-            
-            bedrockOptions = {
-              ...bedrockOptions,
-              accessKeyId: credentials.accessKeyId,
-              secretAccessKey: credentials.secretAccessKey,
-              sessionToken: credentials.sessionToken,
-            };
-          } catch (credError) {
-            logger.error('[ai-helpers] Failed to get IAM credentials for embeddings:', {
-              error: credError instanceof Error ? {
-                name: credError.name,
-                message: credError.message,
-                stack: credError.stack
-              } : String(credError)
-            });
-            throw new Error(`Failed to obtain AWS credentials for embeddings: ${credError instanceof Error ? credError.message : String(credError)}`);
-          }
+          // AWS environment - let SDK handle credentials automatically
+          logger.info('[ai-helpers] No explicit credentials for embeddings, using default AWS credential chain');
+          // Don't set any credentials - let the SDK use the default credential provider chain
+          // This will use IAM role credentials in Lambda, which work properly with cross-region calls
         }
         
         logger.info('[ai-helpers] Creating Bedrock embedding client');
