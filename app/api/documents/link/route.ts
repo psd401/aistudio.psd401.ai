@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
   }
   
   const currentUser = await getCurrentUserAction();
-  if (!currentUser.isSuccess) {
+  if (!currentUser.isSuccess || !currentUser.data?.user) {
     return unauthorized('User not found');
   }
   

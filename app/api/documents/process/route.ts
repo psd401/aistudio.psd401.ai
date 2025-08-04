@@ -1,21 +1,19 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { getServerSession } from '@/lib/auth/server-session'
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action'
 import { getObjectStream, documentExists } from '@/lib/aws/s3-client'
 import { saveDocument, batchInsertDocumentChunks } from '@/lib/db/queries/documents'
 import { extractTextFromDocument, chunkText, getFileTypeFromFileName } from '@/lib/document-processing'
-import { getSetting } from '@/lib/settings-manager'
 import logger from '@/lib/logger'
+import { withErrorHandling, unauthorized } from '@/lib/api-utils'
+import { createError } from '@/lib/error-utils'
+import { ErrorLevel } from '@/types/actions-types'
+import { getMaxFileSize, formatFileSize } from '@/lib/file-validation'
 
 // Ensure this route is built for the Node.js runtime
 export const runtime = "nodejs"
 
-// Get file size limit from settings or environment variable
-async function getMaxFileSize(): Promise<number> {
-  const maxSizeMB = await getSetting('MAX_FILE_SIZE_MB') || process.env.MAX_FILE_SIZE_MB || '25'
-  return parseInt(maxSizeMB, 10) * 1024 * 1024
-}
 
 // Request validation schema
 const ProcessDocumentRequestSchema = z.object({
@@ -28,32 +26,23 @@ const ProcessDocumentRequestSchema = z.object({
 export async function POST(request: NextRequest) {
   logger.info('[Process Document API] Handler entered')
 
-  const headers = {
-    'Content-Type': 'application/json',
+  // Check authentication
+  const session = await getServerSession()
+  if (!session) {
+    logger.info('[Process Document API] Unauthorized - No session')
+    return unauthorized()
   }
 
-  try {
-    // Check authentication
-    const session = await getServerSession()
-    if (!session) {
-      logger.info('[Process Document API] Unauthorized - No session')
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401, headers }
-      )
-    }
+  const currentUser = await getCurrentUserAction()
+  if (!currentUser.isSuccess || !currentUser.data?.user) {
+    logger.info('[Process Document API] Unauthorized - User not found')
+    return unauthorized('User not found')
+  }
 
-    const currentUser = await getCurrentUserAction()
-    if (!currentUser.isSuccess) {
-      logger.info('[Process Document API] Unauthorized - User not found')
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 401, headers }
-      )
-    }
+  const userId = currentUser.data.user.id
+  logger.info(`[Process Document API] User ID: ${userId}`)
 
-    const userId = currentUser.data.user.id
-    logger.info(`[Process Document API] User ID: ${userId}`)
+  return withErrorHandling(async () => {
 
     // Parse and validate request body
     const body = await request.json()
@@ -62,10 +51,10 @@ export async function POST(request: NextRequest) {
     if (!validation.success) {
       const errorMessage = validation.error.errors.map(e => e.message).join(', ')
       logger.info('[Process Document API] Validation error:', errorMessage)
-      return NextResponse.json(
-        { error: errorMessage },
-        { status: 400, headers }
-      )
+      throw createError(errorMessage, {
+        code: 'VALIDATION',
+        level: ErrorLevel.WARN
+      })
     }
 
     const { key, fileName, fileSize, conversationId } = validation.data
@@ -74,29 +63,29 @@ export async function POST(request: NextRequest) {
     const maxFileSize = await getMaxFileSize()
     if (fileSize > maxFileSize) {
       logger.info('[Process Document API] File size exceeds limit:', { fileSize, maxFileSize })
-      return NextResponse.json(
-        { error: `File size must be less than ${maxFileSize / (1024 * 1024)}MB` },
-        { status: 400, headers }
-      )
+      throw createError(`File size must be less than ${formatFileSize(maxFileSize)}`, {
+        code: 'VALIDATION',
+        level: ErrorLevel.WARN
+      })
     }
 
     // Verify the S3 key belongs to this user
     if (!key.startsWith(`${userId}/`)) {
       logger.error('[Process Document API] Unauthorized access attempt to S3 key:', { key, userId })
-      return NextResponse.json(
-        { error: 'Unauthorized access to document' },
-        { status: 403, headers }
-      )
+      throw createError('Unauthorized access to document', {
+        code: 'FORBIDDEN',
+        level: ErrorLevel.WARN
+      })
     }
 
     // Verify document exists in S3
     const exists = await documentExists(key)
     if (!exists) {
       logger.error('[Process Document API] Document not found in S3:', key)
-      return NextResponse.json(
-        { error: 'Document not found' },
-        { status: 404, headers }
-      )
+      throw createError('Document not found', {
+        code: 'NOT_FOUND',
+        level: ErrorLevel.WARN
+      })
     }
 
     logger.info('[Process Document API] Retrieving document from S3:', key)
@@ -126,21 +115,19 @@ export async function POST(request: NextRequest) {
       logger.info(`[Process Document API] Text extracted, length: ${text?.length ?? 0}`)
     } catch (extractError) {
       logger.error('[Process Document API] Error extracting text:', extractError)
-      return NextResponse.json(
-        { 
-          error: `Failed to extract text from document: ${extractError instanceof Error ? extractError.message : String(extractError)}` 
-        },
-        { status: 500, headers }
-      )
+      throw createError(`Failed to extract text from document: ${extractError instanceof Error ? extractError.message : String(extractError)}`, {
+        code: 'INTERNAL_ERROR',
+        level: ErrorLevel.ERROR
+      })
     }
 
     // Ensure text is not null or undefined
     if (!text) {
       logger.error('[Process Document API] No text content extracted from document')
-      return NextResponse.json(
-        { error: 'Failed to extract text content from document' },
-        { status: 500, headers }
-      )
+      throw createError('Failed to extract text content from document', {
+        code: 'INTERNAL_ERROR',
+        level: ErrorLevel.ERROR
+      })
     }
 
     // Save document metadata to database
@@ -163,12 +150,10 @@ export async function POST(request: NextRequest) {
       logger.info(`[Process Document API] Document saved to database: ${document.id}`)
     } catch (saveError) {
       logger.error('[Process Document API] Error saving document:', saveError)
-      return NextResponse.json(
-        { 
-          error: `Failed to save document: ${saveError instanceof Error ? saveError.message : String(saveError)}` 
-        },
-        { status: 500, headers }
-      )
+      throw createError(`Failed to save document: ${saveError instanceof Error ? saveError.message : String(saveError)}`, {
+        code: 'INTERNAL_ERROR',
+        level: ErrorLevel.ERROR
+      })
     }
 
     // Chunk text and save to database
@@ -199,8 +184,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Return success response
-    return NextResponse.json({
-      success: true,
+    return {
       document: {
         id: document.id,
         name: document.name,
@@ -209,15 +193,6 @@ export async function POST(request: NextRequest) {
         url: document.url,
         totalChunks: textChunks.length
       }
-    }, { status: 200, headers })
-
-  } catch (error) {
-    logger.error('[Process Document API] Unexpected error:', error)
-    return NextResponse.json(
-      { 
-        error: error instanceof Error ? error.message : 'Failed to process document'
-      },
-      { status: 500, headers }
-    )
-  }
+    }
+  })
 }

@@ -103,9 +103,8 @@ export function DocumentUpload({
     // Just set the file, upload triggered elsewhere or by button
     setSelectedFile(file);
     
-    // Trigger upload immediately
-    hasAttemptedUpload.current = false; // Reset attempt flag
-    uploadDocument(file); // Pass file to upload function
+    // Reset attempt flag to allow useEffect to handle upload
+    hasAttemptedUpload.current = false;
   }
 
   // Helper function for direct upload (files <= 1MB)
@@ -173,11 +172,13 @@ export function DocumentUpload({
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
       
-      // Track upload progress
-      xhr.upload.addEventListener('progress', (event) => {
+      // Track upload progress (5-95% range)
+      xhr.upload.addEventListener('progress', (event: ProgressEvent) => {
         if (event.lengthComputable) {
           const percentComplete = Math.round((event.loaded / event.total) * 100)
-          setUploadProgress(Math.min(percentComplete, 95)) // Cap at 95% until processing
+          // Map 0-100% upload progress to 5-95% overall progress
+          const mappedProgress = Math.round(5 + (percentComplete * 0.9))
+          setUploadProgress(mappedProgress)
         }
       })
       
@@ -204,8 +205,10 @@ export function DocumentUpload({
     })
   }, [])
 
-  // Helper function for presigned URL upload (files > 1MB)
+  // Helper function for presigned URL upload (files > threshold)
   const uploadViaPresignedUrl = useCallback(async (file: File) => {
+    // Progress: 0-5% for getting presigned URL
+    setUploadProgress(2)
     // Step 1: Get presigned URL
     const presignedResponse = await fetch('/api/documents/presigned-url', {
       method: 'POST',
@@ -223,11 +226,13 @@ export function DocumentUpload({
     }
     
     const { url, key } = await presignedResponse.json()
+    setUploadProgress(5) // Got presigned URL
     
-    // Step 2: Upload directly to S3 with progress tracking
+    // Step 2: Upload directly to S3 with progress tracking (5-95%)
     await uploadToS3WithProgress(file, url)
     
-    // Step 3: Process the uploaded document
+    // Step 3: Process the uploaded document (95-100%)
+    setUploadProgress(96)
     const processResponse = await fetch('/api/documents/process', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -245,12 +250,13 @@ export function DocumentUpload({
     }
     
     const { document } = await processResponse.json()
+    setUploadProgress(100) // Processing complete
     
     // Notify parent that upload finished
     if (onUploadComplete) {
       onUploadComplete(document)
     }
-  }, [uploadToS3WithProgress])
+  }, [uploadToS3WithProgress, onUploadComplete, conversationId])
 
   const uploadDocument = useCallback(async (fileToUpload: File | null) => {
     if (!fileToUpload) {
@@ -265,12 +271,9 @@ export function DocumentUpload({
     setIsUploading(true)
     setUploadProgress(0)
     
-    // Decide upload method based on file size (1MB threshold)
-    const usePresignedUrl = fileToUpload.size > 1 * 1024 * 1024
-    
-    // Debug logging (remove in production)
-    // console.log('[DocumentUpload] File size:', fileToUpload.size, 'bytes')
-    // console.log('[DocumentUpload] Using presigned URL:', usePresignedUrl)
+    // Decide upload method based on file size threshold
+    const thresholdMB = parseInt(process.env.NEXT_PUBLIC_PRESIGNED_URL_THRESHOLD_MB || '1', 10)
+    const usePresignedUrl = fileToUpload.size > thresholdMB * 1024 * 1024
     
     try {
       if (usePresignedUrl) {
@@ -299,7 +302,7 @@ export function DocumentUpload({
         fileInputRef.current.value = ''
       }
     }
-  }, [onUploadComplete, fileInputRef, conversationId, uploadDirectly, uploadViaPresignedUrl])
+  }, [fileInputRef, uploadDirectly, uploadViaPresignedUrl])
 
   // Effect to auto-upload when conversation is created
   useEffect(() => {

@@ -18,16 +18,13 @@ import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 // import * as fs from 'fs'; // No longer needed if text processing is out
 // import * as path from 'path'; // No longer needed if text processing is out
 
-// File size limit: 25MB
-const MAX_FILE_SIZE = 25 * 1024 * 1024;
+import { 
+  ALLOWED_FILE_EXTENSIONS,
+  ALLOWED_MIME_TYPES
+} from '@/lib/file-validation';
 
-// Supported file types
-const ALLOWED_FILE_EXTENSIONS = ['.pdf', '.docx', '.txt'];
-const ALLOWED_MIME_TYPES = [
-  'application/pdf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'text/plain'
-];
+// File size limit: 25MB (we'll validate dynamically later with getMaxFileSize)
+const MAX_FILE_SIZE = 25 * 1024 * 1024;
 
 // Enhanced file validation schema
 // Using z.any() since File/Blob classes are not available during SSR/build
@@ -45,13 +42,13 @@ const FileSchema = z.object({
     .refine((file) => {
       const fileName = file.name || '';
       const fileExtension = `.${fileName.split('.').pop()?.toLowerCase()}`;
-      return ALLOWED_FILE_EXTENSIONS.includes(fileExtension);
+      return ALLOWED_FILE_EXTENSIONS.includes(fileExtension as any);
     }, {
       message: `Unsupported file extension. Allowed file types are: ${ALLOWED_FILE_EXTENSIONS.join(', ')}`,
     })
     .refine((file) => {
       const mimeType = file.type;
-      return ALLOWED_MIME_TYPES.includes(mimeType);
+      return ALLOWED_MIME_TYPES.includes(mimeType as any);
     }, {
       message: `Unsupported file type. Allowed MIME types are: ${ALLOWED_MIME_TYPES.join(', ')}`,
     })
@@ -87,7 +84,7 @@ export async function POST(request: NextRequest) {
   }
   
   const currentUser = await getCurrentUserAction();
-  if (!currentUser.isSuccess) {
+  if (!currentUser.isSuccess || !currentUser.data?.user) {
     logger.info('Unauthorized - User not found');
     return new NextResponse(
       JSON.stringify({ error: 'User not found' }), 
@@ -155,7 +152,7 @@ export async function POST(request: NextRequest) {
     // Validate file type with a comprehensive approach
     // 1. Check file extension
     const fileExtension = `.${file.name.split('.').pop()?.toLowerCase()}`;
-    if (!ALLOWED_FILE_EXTENSIONS.includes(fileExtension)) {
+    if (!ALLOWED_FILE_EXTENSIONS.includes(fileExtension as any)) {
       logger.info('Unsupported file extension:', fileExtension);
       return new NextResponse(
         JSON.stringify({ 
@@ -167,7 +164,7 @@ export async function POST(request: NextRequest) {
     }
     
     // 2. Check MIME type for additional security
-    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+    if (!ALLOWED_MIME_TYPES.includes(file.type as any)) {
       logger.info('Unsupported MIME type:', file.type);
       return new NextResponse(
         JSON.stringify({ 
