@@ -54,10 +54,12 @@ export async function retrieveKnowledgeForPrompt(
 
   try {
     // First, verify user has access to all specified repositories
+    // Since RDS Data API doesn't support array parameters directly, we'll use IN clause
+    const placeholders = repositoryIds.map((_, index) => `:repoId${index}`).join(', ')
     const accessCheckQuery = `
       SELECT DISTINCT r.id, r.name
       FROM knowledge_repositories r
-      WHERE r.id = ANY(:repositoryIds)
+      WHERE r.id IN (${placeholders})
       AND (
         r.is_public = true
         OR r.created_by = (SELECT id FROM users WHERE cognito_sub = :cognitoSub)
@@ -75,12 +77,17 @@ export async function retrieveKnowledgeForPrompt(
       )
     `
     
+    const parameters = [
+      ...repositoryIds.map((id, index) => ({ 
+        name: `repoId${index}`, 
+        value: { longValue: id } 
+      })),
+      { name: 'cognitoSub', value: { stringValue: userCognitoSub } }
+    ]
+    
     const accessibleRepos = await executeSQL<{ id: number; name: string }>(
       accessCheckQuery,
-      [
-        { name: 'repositoryIds', value: { stringValue: `{${repositoryIds.join(',')}}` } },
-        { name: 'cognitoSub', value: { stringValue: userCognitoSub } }
-      ]
+      parameters
     )
 
     if (accessibleRepos.length !== repositoryIds.length) {

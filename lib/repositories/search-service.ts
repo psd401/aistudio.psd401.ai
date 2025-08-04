@@ -17,21 +17,6 @@ export interface SearchOptions {
   repositoryId?: number
 }
 
-/**
- * Calculate cosine similarity between two vectors in PostgreSQL
- */
-function getCosineSimilaritySQL(): string {
-  return `
-    (
-      (SELECT SUM(a * b) FROM UNNEST(c.embedding_vector, query_vec.embedding) AS t(a, b))
-      /
-      (
-        SQRT((SELECT SUM(a * a) FROM UNNEST(c.embedding_vector) AS a)) *
-        SQRT((SELECT SUM(b * b) FROM UNNEST(query_vec.embedding) AS b))
-      )
-    )
-  `
-}
 
 /**
  * Perform vector similarity search using cosine similarity
@@ -45,11 +30,11 @@ export async function vectorSearch(
   // Generate embedding for the query
   const queryEmbedding = await generateEmbedding(query)
   
-  // Build the SQL query
+  // Build the SQL query using pgvector
+  // Convert embedding array to pgvector format string: '[1,2,3]'
+  const embeddingString = `[${queryEmbedding.join(',')}]`
+  
   let sql = `
-    WITH query_vec AS (
-      SELECT ARRAY[${queryEmbedding.join(',')}]::real[] AS embedding
-    )
     SELECT 
       c.id as chunk_id,
       c.item_id,
@@ -57,11 +42,10 @@ export async function vectorSearch(
       c.content,
       c.chunk_index,
       c.metadata,
-      ${getCosineSimilaritySQL()} as similarity
+      1 - (c.embedding <=> :queryVector::vector) as similarity
     FROM repository_item_chunks c
-    CROSS JOIN query_vec
     JOIN repository_items i ON i.id = c.item_id
-    WHERE c.embedding_vector IS NOT NULL
+    WHERE c.embedding IS NOT NULL
   `
   
   const params = []
@@ -72,12 +56,13 @@ export async function vectorSearch(
   }
   
   sql += `
-    AND ${getCosineSimilaritySQL()} >= :threshold
+    AND 1 - (c.embedding <=> :queryVector::vector) >= :threshold
     ORDER BY similarity DESC
     LIMIT :limit
   `
   
   params.push(
+    { name: 'queryVector', value: { stringValue: embeddingString } },
     { name: 'threshold', value: { doubleValue: threshold } },
     { name: 'limit', value: { longValue: limit } }
   )
@@ -85,13 +70,13 @@ export async function vectorSearch(
   const results = await executeSQL(sql, params)
   
   return results.map(row => ({
-    chunkId: Number(row.chunk_id) || 0,
-    itemId: Number(row.item_id) || 0,
-    itemName: String(row.item_name || ''),
+    chunkId: Number(row.chunkId) || 0,
+    itemId: Number(row.itemId) || 0,
+    itemName: String(row.itemName || ''),
     content: String(row.content || ''),
     similarity: Number(row.similarity) || 0,
-    chunkIndex: Number(row.chunk_index) || 0,
-    metadata: row.metadata ? JSON.parse(row.metadata as string) : {}
+    chunkIndex: Number(row.chunkIndex) || 0,
+    metadata: row.metadata || {}
   }))
 }
 
@@ -133,13 +118,13 @@ export async function keywordSearch(
   const results = await executeSQL(sql, params)
   
   return results.map(row => ({
-    chunkId: Number(row.chunk_id) || 0,
-    itemId: Number(row.item_id) || 0,
-    itemName: String(row.item_name || ''),
+    chunkId: Number(row.chunkId) || 0,
+    itemId: Number(row.itemId) || 0,
+    itemName: String(row.itemName || ''),
     content: String(row.content || ''),
     similarity: Number(row.rank) || 0, // Use rank as similarity score
-    chunkIndex: Number(row.chunk_index) || 0,
-    metadata: row.metadata ? JSON.parse(row.metadata as string) : {}
+    chunkIndex: Number(row.chunkIndex) || 0,
+    metadata: row.metadata || {}
   }))
 }
 
