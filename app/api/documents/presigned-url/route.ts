@@ -19,7 +19,7 @@ import {
 const PresignedUrlRequestSchema = z.object({
   fileName: z.string().min(1).max(255),
   fileType: z.string().refine(
-    (type) => ALLOWED_MIME_TYPES.includes(type as any),
+    (type): type is typeof ALLOWED_MIME_TYPES[number] => ALLOWED_MIME_TYPES.includes(type as typeof ALLOWED_MIME_TYPES[number]),
     { message: `Unsupported file type. Allowed types: ${ALLOWED_MIME_TYPES.join(', ')}` }
   ),
   fileSize: z.number().positive()

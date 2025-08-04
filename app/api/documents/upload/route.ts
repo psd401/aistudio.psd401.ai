@@ -42,13 +42,13 @@ const FileSchema = z.object({
     .refine((file) => {
       const fileName = file.name || '';
       const fileExtension = `.${fileName.split('.').pop()?.toLowerCase()}`;
-      return ALLOWED_FILE_EXTENSIONS.includes(fileExtension as any);
+      return ALLOWED_FILE_EXTENSIONS.includes(fileExtension as typeof ALLOWED_FILE_EXTENSIONS[number]);
     }, {
       message: `Unsupported file extension. Allowed file types are: ${ALLOWED_FILE_EXTENSIONS.join(', ')}`,
     })
     .refine((file) => {
       const mimeType = file.type;
-      return ALLOWED_MIME_TYPES.includes(mimeType as any);
+      return ALLOWED_MIME_TYPES.includes(mimeType as typeof ALLOWED_MIME_TYPES[number]);
     }, {
       message: `Unsupported file type. Allowed MIME types are: ${ALLOWED_MIME_TYPES.join(', ')}`,
     })
@@ -152,7 +152,7 @@ export async function POST(request: NextRequest) {
     // Validate file type with a comprehensive approach
     // 1. Check file extension
     const fileExtension = `.${file.name.split('.').pop()?.toLowerCase()}`;
-    if (!ALLOWED_FILE_EXTENSIONS.includes(fileExtension as any)) {
+    if (!ALLOWED_FILE_EXTENSIONS.includes(fileExtension as typeof ALLOWED_FILE_EXTENSIONS[number])) {
       logger.info('Unsupported file extension:', fileExtension);
       return new NextResponse(
         JSON.stringify({ 
@@ -164,7 +164,7 @@ export async function POST(request: NextRequest) {
     }
     
     // 2. Check MIME type for additional security
-    if (!ALLOWED_MIME_TYPES.includes(file.type as any)) {
+    if (!ALLOWED_MIME_TYPES.includes(file.type as typeof ALLOWED_MIME_TYPES[number])) {
       logger.info('Unsupported MIME type:', file.type);
       return new NextResponse(
         JSON.stringify({ 

@@ -79,12 +79,12 @@ jest.mock('@/lib/error-utils', () => ({
 }));
 jest.mock('@/lib/api-utils', () => ({
   withErrorHandling: jest.fn((handler) => handler().then(
-    (data) => new (jest.requireActual('next/server').NextResponse)(
+    (data: any) => new (jest.requireActual('next/server').NextResponse)(
       JSON.stringify({ success: true, data }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     )
   ).catch(
-    (error) => new (jest.requireActual('next/server').NextResponse)(
+    (error: any) => new (jest.requireActual('next/server').NextResponse)(
       JSON.stringify({ success: false, message: error.message }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     )

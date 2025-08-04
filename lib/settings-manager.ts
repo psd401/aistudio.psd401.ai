@@ -138,8 +138,8 @@ export const Settings = {
   // Storage
   async getS3() {
     const [bucket, region] = await Promise.all([
-      getSetting('S3_BUCKET'),
-      getSetting('AWS_REGION')
+      getSetting('S3_BUCKET') || getSetting('DOCUMENTS_BUCKET_NAME'),
+      getSetting('AWS_REGION') || getSetting('NEXT_PUBLIC_AWS_REGION')
     ])
     return { bucket, region }
   },

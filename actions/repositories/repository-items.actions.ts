@@ -58,6 +58,17 @@ export interface AddTextInput {
   content: string
 }
 
+export interface AddDocumentWithPresignedUrlInput {
+  repository_id: number
+  name: string
+  s3Key: string
+  metadata: {
+    contentType: string
+    size: number
+    originalFileName: string
+  }
+}
+
 // Sanitize filename to prevent directory traversal and other security issues
 function sanitizeFilename(filename: string): string {
   // Remove any directory components and special characters
@@ -165,6 +176,85 @@ export async function addDocumentItem(
     return { isSuccess: true, message: "Document uploaded successfully", data: item }
   } catch (error) {
     return handleError(error, "Failed to add document")
+  }
+}
+
+export async function addDocumentWithPresignedUrl(
+  input: AddDocumentWithPresignedUrlInput
+): Promise<ActionState<RepositoryItem>> {
+  try {
+    const session = await getServerSession()
+    if (!session) {
+      return { isSuccess: false, message: "Unauthorized" }
+    }
+
+    const hasAccess = await hasToolAccess("knowledge-repositories")
+    if (!hasAccess) {
+      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
+    
+    // Validate inputs
+    if (!input.name || input.name.trim().length === 0) {
+      return { isSuccess: false, message: "Name is required" }
+    }
+    
+    if (!input.s3Key || input.s3Key.trim().length === 0) {
+      return { isSuccess: false, message: "S3 key is required" }
+    }
+
+    // Get the user ID from the cognito_sub
+    const userResult = await executeSQL<{ id: number }>(
+      `SELECT id FROM users WHERE cognito_sub = :cognito_sub`,
+      [{ name: "cognito_sub", value: { stringValue: session.sub } }]
+    )
+
+    if (userResult.length === 0) {
+      return { isSuccess: false, message: "User not found" }
+    }
+
+    const userId = userResult[0].id
+
+    // Create repository item with S3 key reference
+    const result = await executeSQL<RepositoryItem>(
+      `INSERT INTO repository_items (repository_id, type, name, source, metadata, processing_status)
+       VALUES (:repository_id, 'document', :name, :source, :metadata::jsonb, 'pending')
+       RETURNING *`,
+      [
+        { name: "repository_id", value: { longValue: input.repository_id } },
+        { name: "name", value: { stringValue: input.name } },
+        { name: "source", value: { stringValue: input.s3Key } },
+        { name: "metadata", value: { stringValue: JSON.stringify({
+          contentType: input.metadata.contentType,
+          size: input.metadata.size,
+          originalFileName: input.metadata.originalFileName,
+          uploadedAt: new Date().toISOString()
+        }) } }
+      ]
+    )
+
+    const item = result[0]
+
+    // Queue for processing (embedding generation, etc.)
+    try {
+      await queueFileForProcessing(
+        item.id,
+        input.s3Key,
+        input.metadata.originalFileName,
+        input.metadata.contentType
+      )
+    } catch (error) {
+      console.error("Failed to queue file for processing:", error)
+      // Don't fail the upload if queueing fails, just log it
+    }
+
+    revalidatePath(`/repositories/${input.repository_id}`)
+    return {
+      isSuccess: true,
+      message: "Document added successfully",
+      data: item
+    }
+  } catch (error) {
+    return handleError(error, "Failed to add document item")
   }
 }
 

@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAction } from "@/lib/hooks/use-action"
 import {
-  addDocumentItem,
+  addDocumentWithPresignedUrl,
   addUrlItem,
   addTextItem,
 } from "@/actions/repositories/repository-items.actions"
@@ -109,7 +109,7 @@ export function FileUploadModal({
   })
 
   const { execute: executeAddDocument, isPending: isAddingDocument } =
-    useAction(addDocumentItem)
+    useAction(addDocumentWithPresignedUrl)
   const { execute: executeAddUrl, isPending: isAddingUrl } = useAction(addUrlItem)
   const { execute: executeAddText, isPending: isAddingText } = useAction(addTextItem)
 
@@ -117,41 +117,72 @@ export function FileUploadModal({
 
   async function onDocumentSubmit(data: z.infer<typeof documentSchema>) {
     const file = data.file[0]
-    const buffer = await file.arrayBuffer()
     
-    // Convert to base64 string for serialization
-    const uint8Array = new Uint8Array(buffer)
-    let binary = ''
-    const chunkSize = 0x8000 // Process in 32KB chunks to avoid call stack issues
-    for (let i = 0; i < uint8Array.length; i += chunkSize) {
-      const chunk = uint8Array.subarray(i, i + chunkSize)
-      binary += String.fromCharCode.apply(null, Array.from(chunk))
-    }
-    const base64 = btoa(binary)
-
-    const result = await executeAddDocument({
-      repository_id: repositoryId,
-      name: data.name,
-      file: {
-        content: base64,
-        contentType: file.type,
-        size: file.size,
-        fileName: file.name,
-      },
-    })
-
-    if (result.isSuccess) {
-      toast({
-        title: "Document uploaded",
-        description: "The document has been added to the repository.",
+    try {
+      // Step 1: Get presigned URL
+      const presignedResponse = await fetch('/api/documents/presigned-url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+        }),
       })
-      documentForm.reset()
-      onSuccess()
-      onOpenChange(false)
-    } else {
+
+      if (!presignedResponse.ok) {
+        const error = await presignedResponse.json()
+        throw new Error(error.error || 'Failed to get upload URL')
+      }
+
+      const { url, key } = await presignedResponse.json()
+
+      // Step 2: Upload file directly to S3
+      const uploadResponse = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': file.type,
+        },
+        body: file,
+      })
+
+      if (!uploadResponse.ok) {
+        throw new Error('Failed to upload file to storage')
+      }
+
+      // Step 3: Create repository item with S3 key
+      const result = await executeAddDocument({
+        repository_id: repositoryId,
+        name: data.name,
+        s3Key: key,
+        metadata: {
+          contentType: file.type,
+          size: file.size,
+          originalFileName: file.name,
+        },
+      })
+
+      if (result.isSuccess) {
+        toast({
+          title: "Document uploaded",
+          description: "The document has been added to the repository.",
+        })
+        documentForm.reset()
+        onSuccess()
+        onOpenChange(false)
+      } else {
+        toast({
+          title: "Error",
+          description: result.message || "Failed to upload document",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
       toast({
         title: "Error",
-        description: result.message || "Failed to upload document",
+        description: error instanceof Error ? error.message : "Failed to upload document",
         variant: "destructive",
       })
     }
