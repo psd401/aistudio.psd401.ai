@@ -72,16 +72,19 @@ async function getModelClient(modelConfig: ModelConfig) {
           region: bedrockConfig.region || 'us-east-1'
         };
         
-        // Only add credentials if they exist (for local development)
-        if (bedrockConfig.accessKeyId && bedrockConfig.secretAccessKey) {
-          logger.info('[ai-helpers] Using explicit credentials from settings');
+        // In AWS Lambda, always use IAM role credentials (ignore stored credentials)
+        const isAwsLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+        
+        if (bedrockConfig.accessKeyId && bedrockConfig.secretAccessKey && !isAwsLambda) {
+          // Only use stored credentials for local development
+          logger.info('[ai-helpers] Using explicit credentials from settings (local dev)');
           bedrockOptions.accessKeyId = bedrockConfig.accessKeyId;
           bedrockOptions.secretAccessKey = bedrockConfig.secretAccessKey;
         } else {
-          // AWS environment - let SDK handle credentials automatically
-          logger.info('[ai-helpers] No explicit credentials, using default AWS credential chain');
+          // AWS environment or no stored credentials - let SDK handle credentials automatically
+          logger.info('[ai-helpers] Using default AWS credential chain', { isAwsLambda });
           // Don't set any credentials - let the SDK use the default credential provider chain
-          // This will use IAM role credentials in Lambda, which work properly with cross-region calls
+          // This will use IAM role credentials in Lambda, which work properly
         }
         
         logger.info('[ai-helpers] Creating Bedrock client with options:', {
@@ -338,16 +341,19 @@ async function getEmbeddingModelClient(config: ModelConfig) {
           region: bedrockConfig.region || 'us-east-1'
         };
         
-        // Only add credentials if they exist (for local development)
-        if (bedrockConfig.accessKeyId && bedrockConfig.secretAccessKey) {
-          logger.info('[ai-helpers] Using explicit credentials for embeddings');
+        // In AWS Lambda, always use IAM role credentials (ignore stored credentials)
+        const isAwsLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+        
+        if (bedrockConfig.accessKeyId && bedrockConfig.secretAccessKey && !isAwsLambda) {
+          // Only use stored credentials for local development
+          logger.info('[ai-helpers] Using explicit credentials for embeddings (local dev)');
           bedrockOptions.accessKeyId = bedrockConfig.accessKeyId;
           bedrockOptions.secretAccessKey = bedrockConfig.secretAccessKey;
         } else {
-          // AWS environment - let SDK handle credentials automatically
-          logger.info('[ai-helpers] No explicit credentials for embeddings, using default AWS credential chain');
+          // AWS environment or no stored credentials - let SDK handle credentials automatically
+          logger.info('[ai-helpers] Using default AWS credential chain for embeddings', { isAwsLambda });
           // Don't set any credentials - let the SDK use the default credential provider chain
-          // This will use IAM role credentials in Lambda, which work properly with cross-region calls
+          // This will use IAM role credentials in Lambda, which work properly
         }
         
         logger.info('[ai-helpers] Creating Bedrock embedding client');

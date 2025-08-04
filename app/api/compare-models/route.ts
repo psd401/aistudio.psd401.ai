@@ -264,16 +264,19 @@ async function initializeModel(model: ModelData) {
           region: config.region || 'us-east-1'
         }
         
-        // Only add credentials if they exist (for local development)
-        if (config.accessKeyId && config.secretAccessKey) {
-          logger.info('[compare-models] Using explicit credentials from settings')
+        // In AWS Lambda, always use IAM role credentials (ignore stored credentials)
+        const isAwsLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME
+        
+        if (config.accessKeyId && config.secretAccessKey && !isAwsLambda) {
+          // Only use stored credentials for local development
+          logger.info('[compare-models] Using explicit credentials from settings (local dev)')
           bedrockConfig.accessKeyId = config.accessKeyId
           bedrockConfig.secretAccessKey = config.secretAccessKey
         } else {
-          // AWS environment - let SDK handle credentials automatically
-          logger.info('[compare-models] No explicit credentials, using default AWS credential chain')
+          // AWS environment or no stored credentials - let SDK handle credentials automatically
+          logger.info('[compare-models] Using default AWS credential chain', { isAwsLambda })
           // Don't set any credentials - let the SDK use the default credential provider chain
-          // This will use IAM role credentials in Lambda, which work properly with cross-region calls
+          // This will use IAM role credentials in Lambda, which work properly
         }
         
         logger.info('[compare-models] Creating Bedrock client with options:', {

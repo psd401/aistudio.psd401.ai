@@ -157,18 +157,23 @@ export async function GET() {
   }
 
   // Test 6: Test our actual implementation
+  let bedrockConfig: Awaited<ReturnType<typeof Settings.getBedrock>> | undefined
   try {
-    const bedrockConfig = await Settings.getBedrock()
+    bedrockConfig = await Settings.getBedrock()
     
     const bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
       region: bedrockConfig.region || 'us-east-1'
     }
     
-    if (bedrockConfig.accessKeyId && bedrockConfig.secretAccessKey) {
+    // In AWS Lambda, always use IAM role credentials (ignore stored credentials)
+    const isAwsLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME
+    
+    if (bedrockConfig.accessKeyId && bedrockConfig.secretAccessKey && !isAwsLambda) {
       bedrockOptions.accessKeyId = bedrockConfig.accessKeyId
       bedrockOptions.secretAccessKey = bedrockConfig.secretAccessKey
+      // Will be set after the test completes
     } else {
-      // Let SDK handle credentials automatically - don't explicitly set them
+      // Will be set after the test completes
     }
     
     const bedrock = createAmazonBedrock(bedrockOptions)
@@ -185,11 +190,16 @@ export async function GET() {
     results.tests.actualImplementation = {
       success: true,
       message: 'Our implementation works',
-      response: result.text
+      response: result.text,
+      usingStoredCredentials: !!(bedrockConfig?.accessKeyId && bedrockConfig?.secretAccessKey && !isAwsLambda),
+      isAwsLambda
     }
   } catch (error) {
+    const isAwsLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME
     results.tests.actualImplementation = {
       success: false,
+      usingStoredCredentials: !!(bedrockConfig?.accessKeyId && bedrockConfig?.secretAccessKey && !isAwsLambda),
+      isAwsLambda,
       error: error instanceof Error ? {
         name: error.name,
         message: error.message,
