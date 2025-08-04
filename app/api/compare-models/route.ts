@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
           (async () => {
             const startTime = Date.now()
             try {
-              const result = streamText({
+              const result = await streamText({
                 model: modelInstance1,
                 messages,
                 abortSignal: req.signal,
@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
           (async () => {
             const startTime = Date.now()
             try {
-              const result = streamText({
+              const result = await streamText({
                 model: modelInstance2,
                 messages,
                 abortSignal: req.signal,

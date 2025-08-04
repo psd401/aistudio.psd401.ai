@@ -12,7 +12,8 @@ export async function GET() {
       AWS_REGION: process.env.AWS_REGION,
       AWS_LAMBDA_FUNCTION_NAME: process.env.AWS_LAMBDA_FUNCTION_NAME,
     },
-    tests: {} as Record<string, unknown>
+    tests: {} as Record<string, { success: boolean; response?: string; error?: unknown }>,
+    error: null as unknown
   }
   
   try {
@@ -83,10 +84,10 @@ export async function GET() {
           message: error.message,
           stack: error.stack,
           // Include any AWS-specific error details
-          url: (error as Record<string, unknown>).url,
-          statusCode: (error as Record<string, unknown>).statusCode,
-          responseHeaders: (error as Record<string, unknown>).responseHeaders,
-          responseBody: (error as Record<string, unknown>).responseBody
+          url: (error as unknown as Record<string, unknown>).url,
+          statusCode: (error as unknown as Record<string, unknown>).statusCode,
+          responseHeaders: (error as unknown as Record<string, unknown>).responseHeaders,
+          responseBody: (error as unknown as Record<string, unknown>).responseBody
         } : String(error)
       }
     }
