@@ -242,15 +242,15 @@ export async function getEmbeddingConfig(): Promise<EmbeddingConfig> {
   ])
   
   if (!settings['EMBEDDING_MODEL_PROVIDER'] || !settings['EMBEDDING_MODEL_ID']) {
-    throw new Error('Embedding configuration not found in settings. Please configure embeddings in admin settings.')
+    throw new Error('Embedding configuration not found in settings')
   }
   
   return {
     provider: settings['EMBEDDING_MODEL_PROVIDER'],
     modelId: settings['EMBEDDING_MODEL_ID'],
-    dimensions: parseInt(settings['EMBEDDING_DIMENSIONS'] || '0', 10),
-    maxTokens: parseInt(settings['EMBEDDING_MAX_TOKENS'] || '0', 10),
-    batchSize: parseInt(settings['EMBEDDING_BATCH_SIZE'] || '0', 10)
+    dimensions: parseInt(settings['EMBEDDING_DIMENSIONS'] || '1536', 10),
+    maxTokens: parseInt(settings['EMBEDDING_MAX_TOKENS'] || '8192', 10),
+    batchSize: parseInt(settings['EMBEDDING_BATCH_SIZE'] || '100', 10)
   }
 }
 
