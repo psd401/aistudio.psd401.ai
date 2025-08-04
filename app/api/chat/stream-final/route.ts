@@ -400,31 +400,93 @@ export async function POST(req: Request) {
       break;
     }
     case 'amazon-bedrock': {
-      const config = await Settings.getBedrock();
+      logger.info('[stream-final] Starting Bedrock initialization for model:', aiModel.modelId);
       
-      let bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
-        region: config.region || 'us-east-1'
-      };
-      
-      // Only add credentials if they exist (for local development)
-      if (config.accessKeyId && config.secretAccessKey) {
-        bedrockOptions.accessKeyId = config.accessKeyId;
-        bedrockOptions.secretAccessKey = config.secretAccessKey;
-      } else {
-        // AWS environment - get credentials from IAM role
-        const credentialsProvider = fromNodeProviderChain();
-        const credentials = await credentialsProvider();
+      try {
+        const config = await Settings.getBedrock();
+        logger.info('[stream-final] Bedrock settings retrieved:', {
+          hasAccessKey: !!config.accessKeyId,
+          hasSecretKey: !!config.secretAccessKey,
+          region: config.region || 'us-east-1',
+          environment: process.env.AWS_EXECUTION_ENV || 'local',
+          lambdaFunction: process.env.AWS_LAMBDA_FUNCTION_NAME
+        });
         
-        bedrockOptions = {
-          ...bedrockOptions,
-          accessKeyId: credentials.accessKeyId,
-          secretAccessKey: credentials.secretAccessKey,
-          sessionToken: credentials.sessionToken,
+        let bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
+          region: config.region || 'us-east-1'
         };
+        
+        // Only add credentials if they exist (for local development)
+        if (config.accessKeyId && config.secretAccessKey) {
+          logger.info('[stream-final] Using explicit credentials from settings');
+          bedrockOptions.accessKeyId = config.accessKeyId;
+          bedrockOptions.secretAccessKey = config.secretAccessKey;
+        } else {
+          // AWS environment - get credentials from IAM role
+          logger.info('[stream-final] No explicit credentials, attempting IAM role credentials');
+          try {
+            const credentialsProvider = fromNodeProviderChain();
+            const credentials = await credentialsProvider();
+            logger.info('[stream-final] IAM credentials obtained:', {
+              hasAccessKeyId: !!credentials.accessKeyId,
+              hasSecretAccessKey: !!credentials.secretAccessKey,
+              hasSessionToken: !!credentials.sessionToken,
+              expiration: credentials.expiration?.toISOString()
+            });
+            
+            bedrockOptions = {
+              ...bedrockOptions,
+              accessKeyId: credentials.accessKeyId,
+              secretAccessKey: credentials.secretAccessKey,
+              sessionToken: credentials.sessionToken,
+            };
+          } catch (credError) {
+            logger.error('[stream-final] Failed to get IAM credentials:', {
+              error: credError instanceof Error ? {
+                name: credError.name,
+                message: credError.message,
+                stack: credError.stack
+              } : String(credError)
+            });
+            throw new Error(`Failed to obtain AWS credentials: ${credError instanceof Error ? credError.message : String(credError)}`);
+          }
+        }
+        
+        logger.info('[stream-final] Creating Bedrock client with options:', {
+          region: bedrockOptions.region,
+          hasAccessKeyId: !!bedrockOptions.accessKeyId,
+          hasSecretAccessKey: !!bedrockOptions.secretAccessKey,
+          hasSessionToken: !!bedrockOptions.sessionToken
+        });
+        
+        const bedrock = createAmazonBedrock(bedrockOptions);
+        model = bedrock(ensureRDSString(aiModel.modelId));
+        
+        logger.info('[stream-final] Bedrock model created successfully');
+      } catch (error) {
+        logger.error('[stream-final] BEDROCK INITIALIZATION FAILED:', {
+          modelId: aiModel.modelId,
+          provider: aiModel.provider,
+          error: error instanceof Error ? {
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+            ...Object.getOwnPropertyNames(error).reduce((acc: Record<string, unknown>, key) => {
+              if (!['name', 'message', 'stack'].includes(key)) {
+                acc[key] = (error as unknown as Record<string, unknown>)[key];
+              }
+              return acc;
+            }, {} as Record<string, unknown>)
+          } : String(error),
+          environment: {
+            AWS_REGION: process.env.AWS_REGION,
+            AWS_EXECUTION_ENV: process.env.AWS_EXECUTION_ENV,
+            AWS_LAMBDA_FUNCTION_NAME: process.env.AWS_LAMBDA_FUNCTION_NAME,
+            NODE_ENV: process.env.NODE_ENV
+          }
+        });
+        throw error;
       }
-      
-      const bedrock = createAmazonBedrock(bedrockOptions);
-      model = bedrock(ensureRDSString(aiModel.modelId));
       break;
     }
     default:
