@@ -169,9 +169,9 @@ function KnowledgeSection({
                 }}
                 onError={err => {
                   if (err?.status === 413) {
-                    alert("File too large. Please upload a file smaller than 25MB.")
+                    toast.error("File too large. Please upload a file smaller than 25MB.")
                   } else {
-                    alert("Upload failed: " + (err?.message || "Unknown error"))
+                    toast.error("Upload failed: " + (err?.message || "Unknown error"))
                   }
                 }}
               />

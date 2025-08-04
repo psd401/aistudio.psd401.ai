@@ -76,7 +76,7 @@ export async function vectorSearch(
     content: String(row.content || ''),
     similarity: Number(row.similarity) || 0,
     chunkIndex: Number(row.chunkIndex) || 0,
-    metadata: row.metadata || {}
+    metadata: row.metadata ? JSON.parse(row.metadata as string) : {}
   }))
 }
 
@@ -124,7 +124,7 @@ export async function keywordSearch(
     content: String(row.content || ''),
     similarity: Number(row.rank) || 0, // Use rank as similarity score
     chunkIndex: Number(row.chunkIndex) || 0,
-    metadata: row.metadata || {}
+    metadata: row.metadata ? JSON.parse(row.metadata as string) : {}
   }))
 }
 
