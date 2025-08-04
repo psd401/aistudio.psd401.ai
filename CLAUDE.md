@@ -27,6 +27,14 @@ The database initialization system has TWO modes:
 - ALWAYS use MCP tools to verify database structure before changing SQL files
 - Migration files (010+) should ONLY create new objects, never modify existing ones
 
+**IMPORTANT: Adding Database Migrations**
+When creating a new migration file:
+1. Create the SQL file in `/infra/database/schema/` (e.g., `016-feature-name.sql`)
+2. **CRITICAL**: Add the filename to the `MIGRATION_FILES` array in `/infra/database/lambda/db-init-handler.ts`
+3. Build and deploy: `cd infra && npm run build && npx cdk deploy DatabaseStack`
+
+Without step 2, your migration will NOT run even if the SQL file exists!
+
 **If you need to check database structure:**
 ```bash
 # Use MCP tools, NOT file inspection:
@@ -193,6 +201,12 @@ This codebase follows a **Layered Architecture** with Domain-Driven Design influ
 - **Server Components**: Default in app directory
 - **Client Components**: Explicit `"use client"` directive
 - **Import Order**: React/Next → third-party → internal → styles
+- **Database Field Transformation**: ALWAYS use `transformSnakeToCamel` from `@/lib/db/field-mapper` when converting database results from snake_case to camelCase. The data-api-adapter already does basic conversion, but for consistency use the standard transformer:
+  ```typescript
+  import { transformSnakeToCamel } from "@/lib/db/field-mapper"
+  
+  const transformed = results.map(row => transformSnakeToCamel<ExpectedType>(row))
+  ```
 
 ### Environment Variables
 Required environment variables are documented in `/docs/ENVIRONMENT_VARIABLES.md`. Key variables:

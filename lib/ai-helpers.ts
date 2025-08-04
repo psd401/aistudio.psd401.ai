@@ -22,7 +22,6 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { createOpenAI } from '@ai-sdk/openai'
 import { z } from 'zod'
 import logger from "@/lib/logger"
-import { Settings, getSettings } from "@/lib/settings-manager"
 
 interface ModelConfig {
   provider: string
@@ -53,6 +52,8 @@ export interface ToolDefinition {
 
 // Get the appropriate model client based on provider
 async function getModelClient(modelConfig: ModelConfig) {
+  const { Settings } = await import('@/lib/settings-manager');
+  
   switch (modelConfig.provider) {
     case 'amazon-bedrock': {
       const bedrockConfig = await Settings.getBedrock();
@@ -231,6 +232,7 @@ export interface EmbeddingConfig {
 
 // Get embedding configuration from settings
 export async function getEmbeddingConfig(): Promise<EmbeddingConfig> {
+  const { getSettings } = await import('@/lib/settings-manager');
   const settings = await getSettings([
     'EMBEDDING_MODEL_PROVIDER',
     'EMBEDDING_MODEL_ID', 
@@ -240,20 +242,22 @@ export async function getEmbeddingConfig(): Promise<EmbeddingConfig> {
   ])
   
   if (!settings['EMBEDDING_MODEL_PROVIDER'] || !settings['EMBEDDING_MODEL_ID']) {
-    throw new Error('Embedding configuration not found in settings. Please configure embeddings in admin settings.')
+    throw new Error('Embedding configuration not found in settings')
   }
   
   return {
     provider: settings['EMBEDDING_MODEL_PROVIDER'],
     modelId: settings['EMBEDDING_MODEL_ID'],
-    dimensions: parseInt(settings['EMBEDDING_DIMENSIONS'] || '0', 10),
-    maxTokens: parseInt(settings['EMBEDDING_MAX_TOKENS'] || '0', 10),
-    batchSize: parseInt(settings['EMBEDDING_BATCH_SIZE'] || '0', 10)
+    dimensions: parseInt(settings['EMBEDDING_DIMENSIONS'] || '1536', 10),
+    maxTokens: parseInt(settings['EMBEDDING_MAX_TOKENS'] || '8192', 10),
+    batchSize: parseInt(settings['EMBEDDING_BATCH_SIZE'] || '100', 10)
   }
 }
 
 // Get embedding model client
 async function getEmbeddingModelClient(config: ModelConfig) {
+  const { Settings } = await import('@/lib/settings-manager');
+  
   switch (config.provider) {
     case 'openai': {
       const openAIKey = await Settings.getOpenAI();

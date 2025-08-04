@@ -12,6 +12,7 @@ import logger from "@/lib/logger";
 import { ensureRDSString, ensureRDSNumber } from "@/lib/type-helpers";
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents";
 import { contextMonitor } from "@/lib/monitoring/context-loading-monitor";
+import { retrieveKnowledgeForPrompt, formatKnowledgeContext } from "@/lib/assistant-architect/knowledge-retrieval";
 
 // Helper function to load complete execution context
 async function loadExecutionContext(execId: number) {
@@ -49,7 +50,7 @@ async function loadExecutionContext(execId: number) {
         [{ name: 'executionId', value: { longValue: execId } }]
       ),
       executeSQL(
-        `SELECT cp.id, cp.name, cp.content, cp.system_context, cp.position
+        `SELECT cp.id, cp.name, cp.content, cp.system_context, cp.position, cp.repository_ids
         FROM chain_prompts cp
         WHERE cp.assistant_architect_id = (
           SELECT assistant_architect_id FROM tool_executions WHERE id = :executionId
@@ -81,6 +82,18 @@ async function loadExecutionContext(execId: number) {
     if (execution.tool_description) {
       assistantKnowledge += `\n\nAssistant Purpose:\n${execution.tool_description}`;
     }
+    
+    // Extract repository IDs from all prompts
+    const allRepositoryIds = new Set<number>();
+    allChainPrompts.forEach(prompt => {
+      if (prompt.repository_ids) {
+        const ids = typeof prompt.repository_ids === 'string' ? JSON.parse(prompt.repository_ids) : prompt.repository_ids;
+        if (Array.isArray(ids)) {
+          ids.forEach(id => allRepositoryIds.add(Number(id)));
+        }
+      }
+    });
+    const repositoryIds = Array.from(allRepositoryIds);
     
     // 2. Include ALL system contexts from chain prompts
     // Process chain prompts
@@ -200,7 +213,8 @@ Use ALL of this information to answer questions accurately. When asked about spe
         allChainPrompts,
         toolInputFields,
         assistantKnowledge,
-        systemContexts
+        systemContexts,
+        repositoryIds
       }
     };
   } catch (error) {
@@ -577,6 +591,37 @@ IMPORTANT: You have access to ALL the information above. Use it to answer questi
       }
     }
   }
+  
+  // Dynamic knowledge retrieval for assistant execution conversations
+  let knowledgeContext = "";
+  if (source === "assistant_execution" && fullContext?.repositoryIds && fullContext.repositoryIds.length > 0) {
+    try {
+      // Get the user's latest message for knowledge retrieval
+      const latestUserMessage = messages[messages.length - 1].content;
+      
+      // Retrieve relevant knowledge based on the user's question
+      const knowledgeChunks = await retrieveKnowledgeForPrompt(
+        latestUserMessage,
+        fullContext.repositoryIds,
+        session.sub,
+        {
+          maxChunks: 10,
+          maxTokens: 4000,
+          searchType: 'hybrid',
+          vectorWeight: 0.8,
+          similarityThreshold: 0.6 // Lower threshold for follow-up questions
+        }
+      );
+      
+      if (knowledgeChunks.length > 0) {
+        knowledgeContext = `\n\n${formatKnowledgeContext(knowledgeChunks)}\n\nUse this knowledge to answer the user's question if relevant.`;
+        logger.info(`Retrieved ${knowledgeChunks.length} knowledge chunks for follow-up conversation`);
+      }
+    } catch (knowledgeError) {
+      logger.error('Error retrieving knowledge for follow-up:', knowledgeError);
+      // Continue without dynamic knowledge retrieval
+    }
+  }
 
   // Build system prompt based on source
   let systemPrompt = source === "assistant_execution"
@@ -587,18 +632,21 @@ Key responsibilities:
 2. Reference specific prompt results when relevant to the user's questions
 3. If asked about inputs, outputs, or the process, refer to the detailed execution history
 4. When asked about the knowledge, context, or information the assistant was given, refer to the "Assistant Knowledge Base" section
-5. Stay focused on topics related to the execution results and the assistant's capabilities
-6. If a question is completely unrelated to the execution, politely suggest starting a new chat
+5. When asked questions that require information from the knowledge repositories, use the dynamically retrieved knowledge to provide accurate answers
+6. Stay focused on topics related to the execution results and the assistant's capabilities
+7. If a question is completely unrelated to the execution, politely suggest starting a new chat
 
 Remember: You have access to:
 - The complete execution history including all inputs, outputs, and prompt results
 - The assistant's knowledge base and system context that was used during execution
 - The assistant's instructions and configuration
+- Dynamic knowledge retrieval from the same repositories used during execution (when relevant to your question)
 Use all this information to provide accurate and helpful responses about both what happened and why.`
     : "You are a helpful AI assistant.";
   
   systemPrompt += documentContext;
   systemPrompt += executionContext;
+  systemPrompt += knowledgeContext;
 
   const aiMessages = [
     { role: 'system' as const, content: systemPrompt },

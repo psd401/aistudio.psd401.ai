@@ -18,24 +18,24 @@ export async function getServerSession(): Promise<CognitoSession | null> {
   const context = await createRequestContext();
   
   try {
-    logger.debug("Creating auth instance", { requestId: context.requestId });
+    // logger.debug("Creating auth instance", { requestId: context.requestId });
     
     // Create new auth instance per request
     const { auth } = createAuth();
     const session = await auth();
     
     if (!session?.user?.id) {
-      logger.debug("No session found", { requestId: context.requestId });
+      // logger.debug("No session found", { requestId: context.requestId });
       return null;
     }
     
     // Validate session integrity
     if (session.user.id && session.user.email) {
-      logger.debug("Session validated", { 
-        requestId: context.requestId,
-        userId: session.user.id,
-        // Never log full session data
-      });
+      // logger.debug("Session validated", { 
+      //   requestId: context.requestId,
+      //   userId: session.user.id,
+      //   // Never log full session data
+      // });
     }
     
     // Convert NextAuth session to match our CognitoSession interface
