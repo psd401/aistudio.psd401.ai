@@ -4,6 +4,7 @@ import { createAzure } from '@ai-sdk/azure'
 import { google } from '@ai-sdk/google'
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { createOpenAI } from '@ai-sdk/openai'
+import { fromNodeProviderChain } from '@aws-sdk/credential-providers'
 import { getServerSession } from "@/lib/auth/server-session"
 import { hasToolAccess } from "@/utils/roles"
 import { executeSQL } from "@/lib/db/data-api-adapter"
@@ -257,6 +258,9 @@ async function initializeModel(model: ModelData) {
       if (config.accessKeyId && config.secretAccessKey) {
         bedrockConfig.accessKeyId = config.accessKeyId
         bedrockConfig.secretAccessKey = config.secretAccessKey
+      } else {
+        // AWS environment - use IAM role credentials via credential provider
+        bedrockConfig.credentialProvider = fromNodeProviderChain()
       }
       
       const bedrock = createAmazonBedrock(bedrockConfig)

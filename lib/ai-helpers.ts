@@ -20,6 +20,7 @@ import { createAzure } from '@ai-sdk/azure'
 import { google } from '@ai-sdk/google'
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { createOpenAI } from '@ai-sdk/openai'
+import { fromNodeProviderChain } from '@aws-sdk/credential-providers'
 import { z } from 'zod'
 import logger from "@/lib/logger"
 
@@ -67,6 +68,9 @@ async function getModelClient(modelConfig: ModelConfig) {
       if (bedrockConfig.accessKeyId && bedrockConfig.secretAccessKey) {
         bedrockOptions.accessKeyId = bedrockConfig.accessKeyId;
         bedrockOptions.secretAccessKey = bedrockConfig.secretAccessKey;
+      } else {
+        // AWS environment - use IAM role credentials via credential provider
+        bedrockOptions.credentialProvider = fromNodeProviderChain();
       }
       
       const bedrock = createAmazonBedrock(bedrockOptions)
@@ -288,6 +292,9 @@ async function getEmbeddingModelClient(config: ModelConfig) {
       if (bedrockConfig.accessKeyId && bedrockConfig.secretAccessKey) {
         bedrockOptions.accessKeyId = bedrockConfig.accessKeyId;
         bedrockOptions.secretAccessKey = bedrockConfig.secretAccessKey;
+      } else {
+        // AWS environment - use IAM role credentials via credential provider
+        bedrockOptions.credentialProvider = fromNodeProviderChain();
       }
       
       const bedrock = createAmazonBedrock(bedrockOptions);
