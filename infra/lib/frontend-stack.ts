@@ -140,7 +140,11 @@ export class FrontendStack extends cdk.Stack {
                 'bedrock:InvokeModel',
                 'bedrock:InvokeModelWithResponseStream'
               ],
-              resources: ['arn:aws:bedrock:*::foundation-model/*'] // Scoped to foundation models
+              resources: [
+                'arn:aws:bedrock:*::foundation-model/*',
+                'arn:aws:bedrock:*:*:inference-profile/*',
+                'arn:aws:bedrock:*:*:provisioned-model/*'
+              ]
             })
           ]
         })

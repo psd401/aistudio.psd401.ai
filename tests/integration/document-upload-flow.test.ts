@@ -2,6 +2,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 
+// Add TextEncoder/TextDecoder polyfills for Node.js test environment
+import { TextEncoder, TextDecoder } from 'util';
+global.TextEncoder = TextEncoder;
+global.TextDecoder = TextDecoder as any;
+
 // Mock Next.js server components first
 jest.mock('next/server', () => ({
   NextRequest: jest.fn(),
@@ -32,32 +37,75 @@ jest.mock('next/server', () => ({
   }
 }));
 
-import { POST as uploadAPI } from '@/app/api/documents/upload/route';
-import { POST as chatAPI } from '@/app/api/chat/route';
-import { POST as linkAPI } from '@/app/api/documents/link/route';
-import { NextRequest } from 'next/server';
-
-// Add TextEncoder/TextDecoder polyfills for Node.js test environment
-import { TextEncoder, TextDecoder } from 'util';
-global.TextEncoder = TextEncoder;
-global.TextDecoder = TextDecoder as any;
-
-// Mock all dependencies
+// Mock all dependencies BEFORE importing modules that use them
 jest.mock('@/lib/auth/server-session', () => ({
   getServerSession: jest.fn()
 }));
 jest.mock('@/actions/db/get-current-user-action');
 jest.mock('@/lib/aws/s3-client');
+jest.mock('@/lib/logger', () => ({
+  default: {
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn()
+  }
+}));
+jest.mock('@/lib/file-validation', () => ({
+  ALLOWED_FILE_EXTENSIONS: ['.pdf', '.docx', '.txt'],
+  ALLOWED_MIME_TYPES: ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'],
+  getMaxFileSize: jest.fn().mockResolvedValue(25 * 1024 * 1024),
+  formatFileSize: jest.fn().mockImplementation((bytes) => `${Math.round(bytes / (1024 * 1024))}MB`)
+}));
 jest.mock('@/lib/db/queries/documents');
 jest.mock('@/lib/ai-helpers');
 jest.mock('@/lib/db/data-api-adapter');
+jest.mock('@/lib/settings-manager', () => ({
+  getSetting: jest.fn().mockResolvedValue('25')
+}));
+jest.mock('@/lib/document-processing', () => ({
+  extractTextFromDocument: jest.fn().mockResolvedValue({ text: 'Test PDF content about AI and machine learning', metadata: {} }),
+  chunkText: jest.fn().mockReturnValue(['Test PDF content about AI and machine learning']),
+  getFileTypeFromFileName: jest.fn().mockReturnValue('pdf')
+}));
+jest.mock('@/lib/error-utils', () => ({
+  createError: jest.fn((message, options) => {
+    const error = new Error(message);
+    Object.assign(error, options);
+    return error;
+  }),
+  handleError: jest.fn(),
+  ErrorLevel: { WARN: 'WARN', ERROR: 'ERROR', INFO: 'INFO' }
+}));
+jest.mock('@/lib/api-utils', () => ({
+  withErrorHandling: jest.fn((handler) => handler().then(
+    (data: any) => new (jest.requireActual('next/server').NextResponse)(
+      JSON.stringify({ success: true, data }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    )
+  ).catch(
+    (error: any) => new (jest.requireActual('next/server').NextResponse)(
+      JSON.stringify({ success: false, message: error.message }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    )
+  )),
+  unauthorized: jest.fn((msg) => new (jest.requireActual('next/server').NextResponse)(
+    JSON.stringify({ success: false, message: msg || 'Unauthorized' }),
+    { status: 401, headers: { 'Content-Type': 'application/json' } }
+  )),
+  forbidden: jest.fn((msg) => new (jest.requireActual('next/server').NextResponse)(
+    JSON.stringify({ success: false, message: msg || 'Forbidden' }),
+    { status: 403, headers: { 'Content-Type': 'application/json' } }
+  ))
+}));
 
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
-import { uploadDocument } from '@/lib/aws/s3-client';
+import { uploadDocument, getObjectStream, documentExists } from '@/lib/aws/s3-client';
 import { 
   saveDocument, 
-  saveDocumentChunk, 
+  saveDocumentChunk,
+  batchInsertDocumentChunks,
   getDocumentsByConversationId,
   getDocumentById,
   getDocumentChunksByDocumentId,
@@ -66,12 +114,21 @@ import {
 import { generateCompletion } from '@/lib/ai-helpers';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 
+// Import API routes AFTER all mocks are set up
+import { POST as uploadAPI } from '@/app/api/documents/upload/route';
+import { POST as chatAPI } from '@/app/api/chat/route';
+import { POST as linkAPI } from '@/app/api/documents/link/route';
+import { NextRequest } from 'next/server';
+
 describe('Document Upload End-to-End Flow', () => {
   const mockUserId = 'user-123';
   const mockSession = { sub: mockUserId, email: 'test@example.com' };
   const mockUser = {
     isSuccess: true,
-    data: { id: mockUserId, email: 'test@example.com' },
+    data: { 
+      user: { id: mockUserId, email: 'test@example.com' },
+      roles: []
+    },
   };
 
   beforeEach(() => {
@@ -117,6 +174,7 @@ describe('Document Upload End-to-End Flow', () => {
       (uploadDocument as jest.Mock).mockResolvedValue(mockUploadResult);
       (saveDocument as jest.Mock).mockResolvedValue(mockDocument);
       (saveDocumentChunk as jest.Mock).mockResolvedValue(mockChunks[0]);
+      (batchInsertDocumentChunks as jest.Mock).mockResolvedValue(mockChunks);
       
       // Create upload request
       const formData = new FormData();

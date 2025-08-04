@@ -27,6 +27,25 @@ export class StorageStack extends cdk.Stack {
           noncurrentVersionExpiration: cdk.Duration.days(30),
         },
       ],
+      cors: [
+        {
+          allowedMethods: [
+            s3.HttpMethods.GET,
+            s3.HttpMethods.PUT,
+            s3.HttpMethods.POST,
+            s3.HttpMethods.HEAD
+          ],
+          allowedOrigins: [
+            props.environment === 'prod' 
+              ? 'https://aistudio.psd401.ai'
+              : 'https://dev.aistudio.psd401.ai',
+            'http://localhost:3000' // For local development
+          ],
+          allowedHeaders: ['*'],
+          exposedHeaders: ['ETag'],
+          maxAge: 3000
+        }
+      ]
     });
 
     // Store bucket name for use by other stacks

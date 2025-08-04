@@ -78,11 +78,12 @@ export function DocumentUpload({
       return
     }
     
-    // Check file size (10MB max)
-    if (file.size > 10 * 1024 * 1024) {
+    // We'll check file size dynamically based on settings
+    // For now, just check a reasonable maximum (25MB)
+    if (file.size > 25 * 1024 * 1024) {
       toast({
         title: "File too large",
-        description: "Please select a file smaller than 10MB",
+        description: "Please select a file smaller than 25MB",
         variant: "destructive"
       })
       return
@@ -102,27 +103,14 @@ export function DocumentUpload({
     // Just set the file, upload triggered elsewhere or by button
     setSelectedFile(file);
     
-    // Trigger upload immediately
-    hasAttemptedUpload.current = false; // Reset attempt flag
-    uploadDocument(file); // Pass file to upload function
+    // Reset attempt flag to allow useEffect to handle upload
+    hasAttemptedUpload.current = false;
   }
 
-  const uploadDocument = useCallback(async (fileToUpload: File | null) => {
-    if (!fileToUpload) {
-      toast({
-        title: "No file selected",
-        description: "Please select a file to upload",
-        variant: "destructive"
-      })
-      return
-    }
-    
-    setIsUploading(true)
-    setUploadProgress(0)
-    
+  // Helper function for direct upload (files <= 1MB)
+  const uploadDirectly = useCallback(async (file: File) => {
     const formData = new FormData()
-    formData.append('file', fileToUpload)
-    
+    formData.append('file', file)
     
     let progressInterval: NodeJS.Timeout | null = null
     
@@ -151,7 +139,6 @@ export function DocumentUpload({
             const { error } = await response.json()
             if (error) errMsg = error
           } else {
-            // If response is not JSON, try to read as text
             await response.text()
             errMsg = `Server error: ${response.status} ${response.statusText}`
           }
@@ -161,17 +148,7 @@ export function DocumentUpload({
         throw new Error(errMsg)
       }
       
-      let data;
-      try {
-        const contentType = response.headers.get('content-type')
-        if (!contentType || !contentType.includes('application/json')) {
-          throw new Error('Invalid response format: expected JSON')
-        }
-        data = await response.json()
-      } catch {
-        throw new Error('Invalid response format from server')
-      }
-      
+      const data = await response.json()
       
       if (!data.success || !data.document) {
         throw new Error('Invalid response from server: Missing document information')
@@ -179,12 +156,135 @@ export function DocumentUpload({
       
       setUploadProgress(100)
       
-      // Notify parent that upload finished, passing the document ID
+      // Notify parent that upload finished
       if (onUploadComplete) {
-        onUploadComplete(data.document); // data.document should include the ID
+        onUploadComplete(data.document)
+      }
+    } finally {
+      if (progressInterval) {
+        clearInterval(progressInterval)
+      }
+    }
+  }, [onUploadComplete])
+
+  // Helper function to upload to S3 with progress tracking
+  const uploadToS3WithProgress = useCallback((file: File, presignedUrl: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      
+      // Track upload progress (5-95% range)
+      xhr.upload.addEventListener('progress', (event: ProgressEvent) => {
+        if (event.lengthComputable) {
+          const percentComplete = Math.round((event.loaded / event.total) * 100)
+          // Map 0-100% upload progress to 5-95% overall progress
+          const mappedProgress = Math.round(5 + (percentComplete * 0.9))
+          setUploadProgress(mappedProgress)
+        }
+      })
+      
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          setUploadProgress(95) // Set to 95% when upload completes
+          resolve()
+        } else {
+          reject(new Error(`Upload failed with status ${xhr.status}`))
+        }
+      })
+      
+      xhr.addEventListener('error', () => {
+        reject(new Error('Network error during upload'))
+      })
+      
+      xhr.addEventListener('abort', () => {
+        reject(new Error('Upload aborted'))
+      })
+      
+      xhr.open('PUT', presignedUrl)
+      xhr.setRequestHeader('Content-Type', file.type)
+      xhr.send(file)
+    })
+  }, [])
+
+  // Helper function for presigned URL upload (files > threshold)
+  const uploadViaPresignedUrl = useCallback(async (file: File) => {
+    // Progress: 0-5% for getting presigned URL
+    setUploadProgress(2)
+    // Step 1: Get presigned URL
+    const presignedResponse = await fetch('/api/documents/presigned-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size
+      })
+    })
+    
+    if (!presignedResponse.ok) {
+      const error = await presignedResponse.json()
+      throw new Error(error.error || 'Failed to get upload URL')
+    }
+    
+    const { url, key } = await presignedResponse.json()
+    setUploadProgress(5) // Got presigned URL
+    
+    // Step 2: Upload directly to S3 with progress tracking (5-95%)
+    await uploadToS3WithProgress(file, url)
+    
+    // Step 3: Process the uploaded document (95-100%)
+    setUploadProgress(96)
+    const processResponse = await fetch('/api/documents/process', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        key,
+        fileName: file.name,
+        fileSize: file.size,
+        conversationId: conversationId || null
+      })
+    })
+    
+    if (!processResponse.ok) {
+      const error = await processResponse.json()
+      throw new Error(error.error || 'Failed to process document')
+    }
+    
+    const { document } = await processResponse.json()
+    setUploadProgress(100) // Processing complete
+    
+    // Notify parent that upload finished
+    if (onUploadComplete) {
+      onUploadComplete(document)
+    }
+  }, [uploadToS3WithProgress, onUploadComplete, conversationId])
+
+  const uploadDocument = useCallback(async (fileToUpload: File | null) => {
+    if (!fileToUpload) {
+      toast({
+        title: "No file selected",
+        description: "Please select a file to upload",
+        variant: "destructive"
+      })
+      return
+    }
+    
+    setIsUploading(true)
+    setUploadProgress(0)
+    
+    // Decide upload method based on file size threshold
+    const thresholdMB = parseInt(process.env.NEXT_PUBLIC_PRESIGNED_URL_THRESHOLD_MB || '1', 10)
+    const usePresignedUrl = fileToUpload.size > thresholdMB * 1024 * 1024
+    
+    try {
+      if (usePresignedUrl) {
+        // Use presigned URL for files > 1MB
+        await uploadViaPresignedUrl(fileToUpload)
+      } else {
+        // Use direct upload for small files <= 1MB
+        await uploadDirectly(fileToUpload)
       }
       
-      // Mark upload as completed but keep the file info
+      // Mark upload as completed
       setUploadCompleted(true)
       setUploadProgress(100)
       hasAttemptedUpload.current = true;
@@ -197,15 +297,12 @@ export function DocumentUpload({
       })
       hasAttemptedUpload.current = false;
     } finally {
-      if (progressInterval) {
-        clearInterval(progressInterval)
-      }
       setIsUploading(false)
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
     }
-  }, [onUploadComplete, fileInputRef])
+  }, [fileInputRef, uploadDirectly, uploadViaPresignedUrl])
 
   // Effect to auto-upload when conversation is created
   useEffect(() => {
@@ -273,7 +370,7 @@ export function DocumentUpload({
           <UploadIcon className="h-6 w-6 mx-auto text-muted-foreground" />
           <p className="text-sm mt-2 text-muted-foreground">
             Drag & drop or click to upload<br />
-            <span className="text-xs">(PDF, DOCX, TXT up to 10MB)</span>
+            <span className="text-xs">(PDF, DOCX, TXT up to 25MB)</span>
           </p>
         </div>
       )}
@@ -315,7 +412,7 @@ export function DocumentUpload({
                 ></div>
               </div>
               <p className="text-xs text-center text-muted-foreground">
-                Processing document... {uploadProgress}%
+                {uploadProgress < 95 ? 'Uploading' : 'Processing'} document... {uploadProgress}%
               </p>
             </div>
           )}

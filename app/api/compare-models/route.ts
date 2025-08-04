@@ -4,6 +4,7 @@ import { createAzure } from '@ai-sdk/azure'
 import { google } from '@ai-sdk/google'
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { createOpenAI } from '@ai-sdk/openai'
+// Removed fromNodeProviderChain - not needed when using default credential chain
 import { getServerSession } from "@/lib/auth/server-session"
 import { hasToolAccess } from "@/utils/roles"
 import { executeSQL } from "@/lib/db/data-api-adapter"
@@ -247,20 +248,73 @@ async function initializeModel(model: ModelData) {
       return google(modelId)
     }
     case 'amazon-bedrock': {
-      const config = await Settings.getBedrock()
-      // Use IAM role credentials if no explicit credentials are provided
-      const bedrockConfig: Parameters<typeof createAmazonBedrock>[0] = {
-        region: config.region || 'us-east-1'
-      }
+      logger.info('[compare-models] Starting Bedrock initialization for model:', modelId)
       
-      // Only add credentials if they exist (for local development)
-      if (config.accessKeyId && config.secretAccessKey) {
-        bedrockConfig.accessKeyId = config.accessKeyId
-        bedrockConfig.secretAccessKey = config.secretAccessKey
+      try {
+        const config = await Settings.getBedrock()
+        logger.info('[compare-models] Bedrock settings retrieved:', {
+          hasAccessKey: !!config.accessKeyId,
+          hasSecretKey: !!config.secretAccessKey,
+          region: config.region || 'us-east-1',
+          environment: process.env.AWS_EXECUTION_ENV || 'local',
+          lambdaFunction: process.env.AWS_LAMBDA_FUNCTION_NAME
+        })
+        
+        const bedrockConfig: Parameters<typeof createAmazonBedrock>[0] = {
+          region: config.region || 'us-east-1'
+        }
+        
+        // In AWS Lambda, always use IAM role credentials (ignore stored credentials)
+        const isAwsLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME
+        
+        if (config.accessKeyId && config.secretAccessKey && !isAwsLambda) {
+          // Only use stored credentials for local development
+          logger.info('[compare-models] Using explicit credentials from settings (local dev)')
+          bedrockConfig.accessKeyId = config.accessKeyId
+          bedrockConfig.secretAccessKey = config.secretAccessKey
+        } else {
+          // AWS environment or no stored credentials - let SDK handle credentials automatically
+          logger.info('[compare-models] Using default AWS credential chain', { isAwsLambda })
+          // Don't set any credentials - let the SDK use the default credential provider chain
+          // This will use IAM role credentials in Lambda, which work properly
+        }
+        
+        logger.info('[compare-models] Creating Bedrock client with options:', {
+          region: bedrockConfig.region,
+          hasAccessKeyId: !!bedrockConfig.accessKeyId,
+          hasSecretAccessKey: !!bedrockConfig.secretAccessKey,
+          hasSessionToken: !!bedrockConfig.sessionToken
+        })
+        
+        const bedrock = createAmazonBedrock(bedrockConfig)
+        const model = bedrock(modelId)
+        
+        logger.info('[compare-models] Bedrock model created successfully')
+        return model
+      } catch (error) {
+        logger.error('[compare-models] BEDROCK INITIALIZATION FAILED:', {
+          modelId: modelId,
+          provider: provider,
+          error: error instanceof Error ? {
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+            ...Object.getOwnPropertyNames(error).reduce((acc: Record<string, unknown>, key) => {
+              if (!['name', 'message', 'stack'].includes(key)) {
+                acc[key] = (error as unknown as Record<string, unknown>)[key]
+              }
+              return acc
+            }, {} as Record<string, unknown>)
+          } : String(error),
+          environment: {
+            AWS_REGION: process.env.AWS_REGION,
+            AWS_EXECUTION_ENV: process.env.AWS_EXECUTION_ENV,
+            AWS_LAMBDA_FUNCTION_NAME: process.env.AWS_LAMBDA_FUNCTION_NAME,
+            NODE_ENV: process.env.NODE_ENV
+          }
+        })
+        throw error
       }
-      
-      const bedrock = createAmazonBedrock(bedrockConfig)
-      return bedrock(modelId)
     }
     default:
       throw new Error(`Unknown provider: ${provider}`)

@@ -37,7 +37,8 @@ const MIGRATION_FILES = [
   '013-add-knowledge-repositories-tool.sql',
   '014-model-comparisons.sql',
   '015-add-model-compare-tool.sql',
-  '016-assistant-architect-repositories.sql'
+  '016-assistant-architect-repositories.sql',
+  '017-add-user-roles-updated-at.sql'
   // ADD NEW MIGRATIONS HERE - they will run once and be tracked
 ];
 

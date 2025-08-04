@@ -7,11 +7,18 @@ const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
 // Get a setting value with caching and fallback to environment variable
 export async function getSetting(key: string): Promise<string | null> {
-  // Check cache first
-  const cached = settingsCache.get(key)
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    // Cache hit
-    return cached.value
+  // Special handling for Bedrock credentials in Lambda
+  const isAwsLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME
+  const isBedrockCredential = key === 'BEDROCK_ACCESS_KEY_ID' || key === 'BEDROCK_SECRET_ACCESS_KEY'
+  
+  // Don't use cache for Bedrock credentials in Lambda
+  if (!(isAwsLambda && isBedrockCredential)) {
+    // Check cache first
+    const cached = settingsCache.get(key)
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      // Cache hit
+      return cached.value
+    }
   }
 
   try {
@@ -30,6 +37,15 @@ export async function getSetting(key: string): Promise<string | null> {
   }
 
   // Fall back to environment variable
+  // IMPORTANT: In AWS Lambda, ignore Bedrock credentials from env vars
+  // to force use of IAM role credentials
+  
+  if (isAwsLambda && isBedrockCredential) {
+    // In Lambda, ignore Bedrock credential env vars to use IAM role
+    logger.info(`[SettingsManager] Ignoring env var ${key} in Lambda environment`)
+    return null
+  }
+  
   const envValue = process.env[key] || null
   if (envValue) {
     // Falling back to env var
@@ -122,8 +138,8 @@ export const Settings = {
   // Storage
   async getS3() {
     const [bucket, region] = await Promise.all([
-      getSetting('S3_BUCKET'),
-      getSetting('AWS_REGION')
+      getSetting('S3_BUCKET') || getSetting('DOCUMENTS_BUCKET_NAME'),
+      getSetting('AWS_REGION') || getSetting('NEXT_PUBLIC_AWS_REGION')
     ])
     return { bucket, region }
   },
