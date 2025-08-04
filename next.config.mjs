@@ -17,6 +17,9 @@ const nextConfig = {
   },
   experimental: {
     serverComponentsExternalPackages: ['mammoth', 'pdf-parse'], // Include pdf-parse for externalization
+    serverActions: {
+      bodySizeLimit: '100mb', // Match the file upload limit from settings
+    },
   },
   // Don't embed environment variables at build time for Amplify WEB_COMPUTE
   // They will be available at runtime from the Lambda environment

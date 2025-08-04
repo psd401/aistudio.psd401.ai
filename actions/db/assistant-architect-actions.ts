@@ -16,6 +16,7 @@ import {
 } from "@/types/db-types"
 import { CoreMessage } from "ai"
 import { transformSnakeToCamel } from '@/lib/db/field-mapper'
+import { parseRepositoryIds, serializeRepositoryIds } from "@/lib/utils/repository-utils"
 
 import { createJobAction, updateJobAction, getJobAction } from "@/actions/db/jobs-actions";
 import { generateCompletion } from "@/lib/ai-helpers";
@@ -120,7 +121,7 @@ export async function getAssistantArchitectsAction(): Promise<
             ORDER BY position ASC
           `, [{ name: 'toolId', value: { longValue: architect.id } }]),
           executeSQL<any>(`
-            SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at
+            SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, created_at, updated_at
             FROM chain_prompts
             WHERE assistant_architect_id = :toolId
             ORDER BY position ASC
@@ -128,7 +129,12 @@ export async function getAssistantArchitectsAction(): Promise<
         ]);
 
         const inputFields = inputFieldsRaw.map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
-        const prompts = promptsRaw.map((prompt: any) => transformSnakeToCamel<SelectChainPrompt>(prompt));
+        const prompts = promptsRaw.map((prompt: any) => {
+          const transformed = transformSnakeToCamel<SelectChainPrompt>(prompt);
+          // Parse repository_ids using utility function
+          transformed.repositoryIds = parseRepositoryIds(transformed.repositoryIds);
+          return transformed;
+        });
         const transformedArchitect = transformSnakeToCamel<SelectAssistantArchitect>(architect);
 
         return {
@@ -194,7 +200,7 @@ export async function getAssistantArchitectByIdAction(
         ORDER BY position ASC
       `, [{ name: 'toolId', value: { longValue: idInt } }]),
       executeSQL<any>(`
-        SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at
+        SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, created_at, updated_at
         FROM chain_prompts
         WHERE assistant_architect_id = :toolId
         ORDER BY position ASC
@@ -203,7 +209,12 @@ export async function getAssistantArchitectByIdAction(
 
     // Transform snake_case to camelCase for frontend compatibility
     const transformedInputFields = (inputFieldsRaw || []).map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
-    const transformedPrompts = (promptsRaw || []).map((prompt: any) => transformSnakeToCamel<SelectChainPrompt>(prompt));
+    const transformedPrompts = (promptsRaw || []).map((prompt: any) => {
+      const transformed = transformSnakeToCamel<SelectChainPrompt>(prompt);
+      // Parse repository_ids using utility function
+      transformed.repositoryIds = parseRepositoryIds(transformed.repositoryIds);
+      return transformed;
+    });
 
     const architectWithRelations: ArchitectWithRelations = {
       ...architect,
@@ -253,7 +264,7 @@ export async function getPendingAssistantArchitectsAction(): Promise<
             ORDER BY position ASC
           `, [{ name: 'toolId', value: { longValue: tool.id } }]),
           executeSQL<any>(`
-            SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at
+            SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, created_at, updated_at
             FROM chain_prompts
             WHERE assistant_architect_id = :toolId
             ORDER BY position ASC
@@ -262,7 +273,12 @@ export async function getPendingAssistantArchitectsAction(): Promise<
 
         const transformedTool = transformSnakeToCamel<SelectAssistantArchitect>(tool);
         const inputFields = inputFieldsRaw.map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
-        const prompts = promptsRaw.map((prompt: any) => transformSnakeToCamel<SelectChainPrompt>(prompt));
+        const prompts = promptsRaw.map((prompt: any) => {
+          const transformed = transformSnakeToCamel<SelectChainPrompt>(prompt);
+          // Parse repository_ids using utility function
+          transformed.repositoryIds = parseRepositoryIds(transformed.repositoryIds);
+          return transformed;
+        });
 
         return {
           ...transformedTool,
@@ -589,7 +605,21 @@ export async function updateInputFieldAction(
         } else if (typeof value === 'number') {
           paramValue = { longValue: value };
         } else if (typeof value === 'object') {
-          paramValue = { stringValue: JSON.stringify(value) };
+          // Special handling for arrays and objects
+          if (value === null) {
+            paramValue = { isNull: true };
+          } else if (Array.isArray(value)) {
+            if (value.length === 0) {
+              paramValue = { isNull: true };
+            } else {
+              // Make sure all array elements are defined
+              const cleanArray = value.filter(v => v !== undefined);
+              paramValue = { stringValue: JSON.stringify(cleanArray) };
+            }
+          } else {
+            // For non-array objects, stringify them
+            paramValue = { stringValue: JSON.stringify(value) };
+          }
         } else {
           paramValue = { stringValue: String(value) };
         }
@@ -698,12 +728,26 @@ export async function addChainPromptAction(
     modelId: number
     position: number
     inputMapping?: Record<string, string>
+    repositoryIds?: number[]
   }
 ): Promise<ActionState<void>> {
   try {
+    // If repository IDs are provided, validate user has access
+    if (data.repositoryIds && data.repositoryIds.length > 0) {
+      const session = await getServerSession();
+      if (!session || !session.sub) {
+        return { isSuccess: false, message: "Unauthorized" };
+      }
+      
+      const hasAccess = await hasToolAccess(session.sub, "knowledge-repositories");
+      if (!hasAccess) {
+        return { isSuccess: false, message: "Access denied. You need knowledge repository access." };
+      }
+    }
+
     await executeSQL<never>(`
-      INSERT INTO chain_prompts (assistant_architect_id, name, content, system_context, model_id, position, input_mapping, created_at, updated_at)
-      VALUES (:toolId, :name, :content, :systemContext, :modelId, :position, :inputMapping, NOW(), NOW())
+      INSERT INTO chain_prompts (assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, created_at, updated_at)
+      VALUES (:toolId, :name, :content, :systemContext, :modelId, :position, :inputMapping::jsonb, :repositoryIds::jsonb, NOW(), NOW())
     `, [
       { name: 'toolId', value: { longValue: parseInt(architectId, 10) } },
       { name: 'name', value: { stringValue: data.name } },
@@ -711,7 +755,8 @@ export async function addChainPromptAction(
       { name: 'systemContext', value: data.systemContext ? { stringValue: data.systemContext } : { isNull: true } },
       { name: 'modelId', value: { longValue: data.modelId } },
       { name: 'position', value: { longValue: data.position } },
-      { name: 'inputMapping', value: data.inputMapping ? { stringValue: JSON.stringify(data.inputMapping) } : { isNull: true } }
+      { name: 'inputMapping', value: data.inputMapping ? { stringValue: JSON.stringify(data.inputMapping) } : { isNull: true } },
+      { name: 'repositoryIds', value: { stringValue: serializeRepositoryIds(data.repositoryIds) || '[]' } }
     ]);
 
     return {
@@ -729,6 +774,7 @@ export async function updatePromptAction(
   id: string,
   data: Partial<InsertChainPrompt>
 ): Promise<ActionState<SelectChainPrompt>> {
+  
   try {
     const session = await getServerSession();
     if (!session || !session.sub) {
@@ -737,7 +783,7 @@ export async function updatePromptAction(
 
     // Find the prompt using data API
     const promptResult = await executeSQL<any>(`
-      SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, parallel_group, timeout_seconds, created_at, updated_at
+      SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, parallel_group, timeout_seconds, repository_ids, created_at, updated_at
       FROM chain_prompts
       WHERE id = :id
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
@@ -747,13 +793,21 @@ export async function updatePromptAction(
     }
 
     const prompt = promptResult[0];
+    
+    
+    // executeSQL converts snake_case to camelCase, so use assistantArchitectId
+    const assistantArchitectId = prompt.assistantArchitectId;
+    
+    if (!assistantArchitectId) {
+      return { isSuccess: false, message: "Invalid prompt - missing assistant architect reference" };
+    }
 
     // Get the tool to check permissions
-    const toolResult = await executeSQL<{ user_id: number }>(`
+    const toolResult = await executeSQL<{ userId: number }>(`
       SELECT user_id
       FROM assistant_architects
       WHERE id = :toolId
-    `, [{ name: 'toolId', value: { longValue: prompt.assistant_architect_id } }]);
+    `, [{ name: 'toolId', value: { longValue: assistantArchitectId } }]);
 
     if (!toolResult || toolResult.length === 0) {
       return { isSuccess: false, message: "Tool not found" }
@@ -767,50 +821,96 @@ export async function updatePromptAction(
     if (!currentUserId) {
       return { isSuccess: false, message: "User not found" }
     }
-    if (!isAdmin && tool.user_id !== currentUserId) {
+    if (!isAdmin && tool.userId !== currentUserId) {
       return { isSuccess: false, message: "Forbidden" }
+    }
+
+    // If repository IDs are being updated, validate user has access
+    if (data.repositoryIds && data.repositoryIds.length > 0) {
+      const hasAccess = await hasToolAccess(session.sub, "knowledge-repositories");
+      if (!hasAccess) {
+        return { isSuccess: false, message: "Access denied. You need knowledge repository access." };
+      }
+    }
+    
+    // Clean up data object - remove undefined or null repositoryIds
+    // But keep empty arrays so they can be saved to clear the field
+    if ('repositoryIds' in data) {
+      if (data.repositoryIds === undefined || data.repositoryIds === null) {
+        // Remove the key entirely if it's undefined or null
+        delete data.repositoryIds;
+      }
+      // Keep empty arrays - they should be saved as '[]' in the database
     }
 
     // Build update query dynamically
     const updateFields = [];
-    const parameters: SqlParameter[] = [{ name: 'id', value: { longValue: parseInt(id, 10) } }];
+    const parameters: SqlParameter[] = [];
     let paramIndex = 0;
     
-    for (const [key, value] of Object.entries(data)) {
-      if (value !== undefined) {
+    
+    // Filter out undefined values before processing
+    const definedEntries = Object.entries(data).filter(([_, value]) => value !== undefined);
+    
+    for (const [key, value] of definedEntries) {
+        
         const snakeKey = key === 'toolId' ? 'assistant_architect_id' : 
                         key === 'systemContext' ? 'system_context' : 
                         key === 'modelId' ? 'model_id' : 
-                        key === 'inputMapping' ? 'input_mapping' : key;
+                        key === 'inputMapping' ? 'input_mapping' : 
+                        key === 'repositoryIds' ? 'repository_ids' : key;
         
-        updateFields.push(`${snakeKey} = :param${paramIndex}`);
+        // Add JSONB cast for JSON columns
+        if (key === 'inputMapping' || key === 'repositoryIds') {
+          updateFields.push(`${snakeKey} = :param${paramIndex}::jsonb`);
+        } else {
+          updateFields.push(`${snakeKey} = :param${paramIndex}`);
+        }
         
         let paramValue;
         if (value === null) {
           paramValue = { isNull: true };
         } else if (typeof value === 'number') {
           paramValue = { longValue: value };
+        } else if (typeof value === 'boolean') {
+          paramValue = { booleanValue: value };
+        } else if (typeof value === 'string') {
+          // Ensure string is not empty
+          paramValue = { stringValue: value || '' };
         } else if (typeof value === 'object') {
-          paramValue = { stringValue: JSON.stringify(value) };
+          // Special handling for arrays and objects
+          if (key === 'repositoryIds' && Array.isArray(value)) {
+            // Use the serialization utility for repository IDs
+            paramValue = { stringValue: serializeRepositoryIds(value) || '[]' };
+          } else if (Array.isArray(value)) {
+            // Always stringify arrays, even empty ones
+            // This ensures empty arrays are stored as '[]' not NULL
+            const cleanArray = value.filter(v => v !== undefined);
+            paramValue = { stringValue: JSON.stringify(cleanArray) };
+          } else {
+            // For non-array objects, stringify them
+            paramValue = { stringValue: JSON.stringify(value) };
+          }
         } else {
           paramValue = { stringValue: String(value) };
         }
         
-        parameters.push({ name: `param${paramIndex}`, value: paramValue });
+        const param = { name: `param${paramIndex}`, value: paramValue };
+        parameters.push(param);
         paramIndex++;
-      }
     }
     
     if (updateFields.length === 0) {
       return { isSuccess: false, message: "No fields to update" }
     }
 
-    const updatedPromptResult = await executeSQL<any>(`
-      UPDATE chain_prompts 
-      SET ${updateFields.join(', ')}, updated_at = NOW()
-      WHERE id = :id
-      RETURNING id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, parallel_group, timeout_seconds, created_at, updated_at
-    `, parameters);
+    // Add the id parameter at the end
+    parameters.push({ name: 'id', value: { longValue: parseInt(id, 10) } });
+    
+
+    const sql = `UPDATE chain_prompts SET ${updateFields.join(', ')}, updated_at = NOW() WHERE id = :id RETURNING id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, parallel_group, timeout_seconds, repository_ids, created_at, updated_at`;
+    
+    const updatedPromptResult = await executeSQL<any>(sql, parameters);
 
     return {
       isSuccess: true,
@@ -833,7 +933,7 @@ export async function deletePromptAction(
     }
 
     // Find the prompt using data API
-    const promptResult = await executeSQL<{ assistant_architect_id: number }>(`
+    const promptResult = await executeSQL<{ assistantArchitectId: number }>(`
       SELECT assistant_architect_id
       FROM chain_prompts
       WHERE id = :id
@@ -846,11 +946,11 @@ export async function deletePromptAction(
     const prompt = promptResult[0];
 
     // Get the tool to check permissions
-    const toolResult = await executeSQL<{ user_id: number }>(`
+    const toolResult = await executeSQL<{ userId: number }>(`
       SELECT user_id
       FROM assistant_architects
       WHERE id = :toolId
-    `, [{ name: 'toolId', value: { longValue: prompt.assistant_architect_id } }]);
+    `, [{ name: 'toolId', value: { longValue: prompt.assistantArchitectId } }]);
 
     if (!toolResult || toolResult.length === 0) {
       return { isSuccess: false, message: "Tool not found" }
@@ -864,7 +964,7 @@ export async function deletePromptAction(
     if (!currentUserId) {
       return { isSuccess: false, message: "User not found" }
     }
-    if (!isAdmin && tool.user_id !== currentUserId) {
+    if (!isAdmin && tool.userId !== currentUserId) {
       return { isSuccess: false, message: "Forbidden" }
     }
 

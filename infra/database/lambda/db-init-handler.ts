@@ -15,17 +15,48 @@ interface CustomResourceEvent {
   PhysicalResourceId?: string;
 }
 
-// SQL files in order of execution
-const SQL_FILES = [
-  '001-enums.sql',
-  '002-tables.sql',
-  '003-constraints.sql',
-  '004-indexes.sql',
-  '005-initial-data.sql'
+/**
+ * CRITICAL: Database Initialization and Migration Handler
+ * 
+ * This Lambda handles TWO distinct scenarios:
+ * 1. Fresh Installation: Runs all initial setup files (001-005)
+ * 2. Existing Database: ONLY runs migration files (010+)
+ * 
+ * WARNING: The initial setup files (001-005) MUST exactly match the existing
+ * database structure or they will cause data corruption!
+ * 
+ * @see /docs/database-restoration/DATABASE-MIGRATIONS.md for full details
+ */
+
+// Migration files that should ALWAYS run (additive only)
+// These files should ONLY create new objects, never modify existing ones
+const MIGRATION_FILES = [
+  '010-knowledge-repositories.sql',
+  '11_textract_jobs.sql',
+  '12_textract_usage.sql',
+  '013-add-knowledge-repositories-tool.sql',
+  '014-model-comparisons.sql',
+  '015-add-model-compare-tool.sql',
+  '016-assistant-architect-repositories.sql'
+  // ADD NEW MIGRATIONS HERE - they will run once and be tracked
+];
+
+// Initial setup files (only run on empty database)
+// WARNING: These must EXACTLY match existing database structure!
+const INITIAL_SETUP_FILES = [
+  '001-enums.sql',      // Creates enum types
+  '002-tables.sql',     // Creates all core tables
+  '003-constraints.sql', // Adds foreign key constraints
+  '004-indexes.sql',     // Creates performance indexes
+  '005-initial-data.sql' // Inserts required seed data
 ];
 
 export async function handler(event: CustomResourceEvent): Promise<any> {
   console.log('Database initialization event:', JSON.stringify(event, null, 2));
+  console.log('Handler version: 2025-07-31-v8 - Added required icon field');
+  
+  // SAFETY CHECK: Log what mode we're in
+  console.log(`🔍 Checking database state for safety...`);
 
   // Only run on Create or Update
   if (event.RequestType === 'Delete') {
@@ -39,103 +70,212 @@ export async function handler(event: CustomResourceEvent): Promise<any> {
   const { ClusterArn, SecretArn, DatabaseName, Environment } = event.ResourceProperties;
 
   try {
-    // First, check if the database has already been initialized
-    const isInitialized = await checkIfInitialized(ClusterArn, SecretArn, DatabaseName);
+    // CRITICAL: Check if this is a fresh database or existing one
+    const isDatabaseEmpty = await checkIfDatabaseEmpty(ClusterArn, SecretArn, DatabaseName);
     
-    if (isInitialized) {
-      console.log('Database already initialized, skipping initialization');
-      return {
-        PhysicalResourceId: 'db-init',
-        Status: 'SUCCESS',
-        Reason: 'Database already initialized'
-      };
-    }
-
-    console.log('Starting database initialization...');
-    
-    // Execute each SQL file in order
-    for (const sqlFile of SQL_FILES) {
-      console.log(`Executing ${sqlFile}...`);
-      const sql = await getSqlContent(sqlFile);
+    if (isDatabaseEmpty) {
+      console.log('🆕 Empty database detected - running full initialization');
       
-      // Split SQL into individual statements (handling multi-line statements)
-      const statements = splitSqlStatements(sql);
-      
-      for (const statement of statements) {
-        if (statement.trim()) {
-          try {
-            await executeSql(ClusterArn, SecretArn, DatabaseName, statement);
-          } catch (error: any) {
-            // Log error but continue if it's a "already exists" type error
-            if (error.message?.includes('already exists') || 
-                error.message?.includes('duplicate key')) {
-              console.log(`Skipping (already exists): ${error.message}`);
-            } else {
-              throw error;
-            }
-          }
-        }
+      // Run initial setup files for fresh installation
+      for (const sqlFile of INITIAL_SETUP_FILES) {
+        console.log(`Executing initial setup: ${sqlFile}`);
+        await executeFileStatements(ClusterArn, SecretArn, DatabaseName, sqlFile);
       }
-      
-      console.log(`Completed ${sqlFile}`);
+    } else {
+      console.log('✅ Existing database detected - skipping initial setup files');
+      console.log('⚠️  ONLY migration files will be processed');
     }
 
-    // Mark database as initialized
-    await markAsInitialized(ClusterArn, SecretArn, DatabaseName);
+    // ALWAYS run migrations (they should be idempotent and safe)
+    console.log('🔄 Processing migrations...');
+    
+    // Ensure migration tracking table exists
+    await ensureMigrationTable(ClusterArn, SecretArn, DatabaseName);
+    
+    // Run each migration that hasn't been run yet
+    for (const migrationFile of MIGRATION_FILES) {
+      const hasRun = await checkMigrationRun(ClusterArn, SecretArn, DatabaseName, migrationFile);
+      
+      if (!hasRun) {
+        console.log(`▶️  Running migration: ${migrationFile}`);
+        const startTime = Date.now();
+        
+        try {
+          await executeFileStatements(ClusterArn, SecretArn, DatabaseName, migrationFile);
+          
+          // Record successful migration
+          await recordMigration(ClusterArn, SecretArn, DatabaseName, migrationFile, true, Date.now() - startTime);
+          console.log(`✅ Migration ${migrationFile} completed successfully`);
+          
+        } catch (error: any) {
+          // Record failed migration
+          await recordMigration(ClusterArn, SecretArn, DatabaseName, migrationFile, false, Date.now() - startTime, error.message);
+          throw new Error(`Migration ${migrationFile} failed: ${error.message}`);
+        }
+      } else {
+        console.log(`⏭️  Skipping migration ${migrationFile} - already run`);
+      }
+    }
 
     return {
       PhysicalResourceId: 'db-init',
       Status: 'SUCCESS',
-      Reason: 'Database initialized successfully'
+      Reason: 'Database initialization/migration completed successfully'
     };
 
   } catch (error) {
-    console.error('Database initialization failed:', error);
+    console.error('❌ Database operation failed:', error);
     return {
       PhysicalResourceId: 'db-init',
       Status: 'FAILED',
-      Reason: `Database initialization failed: ${error}`
+      Reason: `Database operation failed: ${error}`
     };
   }
 }
 
-async function checkIfInitialized(
+/**
+ * Check if database is empty (fresh installation)
+ * Returns true if no core tables exist, false if database has been initialized
+ */
+async function checkIfDatabaseEmpty(
   clusterArn: string,
   secretArn: string,
   database: string
 ): Promise<boolean> {
   try {
-    // Check if the migration_log table exists and has the init record
+    // Check if users table exists (core table that should always exist)
     const result = await executeSql(
       clusterArn,
       secretArn,
       database,
-      `SELECT COUNT(*) as count FROM migration_log WHERE migration_name = 'initial-schema'`
+      `SELECT COUNT(*) FROM information_schema.tables 
+       WHERE table_schema = 'public' 
+       AND table_name = 'users'`
     );
     
-    return result.records && result.records.length > 0 && 
-           result.records[0][0].longValue > 0;
-  } catch (error: any) {
-    // If the table doesn't exist, database is not initialized
-    if (error.message?.includes('does not exist')) {
-      return false;
-    }
-    throw error;
+    const count = result.records?.[0]?.[0]?.longValue || 0;
+    return count === 0;
+  } catch (error) {
+    // If we can't check, assume empty for safety
+    console.log('Could not check if database is empty, assuming fresh install');
+    return true;
   }
 }
 
-async function markAsInitialized(
+/**
+ * Ensure migration tracking table exists
+ * This table tracks which migrations have been run
+ */
+async function ensureMigrationTable(
   clusterArn: string,
   secretArn: string,
   database: string
 ): Promise<void> {
+  // This exactly matches the existing migration_log structure from June 2025 database
+  const sql = `
+    CREATE TABLE IF NOT EXISTS migration_log (
+      id SERIAL PRIMARY KEY,
+      step_number INTEGER NOT NULL,
+      description TEXT NOT NULL,
+      sql_executed TEXT,
+      status VARCHAR(20) DEFAULT 'pending',
+      error_message TEXT,
+      executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `;
+  
+  await executeSql(clusterArn, secretArn, database, sql);
+}
+
+/**
+ * Check if a specific migration has already been run
+ */
+async function checkMigrationRun(
+  clusterArn: string,
+  secretArn: string,
+  database: string,
+  migrationFile: string
+): Promise<boolean> {
+  try {
+    const result = await executeSql(
+      clusterArn,
+      secretArn,
+      database,
+      `SELECT COUNT(*) FROM migration_log 
+       WHERE description = '${migrationFile}' 
+       AND status = 'completed'`
+    );
+    
+    const count = result.records?.[0]?.[0]?.longValue || 0;
+    return count > 0;
+  } catch (error) {
+    // If we can't check, assume not run
+    return false;
+  }
+}
+
+/**
+ * Record a migration execution (success or failure)
+ */
+async function recordMigration(
+  clusterArn: string,
+  secretArn: string,
+  database: string,
+  migrationFile: string,
+  success: boolean,
+  executionTime: number,
+  errorMessage?: string
+): Promise<void> {
+  const maxStepResult = await executeSql(
+    clusterArn,
+    secretArn,
+    database,
+    `SELECT COALESCE(MAX(step_number), 0) + 1 as next_step FROM migration_log`
+  );
+  
+  const nextStep = maxStepResult.records?.[0]?.[0]?.longValue || 1;
+  
+  const status = success ? 'completed' : 'failed';
+  const errorPart = errorMessage ? `, error_message = '${errorMessage.replace(/'/g, "''")}'` : '';
+  
   await executeSql(
     clusterArn,
     secretArn,
     database,
-    `INSERT INTO migration_log (migration_name, execution_time_ms, success) 
-     VALUES ('initial-schema', 0, true)`
+    `INSERT INTO migration_log (step_number, description, sql_executed, status${errorMessage ? ', error_message' : ''}) 
+     VALUES (${nextStep}, '${migrationFile}', 'Migration file executed', '${status}'${errorMessage ? `, '${errorMessage.replace(/'/g, "''")}'` : ''})`
   );
+}
+
+/**
+ * Execute all statements in a SQL file
+ */
+async function executeFileStatements(
+  clusterArn: string,
+  secretArn: string,
+  database: string,
+  filename: string
+): Promise<void> {
+  const sql = await getSqlContent(filename);
+  const statements = splitSqlStatements(sql);
+  
+  for (const statement of statements) {
+    if (statement.trim()) {
+      try {
+        await executeSql(clusterArn, secretArn, database, statement);
+      } catch (error: any) {
+        // For initial setup files, we might want to continue on "already exists" errors
+        // For migrations, we should fail fast
+        if (INITIAL_SETUP_FILES.includes(filename) && 
+            (error.message?.includes('already exists') || 
+             error.message?.includes('duplicate key'))) {
+          console.log(`⚠️  Skipping (already exists): ${error.message}`);
+        } else {
+          throw error;
+        }
+      }
+    }
+  }
 }
 
 async function executeSql(
@@ -205,90 +345,19 @@ function splitSqlStatements(sql: string): string[] {
   return statements;
 }
 
-// In a real implementation, these would be loaded from S3 or bundled with the Lambda
+// Load SQL content from bundled schema files
 async function getSqlContent(filename: string): Promise<string> {
-  // This is a placeholder - in the actual implementation, you would either:
-  // 1. Bundle the SQL files with the Lambda deployment package
-  // 2. Store them in S3 and fetch them here
-  // 3. Include them as string constants
+  const fs = require('fs').promises;
+  const path = require('path');
   
-  // For now, we'll include them as constants
-  const sqlContent: { [key: string]: string } = {
-    '001-enums.sql': `-- 001-enums.sql: Create all enum types used in the database
--- Drop existing types if they exist (for idempotency)
-DROP TYPE IF EXISTS tool_status CASCADE;
-DROP TYPE IF EXISTS job_status CASCADE;
-DROP TYPE IF EXISTS execution_status CASCADE;
-DROP TYPE IF EXISTS field_type CASCADE;
-DROP TYPE IF EXISTS navigation_type CASCADE;
-
--- Tool status enum for tracking tool lifecycle
-CREATE TYPE tool_status AS ENUM (
-    'draft',
-    'pending_approval',
-    'approved',
-    'rejected',
-    'disabled'
-);
-
--- Job status enum for background job tracking
-CREATE TYPE job_status AS ENUM (
-    'pending',
-    'running',
-    'completed',
-    'failed'
-);
-
--- Execution status enum for tool execution tracking
-CREATE TYPE execution_status AS ENUM (
-    'pending',
-    'running',
-    'completed',
-    'failed'
-);
-
--- Field type enum for tool input fields
-CREATE TYPE field_type AS ENUM (
-    'short_text',
-    'long_text',
-    'select',
-    'multi_select',
-    'file_upload'
-);
-
--- Navigation type enum for navigation items
-CREATE TYPE navigation_type AS ENUM (
-    'link',
-    'section',
-    'page'
-);`,
-
-    '002-tables.sql': `${await getTablesSQL()}`,
-    '003-constraints.sql': `${await getConstraintsSQL()}`,
-    '004-indexes.sql': `${await getIndexesSQL()}`,
-    '005-initial-data.sql': `${await getInitialDataSQL()}`
-  };
-
-  return sqlContent[filename] || '';
+  try {
+    // Schema files are copied to the Lambda deployment package
+    const schemaPath = path.join(__dirname, 'schema', filename);
+    const content = await fs.readFile(schemaPath, 'utf8');
+    return content;
+  } catch (error) {
+    console.error(`Failed to read SQL file ${filename}:`, error);
+    throw new Error(`Could not load SQL file: ${filename}`);
+  }
 }
 
-// Helper functions to return the SQL content
-async function getTablesSQL(): Promise<string> {
-  // Return the content from 002-tables.sql
-  return `-- Tables SQL content here (too long to include inline)`;
-}
-
-async function getConstraintsSQL(): Promise<string> {
-  // Return the content from 003-constraints.sql
-  return `-- Constraints SQL content here`;
-}
-
-async function getIndexesSQL(): Promise<string> {
-  // Return the content from 004-indexes.sql
-  return `-- Indexes SQL content here`;
-}
-
-async function getInitialDataSQL(): Promise<string> {
-  // Return the content from 005-initial-data.sql
-  return `-- Initial data SQL content here`;
-}

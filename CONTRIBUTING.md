@@ -54,6 +54,17 @@ Thank you for contributing to this project! Please follow these standards to ens
 - **Secrets Management**: Use AWS Secrets Manager for all sensitive configuration. Never hardcode secrets.
 
 ### Database Access
+
+**⚠️ CRITICAL DATABASE SAFETY WARNING ⚠️**
+We experienced a catastrophic database corruption incident (July 2025) when SQL schema files didn't match the actual database structure. The db-init Lambda destroyed production data by running DROP/CREATE statements.
+
+**MANDATORY RULES FOR DATABASE WORK:**
+1. **NEVER modify SQL schema files** without verifying against the actual database using MCP tools
+2. **NEVER trust the SQL files** in `/infra/database/schema/` - they may not match reality
+3. **ALWAYS use MCP database tools** to inspect actual database structure, not file inspection
+4. **NEVER deploy CDK** without verifying the Aurora HTTP endpoint is enabled
+
+**Safe Practices:**
 - **Field Naming Convention**: Database column names use snake_case. The RDS Data API adapter automatically transforms these to camelCase for TypeScript compatibility. Never manually transform field names.
 - **Parameterized Queries**: Always use parameterized queries with the RDS Data API:
   ```typescript
@@ -69,6 +80,17 @@ Thank you for contributing to this project! Please follow these standards to ens
   const result = await executeSQL(query)
   return result as unknown as YourType[]
   ```
+
+**Database Migration Guidelines:**
+- Initial setup files (001-005) should ONLY run on empty databases
+- Migration files (010+) can make changes but must be carefully tested:
+  - **Safe operations**: Adding tables, adding nullable columns, creating indexes
+  - **Careful operations**: Adding NOT NULL columns (need defaults), renaming columns, changing data types
+  - **Dangerous operations**: Dropping columns/tables (ensure no code depends on them first)
+- Test ALL migrations on a restored snapshot before production deployment
+- All migrations are tracked in the `migration_log` table
+- The db-init-handler.ts must distinguish between fresh installs and existing databases
+- Consider backwards compatibility - deploy code that works with both old and new schema first
 
 ## Server-Side Rendering (SSR) & Next.js
 

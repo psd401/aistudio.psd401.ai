@@ -140,6 +140,7 @@ export type SelectChainPrompt = {
   inputMapping: any | null;
   parallelGroup: number | null;
   timeoutSeconds: number | null;
+  repositoryIds: number[] | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -195,6 +196,7 @@ export type InsertChainPrompt = {
   inputMapping?: any;
   parallelGroup?: number;
   timeoutSeconds?: number;
+  repositoryIds?: number[];
 }
 
 export type InsertToolExecution = {

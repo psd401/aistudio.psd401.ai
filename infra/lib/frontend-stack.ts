@@ -12,6 +12,7 @@ export interface FrontendStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
   githubToken: cdk.SecretValue;
   baseDomain: string;
+  documentsBucketName: string;
 }
 
 export class FrontendStack extends cdk.Stack {
@@ -90,6 +91,48 @@ export class FrontendStack extends cdk.Stack {
                 'secretsmanager:DescribeSecret'
               ],
               resources: ['*']
+            }),
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                's3:GetObject',
+                's3:PutObject',
+                's3:DeleteObject',
+                's3:ListBucket',
+                's3:HeadObject',
+                's3:HeadBucket'
+              ],
+              resources: [
+                `arn:aws:s3:::${props.documentsBucketName}`,
+                `arn:aws:s3:::${props.documentsBucketName}/*`
+              ]
+            }),
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'sqs:SendMessage',
+                'sqs:GetQueueAttributes',
+                'sqs:GetQueueUrl'
+              ],
+              resources: ['*'] // TODO: Scope this down to specific queues
+            }),
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'lambda:InvokeFunction'
+              ],
+              resources: ['*'] // TODO: Scope this down to specific functions
+            }),
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'dynamodb:GetItem',
+                'dynamodb:PutItem',
+                'dynamodb:UpdateItem',
+                'dynamodb:Query',
+                'dynamodb:Scan'
+              ],
+              resources: ['*'] // TODO: Scope this down to specific tables
             })
           ]
         })

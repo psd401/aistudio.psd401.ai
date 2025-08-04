@@ -13,6 +13,44 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Run linting and type checking on the ENTIRE codebase before considering any task complete
 - Both `npm run lint` and `npm run typecheck` must pass with zero errors before any commit
 
+## ⚠️ CRITICAL DATABASE WARNING ⚠️
+
+**NEVER MODIFY SQL SCHEMA FILES WITHOUT EXTREME CAUTION!**
+
+The database initialization system has TWO modes:
+1. **Fresh Install**: Runs files 001-005 on empty databases
+2. **Existing Database**: ONLY runs migration files (010+)
+
+**CRITICAL RULES:**
+- Files 001-005 MUST exactly match the June 2025 production database structure
+- NEVER modify these files based on application code expectations
+- ALWAYS use MCP tools to verify database structure before changing SQL files
+- Migration files (010+) should ONLY create new objects, never modify existing ones
+
+**IMPORTANT: Adding Database Migrations**
+When creating a new migration file:
+1. Create the SQL file in `/infra/database/schema/` (e.g., `016-feature-name.sql`)
+2. **CRITICAL**: Add the filename to the `MIGRATION_FILES` array in `/infra/database/lambda/db-init-handler.ts`
+3. Build and deploy: `cd infra && npm run build && npx cdk deploy DatabaseStack`
+
+Without step 2, your migration will NOT run even if the SQL file exists!
+
+**If you need to check database structure:**
+```bash
+# Use MCP tools, NOT file inspection:
+mcp__awslabs_postgres-mcp-server__get_table_schema
+mcp__awslabs_postgres-mcp-server__run_query
+
+# NEVER trust the application code's expectations of database structure
+# NEVER search files for database schema - use MCP tools
+```
+
+**Database Restoration Incident (July 2025):**
+- SQL files were wrong and didn't match actual database
+- Running CDK deployment destroyed database columns
+- Had to restore from snapshot and fix all SQL files
+- See `/docs/database-restoration/` for full incident details
+
 ## Build, Lint, Test Commands
 
 ```bash
@@ -163,6 +201,12 @@ This codebase follows a **Layered Architecture** with Domain-Driven Design influ
 - **Server Components**: Default in app directory
 - **Client Components**: Explicit `"use client"` directive
 - **Import Order**: React/Next → third-party → internal → styles
+- **Database Field Transformation**: ALWAYS use `transformSnakeToCamel` from `@/lib/db/field-mapper` when converting database results from snake_case to camelCase. The data-api-adapter already does basic conversion, but for consistency use the standard transformer:
+  ```typescript
+  import { transformSnakeToCamel } from "@/lib/db/field-mapper"
+  
+  const transformed = results.map(row => transformSnakeToCamel<ExpectedType>(row))
+  ```
 
 ### Environment Variables
 Required environment variables are documented in `/docs/ENVIRONMENT_VARIABLES.md`. Key variables:

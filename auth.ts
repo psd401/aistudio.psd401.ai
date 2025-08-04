@@ -91,7 +91,16 @@ export const authConfig: NextAuthConfig = {
         name: displayName,
       }
       
-      // Store tokens in session for server-side use (e.g., GlobalSignOut)
+      // Store tokens in session for server-side use
+      // NOTE: These tokens are necessary for:
+      // - accessToken: Making authenticated API calls to AWS services
+      // - idToken: Contains user claims and is used for identity verification
+      // - refreshToken: Required for token refresh when accessToken expires
+      // 
+      // Security considerations:
+      // - These tokens are encrypted in the JWT session cookie
+      // - Never log or expose these tokens in client-side code
+      // - Consider implementing token rotation for enhanced security
       session.accessToken = token.accessToken as string;
       session.idToken = token.idToken as string;
       session.refreshToken = token.refreshToken as string;
@@ -116,7 +125,8 @@ export const authConfig: NextAuthConfig = {
   },
   session: {
     strategy: "jwt",
-    maxAge: 24 * 60 * 60, // 24 hours
+    // Session max age in seconds (default: 24 hours)
+    maxAge: process.env.SESSION_MAX_AGE ? parseInt(process.env.SESSION_MAX_AGE) : 24 * 60 * 60,
   },
   cookies: {
     sessionToken: {
@@ -139,4 +149,19 @@ export const authConfig: NextAuthConfig = {
   },
 }
 
-export const { handlers, auth, signIn, signOut } = NextAuth(authConfig)
+// Factory function - creates new instance per request
+export function createAuth() {
+  return NextAuth(authConfig)
+}
+
+// For middleware only - stateless operations
+// This is safe because middleware doesn't maintain user-specific state
+const middlewareAuth = NextAuth(authConfig)
+export const { auth: authMiddleware } = middlewareAuth
+
+// Export auth handlers for route.ts files
+// These need to be created per-request in the route handlers
+export function createAuthHandlers() {
+  const { handlers } = createAuth()
+  return handlers
+}

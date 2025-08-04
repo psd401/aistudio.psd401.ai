@@ -31,6 +31,9 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { ChevronDown, ChevronRight } from "lucide-react"
 import type { SelectAiModel, SelectChainPrompt, SelectToolInputField } from "@/types"
 import React from "react"
 import {
@@ -59,6 +62,7 @@ import {
   CreateLink
 } from "@mdxeditor/editor"
 import PdfUploadButton from "@/components/ui/pdf-upload-button"
+import { RepositoryBrowser } from "@/components/features/assistant-architect/repository-browser"
 const MDXEditor = dynamic(() => import("@mdxeditor/editor").then(mod => mod.MDXEditor), { ssr: false })
 
 
@@ -69,6 +73,157 @@ interface PromptsPageClientProps {
   prompts: SelectChainPrompt[]
   models: SelectAiModel[]
   inputFields: SelectToolInputField[]
+}
+
+interface KnowledgeSectionProps {
+  useExternalKnowledge: boolean
+  setUseExternalKnowledge: (value: boolean) => void
+  systemContext: string
+  setSystemContext: (value: string) => void
+  selectedRepositoryIds: number[]
+  setSelectedRepositoryIds: (ids: number[]) => void
+  isPdfContentCollapsed: boolean
+  setIsPdfContentCollapsed: (value: boolean) => void
+  contextTokens: number
+}
+
+function KnowledgeSection({
+  useExternalKnowledge,
+  setUseExternalKnowledge,
+  systemContext,
+  setSystemContext,
+  selectedRepositoryIds,
+  setSelectedRepositoryIds,
+  isPdfContentCollapsed,
+  setIsPdfContentCollapsed,
+  contextTokens
+}: KnowledgeSectionProps) {
+  const [isRepositoryBrowserOpen, setIsRepositoryBrowserOpen] = useState(false)
+  
+  return (
+    <div className="space-y-4">
+      {/* Toggle for external knowledge */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Switch
+            id="external-knowledge"
+            checked={useExternalKnowledge}
+            onCheckedChange={setUseExternalKnowledge}
+          />
+          <Label htmlFor="external-knowledge" className="cursor-pointer">
+            Add external knowledge to your prompt
+          </Label>
+        </div>
+      </div>
+
+      {/* Show knowledge options when toggled on */}
+      {useExternalKnowledge && (
+        <div className="space-y-4 pl-4 border-l-2 border-muted">
+          {/* Repository selector */}
+          <div className="space-y-2">
+            <Label>Knowledge Repositories</Label>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsRepositoryBrowserOpen(true)}
+              >
+                Browse Repositories
+              </Button>
+              {selectedRepositoryIds.length > 0 && (
+                <span className="text-sm text-muted-foreground">
+                  {selectedRepositoryIds.length} selected
+                </span>
+              )}
+            </div>
+            {/* Display selected repositories as badges */}
+            {selectedRepositoryIds.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {selectedRepositoryIds.map(id => (
+                  <Badge key={id} variant="secondary">
+                    Repository {id}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRepositoryIds(selectedRepositoryIds.filter(rid => rid !== id))}
+                      className="ml-1 text-xs hover:text-destructive"
+                    >
+                      ×
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* PDF upload and content section */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Direct Knowledge Input</Label>
+              <PdfUploadButton 
+                onMarkdown={(doc: string) => {
+                  const currentContext = systemContext || ""
+                  const merged = (!currentContext || currentContext.trim() === "") ? doc : currentContext + "\n\n" + doc
+                  setSystemContext(merged)
+                  setIsPdfContentCollapsed(false)
+                }}
+                onError={err => {
+                  if (err?.status === 413) {
+                    toast.error("File too large. Please upload a file smaller than 25MB.")
+                  } else {
+                    toast.error("Upload failed: " + (err?.message || "Unknown error"))
+                  }
+                }}
+              />
+            </div>
+            
+            {/* Collapsible content area */}
+            <Collapsible open={!isPdfContentCollapsed} onOpenChange={(open) => setIsPdfContentCollapsed(!(open ?? false))}>
+              <CollapsibleTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-between p-2 h-auto"
+                >
+                  <span className="text-sm">
+                    {systemContext ? "View/Edit content" : "Add custom content"}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {systemContext && (
+                      <span className="text-xs text-muted-foreground">{contextTokens} tokens</span>
+                    )}
+                    {isPdfContentCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </div>
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="rounded-md border bg-muted h-[320px] overflow-y-auto mt-2">
+                  <textarea
+                    value={systemContext}
+                    onChange={(e) => setSystemContext(e.target.value)}
+                    placeholder="Enter system instructions, persona, or background knowledge for the AI model."
+                    className="w-full h-full p-4 bg-[#e5e1d6] resize-none border-none outline-none font-mono text-sm"
+                  />
+                </div>
+                <div className="text-xs text-muted-foreground mt-2">
+                  You can reference the knowledge in your prompt by saying things like &quot;Given the above context&quot; or &quot;Based on the provided information...&quot;
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+        </div>
+      )}
+      
+      {/* Repository Browser Dialog */}
+      <RepositoryBrowser
+        open={isRepositoryBrowserOpen}
+        onOpenChange={setIsRepositoryBrowserOpen}
+        selectedIds={selectedRepositoryIds}
+        onSelectionChange={setSelectedRepositoryIds}
+      />
+    </div>
+  )
 }
 
 // Start Node Component
@@ -509,6 +664,9 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
   const [prompts, setPrompts] = useState<SelectChainPrompt[]>(initialPrompts)
   const reactFlowInstanceRef = useRef<FlowHandle>(null);
   const [contextTokens, setContextTokens] = useState(0)
+  const [useExternalKnowledge, setUseExternalKnowledge] = useState(false)
+  const [selectedRepositoryIds, setSelectedRepositoryIds] = useState<number[]>([])
+  const [isPdfContentCollapsed, setIsPdfContentCollapsed] = useState(true)
   const [promptTokens, setPromptTokens] = useState(0)
   const [flowKey, setFlowKey] = useState(0)
   const mdxEditorRef = useRef<MDXEditorHandle>(null);
@@ -545,6 +703,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
           systemContext: systemContext || undefined,
           modelId: parseInt(modelId as string),
           position: typeof prompts.length === 'number' ? prompts.length : 0,
+          repositoryIds: useExternalKnowledge ? selectedRepositoryIds : [],
         }
       )
 
@@ -555,6 +714,9 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         setPromptContent("")
         setSystemContext("")
         setModelId(null)
+        setUseExternalKnowledge(false)
+        setSelectedRepositoryIds([])
+        setIsPdfContentCollapsed(true)
         
         // Get the updated prompts
         const updatedResult = await getAssistantArchitectByIdAction(assistantId);
@@ -584,12 +746,17 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         setIsLoading(false);
         return;
       }
-      const result = await updatePromptAction(editingPrompt.id.toString(), {
+      const updateData = {
         name: promptName,
         content: promptContent,
         systemContext: systemContext || undefined,
         modelId: parseInt(modelId),
-      })
+        repositoryIds: useExternalKnowledge && selectedRepositoryIds.length > 0 
+          ? selectedRepositoryIds.filter(id => id !== undefined && id !== null) 
+          : [], // Send empty array to clear repositories, not undefined
+      };
+      
+      const result = await updatePromptAction(editingPrompt.id.toString(), updateData)
 
       if (result.isSuccess) {
         toast.success("Prompt updated successfully")
@@ -672,6 +839,9 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
       setPromptContent(latestPrompt.content)
       setSystemContext(latestPrompt.systemContext || "")
       setModelId(latestPrompt.modelId ? latestPrompt.modelId.toString() : null)
+      setUseExternalKnowledge(Boolean(latestPrompt.repositoryIds && latestPrompt.repositoryIds.length > 0))
+      setSelectedRepositoryIds(latestPrompt.repositoryIds || [])
+      setIsPdfContentCollapsed(true)
       setIsEditDialogOpen(true)
     } catch {
       toast.error("Failed to fetch latest prompt data")
@@ -761,40 +931,17 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between mb-1">
-                  <Label htmlFor="systemContext">System Context & Knowledge (Optional)</Label>
-                  <PdfUploadButton 
-                    onMarkdown={doc => {
-                      setSystemContext(prev => {
-                        const merged = (!prev || prev.trim() === "") ? doc : prev + "\n\n" + doc
-                        return merged
-                      })
-                    }}
-                    onError={err => {
-                      if (err?.status === 413) {
-                        alert("File too large. Please upload a file smaller than 25MB.")
-                      } else {
-                        alert("Upload failed: " + (err?.message || "Unknown error"))
-                      }
-                    }}
-                  />
-                </div>
-                <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
-                  <textarea
-                    value={systemContext}
-                    onChange={(e) => setSystemContext(e.target.value)}
-                    placeholder="Enter system instructions, persona, or background knowledge for the AI model."
-                    className="w-full h-full p-4 bg-[#e5e1d6] resize-none border-none outline-none font-mono text-sm"
-                  />
-                </div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {contextTokens} tokens
-                </div>
-                <div className="text-xs text-muted-foreground mt-2">
-                  You can reference the system context in your prompt content by saying things like &quot;Given the above context&quot; or &quot;Knowing the persona of this community...&quot;
-                </div>
-              </div>
+              <KnowledgeSection
+                useExternalKnowledge={useExternalKnowledge}
+                setUseExternalKnowledge={setUseExternalKnowledge}
+                systemContext={systemContext}
+                setSystemContext={setSystemContext}
+                selectedRepositoryIds={selectedRepositoryIds}
+                setSelectedRepositoryIds={setSelectedRepositoryIds}
+                isPdfContentCollapsed={isPdfContentCollapsed}
+                setIsPdfContentCollapsed={setIsPdfContentCollapsed}
+                contextTokens={contextTokens}
+              />
               <div className="space-y-2">
                 <Label htmlFor="content">Prompt Content</Label>
                 <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
@@ -928,40 +1075,17 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between mb-1">
-                    <Label htmlFor="edit-systemContext">System Context & Knowledge (Optional)</Label>
-                    <PdfUploadButton 
-                      onMarkdown={doc => {
-                        setSystemContext(prev => {
-                          const merged = (!prev || prev.trim() === "") ? doc : prev + "\n\n" + doc
-                          return merged
-                        })
-                      }}
-                      onError={err => {
-                        if (err?.status === 413) {
-                          alert("File too large. Please upload a file smaller than 25MB.")
-                        } else {
-                          alert("Upload failed: " + (err?.message || "Unknown error"))
-                        }
-                      }}
-                    />
-                  </div>
-                  <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">
-                    <textarea
-                      value={systemContext}
-                      onChange={(e) => setSystemContext(e.target.value)}
-                      placeholder="Enter system instructions, persona, or background knowledge for the AI model."
-                      className="w-full h-full p-4 bg-[#e5e1d6] resize-none border-none outline-none font-mono text-sm"
-                    />
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {contextTokens} tokens
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-2">
-                    You can reference the system context in your prompt content by saying things like &quot;Given the above context&quot; or &quot;Knowing the persona of this community...&quot;
-                  </div>
-                </div>
+                <KnowledgeSection
+                  useExternalKnowledge={useExternalKnowledge}
+                  setUseExternalKnowledge={setUseExternalKnowledge}
+                  systemContext={systemContext}
+                  setSystemContext={setSystemContext}
+                  selectedRepositoryIds={selectedRepositoryIds}
+                  setSelectedRepositoryIds={setSelectedRepositoryIds}
+                  isPdfContentCollapsed={isPdfContentCollapsed}
+                  setIsPdfContentCollapsed={setIsPdfContentCollapsed}
+                  contextTokens={contextTokens}
+                />
                 <div className="space-y-2">
                   <Label htmlFor="edit-content">Prompt Content</Label>
                   <div className="rounded-md border bg-muted h-[320px] overflow-y-auto">

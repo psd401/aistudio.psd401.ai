@@ -7,6 +7,8 @@ export interface StorageStackProps extends cdk.StackProps {
 }
 
 export class StorageStack extends cdk.Stack {
+  public readonly documentsBucketName: string;
+  
   constructor(scope: Construct, id: string, props: StorageStackProps) {
     super(scope, id, props);
 
@@ -26,6 +28,9 @@ export class StorageStack extends cdk.Stack {
         },
       ],
     });
+
+    // Store bucket name for use by other stacks
+    this.documentsBucketName = bucket.bucketName;
 
     // Output the S3 bucket name
     new cdk.CfnOutput(this, 'DocumentsBucketName', {

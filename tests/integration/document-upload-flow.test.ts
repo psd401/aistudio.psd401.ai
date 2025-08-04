@@ -1,13 +1,51 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
+
+// Mock Next.js server components first
+jest.mock('next/server', () => ({
+  NextRequest: jest.fn(),
+  NextResponse: class NextResponse {
+    body: string;
+    status: number;
+    headers: Map<string, string>;
+    
+    constructor(body: string, init?: { status?: number; headers?: Record<string, string> }) {
+      this.body = body;
+      this.status = init?.status || 200;
+      this.headers = new Map(Object.entries(init?.headers || {}));
+    }
+    
+    json() {
+      return Promise.resolve(JSON.parse(this.body));
+    }
+    
+    static json(data: unknown, init?: { status?: number; headers?: Record<string, string> }) {
+      return new NextResponse(JSON.stringify(data), {
+        ...init,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(init?.headers || {})
+        }
+      });
+    }
+  }
+}));
+
 import { POST as uploadAPI } from '@/app/api/documents/upload/route';
 import { POST as chatAPI } from '@/app/api/chat/route';
 import { POST as linkAPI } from '@/app/api/documents/link/route';
 import { NextRequest } from 'next/server';
 
+// Add TextEncoder/TextDecoder polyfills for Node.js test environment
+import { TextEncoder, TextDecoder } from 'util';
+global.TextEncoder = TextEncoder;
+global.TextDecoder = TextDecoder as any;
+
 // Mock all dependencies
-jest.mock('@/lib/auth/server-session');
+jest.mock('@/lib/auth/server-session', () => ({
+  getServerSession: jest.fn()
+}));
 jest.mock('@/actions/db/get-current-user-action');
 jest.mock('@/lib/aws/s3-client');
 jest.mock('@/lib/db/queries/documents');
@@ -30,10 +68,10 @@ import { executeSQL } from '@/lib/db/data-api-adapter';
 
 describe('Document Upload End-to-End Flow', () => {
   const mockUserId = 'user-123';
-  const mockSession = { user: { id: mockUserId } };
+  const mockSession = { sub: mockUserId, email: 'test@example.com' };
   const mockUser = {
     isSuccess: true,
-    data: { user: { id: mockUserId } },
+    data: { id: mockUserId, email: 'test@example.com' },
   };
 
   beforeEach(() => {
