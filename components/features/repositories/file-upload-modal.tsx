@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -111,8 +111,8 @@ export function FileUploadModal({
   const maxFileSizeMB = 25 // Default 25MB - matches server default
   const maxFileSize = maxFileSizeMB * 1024 * 1024
 
-  // Temporarily use the old method until presigned URL is fixed
-  const USE_PRESIGNED_URL = false // Toggle this to switch between methods
+  // Use presigned URL method to bypass Amplify 1MB limit
+  const USE_PRESIGNED_URL = true // Enable presigned URL uploads
   // Always use the max file size from environment - the server will handle the actual limits
   const MAX_FILE_SIZE = maxFileSize
   
@@ -202,7 +202,8 @@ export function FileUploadModal({
           throw new Error(error.error || 'Failed to get upload URL')
         }
 
-        const { url, key } = await presignedResponse.json()
+        const response = await presignedResponse.json()
+        const { url, key } = response.data || response
 
         // Step 2: Upload file directly to S3
         const uploadResponse = await fetch(url, {

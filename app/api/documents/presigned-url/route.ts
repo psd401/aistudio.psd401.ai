@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     // Validate file extension
     if (!isValidFileExtension(fileName)) {
       logger.info('[Presigned URL API] Invalid file extension:', fileName)
-      throw createError('Unsupported file extension. Allowed types: .pdf, .docx, .txt', {
+      throw createError(`Unsupported file extension. Allowed types: ${ALLOWED_FILE_EXTENSIONS.join(', ')}`, {
         code: 'VALIDATION',
         level: ErrorLevel.WARN
       })
