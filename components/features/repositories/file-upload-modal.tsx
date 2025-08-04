@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -26,14 +26,16 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAction } from "@/lib/hooks/use-action"
 import {
+  addDocumentItem,
   addDocumentWithPresignedUrl,
   addUrlItem,
   addTextItem,
 } from "@/actions/repositories/repository-items.actions"
 import { FileText, Link, Type, Upload, Loader2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
+import { getMaxFileSize } from "@/lib/file-validation"
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100MB - matches server settings
+// File size limits - will be loaded from environment
 const ACCEPTED_FILE_TYPES = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -44,20 +46,40 @@ const ACCEPTED_FILE_TYPES = [
   "text/csv",
 ]
 
-const documentSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  file: z
-    .custom<FileList>()
-    .refine((files) => files?.length === 1, "File is required")
-    .refine(
-      (files) => files?.[0]?.size <= MAX_FILE_SIZE,
-      `File size must be less than ${MAX_FILE_SIZE / 1024 / 1024}MB`
-    )
-    .refine(
-      (files) => ACCEPTED_FILE_TYPES.includes(files?.[0]?.type),
-      "File type not supported"
-    ),
-})
+// Helper function to validate file type
+function isValidFileType(file: File): boolean {
+  const mimeType = file.type.toLowerCase()
+  const fileName = file.name.toLowerCase()
+  
+  // Check exact MIME type match
+  if (ACCEPTED_FILE_TYPES.includes(mimeType)) {
+    return true
+  }
+  
+  // Check partial MIME type match (e.g., "text/plain; charset=UTF-8" matches "text/plain")
+  if (ACCEPTED_FILE_TYPES.some(type => mimeType.startsWith(type))) {
+    return true
+  }
+  
+  // Fallback to file extension check
+  const extensionMap: Record<string, string[]> = {
+    '.pdf': ['application/pdf'],
+    '.docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/octet-stream'],
+    '.xlsx': ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/octet-stream'],
+    '.pptx': ['application/vnd.openxmlformats-officedocument.presentationml.presentation', 'application/octet-stream'],
+    '.txt': ['text/plain'],
+    '.md': ['text/markdown', 'text/plain'],
+    '.csv': ['text/csv', 'text/plain'],
+  }
+  
+  for (const [ext] of Object.entries(extensionMap)) {
+    if (fileName.endsWith(ext)) {
+      return true
+    }
+  }
+  
+  return false
+}
 
 const urlSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -84,9 +106,56 @@ export function FileUploadModal({
 }: FileUploadModalProps) {
   const { toast } = useToast()
   const [activeTab, setActiveTab] = useState("document")
+  const [maxFileSize, setMaxFileSize] = useState<number>(25 * 1024 * 1024) // Default 25MB
+  
+  // Load max file size from environment/settings
+  useEffect(() => {
+    getMaxFileSize().then(setMaxFileSize)
+  }, [])
 
-  const documentForm = useForm<z.infer<typeof documentSchema>>({
-    resolver: zodResolver(documentSchema),
+  // Temporarily use the old method until presigned URL is fixed
+  const USE_PRESIGNED_URL = false // Toggle this to switch between methods
+  // Always use the max file size from environment - the server will handle the actual limits
+  const MAX_FILE_SIZE = maxFileSize
+  
+  const dynamicDocumentSchema = z.object({
+    name: z.string().min(1, "Name is required"),
+    file: z
+      .custom<FileList>()
+      .refine((files) => {
+        const hasFile = files?.length === 1
+        if (!hasFile) console.error('[FileUpload] Validation: No file selected')
+        return hasFile
+      }, "File is required")
+      .refine(
+        (files) => {
+          const file = files?.[0]
+          if (!file) return false
+          const validSize = file.size <= MAX_FILE_SIZE
+          if (!validSize) {
+            console.error(`[FileUpload] Validation: File too large - ${file.size} bytes (max: ${MAX_FILE_SIZE})`)
+          }
+          return validSize
+        },
+        `File size must be less than ${USE_PRESIGNED_URL ? `${MAX_FILE_SIZE / 1024 / 1024}MB` : `${MAX_FILE_SIZE / 1024}KB`}`
+      )
+      .refine(
+        (files) => {
+          const file = files?.[0]
+          if (!file) return false
+          const validType = isValidFileType(file)
+          if (!validType) {
+            console.error(`[FileUpload] Validation: Invalid file type - "${file.type}" for file "${file.name}"`)
+            console.error(`[FileUpload] Accepted MIME types:`, ACCEPTED_FILE_TYPES)
+          }
+          return validType
+        },
+        "File type not supported"
+      ),
+  })
+  
+  const documentForm = useForm<z.infer<typeof dynamicDocumentSchema>>({
+    resolver: zodResolver(dynamicDocumentSchema),
     defaultValues: {
       name: "",
     },
@@ -108,61 +177,112 @@ export function FileUploadModal({
     },
   })
 
-  const { execute: executeAddDocument, isPending: isAddingDocument } =
+  // Use separate hooks for each upload method to avoid type issues
+  const { execute: executeAddDocumentOld, isPending: isAddingDocumentOld } =
+    useAction(addDocumentItem)
+  const { execute: executeAddDocumentNew, isPending: isAddingDocumentNew } =
     useAction(addDocumentWithPresignedUrl)
   const { execute: executeAddUrl, isPending: isAddingUrl } = useAction(addUrlItem)
   const { execute: executeAddText, isPending: isAddingText } = useAction(addTextItem)
+  
+  // Select the appropriate loading state based on the flag
+  const isAddingDocument = USE_PRESIGNED_URL ? isAddingDocumentNew : isAddingDocumentOld
 
   const isLoading = isAddingDocument || isAddingUrl || isAddingText
+  
+  // Debug form state
+  const formState = documentForm.formState
+  console.error('[FileUpload Debug] Form state:', {
+    isValid: formState.isValid,
+    isSubmitting: formState.isSubmitting,
+    errors: formState.errors,
+    isLoading,
+    isAddingDocument
+  })
 
-  async function onDocumentSubmit(data: z.infer<typeof documentSchema>) {
+  async function onDocumentSubmit(data: z.infer<typeof dynamicDocumentSchema>) {
+    console.error('[FileUpload Debug] onDocumentSubmit called with data:', data)
     const file = data.file[0]
+    console.error('[FileUpload Debug] File details:', {
+      name: file.name,
+      type: file.type,
+      size: file.size
+    })
     
     try {
-      // Step 1: Get presigned URL
-      const presignedResponse = await fetch('/api/documents/presigned-url', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fileName: file.name,
-          fileType: file.type,
-          fileSize: file.size,
-        }),
-      })
+      let result
+      
+      if (USE_PRESIGNED_URL) {
+        // New method: Upload directly to S3
+        // Step 1: Get presigned URL
+        const presignedResponse = await fetch('/api/documents/presigned-url', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+          }),
+        })
 
-      if (!presignedResponse.ok) {
-        const error = await presignedResponse.json()
-        throw new Error(error.error || 'Failed to get upload URL')
+        if (!presignedResponse.ok) {
+          const error = await presignedResponse.json()
+          throw new Error(error.error || 'Failed to get upload URL')
+        }
+
+        const { url, key } = await presignedResponse.json()
+
+        // Step 2: Upload file directly to S3
+        const uploadResponse = await fetch(url, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': file.type,
+          },
+          body: file,
+        })
+
+        if (!uploadResponse.ok) {
+          throw new Error('Failed to upload file to storage')
+        }
+
+        // Step 3: Create repository item with S3 key
+        result = await executeAddDocumentNew({
+          repository_id: repositoryId,
+          name: data.name,
+          s3Key: key,
+          metadata: {
+            contentType: file.type,
+            size: file.size,
+            originalFileName: file.name,
+          },
+        })
+      } else {
+        // Old method: Upload through server
+        const buffer = await file.arrayBuffer()
+        
+        // Convert to base64 string for serialization
+        const uint8Array = new Uint8Array(buffer)
+        let binary = ''
+        const chunkSize = 0x8000 // Process in 32KB chunks to avoid call stack issues
+        for (let i = 0; i < uint8Array.length; i += chunkSize) {
+          const chunk = uint8Array.subarray(i, i + chunkSize)
+          binary += String.fromCharCode.apply(null, Array.from(chunk))
+        }
+        const base64 = btoa(binary)
+
+        result = await executeAddDocumentOld({
+          repository_id: repositoryId,
+          name: data.name,
+          file: {
+            content: base64,
+            contentType: file.type,
+            size: file.size,
+            fileName: file.name,
+          },
+        })
       }
-
-      const { url, key } = await presignedResponse.json()
-
-      // Step 2: Upload file directly to S3
-      const uploadResponse = await fetch(url, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': file.type,
-        },
-        body: file,
-      })
-
-      if (!uploadResponse.ok) {
-        throw new Error('Failed to upload file to storage')
-      }
-
-      // Step 3: Create repository item with S3 key
-      const result = await executeAddDocument({
-        repository_id: repositoryId,
-        name: data.name,
-        s3Key: key,
-        metadata: {
-          contentType: file.type,
-          size: file.size,
-          originalFileName: file.name,
-        },
-      })
 
       if (result.isSuccess) {
         toast({
@@ -303,7 +423,7 @@ export function FileUploadModal({
                       </FormControl>
                       <FormDescription>
                         Supported: PDF, Word, Excel, PowerPoint, Text, Markdown,
-                        CSV (max 100MB)
+                        CSV (max {maxFileSize / 1024 / 1024}MB)
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
