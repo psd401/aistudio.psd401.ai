@@ -22,12 +22,38 @@ export async function GET() {
 
   // Test 1: Check settings
   try {
+    // First, clear the cache to ensure fresh data
+    const { revalidateSettingsCache } = await import('@/lib/settings-manager')
+    await revalidateSettingsCache()
+    
     const bedrockConfig = await Settings.getBedrock()
+    
+    // Also do a direct database query to compare
+    const { executeSQL } = await import('@/lib/db/data-api-adapter')
+    const dbQuery = await executeSQL(
+      `SELECT key, value FROM settings WHERE key IN ('BEDROCK_ACCESS_KEY_ID', 'BEDROCK_SECRET_ACCESS_KEY', 'BEDROCK_REGION') ORDER BY key`
+    )
+    
+    // Check environment variables
+    const envCheck = {
+      BEDROCK_ACCESS_KEY_ID: process.env.BEDROCK_ACCESS_KEY_ID ? process.env.BEDROCK_ACCESS_KEY_ID.substring(0, 4) + '...' : null,
+      BEDROCK_SECRET_ACCESS_KEY: process.env.BEDROCK_SECRET_ACCESS_KEY ? process.env.BEDROCK_SECRET_ACCESS_KEY.substring(0, 4) + '...' : null,
+      BEDROCK_REGION: process.env.BEDROCK_REGION
+    }
+    
     results.tests.settingsCheck = {
       success: true,
       hasAccessKeyId: !!bedrockConfig.accessKeyId,
       hasSecretAccessKey: !!bedrockConfig.secretAccessKey,
-      region: bedrockConfig.region || 'not set'
+      region: bedrockConfig.region || 'not set',
+      // Add raw values for debugging (first 4 chars only)
+      accessKeyIdPrefix: bedrockConfig.accessKeyId?.substring(0, 4),
+      secretAccessKeyPrefix: bedrockConfig.secretAccessKey?.substring(0, 4),
+      // Database comparison
+      dbRows: dbQuery.length,
+      dbKeys: dbQuery.map(r => r.key),
+      // Environment variables check
+      envVars: envCheck
     }
   } catch (error) {
     results.tests.settingsCheck = {
