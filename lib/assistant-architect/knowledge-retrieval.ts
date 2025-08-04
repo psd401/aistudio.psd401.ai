@@ -62,7 +62,7 @@ export async function retrieveKnowledgeForPrompt(
       WHERE r.id IN (${placeholders})
       AND (
         r.is_public = true
-        OR r.created_by = (SELECT id FROM users WHERE cognito_sub = :cognitoSub)
+        OR r.owner_id = (SELECT id FROM users WHERE cognito_sub = :cognitoSub)
         OR EXISTS (
           SELECT 1 FROM repository_access ra
           JOIN users u ON u.id = ra.user_id
