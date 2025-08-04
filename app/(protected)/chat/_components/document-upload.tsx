@@ -78,11 +78,12 @@ export function DocumentUpload({
       return
     }
     
-    // Check file size (10MB max)
-    if (file.size > 10 * 1024 * 1024) {
+    // We'll check file size dynamically based on settings
+    // For now, just check a reasonable maximum (25MB)
+    if (file.size > 25 * 1024 * 1024) {
       toast({
         title: "File too large",
-        description: "Please select a file smaller than 10MB",
+        description: "Please select a file smaller than 25MB",
         variant: "destructive"
       })
       return
@@ -107,22 +108,10 @@ export function DocumentUpload({
     uploadDocument(file); // Pass file to upload function
   }
 
-  const uploadDocument = useCallback(async (fileToUpload: File | null) => {
-    if (!fileToUpload) {
-      toast({
-        title: "No file selected",
-        description: "Please select a file to upload",
-        variant: "destructive"
-      })
-      return
-    }
-    
-    setIsUploading(true)
-    setUploadProgress(0)
-    
+  // Helper function for direct upload (files <= 1MB)
+  const uploadDirectly = useCallback(async (file: File) => {
     const formData = new FormData()
-    formData.append('file', fileToUpload)
-    
+    formData.append('file', file)
     
     let progressInterval: NodeJS.Timeout | null = null
     
@@ -151,7 +140,6 @@ export function DocumentUpload({
             const { error } = await response.json()
             if (error) errMsg = error
           } else {
-            // If response is not JSON, try to read as text
             await response.text()
             errMsg = `Server error: ${response.status} ${response.statusText}`
           }
@@ -161,17 +149,7 @@ export function DocumentUpload({
         throw new Error(errMsg)
       }
       
-      let data;
-      try {
-        const contentType = response.headers.get('content-type')
-        if (!contentType || !contentType.includes('application/json')) {
-          throw new Error('Invalid response format: expected JSON')
-        }
-        data = await response.json()
-      } catch {
-        throw new Error('Invalid response format from server')
-      }
-      
+      const data = await response.json()
       
       if (!data.success || !data.document) {
         throw new Error('Invalid response from server: Missing document information')
@@ -179,12 +157,131 @@ export function DocumentUpload({
       
       setUploadProgress(100)
       
-      // Notify parent that upload finished, passing the document ID
+      // Notify parent that upload finished
       if (onUploadComplete) {
-        onUploadComplete(data.document); // data.document should include the ID
+        onUploadComplete(data.document)
+      }
+    } finally {
+      if (progressInterval) {
+        clearInterval(progressInterval)
+      }
+    }
+  }, [onUploadComplete])
+
+  // Helper function to upload to S3 with progress tracking
+  const uploadToS3WithProgress = useCallback((file: File, presignedUrl: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      
+      // Track upload progress
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) {
+          const percentComplete = Math.round((event.loaded / event.total) * 100)
+          setUploadProgress(Math.min(percentComplete, 95)) // Cap at 95% until processing
+        }
+      })
+      
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          setUploadProgress(95) // Set to 95% when upload completes
+          resolve()
+        } else {
+          reject(new Error(`Upload failed with status ${xhr.status}`))
+        }
+      })
+      
+      xhr.addEventListener('error', () => {
+        reject(new Error('Network error during upload'))
+      })
+      
+      xhr.addEventListener('abort', () => {
+        reject(new Error('Upload aborted'))
+      })
+      
+      xhr.open('PUT', presignedUrl)
+      xhr.setRequestHeader('Content-Type', file.type)
+      xhr.send(file)
+    })
+  }, [])
+
+  // Helper function for presigned URL upload (files > 1MB)
+  const uploadViaPresignedUrl = useCallback(async (file: File) => {
+    // Step 1: Get presigned URL
+    const presignedResponse = await fetch('/api/documents/presigned-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size
+      })
+    })
+    
+    if (!presignedResponse.ok) {
+      const error = await presignedResponse.json()
+      throw new Error(error.error || 'Failed to get upload URL')
+    }
+    
+    const { url, key } = await presignedResponse.json()
+    
+    // Step 2: Upload directly to S3 with progress tracking
+    await uploadToS3WithProgress(file, url)
+    
+    // Step 3: Process the uploaded document
+    const processResponse = await fetch('/api/documents/process', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        key,
+        fileName: file.name,
+        fileSize: file.size,
+        conversationId: conversationId || null
+      })
+    })
+    
+    if (!processResponse.ok) {
+      const error = await processResponse.json()
+      throw new Error(error.error || 'Failed to process document')
+    }
+    
+    const { document } = await processResponse.json()
+    
+    // Notify parent that upload finished
+    if (onUploadComplete) {
+      onUploadComplete(document)
+    }
+  }, [uploadToS3WithProgress])
+
+  const uploadDocument = useCallback(async (fileToUpload: File | null) => {
+    if (!fileToUpload) {
+      toast({
+        title: "No file selected",
+        description: "Please select a file to upload",
+        variant: "destructive"
+      })
+      return
+    }
+    
+    setIsUploading(true)
+    setUploadProgress(0)
+    
+    // Decide upload method based on file size (1MB threshold)
+    const usePresignedUrl = fileToUpload.size > 1 * 1024 * 1024
+    
+    // Debug logging (remove in production)
+    // console.log('[DocumentUpload] File size:', fileToUpload.size, 'bytes')
+    // console.log('[DocumentUpload] Using presigned URL:', usePresignedUrl)
+    
+    try {
+      if (usePresignedUrl) {
+        // Use presigned URL for files > 1MB
+        await uploadViaPresignedUrl(fileToUpload)
+      } else {
+        // Use direct upload for small files <= 1MB
+        await uploadDirectly(fileToUpload)
       }
       
-      // Mark upload as completed but keep the file info
+      // Mark upload as completed
       setUploadCompleted(true)
       setUploadProgress(100)
       hasAttemptedUpload.current = true;
@@ -197,15 +294,12 @@ export function DocumentUpload({
       })
       hasAttemptedUpload.current = false;
     } finally {
-      if (progressInterval) {
-        clearInterval(progressInterval)
-      }
       setIsUploading(false)
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
     }
-  }, [onUploadComplete, fileInputRef])
+  }, [onUploadComplete, fileInputRef, conversationId, uploadDirectly, uploadViaPresignedUrl])
 
   // Effect to auto-upload when conversation is created
   useEffect(() => {
@@ -273,7 +367,7 @@ export function DocumentUpload({
           <UploadIcon className="h-6 w-6 mx-auto text-muted-foreground" />
           <p className="text-sm mt-2 text-muted-foreground">
             Drag & drop or click to upload<br />
-            <span className="text-xs">(PDF, DOCX, TXT up to 10MB)</span>
+            <span className="text-xs">(PDF, DOCX, TXT up to 25MB)</span>
           </p>
         </div>
       )}
@@ -315,7 +409,7 @@ export function DocumentUpload({
                 ></div>
               </div>
               <p className="text-xs text-center text-muted-foreground">
-                Processing document... {uploadProgress}%
+                {uploadProgress < 95 ? 'Uploading' : 'Processing'} document... {uploadProgress}%
               </p>
             </div>
           )}
