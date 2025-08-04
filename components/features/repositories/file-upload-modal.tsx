@@ -33,7 +33,6 @@ import {
 } from "@/actions/repositories/repository-items.actions"
 import { FileText, Link, Type, Upload, Loader2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
-import { getMaxFileSize } from "@/lib/file-validation"
 
 // File size limits - will be loaded from environment
 const ACCEPTED_FILE_TYPES = [
@@ -106,12 +105,11 @@ export function FileUploadModal({
 }: FileUploadModalProps) {
   const { toast } = useToast()
   const [activeTab, setActiveTab] = useState("document")
-  const [maxFileSize, setMaxFileSize] = useState<number>(25 * 1024 * 1024) // Default 25MB
   
-  // Load max file size from environment/settings
-  useEffect(() => {
-    getMaxFileSize().then(setMaxFileSize)
-  }, [])
+  // Get max file size from environment variable or use default
+  // Note: MAX_FILE_SIZE_MB is a server-side env var, so we need to hardcode or pass it from server
+  const maxFileSizeMB = 25 // Default 25MB - matches server default
+  const maxFileSize = maxFileSizeMB * 1024 * 1024
 
   // Temporarily use the old method until presigned URL is fixed
   const USE_PRESIGNED_URL = false // Toggle this to switch between methods
