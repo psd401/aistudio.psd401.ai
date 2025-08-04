@@ -35,7 +35,7 @@ import {
   Eye, 
   EyeOff, 
   Copy,
-  TestTube 
+ 
 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import type { Setting } from "@/actions/db/settings-actions"
@@ -118,31 +118,6 @@ export function SettingsTable({ settings, onEdit, onDelete }: SettingsTableProps
     }
   }
 
-  const testConnection = async (key: string) => {
-    try {
-      const response = await fetch('/api/admin/settings/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key })
-      })
-
-      const result = await response.json()
-      if (result.isSuccess) {
-        toast({
-          title: "Success",
-          description: result.message || "Connection test passed"
-        })
-      } else {
-        throw new Error(result.message)
-      }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Connection test failed",
-        variant: "destructive"
-      })
-    }
-  }
 
   if (settings.length === 0) {
     return (
@@ -237,12 +212,6 @@ export function SettingsTable({ settings, onEdit, onDelete }: SettingsTableProps
                         <Edit className="h-4 w-4 mr-2" />
                         Edit
                       </DropdownMenuItem>
-                      {hasValue && canTestConnection(setting.key) && (
-                        <DropdownMenuItem onClick={() => testConnection(setting.key)}>
-                          <TestTube className="h-4 w-4 mr-2" />
-                          Test Connection
-                        </DropdownMenuItem>
-                      )}
                       <DropdownMenuItem
                         className="text-destructive"
                         onClick={() => setDeleteKey(setting.key)}
@@ -287,13 +256,3 @@ export function SettingsTable({ settings, onEdit, onDelete }: SettingsTableProps
   )
 }
 
-function canTestConnection(key: string): boolean {
-  const testableKeys = [
-    'AZURE_OPENAI_KEY',
-    'GOOGLE_API_KEY',
-    'OPENAI_API_KEY',
-    'S3_BUCKET',
-    'GITHUB_ISSUE_TOKEN'
-  ]
-  return testableKeys.includes(key)
-}
