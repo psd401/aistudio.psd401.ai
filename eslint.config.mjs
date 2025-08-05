@@ -1,6 +1,7 @@
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import { FlatCompat } from "@eslint/eslintrc";
+import loggingPlugin from "./eslint-plugin-logging/index.js";
 /**
  * ESLint Configuration for AI Studio
  * 
@@ -17,7 +18,7 @@ import { FlatCompat } from "@eslint/eslintrc";
  * - no-generic-error-messages: Prevents "DB error" type messages
  * - use-typed-errors: Encourages ErrorFactories over plain Error
  * 
- * TODO: Migrate custom rules to flat config when ESLint plugin system stabilizes
+ * Custom rules are now implemented in ./eslint-plugin-logging/index.js
  */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -29,6 +30,12 @@ const compat = new FlatCompat({
 
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
+  // Add custom logging plugin
+  {
+    plugins: {
+      logging: loggingPlugin,
+    },
+  },
   // LOGGING ENFORCEMENT RULES
   // Rule 1: Disallow all console.* calls in server code
   {
@@ -48,12 +55,13 @@ const eslintConfig = [
     rules: {
       // Enforce no console usage at all in server actions and API routes
       'no-console': 'error',
-      // TODO: When custom rules are migrated to flat config:
-      // 'custom/no-console-in-server': 'error',
-      // 'custom/require-request-id-in-server-actions': 'error',
-      // 'custom/require-error-handling-in-async': 'error',
-      // 'custom/no-generic-error-messages': 'error',
-      // 'custom/use-typed-errors': 'warn',
+      // Custom logging enforcement rules
+      'logging/no-console-in-server': 'error',
+      'logging/require-request-id': 'error',
+      'logging/require-timer': 'error',
+      'logging/require-logger-in-server-actions': 'error',
+      'logging/no-generic-error-messages': 'error',
+      'logging/use-error-factories': 'warn',
     },
   },
   // Rule 3: Allow console.error ONLY in client components/hooks
