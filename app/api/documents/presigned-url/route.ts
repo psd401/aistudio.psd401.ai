@@ -4,9 +4,9 @@ import { getServerSession } from '@/lib/auth/server-session'
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action'
 import { generateUploadPresignedUrl } from '@/lib/aws/s3-client'
 import logger from '@/lib/logger'
-import { withErrorHandling, unauthorized } from '@/lib/api-utils'
-import { createError } from '@/lib/error-utils'
-import { ErrorLevel } from '@/types/actions-types'
+import { withActionState, unauthorized } from '@/lib/api-utils'
+import { handleError } from '@/lib/error-utils'
+import { type ActionState } from '@/types/actions-types'
 import { 
   ALLOWED_MIME_TYPES,
   ALLOWED_FILE_EXTENSIONS,
@@ -25,6 +25,13 @@ const PresignedUrlRequestSchema = z.object({
   ),
   fileSize: z.number().positive()
 })
+
+interface PresignedUrlResponse {
+  url: string
+  key: string
+  fields: Record<string, string>
+  expiresAt: string
+}
 
 export async function POST(request: NextRequest) {
   logger.info('[Presigned URL API] Handler entered')
@@ -45,69 +52,73 @@ export async function POST(request: NextRequest) {
   const userId = currentUser.data.user.id
   logger.info(`[Presigned URL API] User ID: ${userId}`)
 
-  return withErrorHandling(async () => {
+  return withActionState(async (): Promise<ActionState<PresignedUrlResponse>> => {
+    try {
+      // Parse and validate request body
+      const body = await request.json()
+      const validation = PresignedUrlRequestSchema.safeParse(body)
 
-    // Parse and validate request body
-    const body = await request.json()
-    const validation = PresignedUrlRequestSchema.safeParse(body)
+      if (!validation.success) {
+        const errorMessage = validation.error.errors.map(e => e.message).join(', ')
+        logger.info('[Presigned URL API] Validation error:', errorMessage)
+        return { isSuccess: false, message: errorMessage }
+      }
 
-    if (!validation.success) {
-      const errorMessage = validation.error.errors.map(e => e.message).join(', ')
-      logger.info('[Presigned URL API] Validation error:', errorMessage)
-      throw createError(errorMessage, {
-        code: 'VALIDATION',
-        level: ErrorLevel.WARN
+      const { fileName, fileType, fileSize } = validation.data
+
+      // Get max file size and validate
+      const maxFileSize = await getMaxFileSize()
+      if (fileSize > maxFileSize) {
+        logger.info('[Presigned URL API] File size exceeds limit:', { fileSize, maxFileSize })
+        return { 
+          isSuccess: false, 
+          message: `File size must be less than ${formatFileSize(maxFileSize)}` 
+        }
+      }
+
+      // Validate file extension
+      if (!isValidFileExtension(fileName)) {
+        logger.info('[Presigned URL API] Invalid file extension:', fileName)
+        return { 
+          isSuccess: false, 
+          message: `Unsupported file extension. Allowed types: ${ALLOWED_FILE_EXTENSIONS.join(', ')}` 
+        }
+      }
+
+      logger.info('[Presigned URL API] Generating presigned URL for:', {
+        fileName,
+        fileType,
+        fileSize,
+        userId: String(userId)
       })
-    }
 
-    const { fileName, fileType, fileSize } = validation.data
-
-    // Get max file size and validate
-    const maxFileSize = await getMaxFileSize()
-    if (fileSize > maxFileSize) {
-      logger.info('[Presigned URL API] File size exceeds limit:', { fileSize, maxFileSize })
-      throw createError(`File size must be less than ${formatFileSize(maxFileSize)}`, {
-        code: 'VALIDATION',
-        level: ErrorLevel.WARN
+      // Generate presigned URL
+      const presignedData = await generateUploadPresignedUrl({
+        userId: String(userId),
+        fileName,
+        contentType: fileType,
+        fileSize,
+        metadata: {
+          originalName: fileName,
+          uploadedBy: String(userId),
+        },
+        expiresIn: 3600 // 1 hour
       })
-    }
 
-    // Validate file extension
-    if (!isValidFileExtension(fileName)) {
-      logger.info('[Presigned URL API] Invalid file extension:', fileName)
-      throw createError(`Unsupported file extension. Allowed types: ${ALLOWED_FILE_EXTENSIONS.join(', ')}`, {
-        code: 'VALIDATION',
-        level: ErrorLevel.WARN
-      })
-    }
+      logger.info('[Presigned URL API] Presigned URL generated successfully')
 
-    logger.info('[Presigned URL API] Generating presigned URL for:', {
-      fileName,
-      fileType,
-      fileSize,
-      userId: String(userId)
-    })
-
-    // Generate presigned URL
-    const presignedData = await generateUploadPresignedUrl({
-      userId: String(userId),
-      fileName,
-      contentType: fileType,
-      fileSize,
-      metadata: {
-        originalName: fileName,
-        uploadedBy: String(userId),
-      },
-      expiresIn: 3600 // 1 hour
-    })
-
-    logger.info('[Presigned URL API] Presigned URL generated successfully')
-
-    return {
-      url: presignedData.url,
-      key: presignedData.key,
-      fields: presignedData.fields,
-      expiresAt: new Date(Date.now() + 3600 * 1000).toISOString()
+      return {
+        isSuccess: true,
+        message: 'Presigned URL generated successfully',
+        data: {
+          url: presignedData.url,
+          key: presignedData.key,
+          fields: presignedData.fields,
+          expiresAt: new Date(Date.now() + 3600 * 1000).toISOString()
+        }
+      }
+    } catch (error) {
+      return handleError(error, 'Failed to generate presigned URL')
     }
   })
 }

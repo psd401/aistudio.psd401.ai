@@ -1,6 +1,7 @@
 import { vectorSearch, hybridSearch } from "@/lib/repositories/search-service"
 import { executeSQL } from "@/lib/db/data-api-adapter"
 import logger from "@/lib/logger"
+import { encodingForModel } from "js-tiktoken"
 
 interface KnowledgeChunk {
   chunkId: number
@@ -28,13 +29,30 @@ const DEFAULT_OPTIONS: KnowledgeRetrievalOptions = {
   vectorWeight: 0.8
 }
 
+// Initialize tokenizer for GPT models
+// Using cl100k_base which is used by gpt-4, gpt-3.5-turbo, text-embedding-ada-002
+let tokenizer: ReturnType<typeof encodingForModel> | null = null
+
 /**
- * Count tokens in a string using approximation
- * Approximation: 1 token ≈ 4 characters
+ * Count tokens in a string using proper tokenization
+ * Falls back to approximation if tokenizer fails
  */
 function countTokens(text: string): number {
   if (!text) return 0
-  return Math.ceil(text.length / 4)
+  
+  try {
+    // Initialize tokenizer lazily to avoid startup cost
+    if (!tokenizer) {
+      tokenizer = encodingForModel("gpt-3.5-turbo")
+    }
+    
+    const tokens = tokenizer.encode(text)
+    return tokens.length
+  } catch (error) {
+    // Fall back to approximation if tokenization fails
+    logger.warn("Token counting failed, using approximation", { error })
+    return Math.ceil(text.length / 4)
+  }
 }
 
 /**
@@ -199,30 +217,56 @@ End of retrieved knowledge context.`
 }
 
 /**
- * Truncate text to approximate token limit
+ * Truncate text to token limit
  */
 function truncateToTokenLimit(text: string, maxTokens: number): string {
-  // Rough approximation: 1 token ≈ 4 characters
-  const maxChars = maxTokens * 4
-  if (text.length <= maxChars) {
+  const currentTokens = countTokens(text)
+  if (currentTokens <= maxTokens) {
     return text
   }
   
-  // Try to break at a sentence boundary
-  const truncated = text.slice(0, maxChars)
-  const lastPeriod = truncated.lastIndexOf('.')
-  const lastNewline = truncated.lastIndexOf('\n')
+  // Binary search to find the right truncation point
+  let left = 0
+  let right = text.length
+  let bestFit = text
+  
+  while (left < right) {
+    const mid = Math.floor((left + right) / 2)
+    const candidate = text.slice(0, mid)
+    const tokens = countTokens(candidate)
+    
+    if (tokens <= maxTokens) {
+      bestFit = candidate
+      left = mid + 1
+    } else {
+      right = mid
+    }
+  }
+  
+  // Try to break at a sentence or word boundary
+  const lastPeriod = bestFit.lastIndexOf('.')
+  const lastNewline = bestFit.lastIndexOf('\n')
+  const lastSpace = bestFit.lastIndexOf(' ')
   
   const breakPoint = Math.max(lastPeriod, lastNewline)
-  if (breakPoint > maxChars * 0.8) {
-    return truncated.slice(0, breakPoint + 1)
+  if (breakPoint > bestFit.length * 0.8) {
+    return bestFit.slice(0, breakPoint + 1)
   }
   
-  // Otherwise, break at word boundary
-  const lastSpace = truncated.lastIndexOf(' ')
-  if (lastSpace > maxChars * 0.8) {
-    return truncated.slice(0, lastSpace)
+  if (lastSpace > bestFit.length * 0.8) {
+    return bestFit.slice(0, lastSpace)
   }
   
-  return truncated
+  return bestFit
+}
+
+/**
+ * Clean up tokenizer resources
+ * Call this when done with token counting to free memory
+ */
+export function cleanupTokenizer(): void {
+  if (tokenizer) {
+    // js-tiktoken doesn't have a free() method, just clear the reference
+    tokenizer = null
+  }
 }

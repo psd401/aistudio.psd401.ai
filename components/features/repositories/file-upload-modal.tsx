@@ -112,7 +112,7 @@ export function FileUploadModal({
   const maxFileSize = maxFileSizeMB * 1024 * 1024
 
   // Use presigned URL method to bypass Amplify 1MB limit
-  const USE_PRESIGNED_URL = true // Enable presigned URL uploads
+  const USE_PRESIGNED_URL = true // Always use presigned URL for repository uploads for consistency
   // Always use the max file size from environment - the server will handle the actual limits
   const MAX_FILE_SIZE = maxFileSize
   
