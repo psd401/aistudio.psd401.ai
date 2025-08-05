@@ -269,10 +269,25 @@ export async function POST(req: NextRequest) {
                     })}\n\n`
                   ));
 
+                  // Get assistant owner's cognito_sub
+                  let assistantOwnerSub: string | undefined;
+                  if (tool.userId) {
+                    const assistantOwnerQuery = `
+                      SELECT u.cognito_sub 
+                      FROM users u 
+                      WHERE u.id = :userId
+                    `;
+                    const ownerResult = await executeSQL<{ cognito_sub: string }>(assistantOwnerQuery, [
+                      { name: 'userId', value: { longValue: tool.userId } }
+                    ]);
+                    assistantOwnerSub = ownerResult[0]?.cognito_sub;
+                  }
+
                   const knowledgeChunks = await retrieveKnowledgeForPrompt(
                     processedPrompt,
                     repositoryIds,
                     session.sub,
+                    assistantOwnerSub,
                     {
                       maxChunks: 10,
                       maxTokens: 4000,
