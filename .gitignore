@@ -42,3 +42,10 @@ next-env.d.ts
 
 # swc
 .swc/
+
+# playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
+/tests/e2e/screenshots/
+/tests/e2e/videos/
