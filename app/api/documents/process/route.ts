@@ -5,7 +5,7 @@ import { getCurrentUserAction } from '@/actions/db/get-current-user-action'
 import { getObjectStream, documentExists } from '@/lib/aws/s3-client'
 import { saveDocument, batchInsertDocumentChunks } from '@/lib/db/queries/documents'
 import { extractTextFromDocument, chunkText, getFileTypeFromFileName } from '@/lib/document-processing'
-import logger from '@/lib/logger'
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger'
 import { withActionState, unauthorized } from '@/lib/api-utils'
 import { handleError } from '@/lib/error-utils'
 import { type ActionState } from '@/types/actions-types'
@@ -35,23 +35,29 @@ interface ProcessDocumentResponse {
 }
 
 export async function POST(request: NextRequest) {
-  logger.info('[Process Document API] Handler entered')
+  const requestId = generateRequestId();
+  const timer = startTimer("api.documents.process");
+  const log = createLogger({ requestId, route: "api.documents.process" });
+  
+  log.info("POST /api/documents/process - Processing document");
 
   // Check authentication
   const session = await getServerSession()
   if (!session) {
-    logger.info('[Process Document API] Unauthorized - No session')
+    log.warn("Unauthorized - No session");
+    timer({ status: "error", reason: "unauthorized" });
     return unauthorized()
   }
 
   const currentUser = await getCurrentUserAction()
   if (!currentUser.isSuccess || !currentUser.data?.user) {
-    logger.info('[Process Document API] Unauthorized - User not found')
+    log.warn("Unauthorized - User not found");
+    timer({ status: "error", reason: "user_not_found" });
     return unauthorized('User not found')
   }
 
   const userId = currentUser.data.user.id
-  logger.info(`[Process Document API] User ID: ${userId}`)
+  log.debug("Processing for user", { userId });
 
   return withActionState(async (): Promise<ActionState<ProcessDocumentResponse>> => {
     try {
@@ -62,7 +68,8 @@ export async function POST(request: NextRequest) {
 
     if (!validation.success) {
       const errorMessage = validation.error.errors.map(e => e.message).join(', ')
-      logger.info('[Process Document API] Validation error:', errorMessage)
+      log.warn("Validation error", { error: errorMessage });
+      timer({ status: "error", reason: "validation_error" });
       return { isSuccess: false, message: errorMessage }
     }
 
@@ -71,7 +78,8 @@ export async function POST(request: NextRequest) {
     // Verify file size is within limits
     const maxFileSize = await getMaxFileSize()
     if (fileSize > maxFileSize) {
-      logger.info('[Process Document API] File size exceeds limit:', { fileSize, maxFileSize })
+      log.warn("File size exceeds limit", { fileSize, maxFileSize });
+      timer({ status: "error", reason: "file_too_large" });
       return { 
         isSuccess: false, 
         message: `File size must be less than ${formatFileSize(maxFileSize)}` 
@@ -80,7 +88,8 @@ export async function POST(request: NextRequest) {
 
     // Verify the S3 key belongs to this user
     if (!key.startsWith(`${userId}/`)) {
-      logger.error('[Process Document API] Unauthorized access attempt to S3 key:', { key, userId })
+      log.error("Unauthorized access attempt to S3 key", { key, userId });
+      timer({ status: "error", reason: "unauthorized_access" });
       return { 
         isSuccess: false, 
         message: 'Unauthorized access to document' 
@@ -90,21 +99,22 @@ export async function POST(request: NextRequest) {
     // Verify document exists in S3
     const exists = await documentExists(key)
     if (!exists) {
-      logger.error('[Process Document API] Document not found in S3:', key)
+      log.error("Document not found in S3", { key });
+      timer({ status: "error", reason: "not_found" });
       return { 
         isSuccess: false, 
         message: 'Document not found' 
       }
     }
 
-    logger.info('[Process Document API] Retrieving document from S3:', key)
+    log.debug("Retrieving document from S3", { key });
 
     // Get document stream from S3
     const { stream, metadata } = await getObjectStream(key)
 
     // Extract file type
     const fileType = getFileTypeFromFileName(fileName)
-    logger.info(`[Process Document API] File type: ${fileType}`)
+    log.debug("File type determined", { fileType });
 
     // Convert stream to buffer for processing
     const chunks: Buffer[] = []
@@ -112,18 +122,19 @@ export async function POST(request: NextRequest) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
     }
     const fileBuffer = Buffer.concat(chunks)
-    logger.info(`[Process Document API] File retrieved, size: ${fileBuffer.length}`)
+    log.debug("File retrieved from S3", { size: fileBuffer.length });
 
     // Process document content for text extraction
-    logger.info('[Process Document API] Extracting text from document...')
+    log.debug("Extracting text from document");
     let text, extractedMetadata
     try {
       const extracted = await extractTextFromDocument(fileBuffer, fileType)
       text = extracted.text
       extractedMetadata = extracted.metadata
-      logger.info(`[Process Document API] Text extracted, length: ${text?.length ?? 0}`)
+      log.debug("Text extracted", { textLength: text?.length ?? 0 });
     } catch (extractError) {
-      logger.error('[Process Document API] Error extracting text:', extractError)
+      log.error("Error extracting text", extractError);
+      timer({ status: "error", reason: "extraction_failed" });
       return { 
         isSuccess: false, 
         message: `Failed to extract text from document: ${extractError instanceof Error ? extractError.message : String(extractError)}` 
@@ -132,7 +143,8 @@ export async function POST(request: NextRequest) {
 
     // Ensure text is not null or undefined
     if (!text) {
-      logger.error('[Process Document API] No text content extracted from document')
+      log.error("No text content extracted from document");
+      timer({ status: "error", reason: "no_text_content" });
       return { 
         isSuccess: false, 
         message: 'Failed to extract text content from document' 
@@ -140,7 +152,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Save document metadata to database
-    logger.info('[Process Document API] Saving document to database...')
+    log.debug("Saving document to database");
     let document
     try {
       document = await saveDocument({
@@ -156,9 +168,10 @@ export async function POST(request: NextRequest) {
           uploadedAt: metadata?.uploadedAt || new Date().toISOString()
         }
       })
-      logger.info(`[Process Document API] Document saved to database: ${document.id}`)
+      log.info("Document saved to database", { documentId: document.id });
     } catch (saveError) {
-      logger.error('[Process Document API] Error saving document:', saveError)
+      log.error("Error saving document", saveError);
+      timer({ status: "error", reason: "db_save_failed" });
       return { 
         isSuccess: false, 
         message: `Failed to save document: ${saveError instanceof Error ? saveError.message : String(saveError)}` 
@@ -166,11 +179,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Chunk text and save to database
-    logger.info('[Process Document API] Chunking text...')
+    log.debug("Chunking text");
     let textChunks: string[] = []
     try {
       textChunks = chunkText(text)
-      logger.info(`[Process Document API] Created ${textChunks.length} chunks`)
+      log.debug("Chunks created", { count: textChunks.length });
       
       if (textChunks.length > 0) {
         const documentChunks = textChunks.map((chunk, index) => ({
@@ -180,19 +193,25 @@ export async function POST(request: NextRequest) {
           metadata: { position: index }
         }))
 
-        logger.info('[Process Document API] Saving chunks to database...')
+        log.debug("Saving chunks to database");
         const savedChunks = await batchInsertDocumentChunks(documentChunks)
-        logger.info(`[Process Document API] Saved ${savedChunks.length} chunks`)
+        log.info("Chunks saved", { count: savedChunks.length });
       } else {
-        logger.warn('[Process Document API] No chunks created from document')
+        log.warn("No chunks created from document");
       }
     } catch (chunkError) {
-      logger.error('[Process Document API] Error processing chunks:', chunkError)
+      log.error("Error processing chunks", chunkError);
       // Note: We don't fail the whole operation if chunking fails
       // The document is already saved and can be re-processed later
     }
 
     // Return success response
+    log.info("Document processed successfully", { 
+      documentId: document.id, 
+      chunks: textChunks.length 
+    });
+    timer({ status: "success", chunks: textChunks.length });
+    
     return {
       isSuccess: true,
       message: 'Document processed successfully',
@@ -208,6 +227,8 @@ export async function POST(request: NextRequest) {
       }
     }
     } catch (error) {
+      timer({ status: "error" });
+      log.error("Failed to process document", error);
       return handleError(error, 'Failed to process document')
     }
   })

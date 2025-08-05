@@ -2,15 +2,23 @@ import { NextResponse, NextRequest } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL, executeTransaction } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
-import logger from '@/lib/logger';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { SqlParameter } from '@aws-sdk/client-rds-data';
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.ideas.update");
+  const log = createLogger({ requestId, route: "api.ideas" });
+  
+  log.info("PATCH /api/ideas/[id] - Updating idea");
+  
   const session = await getServerSession();
   if (!session?.sub) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    log.warn("Unauthorized - No session");
+    timer({ status: "error", reason: "unauthorized" });
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: { "X-Request-Id": requestId } });
   }
 
   const [isStaff, isAdmin] = await Promise.all([
@@ -73,7 +81,7 @@ export async function PATCH(
     const result = await executeSQL(sql, params);
     return NextResponse.json(result[0]);
   } catch (error) {
-    logger.error('Failed to update idea:', error);
+    log.error('Failed to update idea:', error);
     return NextResponse.json({ error: 'Failed to update idea' }, { status: 500 });
   }
 }
@@ -82,6 +90,10 @@ export async function DELETE(
   _request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.ideas.delete");
+  const log = createLogger({ requestId, route: "api.ideas.delete" });
+  
   const session = await getServerSession();
   if (!session?.sub) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -115,9 +127,11 @@ export async function DELETE(
     
     await executeTransaction(deleteStatements);
     
+    timer({ status: "success" });
     return new NextResponse(null, { status: 204 });
   } catch (error) {
-    logger.error('Failed to delete idea:', error);
+    timer({ status: "error" });
+    log.error('Failed to delete idea:', error);
     return NextResponse.json({ error: 'Failed to delete idea' }, { status: 500 });
   }
 } 

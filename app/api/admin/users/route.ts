@@ -1,12 +1,22 @@
 import { NextResponse } from "next/server"
 import { getUsers, getUserRoles, createUser, updateUser, deleteUser } from "@/lib/db/data-api-adapter"
 import { requireAdmin } from "@/lib/auth/admin-check"
-import logger from "@/lib/logger"
+import { createLogger, generateRequestId, startTimer } from "@/lib/logger"
 export async function GET() {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.admin.users.list");
+  const log = createLogger({ requestId, route: "api.admin.users" });
+  
+  log.info("GET /api/admin/users - Fetching all users");
+  
   try {
     // Check admin authorization
     const authError = await requireAdmin();
-    if (authError) return authError;
+    if (authError) {
+      log.warn("Unauthorized admin access attempt");
+      timer({ status: "error", reason: "unauthorized" });
+      return authError;
+    }
     
     // Get users from database via Data API
     const dbUsers = await getUsers();
@@ -33,27 +43,47 @@ export async function GET() {
       }
     })
 
-    return NextResponse.json({
-      isSuccess: true,
-      message: "Users retrieved successfully",
-      data: users
-    });
+    log.info("Users retrieved successfully", { count: users.length });
+    timer({ status: "success", count: users.length });
+    
+    return NextResponse.json(
+      {
+        isSuccess: true,
+        message: "Users retrieved successfully",
+        data: users
+      },
+      { headers: { "X-Request-Id": requestId } }
+    );
   } catch (error) {
-    logger.error("Error fetching users:", error);
+    timer({ status: "error" });
+    log.error("Error fetching users:", error);
     return NextResponse.json(
       { isSuccess: false, message: "Failed to fetch users" },
-      { status: 500 }
+      { status: 500, headers: { "X-Request-Id": requestId } }
     );
   }
 }
 
 export async function POST(request: Request) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.admin.users.create");
+  const log = createLogger({ requestId, route: "api.admin.users" });
+  
+  log.info("POST /api/admin/users - Creating new user");
+  
   try {
     // Check admin authorization
     const authError = await requireAdmin();
-    if (authError) return authError;
+    if (authError) {
+      log.warn("Unauthorized admin access attempt");
+      timer({ status: "error", reason: "unauthorized" });
+      return authError;
+    }
     
     const body = await request.json()
+    
+    log.debug("Creating user", { email: body.email });
+    
     const userData = {
       cognitoSub: body.cognitoSub,
       firstName: body.firstName,
@@ -63,73 +93,118 @@ export async function POST(request: Request) {
 
     const user = await createUser(userData)
 
-    return NextResponse.json({
-      isSuccess: true,
-      message: "User created successfully",
-      data: user
-    })
+    log.info("User created successfully", { userId: user.id });
+    timer({ status: "success" });
+    
+    return NextResponse.json(
+      {
+        isSuccess: true,
+        message: "User created successfully",
+        data: user
+      },
+      { headers: { "X-Request-Id": requestId } }
+    )
   } catch (error) {
-    logger.error("Error creating user:", error)
+    timer({ status: "error" });
+    log.error("Error creating user:", error)
     return NextResponse.json(
       { isSuccess: false, message: "Failed to create user" },
-      { status: 500 }
+      { status: 500, headers: { "X-Request-Id": requestId } }
     )
   }
 }
 
 export async function PUT(request: Request) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.admin.users.update");
+  const log = createLogger({ requestId, route: "api.admin.users" });
+  
+  log.info("PUT /api/admin/users - Updating user");
+  
   try {
     // Check admin authorization
     const authError = await requireAdmin();
-    if (authError) return authError;
+    if (authError) {
+      log.warn("Unauthorized admin access attempt");
+      timer({ status: "error", reason: "unauthorized" });
+      return authError;
+    }
 
     const body = await request.json()
     const { id, ...updates } = body
+    
+    log.debug("Updating user", { userId: id, updates });
 
     const user = await updateUser(parseInt(String(id)), updates)
 
-    return NextResponse.json({
-      isSuccess: true,
-      message: "User updated successfully",
-      data: user
-    })
+    log.info("User updated successfully", { userId: id });
+    timer({ status: "success" });
+    
+    return NextResponse.json(
+      {
+        isSuccess: true,
+        message: "User updated successfully",
+        data: user
+      },
+      { headers: { "X-Request-Id": requestId } }
+    )
   } catch (error) {
-    logger.error("Error updating user:", error)
+    timer({ status: "error" });
+    log.error("Error updating user:", error)
     return NextResponse.json(
       { isSuccess: false, message: "Failed to update user" },
-      { status: 500 }
+      { status: 500, headers: { "X-Request-Id": requestId } }
     )
   }
 }
 
 export async function DELETE(request: Request) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.admin.users.delete");
+  const log = createLogger({ requestId, route: "api.admin.users" });
+  
+  const { searchParams } = new URL(request.url)
+  const id = searchParams.get("id")
+  
+  log.info("DELETE /api/admin/users - Deleting user", { userId: id });
+  
   try {
     // Check admin authorization
     const authError = await requireAdmin();
-    if (authError) return authError;
-
-    const { searchParams } = new URL(request.url)
-    const id = searchParams.get("id")
+    if (authError) {
+      log.warn("Unauthorized admin access attempt");
+      timer({ status: "error", reason: "unauthorized" });
+      return authError;
+    }
 
     if (!id) {
+      log.warn("Missing user ID in delete request");
+      timer({ status: "error", reason: "missing_id" });
       return NextResponse.json(
         { isSuccess: false, message: "Missing user ID" },
-        { status: 400 }
+        { status: 400, headers: { "X-Request-Id": requestId } }
       )
     }
 
     const user = await deleteUser(parseInt(String(id)))
 
-    return NextResponse.json({
-      isSuccess: true,
-      message: "User deleted successfully",
-      data: user
-    })
+    log.info("User deleted successfully", { userId: id });
+    timer({ status: "success" });
+    
+    return NextResponse.json(
+      {
+        isSuccess: true,
+        message: "User deleted successfully",
+        data: user
+      },
+      { headers: { "X-Request-Id": requestId } }
+    )
   } catch (error) {
-    logger.error("Error deleting user:", error)
+    timer({ status: "error" });
+    log.error("Error deleting user:", error)
     return NextResponse.json(
       { isSuccess: false, message: "Failed to delete user" },
-      { status: 500 }
+      { status: 500, headers: { "X-Request-Id": requestId } }
     )
   }
 } 

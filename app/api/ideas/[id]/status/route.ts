@@ -2,12 +2,20 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { NextResponse } from 'next/server';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
-import logger from '@/lib/logger';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { SqlParameter } from '@aws-sdk/client-rds-data';
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.ideas.status.update");
+  const log = createLogger({ requestId, route: "api.ideas.status" });
+  
+  log.info("PATCH /api/ideas/[id]/status - Updating idea status");
+  
   const session = await getServerSession();
   if (!session?.sub) {
-    return new NextResponse('Unauthorized', { status: 401 });
+    log.warn("Unauthorized - No session");
+    timer({ status: "error", reason: "unauthorized" });
+    return new NextResponse('Unauthorized', { status: 401, headers: { "X-Request-Id": requestId } });
   }
 
   const isAdmin = await hasRole('administrator');
@@ -54,7 +62,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
     return NextResponse.json(result[0]);
   } catch (error) {
-    logger.error('Error updating idea status:', error);
+    log.error('Error updating idea status:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 } 

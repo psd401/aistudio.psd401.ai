@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { validateDataAPIConnection } from "@/lib/db/data-api-adapter"
 import { getServerSession } from "@/lib/auth/server-session"
+import { createLogger, generateRequestId, startTimer } from "@/lib/logger"
 /**
  * Health Check API Endpoint
  * 
@@ -13,6 +14,12 @@ import { getServerSession } from "@/lib/auth/server-session"
  * Returns detailed diagnostic information to help troubleshoot deployment issues
  */
 export async function GET() {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.health");
+  const log = createLogger({ requestId, route: "api.health" });
+  
+  log.info("GET /api/health - Health check requested");
+  
   // For production, you may want to add authentication or IP restriction
   // For now, we'll allow access but you can uncomment the following to restrict:
   /*
@@ -91,6 +98,11 @@ export async function GET() {
                    process.env.AWS_DEFAULT_REGION || 
                    process.env.NEXT_PUBLIC_AWS_REGION
 
+    log.debug("Environment check completed", { 
+      missingVars: missingVars.length,
+      hasRegion: !!region 
+    });
+    
     healthCheck.checks.environment = {
       status: missingVars.length === 0 ? "healthy" : "unhealthy",
       missingVariables: missingVars,
@@ -110,6 +122,7 @@ export async function GET() {
       }
     }
   } catch (error) {
+    log.error("Environment check failed", error);
     healthCheck.checks.environment = {
       status: "error",
       error: error instanceof Error ? error.message : "Unknown error"
@@ -120,6 +133,7 @@ export async function GET() {
   if (process.env.AUTH_SECRET && process.env.AUTH_COGNITO_CLIENT_ID) {
     try {
       const session = await getServerSession()
+      log.debug("Authentication check completed", { hasSession: !!session });
       healthCheck.checks.authentication = {
         status: "healthy",
         hasSession: !!session,
@@ -127,6 +141,7 @@ export async function GET() {
         authConfigured: true
       }
     } catch (error) {
+      log.error("Authentication check failed", error);
       healthCheck.checks.authentication = {
         status: "error",
         error: error instanceof Error ? error.message : "Unknown error",
@@ -145,11 +160,13 @@ export async function GET() {
   if (process.env.RDS_RESOURCE_ARN && process.env.RDS_SECRET_ARN) {
     try {
       const dbValidation = await validateDataAPIConnection()
+      log.debug("Database check completed", { success: dbValidation.success });
       healthCheck.checks.database = {
         status: dbValidation.success ? "healthy" : "unhealthy",
         ...dbValidation
       }
     } catch (error) {
+      log.error("Database check failed", error);
       healthCheck.checks.database = {
         status: "error",
         error: error instanceof Error ? {
@@ -174,6 +191,15 @@ export async function GET() {
   )
   
   healthCheck.status = allHealthy ? "healthy" : "unhealthy"
+  
+  log.info("Health check completed", { 
+    status: healthCheck.status,
+    environmentStatus: healthCheck.checks.environment.status,
+    authStatus: healthCheck.checks.authentication.status,
+    databaseStatus: healthCheck.checks.database.status
+  });
+  
+  timer({ status: allHealthy ? "success" : "unhealthy" });
   
   // 5. Add diagnostic hints if unhealthy
   if (!allHealthy) {
@@ -228,7 +254,8 @@ export async function GET() {
       status: allHealthy ? 200 : 503,
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-Request-Id': requestId
       }
     }
   )

@@ -20,13 +20,18 @@ import { parseRepositoryIds, serializeRepositoryIds } from "@/lib/utils/reposito
 
 import { createJobAction, updateJobAction, getJobAction } from "@/actions/db/jobs-actions";
 import { generateCompletion } from "@/lib/ai-helpers";
-import { createError, handleError, createSuccess } from "@/lib/error-utils";
+import { createError, handleError, createSuccess, ErrorFactories } from "@/lib/error-utils";
 import { generateToolIdentifier } from "@/lib/utils";
 import { ActionState, ErrorLevel } from "@/types";
 import { ExecutionResultDetails } from "@/types/assistant-architect-types";
 import { hasRole, getUserTools } from "@/utils/roles";
 import { createNavigationItemAction } from "@/actions/db/navigation-actions"
-import logger from "@/lib/logger"
+import {
+  createLogger,
+  generateRequestId,
+  startTimer,
+  sanitizeForLogging
+} from "@/lib/logger"
 import { getServerSession } from "@/lib/auth/server-session";
 import { executeSQL, checkUserRoleByCognitoSub, hasToolAccess, type FormattedRow } from "@/lib/db/data-api-adapter";
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action";
@@ -51,8 +56,18 @@ async function getCurrentUserId(): Promise<number | null> {
 export async function getAssistantArchitectAction(
   id: string
 ): Promise<ActionState<ArchitectWithRelations | undefined>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("getAssistantArchitect")
+  const log = createLogger({ requestId, action: "getAssistantArchitect" })
+  
+  log.info("Action started: Getting assistant architect", { architectId: id })
+  
   // This is an alias for getAssistantArchitectByIdAction for backward compatibility
-  return getAssistantArchitectByIdAction(id);
+  const result = await getAssistantArchitectByIdAction(id);
+  
+  timer({ status: result.isSuccess ? "success" : "error", architectId: id })
+  
+  return result;
 }
 
 // Tool Management Actions
@@ -60,18 +75,37 @@ export async function getAssistantArchitectAction(
 export async function createAssistantArchitectAction(
   assistant: InsertAssistantArchitect
 ): Promise<ActionState<SelectAssistantArchitect>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("createAssistantArchitect")
+  const log = createLogger({ requestId, action: "createAssistantArchitect" })
+  
   try {
+    log.info("Action started: Creating assistant architect", {
+      name: assistant.name,
+      status: assistant.status || 'draft'
+    })
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
-      return { isSuccess: false, message: "Unauthorized" };
+      log.warn("Unauthorized assistant architect creation attempt")
+      throw ErrorFactories.authNoSession()
     }
 
+    log.debug("User authenticated", { userId: session.sub })
+    
     // Get the current user's database ID
+    log.debug("Getting current user")
     const currentUser = await getCurrentUserAction();
     if (!currentUser.isSuccess || !currentUser.data) {
-      return { isSuccess: false, message: "User not found" };
+      log.error("User not found in database")
+      throw ErrorFactories.dbRecordNotFound("users", session.sub)
     }
 
+    log.info("Creating assistant architect in database", {
+      name: assistant.name,
+      userId: currentUser.data.user.id
+    })
+    
     const [architectRaw] = await executeSQL<any>(`
       INSERT INTO assistant_architects (name, description, status, image_path, user_id, created_at, updated_at)
       VALUES (:name, :description, :status::tool_status, :imagePath, :userId, NOW(), NOW())
@@ -86,10 +120,22 @@ export async function createAssistantArchitectAction(
 
     const architect = transformSnakeToCamel<SelectAssistantArchitect>(architectRaw);
 
+    log.info("Assistant architect created successfully", {
+      architectId: architect.id,
+      name: architect.name
+    })
+    
+    timer({ status: "success", architectId: architect.id })
+    
     return createSuccess(architect, "Assistant architect created successfully");
   } catch (error) {
-    return handleError(error, "Failed to create assistant architect", {
-      context: "createAssistantArchitectAction"
+    timer({ status: "error" })
+    
+    return handleError(error, "Failed to create assistant architect. Please try again or contact support.", {
+      context: "createAssistantArchitect",
+      requestId,
+      operation: "createAssistantArchitect",
+      metadata: { name: assistant.name }
     });
   }
 }
@@ -102,7 +148,13 @@ export async function getAssistantArchitectsAction(): Promise<
     cognito_sub: string;
   })[]>
 > {
+  const requestId = generateRequestId()
+  const timer = startTimer("getAssistantArchitects")
+  const log = createLogger({ requestId, action: "getAssistantArchitects" })
+  
   try {
+    log.info("Action started: Getting assistant architects")
+    
     const architectsRaw = await executeSQL<any>(`
       SELECT a.id, a.name, a.description, a.status, a.image_path, a.user_id, a.created_at, a.updated_at,
              u.first_name AS creator_first_name, u.last_name AS creator_last_name, u.email AS creator_email,
@@ -153,10 +205,20 @@ export async function getAssistantArchitectsAction(): Promise<
       })
     );
 
+    log.info("Assistant architects retrieved successfully", {
+      count: architectsWithRelations.length
+    })
+    
+    timer({ status: "success", count: architectsWithRelations.length })
+    
     return createSuccess(architectsWithRelations, "Assistant architects retrieved successfully");
   } catch (error) {
-    return handleError(error, "Failed to get assistant architects", {
-      context: "getAssistantArchitectsAction"
+    timer({ status: "error" })
+    
+    return handleError(error, "Failed to get assistant architects. Please try again or contact support.", {
+      context: "getAssistantArchitects",
+      requestId,
+      operation: "getAssistantArchitects"
     });
   }
 }
@@ -164,10 +226,17 @@ export async function getAssistantArchitectsAction(): Promise<
 export async function getAssistantArchitectByIdAction(
   id: string
 ): Promise<ActionState<ArchitectWithRelations | undefined>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("getAssistantArchitectById")
+  const log = createLogger({ requestId, action: "getAssistantArchitectById" })
+  
   try {
+    log.info("Action started: Getting assistant architect by ID", { architectId: id })
+    
     // Parse string ID to integer
     const idInt = parseInt(id, 10);
     if (isNaN(idInt)) {
+      log.warn("Invalid assistant architect ID provided", { architectId: id })
       throw createError("Invalid assistant architect ID", {
         code: "VALIDATION",
         level: ErrorLevel.WARN,
@@ -233,11 +302,20 @@ export async function getAssistantArchitectByIdAction(
 export async function getPendingAssistantArchitectsAction(): Promise<
   ActionState<SelectAssistantArchitect[]>
 > {
+  const requestId = generateRequestId()
+  const timer = startTimer("getPendingAssistantArchitects")
+  const log = createLogger({ requestId, action: "getPendingAssistantArchitects" })
+  
   try {
+    log.info("Action started: Getting pending assistant architects")
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized pending assistant architects access attempt")
       return { isSuccess: false, message: "Unauthorized" }
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
 
     // Check if user is an administrator using Cognito sub
     const isAdmin = await checkUserRoleByCognitoSub(session.sub, "administrator")
@@ -288,13 +366,19 @@ export async function getPendingAssistantArchitectsAction(): Promise<
       })
     );
 
+    log.info("Pending assistant architects retrieved successfully", {
+      count: toolsWithRelations.length
+    })
+    timer({ status: "success", count: toolsWithRelations.length })
+    
     return {
       isSuccess: true,
       message: "Pending Assistant Architects retrieved successfully",
       data: toolsWithRelations
     };
   } catch (error) {
-    logger.error("Error getting pending Assistant Architects:", error);
+    timer({ status: "error" })
+    log.error("Error getting pending Assistant Architects:", error);
     return { isSuccess: false, message: "Failed to get pending Assistant Architects" };
   }
 }
@@ -303,11 +387,20 @@ export async function updateAssistantArchitectAction(
   id: string,
   data: Partial<InsertAssistantArchitect>
 ): Promise<ActionState<SelectAssistantArchitect>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("updateAssistantArchitect")
+  const log = createLogger({ requestId, action: "updateAssistantArchitect" })
+  
   try {
+    log.info("Action started: Updating assistant architect", { id })
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized assistant architect update attempt")
       return { isSuccess: false, message: "Unauthorized" }
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
     
     // Get the current tool using data API
     const currentToolResult = await executeSQL<any>(`
@@ -388,13 +481,18 @@ export async function updateAssistantArchitectAction(
     `, parameters);
     
     const updatedToolRaw = updatedToolResult[0];
+    
+    log.info("Assistant architect updated successfully", { id })
+    timer({ status: "success", id })
+    
     return {
       isSuccess: true,
       message: "Assistant updated successfully",
       data: transformSnakeToCamel<SelectAssistantArchitect>(updatedToolRaw)
     }
   } catch (error) {
-    logger.error("Error updating assistant:", error)
+    timer({ status: "error" })
+    log.error("Error updating assistant:", error)
     return { isSuccess: false, message: "Failed to update assistant" }
   }
 }
@@ -402,11 +500,20 @@ export async function updateAssistantArchitectAction(
 export async function deleteAssistantArchitectAction(
   id: string
 ): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("deleteAssistantArchitect")
+  const log = createLogger({ requestId, action: "deleteAssistantArchitect" })
+  
   try {
+    log.info("Action started: Deleting assistant architect", { id })
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized assistant architect deletion attempt")
       return { isSuccess: false, message: "Unauthorized" }
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
     
     // Check if user has admin access
     const hasAccess = await hasToolAccess(session.sub, "admin");
@@ -430,13 +537,17 @@ export async function deleteAssistantArchitectAction(
     const { deleteAssistantArchitect } = await import("@/lib/db/data-api-adapter");
     await deleteAssistantArchitect(parseInt(id, 10));
 
+    log.info("Assistant architect deleted successfully", { id })
+    timer({ status: "success", id })
+
     return {
       isSuccess: true,
       message: "Assistant architect deleted successfully",
       data: undefined
     }
   } catch (error) {
-    logger.error("Error deleting assistant architect:", error)
+    timer({ status: "error" })
+    log.error("Error deleting assistant architect:", error)
     return { isSuccess: false, message: "Failed to delete assistant architect" }
   }
 }
@@ -453,7 +564,12 @@ export async function addToolInputFieldAction(
     options?: { label: string; value: string }[];
   }
 ): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("addToolInputField")
+  const log = createLogger({ requestId, action: "addToolInputField" })
+  
   try {
+    log.info("Action started: Adding tool input field", { architectId, fieldName: data.name })
     await executeSQL<never>(`
       INSERT INTO tool_input_fields (assistant_architect_id, name, label, field_type, position, options, created_at, updated_at)
       VALUES (:toolId, :name, :label, :fieldType::field_type, :position, :options, NOW(), NOW())
@@ -466,13 +582,17 @@ export async function addToolInputFieldAction(
       { name: 'options', value: data.options ? { stringValue: JSON.stringify(data.options) } : { isNull: true } }
     ]);
 
+    log.info("Tool input field added successfully", { architectId, fieldName: data.name })
+    timer({ status: "success", architectId })
+    
     return {
       isSuccess: true,
       message: "Tool input field added successfully",
       data: undefined
     }
   } catch (error) {
-    logger.error("Error adding tool input field:", error)
+    timer({ status: "error" })
+    log.error("Error adding tool input field:", error)
     return { isSuccess: false, message: "Failed to add tool input field" }
   }
 }
@@ -480,11 +600,20 @@ export async function addToolInputFieldAction(
 export async function deleteInputFieldAction(
   fieldId: string
 ): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("deleteInputField")
+  const log = createLogger({ requestId, action: "deleteInputField" })
+  
   try {
+    log.info("Action started: Deleting input field", { fieldId })
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized input field deletion attempt")
       return { isSuccess: false, message: "Unauthorized" }
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
 
     // Get the field to find its tool using data API
     const fieldResult = await executeSQL<any>(`
@@ -528,13 +657,17 @@ export async function deleteInputFieldAction(
       WHERE id = :fieldId
     `, [{ name: 'fieldId', value: { longValue: parseInt(fieldId, 10) } }]);
 
+    log.info("Input field deleted successfully", { fieldId })
+    timer({ status: "success", fieldId })
+
     return {
       isSuccess: true,
       message: "Input field deleted successfully",
       data: undefined
     }
   } catch (error) {
-    logger.error("Error deleting input field:", error)
+    timer({ status: "error" })
+    log.error("Error deleting input field:", error)
     return { isSuccess: false, message: "Failed to delete input field" }
   }
 }
@@ -543,11 +676,20 @@ export async function updateInputFieldAction(
   id: string,
   data: Partial<InsertToolInputField>
 ): Promise<ActionState<SelectToolInputField>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("updateInputField")
+  const log = createLogger({ requestId, action: "updateInputField" })
+  
   try {
+    log.info("Action started: Updating input field", { id, data })
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized input field update attempt")
       return { isSuccess: false, message: "Unauthorized" }
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
 
     // Find the field using data API
     const fieldResult = await executeSQL<SelectToolInputField>(`
@@ -646,13 +788,17 @@ export async function updateInputFieldAction(
       RETURNING id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at
     `, parameters);
 
+    log.info("Input field updated successfully", { id })
+    timer({ status: "success", id })
+    
     return {
       isSuccess: true,
       message: "Input field updated successfully",
       data: transformSnakeToCamel<SelectToolInputField>(updatedFieldResult[0])
     }
   } catch (error) {
-    logger.error("Error updating input field:", error)
+    timer({ status: "error" })
+    log.error("Error updating input field:", error)
     return { isSuccess: false, message: "Failed to update input field" }
   }
 }
@@ -661,11 +807,20 @@ export async function reorderInputFieldsAction(
   toolId: string,
   fieldOrders: { id: string; position: number }[]
 ): Promise<ActionState<SelectToolInputField[]>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("reorderInputFields")
+  const log = createLogger({ requestId, action: "reorderInputFields" })
+  
   try {
+    log.info("Action started: Reordering input fields", { toolId, fieldCount: fieldOrders.length })
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized input fields reorder attempt")
       return { isSuccess: false, message: "Unauthorized" }
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
 
     // Get the tool to check permissions
     const toolResult = await executeSQL<any>(`
@@ -706,13 +861,17 @@ export async function reorderInputFieldsAction(
       })
     )
 
+    log.info("Input fields reordered successfully", { toolId, count: updatedFields.length })
+    timer({ status: "success", toolId })
+    
     return {
       isSuccess: true,
       message: "Input fields reordered successfully",
       data: updatedFields
     }
   } catch (error) {
-    logger.error("Error reordering input fields:", error)
+    timer({ status: "error" })
+    log.error("Error reordering input fields:", error)
     return { isSuccess: false, message: "Failed to reorder input fields" }
   }
 }
@@ -731,7 +890,12 @@ export async function addChainPromptAction(
     repositoryIds?: number[]
   }
 ): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("addChainPrompt")
+  const log = createLogger({ requestId, action: "addChainPrompt" })
+  
   try {
+    log.info("Action started: Adding chain prompt", { architectId, promptName: data.name })
     // If repository IDs are provided, validate user has access
     if (data.repositoryIds && data.repositoryIds.length > 0) {
       const session = await getServerSession();
@@ -759,13 +923,17 @@ export async function addChainPromptAction(
       { name: 'repositoryIds', value: { stringValue: serializeRepositoryIds(data.repositoryIds) || '[]' } }
     ]);
 
+    log.info("Chain prompt added successfully", { architectId })
+    timer({ status: "success", architectId })
+    
     return {
       isSuccess: true,
       message: "Chain prompt added successfully",
       data: undefined
     }
   } catch (error) {
-    logger.error("Error adding chain prompt:", error)
+    timer({ status: "error" })
+    log.error("Error adding chain prompt:", error)
     return { isSuccess: false, message: "Failed to add chain prompt" }
   }
 }
@@ -774,12 +942,20 @@ export async function updatePromptAction(
   id: string,
   data: Partial<InsertChainPrompt>
 ): Promise<ActionState<SelectChainPrompt>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("updatePrompt")
+  const log = createLogger({ requestId, action: "updatePrompt" })
   
   try {
+    log.info("Action started: Updating prompt", { id })
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized prompt update attempt")
       return { isSuccess: false, message: "Unauthorized" }
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
 
     // Find the prompt using data API
     const promptResult = await executeSQL<any>(`
@@ -912,13 +1088,17 @@ export async function updatePromptAction(
     
     const updatedPromptResult = await executeSQL<any>(sql, parameters);
 
+    log.info("Prompt updated successfully", { id })
+    timer({ status: "success", id })
+    
     return {
       isSuccess: true,
       message: "Prompt updated successfully",
       data: transformSnakeToCamel<SelectChainPrompt>(updatedPromptResult[0])
     }
   } catch (error) {
-    logger.error("Error updating prompt:", error)
+    timer({ status: "error" })
+    log.error("Error updating prompt:", error)
     return { isSuccess: false, message: "Failed to update prompt" }
   }
 }
@@ -926,11 +1106,20 @@ export async function updatePromptAction(
 export async function deletePromptAction(
   id: string
 ): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("deletePrompt")
+  const log = createLogger({ requestId, action: "deletePrompt" })
+  
   try {
+    log.info("Action started: Deleting prompt", { id })
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized prompt deletion attempt")
       return { isSuccess: false, message: "Unauthorized" }
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
 
     // Find the prompt using data API
     const promptResult = await executeSQL<{ assistantArchitectId: number }>(`
@@ -974,13 +1163,17 @@ export async function deletePromptAction(
       WHERE id = :id
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
 
+    log.info("Prompt deleted successfully", { id })
+    timer({ status: "success", id })
+    
     return {
       isSuccess: true,
       message: "Prompt deleted successfully",
       data: undefined
     }
   } catch (error) {
-    logger.error("Error deleting prompt:", error)
+    timer({ status: "error" })
+    log.error("Error deleting prompt:", error)
     return { isSuccess: false, message: "Failed to delete prompt" }
   }
 }
@@ -989,11 +1182,20 @@ export async function updatePromptPositionAction(
   id: string,
   position: number
 ): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("updatePromptPosition")
+  const log = createLogger({ requestId, action: "updatePromptPosition" })
+  
   try {
+    log.info("Action started: Updating prompt position", { id, position })
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized prompt position update attempt")
       return { isSuccess: false, message: "Unauthorized" }
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
     
     const userId = await getCurrentUserId();
     if (!userId) {
@@ -1041,13 +1243,17 @@ export async function updatePromptPositionAction(
       ]
     )
 
+    log.info("Prompt position updated successfully", { id, position })
+    timer({ status: "success", id })
+    
     return {
       isSuccess: true,
       message: "Prompt position updated successfully",
       data: undefined
     }
   } catch (error) {
-    logger.error("Error updating prompt position:", error)
+    timer({ status: "error" })
+    log.error("Error updating prompt position:", error)
     return { isSuccess: false, message: "Failed to update prompt position" }
   }
 }
@@ -1057,11 +1263,22 @@ export async function updatePromptPositionAction(
 export async function createToolExecutionAction(
   execution: InsertToolExecution
 ): Promise<ActionState<string>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("createToolExecution")
+  const log = createLogger({ requestId, action: "createToolExecution" })
+  
   try {
+    log.info("Action started: Creating tool execution", { 
+      toolId: execution.assistantArchitectId 
+    })
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized tool execution attempt")
       return { isSuccess: false, message: "Unauthorized" }
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
     
     const userId = await getCurrentUserId();
     if (!userId) {
@@ -1084,13 +1301,17 @@ export async function createToolExecutionAction(
     
     const executionId = (executionResult as any)[0].id as number
 
+    log.info("Tool execution created successfully", { executionId })
+    timer({ status: "success", executionId })
+    
     return {
       isSuccess: true,
       message: "Tool execution created successfully",
       data: executionId.toString()
     }
   } catch (error) {
-    logger.error("Error creating tool execution:", error)
+    timer({ status: "error" })
+    log.error("Error creating tool execution:", error)
     return { isSuccess: false, message: "Failed to create tool execution" }
   }
 }
@@ -1100,11 +1321,20 @@ export async function updatePromptResultAction(
   promptId: number,
   result: Record<string, any>
 ): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("updatePromptResult")
+  const log = createLogger({ requestId, action: "updatePromptResult" })
+  
   try {
+    log.info("Action started: Updating prompt result", { executionId, promptId })
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized prompt result update attempt")
       return { isSuccess: false, message: "Unauthorized" }
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
     
     const userId = await getCurrentUserId();
     if (!userId) {
@@ -1146,13 +1376,17 @@ export async function updatePromptResultAction(
       updates
     )
 
+    log.info("Prompt result updated successfully", { executionId, promptId })
+    timer({ status: "success", executionId })
+    
     return {
       isSuccess: true,
       message: "Prompt result updated successfully",
       data: undefined
     }
   } catch (error) {
-    logger.error("Error updating prompt result:", error)
+    timer({ status: "error" })
+    log.error("Error updating prompt result:", error)
     return { isSuccess: false, message: "Failed to update prompt result" }
   }
 }
@@ -1162,11 +1396,20 @@ export async function updatePromptResultAction(
 export async function approveAssistantArchitectAction(
   id: string
 ): Promise<ActionState<SelectAssistantArchitect>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("approveAssistantArchitect")
+  const log = createLogger({ requestId, action: "approveAssistantArchitect" })
+  
   try {
+    log.info("Action started: Approving assistant architect", { id })
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized assistant architect approval attempt")
       return { isSuccess: false, message: "Unauthorized" }
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
 
     // Check if user is an administrator
     const isAdmin = await checkUserRoleByCognitoSub(session.sub, "administrator")
@@ -1294,13 +1537,17 @@ export async function approveAssistantArchitectAction(
       }
     }
     
+    log.info("Assistant architect approved successfully", { id })
+    timer({ status: "success", id })
+    
     return {
       isSuccess: true,
       message: "Tool approved successfully",
       data: updatedTool
     }
   } catch (error) {
-    logger.error("Error approving tool:", error)
+    timer({ status: "error" })
+    log.error("Error approving tool:", error)
     return { isSuccess: false, message: "Failed to approve tool" }
   }
 }
@@ -1308,11 +1555,20 @@ export async function approveAssistantArchitectAction(
 export async function rejectAssistantArchitectAction(
   id: string
 ): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("rejectAssistantArchitect")
+  const log = createLogger({ requestId, action: "rejectAssistantArchitect" })
+  
   try {
+    log.info("Action started: Rejecting assistant architect", { id })
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized assistant architect rejection attempt")
       return { isSuccess: false, message: "Unauthorized" }
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
 
     // Check if user is an administrator
     const isAdmin = await checkUserRoleByCognitoSub(session.sub, "administrator")
@@ -1326,13 +1582,17 @@ export async function rejectAssistantArchitectAction(
       WHERE id = :id
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
 
+    log.info("Assistant architect rejected successfully", { id })
+    timer({ status: "success", id })
+    
     return {
       isSuccess: true,
       message: "Tool rejected successfully",
       data: undefined
     }
   } catch (error) {
-    logger.error("Error rejecting Assistant Architect:", error)
+    timer({ status: "error" })
+    log.error("Error rejecting Assistant Architect:", error)
     return { isSuccess: false, message: "Failed to reject tool" }
   }
 }
@@ -1379,7 +1639,11 @@ export async function executeAssistantArchitectAction({
   toolId: number | string
   inputs: Record<string, unknown>
 }): Promise<ActionState<{ jobId: number; executionId?: number }>> {
-  logger.info(`[EXEC] Started for tool ${toolId}`);
+  const requestId = generateRequestId()
+  const timer = startTimer("executeAssistantArchitect")
+  const log = createLogger({ requestId, action: "executeAssistantArchitect" })
+  
+  log.info(`[EXEC] Started for tool ${toolId}`);
   
   try {
     const session = await getServerSession();
@@ -1443,11 +1707,15 @@ export async function executeAssistantArchitectAction({
 
     // Start the execution in the background
     executeAssistantArchitectJob(jobResult.data.id.toString(), tool, inputs, executionId).catch(error => {
-      logger.error(`[EXEC:${jobResult.data.id}] Background execution failed:`, error);
+      log.error(`[EXEC:${jobResult.data.id}] Background execution failed:`, error);
     });
+
+    log.info("Assistant architect execution started", { jobId: jobResult.data.id, executionId })
+    timer({ status: "success", jobId: jobResult.data.id, executionId })
 
     return createSuccess({ jobId: jobResult.data.id, executionId }, "Execution started");
   } catch (error) {
+    timer({ status: "error" })
     return handleError(error, "Failed to execute assistant architect", {
       context: "executeAssistantArchitectAction"
     });
@@ -1656,8 +1924,12 @@ async function executeAssistantArchitectJob(
 export async function getApprovedAssistantArchitectsAction(): Promise<
   ActionState<ArchitectWithRelations[]>
 > {
+  const requestId = generateRequestId()
+  const timer = startTimer("getApprovedAssistantArchitects")
+  const log = createLogger({ requestId, action: "getApprovedAssistantArchitects" })
+  
   try {
-    logger.info("Fetching approved Assistant Architects")
+    log.info("Fetching approved Assistant Architects")
     
     const session = await getServerSession();
     if (!session || !session.sub) {
@@ -1743,13 +2015,17 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
       };
     });
 
+    log.info("Approved assistant architects retrieved successfully", { count: results.length })
+    timer({ status: "success", count: results.length })
+    
     return {
       isSuccess: true,
       message: "Approved Assistant Architects retrieved successfully",
       data: results
     }
   } catch (error) {
-    logger.error("Error getting approved Assistant Architects:", error)
+    timer({ status: "error" })
+    log.error("Error getting approved Assistant Architects:", error)
     return { isSuccess: false, message: "Failed to get approved Assistant Architects" }
   }
 }
@@ -1757,11 +2033,20 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
 export async function submitAssistantArchitectForApprovalAction(
   id: string
 ): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("submitAssistantArchitectForApproval")
+  const log = createLogger({ requestId, action: "submitAssistantArchitectForApproval" })
+  
   try {
+    log.info("Action started: Submitting assistant architect for approval", { id })
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized assistant architect submission attempt")
       return { isSuccess: false, message: "Unauthorized" }
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
 
     const toolResult = await executeSQL<any>(`
       SELECT id, name, description, user_id, status
@@ -1803,13 +2088,17 @@ export async function submitAssistantArchitectForApprovalAction(
       WHERE id = :id
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
 
+    log.info("Assistant architect submitted for approval", { id })
+    timer({ status: "success", id })
+    
     return {
       isSuccess: true,
       message: "Assistant submitted for approval",
       data: undefined
     }
   } catch (error) {
-    logger.error("Error submitting assistant for approval:", error)
+    timer({ status: "error" })
+    log.error("Error submitting assistant for approval:", error)
     return { isSuccess: false, message: "Failed to submit assistant" }
   }
 }
@@ -1818,14 +2107,23 @@ export async function submitAssistantArchitectForApprovalAction(
 export async function getExecutionResultsAction(
   executionId: string
 ): Promise<ActionState<ExecutionResultDetails>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("getExecutionResults")
+  const log = createLogger({ requestId, action: "getExecutionResults" })
+  
   try {
+    log.info("Action started: Getting execution results", { executionId })
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized execution results access attempt")
       throw createError("Unauthorized", {
         code: "UNAUTHORIZED",
         level: ErrorLevel.WARN
       });
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
     
     // Get execution details
     const executionResult = await executeSQL<SelectToolExecution>(`
@@ -1890,8 +2188,12 @@ export async function getExecutionResultsAction(
         promptResults: promptResultsData || []
     };
 
+    log.info("Execution results retrieved successfully", { executionId })
+    timer({ status: "success", executionId })
+
     return createSuccess(returnData, "Execution status retrieved");
   } catch (error) {
+    timer({ status: "error" })
     return handleError(error, "Failed to get execution results", {
       context: "getExecutionResultsAction"
     });
@@ -1903,10 +2205,19 @@ export async function getExecutionResultsAction(
  * This is a one-time migration function that can be run to fix any issues
  */
 export async function migratePromptChainsToAssistantArchitectAction(): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("migratePromptChainsToAssistantArchitect")
+  const log = createLogger({ requestId, action: "migratePromptChainsToAssistantArchitect" })
+  
   try {
+    log.info("Action started: Migrating prompt chains to assistant architect")
+    
     // This is just a placeholder for the migration function
     // The actual migration steps were done directly via database migrations
     // But we can use this function if we discover any other legacy references
+    
+    log.info("Migration completed successfully")
+    timer({ status: "success" })
     
     return {
       isSuccess: true,
@@ -1914,7 +2225,8 @@ export async function migratePromptChainsToAssistantArchitectAction(): Promise<A
       data: undefined
     }
   } catch (error) {
-    logger.error("Error migrating prompt chains to assistant architect:", error)
+    timer({ status: "error" })
+    log.error("Error migrating prompt chains to assistant architect:", error)
     return { 
       isSuccess: false, 
       message: "Failed to migrate prompt chains to assistant architect"
@@ -1923,7 +2235,12 @@ export async function migratePromptChainsToAssistantArchitectAction(): Promise<A
 }
 
 export async function getToolsAction(): Promise<ActionState<SelectTool[]>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("getTools")
+  const log = createLogger({ requestId, action: "getTools" })
+  
   try {
+    log.info("Action started: Getting tools")
     const toolsRaw = await executeSQL<any>(`
       SELECT id, identifier, name, description, assistant_architect_id, is_active, created_at, updated_at
       FROM tools
@@ -1940,19 +2257,28 @@ export async function getToolsAction(): Promise<ActionState<SelectTool[]>> {
       } as SelectTool;
     });
     
+    log.info("Tools retrieved successfully", { count: tools.length })
+    timer({ status: "success", count: tools.length })
+    
     return {
       isSuccess: true,
       message: "Tools retrieved successfully",
       data: tools
     }
   } catch (error) {
-    logger.error("Error getting tools:", error)
+    timer({ status: "error" })
+    log.error("Error getting tools:", error)
     return { isSuccess: false, message: "Failed to get tools" }
   }
 }
 
 export async function getAiModelsAction(): Promise<ActionState<SelectAiModel[]>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("getAiModels")
+  const log = createLogger({ requestId, action: "getAiModels" })
+  
   try {
+    log.info("Action started: Getting AI models")
     const aiModelsRaw = await executeSQL<any>(`
       SELECT id, name, provider, model_id, description, capabilities, max_tokens, active, chat_enabled, created_at, updated_at
       FROM ai_models
@@ -1961,13 +2287,17 @@ export async function getAiModelsAction(): Promise<ActionState<SelectAiModel[]>>
     
     const aiModels = aiModelsRaw.map((model: any) => transformSnakeToCamel<SelectAiModel>(model));
     
+    log.info("AI models retrieved successfully", { count: aiModels.length })
+    timer({ status: "success", count: aiModels.length })
+    
     return {
       isSuccess: true,
       message: "AI models retrieved successfully",
       data: aiModels
     }
   } catch (error) {
-    logger.error("Error getting AI models:", error)
+    timer({ status: "error" })
+    log.error("Error getting AI models:", error)
     return { isSuccess: false, message: "Failed to get AI models" }
   }
 }
@@ -1976,7 +2306,12 @@ export async function setPromptPositionsAction(
   toolId: string,
   positions: { id: string; position: number }[]
 ): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("setPromptPositions")
+  const log = createLogger({ requestId, action: "setPromptPositions" })
+  
   try {
+    log.info("Action started: Setting prompt positions", { toolId, count: positions.length })
     const session = await getServerSession();
     if (!session || !session.sub) {
       return { isSuccess: false, message: "Unauthorized" }
@@ -2016,9 +2351,13 @@ export async function setPromptPositionsAction(
       )
     }
 
+    log.info("Prompt positions updated successfully", { toolId, count: positions.length })
+    timer({ status: "success", toolId })
+    
     return { isSuccess: true, message: "Prompt positions updated", data: undefined }
   } catch (error) {
-    logger.error("Error setting prompt positions:", error)
+    timer({ status: "error" })
+    log.error("Error setting prompt positions:", error)
     return { isSuccess: false, message: "Failed to set prompt positions" }
   }
 }
@@ -2026,11 +2365,20 @@ export async function setPromptPositionsAction(
 export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
   ActionState<SelectAssistantArchitect[]>
 > {
+  const requestId = generateRequestId()
+  const timer = startTimer("getApprovedAssistantArchitectsForAdmin")
+  const log = createLogger({ requestId, action: "getApprovedAssistantArchitectsForAdmin" })
+  
   try {
+    log.info("Action started: Getting approved assistant architects for admin")
+    
     const session = await getServerSession();
     if (!session || !session.sub) {
+      log.warn("Unauthorized admin assistant architects access attempt")
       return { isSuccess: false, message: "Unauthorized" }
     }
+    
+    log.debug("User authenticated", { userId: session.sub })
     
     const userId = await getCurrentUserId();
     if (!userId) {
@@ -2096,19 +2444,28 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
       })
     );
 
+    log.info("Approved assistant architects retrieved for admin", { count: toolsWithRelations.length })
+    timer({ status: "success", count: toolsWithRelations.length })
+    
     return {
       isSuccess: true,
       message: "Approved Assistant Architects retrieved successfully",
       data: toolsWithRelations
     };
   } catch (error) {
-    logger.error("Error getting approved Assistant Architects:", error);
+    timer({ status: "error" })
+    log.error("Error getting approved Assistant Architects:", error);
     return { isSuccess: false, message: "Failed to get approved Assistant Architects" };
   }
 }
 
 export async function getAllAssistantArchitectsForAdminAction(): Promise<ActionState<ArchitectWithRelations[]>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("getAllAssistantArchitectsForAdmin")
+  const log = createLogger({ requestId, action: "getAllAssistantArchitectsForAdmin" })
+  
   try {
+    log.info("Action started: Getting all assistant architects for admin")
     const session = await getServerSession();
     if (!session) {
       return { isSuccess: false, message: "Unauthorized" }
@@ -2155,9 +2512,13 @@ export async function getAllAssistantArchitectsForAdminAction(): Promise<ActionS
         };
       })
     )
+    log.info("All assistant architects retrieved for admin", { count: assistantsWithRelations.length })
+    timer({ status: "success", count: assistantsWithRelations.length })
+    
     return { isSuccess: true, message: "All assistants retrieved successfully", data: assistantsWithRelations }
   } catch (error) {
-    logger.error("Error getting all assistants for admin:", error)
+    timer({ status: "error" })
+    log.error("Error getting all assistants for admin:", error)
     return { isSuccess: false, message: "Failed to get all assistants" }
   }
 }

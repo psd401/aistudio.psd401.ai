@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "@/lib/auth/server-session"
 import { executeSQL } from "@/lib/db/data-api-adapter"
-import logger from '@/lib/logger'
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.assistant-architect.prompts.get");
+  const log = createLogger({ requestId, route: "api.assistant-architect.prompts" });
+  
+  log.info("GET /api/assistant-architect/prompts/[id] - Fetching prompt");
+  
   // Check authentication
   const session = await getServerSession()
   if (!session || !session.sub) {
-    return new NextResponse("Unauthorized", { status: 401 })
+    log.warn("Unauthorized - No session");
+    timer({ status: "error", reason: "unauthorized" });
+    return new NextResponse("Unauthorized", { status: 401, headers: { "X-Request-Id": requestId } })
   }
 
   try {
@@ -18,7 +26,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // Parse promptId to integer
     const promptIdInt = parseInt(promptId, 10)
     if (isNaN(promptIdInt)) {
-      return new NextResponse("Invalid prompt ID", { status: 400 })
+      log.warn("Invalid prompt ID", { promptId });
+      timer({ status: "error", reason: "invalid_id" });
+      return new NextResponse("Invalid prompt ID", { status: 400, headers: { "X-Request-Id": requestId } })
     }
 
     // Find the prompt by ID
@@ -32,7 +42,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     ])
 
     if (!promptResult || promptResult.length === 0) {
-      return new NextResponse("Prompt not found", { status: 404 })
+      log.warn("Prompt not found", { promptId: promptIdInt });
+      timer({ status: "error", reason: "not_found" });
+      return new NextResponse("Prompt not found", { status: 404, headers: { "X-Request-Id": requestId } })
     }
 
     const prompt = promptResult[0]
@@ -68,6 +80,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     // Transform snake_case to camelCase and return the prompt along with the actual text model_id
+    log.info("Prompt fetched successfully", { promptId: promptIdInt });
+    timer({ status: "success" });
+    
     return NextResponse.json({
       id: prompt.id,
       toolId: prompt.assistant_architect_id,
@@ -80,12 +95,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       createdAt: prompt.created_at,
       updatedAt: prompt.updated_at,
       actualModelId: actualModelId // Send the text model_id
-    })
+    }, { headers: { "X-Request-Id": requestId } })
   } catch (error) {
-    logger.error("Error fetching prompt:", error)
+    timer({ status: "error" });
+    log.error("Error fetching prompt", error)
     return new NextResponse(
       JSON.stringify({ error: "Failed to fetch prompt" }),
-      { status: 500 }
+      { status: 500, headers: { "X-Request-Id": requestId } }
     )
   }
 } 

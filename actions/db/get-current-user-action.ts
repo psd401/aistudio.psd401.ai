@@ -12,7 +12,17 @@ import { SqlParameter } from "@aws-sdk/client-rds-data"
 import { getServerSession } from "@/lib/auth/server-session"
 import { ActionState } from "@/types"
 import { SelectUser } from "@/types/db-types"
-import logger from "@/lib/logger"
+import { 
+  createLogger, 
+  generateRequestId, 
+  startTimer,
+  sanitizeForLogging 
+} from "@/lib/logger"
+import { 
+  handleError, 
+  createSuccess,
+  ErrorFactories 
+} from "@/lib/error-utils"
 
 interface CurrentUserWithRoles {
   user: SelectUser
@@ -22,21 +32,55 @@ interface CurrentUserWithRoles {
 export async function getCurrentUserAction(): Promise<
   ActionState<CurrentUserWithRoles>
 > {
-  const session = await getServerSession()
-  if (!session) {
-    return { isSuccess: false, message: "No session" }
-  }
-
+  const requestId = generateRequestId()
+  const timer = startTimer("getCurrentUserAction")
+  const log = createLogger({ 
+    requestId, 
+    action: "getCurrentUserAction" 
+  })
+  
+  // Declare session outside try block for error handler access
+  let session: Awaited<ReturnType<typeof getServerSession>> = null
+  
   try {
+    log.info("Action started: Retrieving current user")
+    
+    // Check session
+    session = await getServerSession()
+    if (!session) {
+      log.warn("No active session found")
+      throw ErrorFactories.authNoSession()
+    }
+    
+    const userId = session.sub
+    const userEmail = session.email
+    
+    log.info("Session validated", { 
+      userId,
+      userEmail: sanitizeForLogging(userEmail)
+    })
+
+    // Database operations with detailed logging
     // First try to find user by cognito_sub
     let user: SelectUser | null = null
-    const userResult = await getUserByCognitoSub(session.sub)
+    
+    log.debug("Looking up user by Cognito sub", { cognitoSub: userId })
+    const userResult = await getUserByCognitoSub(userId)
+    
     if (userResult) {
       user = userResult as unknown as SelectUser
+      log.info("User found by Cognito sub", { 
+        userId: user.id,
+        email: sanitizeForLogging(user.email)
+      })
     }
 
     // If not found by cognito_sub, check if user exists by email
-    if (!user && session.email) {
+    if (!user && userEmail) {
+      log.debug("User not found by Cognito sub, checking by email", { 
+        email: sanitizeForLogging(userEmail) 
+      })
+      
       const query = `
         SELECT id, cognito_sub, email, first_name, last_name,
                last_sign_in_at, created_at, updated_at
@@ -44,14 +88,21 @@ export async function getCurrentUserAction(): Promise<
         WHERE email = :email
       `
       const parameters = [
-        { name: "email", value: { stringValue: session.email } }
+        { name: "email", value: { stringValue: userEmail } }
       ]
+      
       const result = await executeSQL<SelectUser>(query, parameters)
       
       if (result.length > 0) {
         // User exists with this email but different cognito_sub
         // Update the cognito_sub to link to the new auth system
         const existingUser = result[0]
+        
+        log.info("User found by email, updating Cognito sub", {
+          userId: existingUser.id,
+          oldCognitoSub: existingUser.cognitoSub,
+          newCognitoSub: userId
+        })
         
         const updateQuery = `
           UPDATE users
@@ -60,33 +111,49 @@ export async function getCurrentUserAction(): Promise<
           RETURNING id, cognito_sub, email, first_name, last_name, created_at, updated_at
         `
         const updateParams: SqlParameter[] = [
-          { name: "cognitoSub", value: { stringValue: session.sub } },
+          { name: "cognitoSub", value: { stringValue: userId } },
           { name: "userId", value: { longValue: existingUser.id } }
         ]
+        
         const updateResult = await executeSQL<SelectUser>(updateQuery, updateParams)
         user = updateResult[0]
+        
+        log.info("User Cognito sub updated successfully", { userId: user.id })
       }
     }
 
     // If user still doesn't exist, create them
     if (!user) {
+      log.info("Creating new user", { 
+        cognitoSub: userId,
+        email: sanitizeForLogging(userEmail)
+      })
+      
       const newUserResult = await createUser({
-        cognitoSub: session.sub,
-        email: session.email || `${session.sub}@cognito.local`,
-        firstName: session.email?.split("@")[0] || "User"
+        cognitoSub: userId,
+        email: userEmail || `${userId}@cognito.local`,
+        firstName: userEmail?.split("@")[0] || "User"
       })
       user = newUserResult as unknown as SelectUser
 
+      log.info("New user created", { userId: user.id })
+
       // Assign default "student" role to new users
+      log.debug("Assigning default student role to new user")
       const studentRoleResult = await getRoleByName("student")
+      
       if (studentRoleResult.length > 0) {
         const studentRole = studentRoleResult[0]
         const roleId = studentRole.id as number
         await assignRoleToUser(user!.id, roleId)
+        log.info("Student role assigned to new user", { userId: user.id, roleId })
+      } else {
+        log.warn("Student role not found in database - new user has no roles")
       }
     }
 
     // Update last_sign_in_at
+    log.debug("Updating last sign-in timestamp")
     const updateLastSignInQuery = `
       UPDATE users
       SET last_sign_in_at = NOW(), updated_at = NOW()
@@ -100,7 +167,15 @@ export async function getCurrentUserAction(): Promise<
     user = updateResult[0]
 
     // Get user's roles
-    const roleNames = await getUserRolesByCognitoSub(session.sub)
+    log.debug("Fetching user roles")
+    const roleNames = await getUserRolesByCognitoSub(userId)
+    
+    log.info("User roles retrieved", { 
+      userId: user.id,
+      roleCount: roleNames.length,
+      roles: roleNames
+    })
+    
     const roles = await Promise.all(
       roleNames.map(async name => {
         const roleResult = await getRoleByName(name)
@@ -116,13 +191,41 @@ export async function getCurrentUserAction(): Promise<
       })
     )
 
-    return {
-      isSuccess: true,
-      message: "ok",
-      data: { user, roles: roles.filter((role): role is NonNullable<typeof role> => role !== null) }
-    }
-  } catch (err) {
-    logger.error("getCurrentUserAction error", err)
-    return { isSuccess: false, message: "DB error" }
+    const validRoles = roles.filter((role): role is NonNullable<typeof role> => role !== null)
+    
+    // Log success and performance
+    const endTimer = timer
+    endTimer({ 
+      status: "success",
+      userId: user.id,
+      roleCount: validRoles.length 
+    })
+    
+    log.info("Action completed successfully", {
+      userId: user.id,
+      email: sanitizeForLogging(user.email),
+      roleCount: validRoles.length
+    })
+
+    return createSuccess(
+      { user, roles: validRoles },
+      "User information retrieved successfully"
+    )
+    
+  } catch (error) {
+    // Log failure and performance
+    const endTimer = timer
+    endTimer({ status: "error" })
+    
+    // Use the enhanced error handler with proper context
+    return handleError(error, "Failed to retrieve user information. Please try again or contact support if the issue persists.", {
+      context: "getCurrentUserAction",
+      requestId,
+      operation: "getCurrentUserAction",
+      metadata: {
+        sessionExists: !!session,
+        cognitoSub: session?.sub
+      }
+    })
   }
 } 

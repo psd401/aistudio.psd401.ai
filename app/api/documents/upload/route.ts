@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import logger from "@/lib/logger"
+import { createLogger, generateRequestId, startTimer } from "@/lib/logger"
 
 // Limit request body size to 25MB for uploads
 export const config = {
@@ -58,20 +58,26 @@ const FileSchema = z.object({
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  logger.info('[Upload API - Restore Step 1] Handler Entered');
+  const requestId = generateRequestId();
+  const timer = startTimer("api.documents.upload");
+  const log = createLogger({ requestId, route: "api.documents.upload" });
+  
+  log.info('[Upload API - Restore Step 1] Handler Entered');
   
   // Set response headers early to ensure proper content type
   const headers = {
     'Content-Type': 'application/json',
+    'X-Request-Id': requestId,
   };
   
   // Check authentication first
-  logger.info('[Upload API] Attempting getServerSession...');
+  log.info('[Upload API] Attempting getServerSession...');
   const session = await getServerSession();
-  logger.info(`[Upload API] getServerSession completed. session exists: ${!!session}`);
+  log.info(`[Upload API] getServerSession completed. session exists: ${!!session}`);
 
   if (!session) {
-    logger.info('Unauthorized - No session');
+    log.warn('Unauthorized - No session');
+    timer({ status: "error", reason: "unauthorized" });
     return new NextResponse(
       JSON.stringify({ error: 'Unauthorized' }), 
       { status: 401, headers }
@@ -80,7 +86,8 @@ export async function POST(request: NextRequest) {
   
   const currentUser = await getCurrentUserAction();
   if (!currentUser.isSuccess || !currentUser.data?.user) {
-    logger.info('Unauthorized - User not found');
+    log.warn('Unauthorized - User not found');
+    timer({ status: "error", reason: "user_not_found" });
     return new NextResponse(
       JSON.stringify({ error: 'User not found' }), 
       { status: 401, headers }
@@ -88,12 +95,12 @@ export async function POST(request: NextRequest) {
   }
   
   const userId = currentUser.data.user.id;
-  logger.info(`Current user ID: ${userId}, type: ${typeof userId}`);
+  log.debug(`Current user ID: ${userId}, type: ${typeof userId}`);
 
   // Add more checks before the main try block if needed
 
   try {
-    logger.info('[Upload API] Inside main try block');
+    log.info('[Upload API] Inside main try block');
     // --- Original logic commented out for now ---
     /*
     // Ensure documents bucket exists
@@ -117,9 +124,10 @@ export async function POST(request: NextRequest) {
     let formData;
     try {
       formData = await request.formData();
-      logger.info('[Upload API] Form data parsed');
+      log.info('[Upload API] Form data parsed');
     } catch (formError) {
-      logger.error('[Upload API] Step failed: Parsing Form Data', formError);
+      log.error('[Upload API] Step failed: Parsing Form Data', formError);
+      timer({ status: "error", reason: "form_parse_error" });
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -131,13 +139,14 @@ export async function POST(request: NextRequest) {
     
     const file = formData.get('file') as File;
     
-    logger.info('Form data received:', {
+    log.info('Form data received:', {
       fileName: file?.name,
       fileSize: file?.size
     });
     
     if (!file) {
-      logger.info('No file uploaded in form data');
+      log.warn('No file uploaded in form data');
+      timer({ status: "error", reason: "no_file" });
       return new NextResponse(
         JSON.stringify({ success: false, error: 'No file uploaded' }), 
         { status: 400, headers }
@@ -148,7 +157,8 @@ export async function POST(request: NextRequest) {
     // 1. Check file extension
     const fileExtension = `.${file.name.split('.').pop()?.toLowerCase()}`;
     if (!ALLOWED_FILE_EXTENSIONS.includes(fileExtension as typeof ALLOWED_FILE_EXTENSIONS[number])) {
-      logger.info('Unsupported file extension:', fileExtension);
+      log.warn('Unsupported file extension:', fileExtension);
+      timer({ status: "error", reason: "invalid_extension" });
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -160,7 +170,8 @@ export async function POST(request: NextRequest) {
     
     // 2. Check MIME type for additional security
     if (!ALLOWED_MIME_TYPES.includes(file.type as typeof ALLOWED_MIME_TYPES[number])) {
-      logger.info('Unsupported MIME type:', file.type);
+      log.warn('Unsupported MIME type:', file.type);
+      timer({ status: "error", reason: "invalid_mime" });
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -173,7 +184,8 @@ export async function POST(request: NextRequest) {
     // 3. Check file size
     const maxFileSize = await getMaxFileSize();
     if (file.size > maxFileSize) {
-      logger.info('File too large:', file.size, 'Max:', maxFileSize);
+      log.warn('File too large:', file.size, 'Max:', maxFileSize);
+      timer({ status: "error", reason: "file_too_large" });
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -186,7 +198,8 @@ export async function POST(request: NextRequest) {
     const validatedFile = FileSchema.safeParse({ file });
     if (!validatedFile.success) {
       const errorMessage = validatedFile.error.errors.map((error) => error.message).join(', ');
-      logger.info('File validation error:', errorMessage);
+      log.warn('File validation error:', errorMessage);
+      timer({ status: "error", reason: "validation_error" });
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -198,15 +211,16 @@ export async function POST(request: NextRequest) {
 
     // Extract file type from file name
     const fileType = getFileTypeFromFileName(file.name);
-    logger.info(`File type (using file name): ${fileType}`);
+    log.debug(`File type (using file name): ${fileType}`);
     
     // Convert File to Buffer for processing (still needed for storage and non-PDF extraction)
     let fileBuffer: Buffer;
     try {
       fileBuffer = Buffer.from(await file.arrayBuffer());
-      logger.info(`File converted to buffer, size: ${fileBuffer.length}`);
+      log.info(`File converted to buffer, size: ${fileBuffer.length}`);
     } catch (bufferError) {
-      logger.error('[Upload API] Step failed: Converting to Buffer', bufferError);
+      log.error('[Upload API] Step failed: Converting to Buffer', bufferError);
+      timer({ status: "error", reason: "buffer_conversion_error" });
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -221,7 +235,7 @@ export async function POST(request: NextRequest) {
     
     
     // Upload file to AWS S3
-    logger.info('Uploading to AWS S3...');
+    log.info('Uploading to AWS S3...');
     let uploadResult;
     try {
       uploadResult = await uploadDocument({
@@ -234,9 +248,10 @@ export async function POST(request: NextRequest) {
           uploadedBy: String(userId),
         }
       });
-      logger.info('File uploaded successfully to S3:', uploadResult);
+      log.info('File uploaded successfully to S3:', uploadResult);
     } catch (uploadError) {
-      logger.error('[Upload API] Step failed: Uploading to S3', uploadError);
+      log.error('[Upload API] Step failed: Uploading to S3', uploadError);
+      timer({ status: "error", reason: "s3_upload_error" });
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -248,21 +263,22 @@ export async function POST(request: NextRequest) {
 
     const fileUrl = uploadResult.url;
     const s3Key = uploadResult.key;
-    logger.info(`S3 key: ${s3Key}`);
-    logger.info(`Signed URL: ${fileUrl}`);
+    log.debug(`S3 key: ${s3Key}`);
+    log.debug(`Signed URL: ${fileUrl}`);
 
     // Process document content for text extraction
-    logger.info('Extracting text from document...');
+    log.info('Extracting text from document...');
     let text, metadata;
     try {
       // Use server-side extraction for all supported types
       const extracted = await extractTextFromDocument(fileBuffer, fileType);
       text = extracted.text;
       metadata = extracted.metadata;
-      logger.info(`Text extracted, length: ${text?.length ?? 0}`);
+      log.info(`Text extracted, length: ${text?.length ?? 0}`);
     } catch (extractError) {
-      logger.error('[Upload API] Step failed: Text Extraction', extractError);
-      logger.error('Error extracting text from document:', extractError);
+      log.error('[Upload API] Step failed: Text Extraction', extractError);
+      log.error('Error extracting text from document:', extractError);
+      timer({ status: "error", reason: "text_extraction_error" });
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -274,7 +290,8 @@ export async function POST(request: NextRequest) {
 
     // Ensure text is not null or undefined before proceeding
     if (text === null || text === undefined) {
-      logger.error('[Upload API] Text extraction resulted in null or undefined text.');
+      log.error('[Upload API] Text extraction resulted in null or undefined text.');
+      timer({ status: "error", reason: "no_text_extracted" });
       return new NextResponse(
         JSON.stringify({ 
           success: false, 
@@ -285,7 +302,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Save document metadata to database
-    logger.info('Saving document to database...');
+    log.info('Saving document to database...');
     let document;
     try {
       document = await saveDocument({
@@ -297,10 +314,11 @@ export async function POST(request: NextRequest) {
         url: s3Key, // Store S3 key, we'll generate signed URLs on demand
         metadata: metadata || {}, // Ensure metadata is not undefined
       });
-      logger.info(`Document saved to database: ${document.id}`);
+      log.info(`Document saved to database: ${document.id}`);
     } catch (saveError) {
-      logger.error('[Upload API] Step failed: Saving Document Metadata', saveError);
-      logger.error('Error saving document to database:', saveError);
+      log.error('[Upload API] Step failed: Saving Document Metadata', saveError);
+      log.error('Error saving document to database:', saveError);
+      timer({ status: "error", reason: "db_save_error" });
       return new NextResponse(
         JSON.stringify({ 
           success: false,
@@ -311,14 +329,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Chunk text and save to database
-    logger.info('Chunking text...');
+    log.info('Chunking text...');
     let chunks;
     try {
       chunks = chunkText(text);
-      logger.info(`Created ${chunks.length} chunks`);
+      log.info(`Created ${chunks.length} chunks`);
       
       if (chunks.length === 0) {
-        logger.warn('[Upload API] Chunking resulted in 0 chunks. Document might be empty or processing failed silently.');
+        log.warn('[Upload API] Chunking resulted in 0 chunks. Document might be empty or processing failed silently.');
         // Proceed to save document metadata but skip saving chunks
       } else {
         const documentChunks = chunks.map((chunk, index) => ({
@@ -328,13 +346,14 @@ export async function POST(request: NextRequest) {
           metadata: { position: index }, // Simple metadata for chunk
         }));
 
-        logger.info('Saving chunks to database...');
+        log.info('Saving chunks to database...');
         const savedChunks = await batchInsertDocumentChunks(documentChunks);
-        logger.info(`Saved ${savedChunks.length} chunks to database`);
+        log.info(`Saved ${savedChunks.length} chunks to database`);
       }
     } catch (chunkError) {
-      logger.error('[Upload API] Step failed: Chunking/Saving Chunks', chunkError);
-      logger.error('Error processing or saving chunks:', chunkError);
+      log.error('[Upload API] Step failed: Chunking/Saving Chunks', chunkError);
+      log.error('Error processing or saving chunks:', chunkError);
+      timer({ status: "error", reason: "chunk_processing_error" });
       // Attempt to clean up the document record if chunk saving fails?
       // await deleteDocumentById({ id: document.id }); // Optional cleanup
       return new NextResponse(
@@ -349,6 +368,12 @@ export async function POST(request: NextRequest) {
     // Verification happens when linked via chat API
 
     // Return the correct, full response object
+    log.info('Document uploaded successfully', { 
+      documentId: document.id, 
+      chunks: chunks?.length ?? 0 
+    });
+    timer({ status: "success" });
+    
     return new NextResponse(
       JSON.stringify({
         success: true,
@@ -365,8 +390,9 @@ export async function POST(request: NextRequest) {
     );
       
   } catch (error) {
-    logger.error('[Upload API] General Error in POST handler (Restore Step 1):', error);
-    logger.error('Detailed Error:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    timer({ status: "error" });
+    log.error('[Upload API] General Error in POST handler (Restore Step 1):', error);
+    log.error('Detailed Error:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     return new NextResponse(
       JSON.stringify({ 
         success: false, 

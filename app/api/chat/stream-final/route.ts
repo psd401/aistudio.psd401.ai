@@ -9,7 +9,7 @@ import { getCurrentUserAction } from "@/actions/db/get-current-user-action";
 import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter";
 import { SelectDocument } from "@/types/db-types";
 import { Settings } from "@/lib/settings-manager";
-import logger from "@/lib/logger";
+import { createLogger, generateRequestId, startTimer } from "@/lib/logger";
 import { ensureRDSString, ensureRDSNumber } from "@/lib/type-helpers";
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents";
 import { contextMonitor } from "@/lib/monitoring/context-loading-monitor";
@@ -17,9 +17,11 @@ import { retrieveKnowledgeForPrompt, formatKnowledgeContext } from "@/lib/assist
 
 // Helper function to load complete execution context
 async function loadExecutionContext(execId: number) {
+  const log = createLogger({ requestId: 'exec-context', route: 'api.chat.stream-final' });
+  
   // CRITICAL SAFEGUARD: Validate execution ID
   if (!execId || isNaN(execId) || execId <= 0) {
-    logger.error('[stream-final] Invalid execution ID provided to loadExecutionContext:', { execId });
+    log.error('Invalid execution ID provided to loadExecutionContext', { execId });
     return null;
   }
   
@@ -107,7 +109,8 @@ async function loadExecutionContext(execId: number) {
         
         // SAFEGUARD: Log if we find empty contexts
         if (!context || String(context).trim() === '') {
-          logger.warn(`[stream-final] Empty system_context found for chain prompt at index ${index}`);
+          const log = createLogger({ requestId: 'exec-context', route: 'api.chat.stream-final' });
+          log.warn('Empty system_context found for chain prompt', { index });
         }
         
         return String(context);
@@ -116,7 +119,7 @@ async function loadExecutionContext(execId: number) {
     
     // SAFEGUARD: Alert if no system contexts found when we expect them
     if (systemContexts.length === 0 && allChainPrompts.length > 0) {
-      logger.error('[stream-final] WARNING: No system contexts found despite having chain prompts!', {
+      log.error('[stream-final] WARNING: No system contexts found despite having chain prompts!', {
         chainPromptsCount: allChainPrompts.length,
         firstPromptKeys: allChainPrompts[0] ? Object.keys(allChainPrompts[0]) : []
       });
@@ -194,7 +197,7 @@ Use ALL of this information to answer questions accurately. When asked about spe
     
     // SAFEGUARD: Warn if context seems incomplete
     if (!contextValidation.hasMinimumContent || !contextValidation.hasSystemContexts) {
-      logger.warn('[stream-final] Context may be incomplete!', contextValidation);
+      log.warn('[stream-final] Context may be incomplete!', contextValidation);
     }
     
     // SAFEGUARD: Track metrics for monitoring
@@ -220,7 +223,7 @@ Use ALL of this information to answer questions accurately. When asked about spe
     };
   } catch (error) {
     // SAFEGUARD: Detailed error logging
-    logger.error('[stream-final] Error loading execution context:', {
+    log.error('[stream-final] Error loading execution context:', {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
       executionId: execId
@@ -236,9 +239,17 @@ Use ALL of this information to answer questions accurately. When asked about spe
   }
 }
 export async function POST(req: Request) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.chat.stream-final");
+  const log = createLogger({ requestId, route: "api.chat.stream-final" });
+  
+  log.info("POST /api/chat/stream-final - Processing streaming chat request");
+  
   try {
     const session = await getServerSession();
     if (!session) {
+      log.warn("Unauthorized - No session");
+      timer({ status: "error", reason: "unauthorized" });
       return new Response('Unauthorized', { status: 401 });
     }
 
@@ -309,7 +320,7 @@ export async function POST(req: Request) {
     
     // SAFEGUARD: Reject 'streaming' or other invalid values immediately
     if (executionId === 'streaming' || executionId === 'undefined' || executionId === 'null') {
-      logger.error('[stream-final] Invalid executionId received:', { executionId, type: typeof executionId });
+      log.error('[stream-final] Invalid executionId received:', { executionId, type: typeof executionId });
       execIdToUse = null;
     }
     
@@ -326,7 +337,7 @@ export async function POST(req: Request) {
         // Context loaded successfully
       } else {
         // SAFEGUARD: Critical error if context loading fails
-        logger.error('[stream-final] CRITICAL: Failed to load execution context for valid executionId!', {
+        log.error('[stream-final] CRITICAL: Failed to load execution context for valid executionId!', {
           executionId: execIdToUse
         });
       }
@@ -400,11 +411,11 @@ export async function POST(req: Request) {
       break;
     }
     case 'amazon-bedrock': {
-      logger.info('[stream-final] Starting Bedrock initialization for model:', aiModel.modelId);
+      log.info('[stream-final] Starting Bedrock initialization for model:', aiModel.modelId);
       
       try {
         const config = await Settings.getBedrock();
-        logger.info('[stream-final] Bedrock settings retrieved:', {
+        log.info('[stream-final] Bedrock settings retrieved:', {
           hasAccessKey: !!config.accessKeyId,
           hasSecretKey: !!config.secretAccessKey,
           region: config.region || 'us-east-1',
@@ -421,17 +432,17 @@ export async function POST(req: Request) {
         
         if (config.accessKeyId && config.secretAccessKey && !isAwsLambda) {
           // Only use stored credentials for local development
-          logger.info('[stream-final] Using explicit credentials from settings (local dev)');
+          log.info('[stream-final] Using explicit credentials from settings (local dev)');
           bedrockOptions.accessKeyId = config.accessKeyId;
           bedrockOptions.secretAccessKey = config.secretAccessKey;
         } else {
           // AWS environment or no stored credentials - let SDK handle credentials automatically
-          logger.info('[stream-final] Using default AWS credential chain', { isAwsLambda });
+          log.info('[stream-final] Using default AWS credential chain', { isAwsLambda });
           // Don't set any credentials - let the SDK use the default credential provider chain
           // This will use IAM role credentials in Lambda, which work properly
         }
         
-        logger.info('[stream-final] Creating Bedrock client with options:', {
+        log.info('[stream-final] Creating Bedrock client with options:', {
           region: bedrockOptions.region,
           hasAccessKeyId: !!bedrockOptions.accessKeyId,
           hasSecretAccessKey: !!bedrockOptions.secretAccessKey,
@@ -441,9 +452,9 @@ export async function POST(req: Request) {
         const bedrock = createAmazonBedrock(bedrockOptions);
         model = bedrock(ensureRDSString(aiModel.modelId));
         
-        logger.info('[stream-final] Bedrock model created successfully');
+        log.info('[stream-final] Bedrock model created successfully');
       } catch (error) {
-        logger.error('[stream-final] BEDROCK INITIALIZATION FAILED:', {
+        log.error('[stream-final] BEDROCK INITIALIZATION FAILED:', {
           modelId: aiModel.modelId,
           provider: aiModel.provider,
           error: error instanceof Error ? {
@@ -472,7 +483,7 @@ export async function POST(req: Request) {
       throw new Error(`Unknown provider: ${ensureRDSString(aiModel.provider)}`);
     }
   } catch (modelError) {
-    logger.error('[stream-final] Model initialization error:', modelError);
+    log.error('[stream-final] Model initialization error:', modelError);
     throw new Error(`Failed to initialize model: ${modelError instanceof Error ? modelError.message : 'Unknown error'}`);
   }
 
@@ -565,13 +576,13 @@ export async function POST(req: Request) {
         // Include relevant chunks in context
       } else if (allDocumentChunks.length === 0 && documents.length > 0) {
         documentContext = `\n\nNote: A document was uploaded but its content could not be extracted or is still being processed. The document name is: ${documents.map(d => d.name).join(", ")}`;
-        logger.warn(`Document exists but no chunks found for documents: ${documents.map(d => d.id).join(", ")}`);
+        log.warn(`Document exists but no chunks found for documents: ${documents.map(d => d.id).join(", ")}`);
       } else {
         // No relevant chunks found
       }
     }
   } catch (docError) {
-    logger.error("Error fetching document context", { 
+    log.error("Error fetching document context", { 
       error: docError instanceof Error ? docError.message : String(docError),
       conversationId: conversationId,
       documentId
@@ -621,7 +632,7 @@ IMPORTANT: You have access to ALL the information above. Use it to answer questi
             }
           }
         } catch (parseError) {
-          logger.warn('Failed to parse conversation context', { 
+          log.warn('Failed to parse conversation context', { 
             conversationId: parsedConvId,
             error: parseError instanceof Error ? parseError.message : 'Unknown error' 
           });
@@ -689,10 +700,10 @@ IMPORTANT: You have access to ALL the information above. Use it to answer questi
       
       if (knowledgeChunks.length > 0) {
         knowledgeContext = `\n\n${formatKnowledgeContext(knowledgeChunks)}\n\nUse this knowledge to answer the user's question if relevant.`;
-        logger.info(`Retrieved ${knowledgeChunks.length} knowledge chunks for follow-up conversation`);
+        log.info(`Retrieved ${knowledgeChunks.length} knowledge chunks for follow-up conversation`);
       }
     } catch (knowledgeError) {
-      logger.error('Error retrieving knowledge for follow-up:', knowledgeError);
+      log.error('Error retrieving knowledge for follow-up:', knowledgeError);
       // Continue without dynamic knowledge retrieval
     }
   }
@@ -752,24 +763,29 @@ Use all this information to provide accurate and helpful responses about both wh
         );
         // Assistant response saved
       } catch (error) {
-        logger.error('[stream-final] Error saving response:', error);
+        log.error('[stream-final] Error saving response:', error);
       }
     }
   });
 
   // Return the stream with conversation ID in header
+  log.info("Stream started successfully", { conversationId });
+  timer({ status: "success", conversationId });
+  
   return result.toDataStreamResponse({
     headers: {
-      'X-Conversation-Id': conversationId.toString()
+      'X-Conversation-Id': conversationId.toString(),
+      'X-Request-Id': requestId
     }
   });
   } catch (error) {
-    logger.error('[stream-final] Error in chat stream:', error);
+    timer({ status: "error" });
+    log.error('Error in chat stream', error);
     
     // Return a proper error response for non-streaming errors
     // Check if this is a critical error that should stop execution
     if (error instanceof Error && error.message.includes('Model not found')) {
-      return new Response('Model not found', { status: 404 });
+      return new Response('Model not found', { status: 404, headers: { 'X-Request-Id': requestId } });
     }
     
     // For other errors, try to continue with streaming if possible

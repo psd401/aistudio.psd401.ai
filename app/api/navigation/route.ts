@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "@/lib/auth/server-session"
 import { getNavigationItems as getNavigationItemsViaDataAPI } from "@/lib/db/data-api-adapter"
-import logger from '@/lib/logger';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 
 /**
  * Navigation API
@@ -31,16 +31,26 @@ import logger from '@/lib/logger';
  * }
  */
 export async function GET() {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.navigation");
+  const log = createLogger({ requestId, route: "api.navigation" });
+  
+  log.info("GET /api/navigation - Fetching navigation items");
+  
   try {
     // Check if user is authenticated using NextAuth
     const session = await getServerSession()
     
     if (!session) {
+      log.warn("Unauthorized access attempt to navigation");
+      timer({ status: "error", reason: "unauthorized" });
       return NextResponse.json(
         { isSuccess: false, message: "Unauthorized" },
-        { status: 401 }
+        { status: 401, headers: { "X-Request-Id": requestId } }
       )
     }
+    
+    log.debug("User authenticated", { userId: session.sub });
     
     // Check if Data API is configured
     const missingEnvVars = [];
@@ -56,7 +66,7 @@ export async function GET() {
     if (!region) missingEnvVars.push('NEXT_PUBLIC_AWS_REGION');
     
     if (missingEnvVars.length > 0) {
-      logger.error("Missing required environment variables:", {
+      log.error("Missing required environment variables:", {
         missing: missingEnvVars,
         RDS_RESOURCE_ARN: process.env.RDS_RESOURCE_ARN ? 'set' : 'missing',
         RDS_SECRET_ARN: process.env.RDS_SECRET_ARN ? 'set' : 'missing',
@@ -67,6 +77,7 @@ export async function GET() {
           k.includes('AWS') || k.includes('RDS')).join(', ')
       });
       
+      timer({ status: "error", reason: "missing_config" });
       return NextResponse.json(
         {
           isSuccess: false,
@@ -77,7 +88,7 @@ export async function GET() {
               k.includes('AWS') || k.includes('RDS'))
           } : undefined
         },
-        { status: 500 }
+        { status: 500, headers: { "X-Request-Id": requestId } }
       )
     }
     
@@ -99,13 +110,19 @@ export async function GET() {
         color: null // This column doesn't exist in the current table
       }))
 
-      return NextResponse.json({
-        isSuccess: true,
-        data: formattedNavItems
-      })
+      log.info("Navigation items retrieved successfully", { count: formattedNavItems.length });
+      timer({ status: "success", count: formattedNavItems.length });
+      
+      return NextResponse.json(
+        {
+          isSuccess: true,
+          data: formattedNavItems
+        },
+        { headers: { "X-Request-Id": requestId } }
+      )
       
     } catch (error) {
-      logger.error("Data API error:", error);
+      log.error("Data API error:", error);
       
       // Enhanced error logging for debugging
       interface ErrorDetails {
@@ -139,8 +156,9 @@ export async function GET() {
         }
       }
       
-      logger.error("Enhanced error details:", errorDetails);
+      log.error("Enhanced error details:", errorDetails);
       
+      timer({ status: "error", reason: "data_api_error" });
       return NextResponse.json(
         {
           isSuccess: false,
@@ -148,15 +166,16 @@ export async function GET() {
           error: error instanceof Error ? error.message : "Unknown error",
           debug: process.env.NODE_ENV !== 'production' ? errorDetails : undefined
         },
-        { status: 500 }
+        { status: 500, headers: { "X-Request-Id": requestId } }
       )
     }
     
   } catch (error) {
-    logger.error("Error in navigation API:", error)
+    timer({ status: "error" });
+    log.error("Error in navigation API:", error)
     // Log more details about the error
     if (error instanceof Error) {
-      logger.error("Outer error details:", {
+      log.error("Outer error details:", {
         name: error.name,
         message: error.message,
         stack: error.stack?.split('\n').slice(0, 5).join('\n')
@@ -167,7 +186,7 @@ export async function GET() {
         isSuccess: false,
         message: error instanceof Error ? error.message : "Failed to fetch navigation"
       },
-      { status: 500 }
+      { status: 500, headers: { "X-Request-Id": requestId } }
     )
   }
 } 

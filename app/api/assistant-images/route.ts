@@ -3,17 +3,26 @@
 import { NextResponse } from "next/server"
 import fs from "fs"
 import path from "path"
-import logger from "@/lib/logger"
+import { createLogger, generateRequestId, startTimer } from "@/lib/logger"
 
 export async function GET() {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.assistant-images.list");
+  const log = createLogger({ requestId, route: "api.assistant-images" });
+  
+  log.info("GET /api/assistant-images - Fetching assistant images");
+  
   try {
     const imagesDir = path.join(process.cwd(), "public", "assistant_logos")
     const files = fs.readdirSync(imagesDir)
     const images = files.filter(file => file.endsWith(".png"))
     
-    return NextResponse.json({ images })
+    log.info("Assistant images fetched", { count: images.length });
+    timer({ status: "success", count: images.length });
+    return NextResponse.json({ images }, { headers: { "X-Request-Id": requestId } })
   } catch (error) {
-    logger.error("Error reading assistant images:", error)
-    return NextResponse.json({ error: "Failed to load images" }, { status: 500 })
+    timer({ status: "error" });
+    log.error("Error reading assistant images", error)
+    return NextResponse.json({ error: "Failed to load images" }, { status: 500, headers: { "X-Request-Id": requestId } })
   }
 } 

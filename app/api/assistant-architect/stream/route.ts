@@ -1,7 +1,7 @@
 import { getServerSession } from "@/lib/auth/server-session";
 import { executeSQL } from "@/lib/db/data-api-adapter";
 import { streamCompletion } from "@/lib/ai-helpers";
-import logger from "@/lib/logger";
+import { createLogger, generateRequestId, startTimer } from "@/lib/logger";
 import { rateLimit } from "@/lib/rate-limit";
 import { NextRequest } from 'next/server';
 
@@ -38,20 +38,28 @@ const limiter = rateLimit({
 });
 
 export async function POST(req: NextRequest) {
-  logger.info('[STREAM] Route handler called');
+  const requestId = generateRequestId();
+  const timer = startTimer("api.assistant-architect.stream");
+  const log = createLogger({ requestId, route: "api.assistant-architect.stream" });
+  
+  log.info('POST /api/assistant-architect/stream - Processing stream request');
   
   // Apply rate limiting
   const rateLimitResponse = await limiter(req);
   if (rateLimitResponse) {
+    log.warn("Rate limit exceeded");
+    timer({ status: "error", reason: "rate_limited" });
     return rateLimitResponse;
   }
 
   const session = await getServerSession();
   if (!session) {
-    return new Response('Unauthorized', { status: 401 });
+    log.warn("Unauthorized - No session");
+    timer({ status: "error", reason: "unauthorized" });
+    return new Response('Unauthorized', { status: 401, headers: { 'X-Request-Id': requestId } });
   }
 
-  logger.info('[STREAM] Session authenticated:', session.sub);
+  log.debug('Session authenticated', { sub: session.sub });
 
   try {
     const { toolId, executionId, inputs }: StreamRequest = await req.json();
@@ -72,7 +80,9 @@ export async function POST(req: NextRequest) {
     ]);
 
     if (!toolResult.length) {
-      return new Response('Tool not found or you do not have access', { status: 404 });
+      log.warn("Tool not found or access denied", { toolId });
+      timer({ status: "error", reason: "tool_not_found" });
+      return new Response('Tool not found or you do not have access', { status: 404, headers: { 'X-Request-Id': requestId } });
     }
 
     const tool = toolResult[0] as { id: number; name: string; description: string; status: string; userId: number };
@@ -105,7 +115,9 @@ export async function POST(req: NextRequest) {
 
 
     if (!prompts.length) {
-      return new Response('No prompts configured for this tool', { status: 400 });
+      log.warn("No prompts configured for tool", { toolId });
+      timer({ status: "error", reason: "no_prompts" });
+      return new Response('No prompts configured for this tool', { status: 400, headers: { 'X-Request-Id': requestId } });
     }
 
     // Get tool executions record and check if it's already being processed
@@ -119,12 +131,16 @@ export async function POST(req: NextRequest) {
     const executionResult = executionResultRaw as Array<{ id: number; status: string }>;
 
     if (!executionResult.length) {
-      return new Response('Execution not found', { status: 404 });
+      log.warn("Execution not found", { executionId });
+      timer({ status: "error", reason: "execution_not_found" });
+      return new Response('Execution not found', { status: 404, headers: { 'X-Request-Id': requestId } });
     }
 
     // Check if execution is already completed or failed
     if (executionResult[0].status === 'completed' || executionResult[0].status === 'failed') {
-      return new Response('Execution has already been processed', { status: 409 });
+      log.warn("Execution already processed", { executionId, status: executionResult[0].status });
+      timer({ status: "error", reason: "already_processed" });
+      return new Response('Execution has already been processed', { status: 409, headers: { 'X-Request-Id': requestId } });
     }
 
     // If execution is pending, we need to mark it as running
@@ -141,14 +157,15 @@ export async function POST(req: NextRequest) {
           ]
         );
       } catch (error) {
-        logger.error('Failed to mark execution as running:', error);
+        log.error('Failed to mark execution as running', error);
         // If we can't update the status, it might have been updated by another process
         // Continue anyway
       }
     } else if (executionResult[0].status !== 'running') {
       // If it's not pending or running, something is wrong
-      logger.error(`Unexpected execution status: ${executionResult[0].status} for execution ${executionId}`);
-      return new Response('Execution is in an invalid state', { status: 400 });
+      log.error('Unexpected execution status', { status: executionResult[0].status, executionId });
+      timer({ status: "error", reason: "invalid_state" });
+      return new Response('Execution is in an invalid state', { status: 400, headers: { 'X-Request-Id': requestId } });
     }
 
     // Create a ReadableStream for the response
@@ -186,7 +203,7 @@ export async function POST(req: NextRequest) {
               let processedPrompt = prompt.content;
               
               if (!processedPrompt) {
-                logger.error(`[STREAM] Prompt content is empty for prompt ${i + 1}`);
+                log.error(`[STREAM] Prompt content is empty for prompt ${i + 1}`);
                 throw new Error('Prompt content is empty');
               }
               
@@ -245,7 +262,7 @@ export async function POST(req: NextRequest) {
               
               // Notify user if parsing failed but repositoryIds was provided
               if (prompt.repositoryIds && repositoryIds.length === 0) {
-                logger.warn('Repository IDs provided but parsing resulted in empty array:', {
+                log.warn('Repository IDs provided but parsing resulted in empty array:', {
                   promptId: prompt.id,
                   promptName: prompt.name,
                   originalValue: prompt.repositoryIds
@@ -298,10 +315,10 @@ export async function POST(req: NextRequest) {
 
                   if (knowledgeChunks.length > 0) {
                     knowledgeContext = formatKnowledgeContext(knowledgeChunks);
-                    logger.info(`Retrieved ${knowledgeChunks.length} knowledge chunks for prompt ${prompt.id}`);
+                    log.info(`Retrieved ${knowledgeChunks.length} knowledge chunks for prompt ${prompt.id}`);
                   }
                 } catch (knowledgeError) {
-                  logger.error('Error retrieving knowledge:', knowledgeError);
+                  log.error('Error retrieving knowledge:', knowledgeError);
                   // Continue without knowledge - don't fail the entire prompt
                 }
               }
@@ -333,7 +350,7 @@ export async function POST(req: NextRequest) {
               
               const modelLimit = MODEL_CONTEXT_LIMITS[prompt.modelId] || 8192; // default to conservative limit
               if (approximateTokens > modelLimit * 0.8) { // Warn at 80% of limit
-                logger.warn(`Combined context approaching model limit for prompt ${prompt.id}:`, {
+                log.warn(`Combined context approaching model limit for prompt ${prompt.id}:`, {
                   approximateTokens,
                   modelLimit,
                   promptName: prompt.name,
@@ -362,7 +379,7 @@ export async function POST(req: NextRequest) {
               
               // Check if model config is valid
               if (!prompt.provider || !prompt.modelId) {
-                logger.error(`[STREAM] Invalid model config - Provider: ${prompt.provider}, Model ID: ${prompt.modelId}`);
+                log.error(`[STREAM] Invalid model config - Provider: ${prompt.provider}, Model ID: ${prompt.modelId}`);
                 throw new Error('Invalid model configuration');
               }
               
@@ -422,7 +439,7 @@ export async function POST(req: NextRequest) {
               
               // If no response was generated, log error
               if (!fullResponse) {
-                logger.error(`[STREAM] No response generated for prompt ${i + 1}`);
+                log.error(`[STREAM] No response generated for prompt ${i + 1}`);
                 throw new Error('No response generated from AI model');
               }
 
@@ -436,12 +453,12 @@ export async function POST(req: NextRequest) {
               ));
               
               } catch (streamError) {
-                logger.error(`[STREAM] Error during streaming:`, streamError);
+                log.error(`[STREAM] Error during streaming:`, streamError);
                 throw streamError;
               }
 
             } catch (promptError) {
-              logger.error('Error executing prompt:', promptError);
+              log.error('Error executing prompt:', promptError);
               
               // Update prompt result status to failed if we have an ID
               if (typeof promptResultId !== 'undefined') {
@@ -458,7 +475,7 @@ export async function POST(req: NextRequest) {
                     ]
                   );
                 } catch (updateError) {
-                  logger.error('Failed to update prompt result status:', updateError);
+                  log.error('Failed to update prompt result status:', updateError);
                 }
               }
               
@@ -498,7 +515,7 @@ export async function POST(req: NextRequest) {
           controller.close();
 
         } catch (error) {
-          logger.error('Stream error:', error);
+          log.error('Stream error:', error);
           
           // Mark execution as failed
           await executeSQL(
@@ -539,8 +556,8 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error) {
-    logger.error('API error:', error);
-    logger.error('[STREAM] Full error:', error);
+    log.error('API error:', error);
+    log.error('[STREAM] Full error:', error);
     return new Response(
       JSON.stringify({ 
         error: error instanceof Error ? error.message : 'Internal server error',
