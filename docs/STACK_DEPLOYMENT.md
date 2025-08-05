@@ -34,32 +34,43 @@ Current parameters:
 ## Deployment Order
 
 ### Initial Deployment
-For a fresh deployment, stacks should be deployed in this order:
+For a fresh deployment, use the all-in-one command:
 
-1. **AuthStack** - No dependencies
+```bash
+# Deploy all stacks with required parameters
+npx cdk deploy --all \
+  --parameters AIStudio-AuthStack-Dev:GoogleClientId=YOUR_GOOGLE_CLIENT_ID \
+  --context baseDomain=aistudio.psd401.ai
+
+# Or use the helper script
+./deploy-dev.sh YOUR_GOOGLE_CLIENT_ID aistudio.psd401.ai
+```
+
+If deploying stacks individually, follow this order:
+
+1. **DatabaseStack & StorageStack** - No dependencies, can deploy in parallel
    ```bash
-   cdk deploy AIStudio-AuthStack-Dev --context baseDomain=aistudio.psd401.ai
+   npx cdk deploy AIStudio-DatabaseStack-Dev AIStudio-StorageStack-Dev
    ```
 
-2. **DatabaseStack** - No dependencies
+2. **AuthStack** - Requires GoogleClientId parameter
    ```bash
-   cdk deploy AIStudio-DatabaseStack-Dev --context baseDomain=aistudio.psd401.ai
+   npx cdk deploy AIStudio-AuthStack-Dev \
+     --parameters AIStudio-AuthStack-Dev:GoogleClientId=YOUR_GOOGLE_CLIENT_ID \
+     --context baseDomain=aistudio.psd401.ai
    ```
 
-3. **StorageStack** - No dependencies
+3. **ProcessingStack** - Depends on SSM parameters from Database and Storage
    ```bash
-   cdk deploy AIStudio-StorageStack-Dev --context baseDomain=aistudio.psd401.ai
+   npx cdk deploy AIStudio-ProcessingStack-Dev
    ```
 
-4. **ProcessingStack** - Depends on SSM parameters from Database and Storage
+4. **FrontendStack** - Depends on SSM parameter from Storage, requires baseDomain
    ```bash
-   cdk deploy AIStudio-ProcessingStack-Dev --context baseDomain=aistudio.psd401.ai
+   npx cdk deploy AIStudio-FrontendStack-Dev --context baseDomain=aistudio.psd401.ai
    ```
 
-5. **FrontendStack** - Depends on SSM parameter from Storage
-   ```bash
-   cdk deploy AIStudio-FrontendStack-Dev --context baseDomain=aistudio.psd401.ai
-   ```
+For complete command reference, see `/infra/DEPLOYMENT_COMMANDS.md`
 
 ### Subsequent Deployments
 After initial deployment, any stack can be deployed independently:
