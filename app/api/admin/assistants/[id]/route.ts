@@ -6,41 +6,63 @@ import {
   approveAssistantArchitect,
   rejectAssistantArchitect
 } from "@/lib/db/data-api-adapter"
-import logger from '@/lib/logger'
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger'
 
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.admin.assistants.id.update");
+  const log = createLogger({ requestId, route: "api.admin.assistants.[id]" });
+  
+  const resolvedParams = await params
+  const { id } = resolvedParams
+  
+  log.info("PUT /api/admin/assistants/[id] - Updating assistant", { assistantId: id });
+  
   try {
     // Check admin authorization
     const authError = await requireAdmin();
-    if (authError) return authError;
+    if (authError) {
+      log.warn("Unauthorized admin access attempt");
+      timer({ status: "error", reason: "unauthorized" });
+      return authError;
+    }
 
     const body = await request.json()
-    const resolvedParams = await params
-    const { id } = resolvedParams
+    
+    log.debug("Updating assistant details", { assistantId: id, updates: body });
     
     const assistantId = parseInt(id, 10)
     if (isNaN(assistantId)) {
+      log.warn("Invalid assistant ID format", { id });
+      timer({ status: "error", reason: "invalid_id" });
       return NextResponse.json(
         { isSuccess: false, message: 'Invalid assistant ID' },
-        { status: 400 }
+        { status: 400, headers: { "X-Request-Id": requestId } }
       )
     }
 
     const assistant = await updateAssistantArchitect(assistantId, body)
 
-    return NextResponse.json({
-      isSuccess: true,
-      message: 'Assistant updated successfully',
-      data: assistant
-    })
+    log.info("Assistant updated successfully", { assistantId });
+    timer({ status: "success" });
+    
+    return NextResponse.json(
+      {
+        isSuccess: true,
+        message: 'Assistant updated successfully',
+        data: assistant
+      },
+      { headers: { "X-Request-Id": requestId } }
+    )
   } catch (error) {
-    logger.error('Error updating assistant:', error)
+    timer({ status: "error" });
+    log.error('Error updating assistant:', error)
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to update assistant' },
-      { status: 500 }
+      { status: 500, headers: { "X-Request-Id": requestId } }
     )
   }
 }
@@ -49,33 +71,52 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.admin.assistants.id.delete");
+  const log = createLogger({ requestId, route: "api.admin.assistants.[id]" });
+  
+  const resolvedParams = await params
+  const { id } = resolvedParams
+  
+  log.info("DELETE /api/admin/assistants/[id] - Deleting assistant", { assistantId: id });
+  
   try {
     // Check admin authorization
     const authError = await requireAdmin();
-    if (authError) return authError;
-
-    const resolvedParams = await params
-    const { id } = resolvedParams
+    if (authError) {
+      log.warn("Unauthorized admin access attempt");
+      timer({ status: "error", reason: "unauthorized" });
+      return authError;
+    }
     
     const assistantId = parseInt(id, 10)
     if (isNaN(assistantId)) {
+      log.warn("Invalid assistant ID format", { id });
+      timer({ status: "error", reason: "invalid_id" });
       return NextResponse.json(
         { isSuccess: false, message: 'Invalid assistant ID' },
-        { status: 400 }
+        { status: 400, headers: { "X-Request-Id": requestId } }
       )
     }
 
     await deleteAssistantArchitect(assistantId)
 
-    return NextResponse.json({
-      isSuccess: true,
-      message: 'Assistant deleted successfully'
-    })
+    log.info("Assistant deleted successfully", { assistantId });
+    timer({ status: "success" });
+    
+    return NextResponse.json(
+      {
+        isSuccess: true,
+        message: 'Assistant deleted successfully'
+      },
+      { headers: { "X-Request-Id": requestId } }
+    )
   } catch (error) {
-    logger.error('Error deleting assistant:', error)
+    timer({ status: "error" });
+    log.error('Error deleting assistant:', error)
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to delete assistant' },
-      { status: 500 }
+      { status: 500, headers: { "X-Request-Id": requestId } }
     )
   }
 }
@@ -84,49 +125,77 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.admin.assistants.id.action");
+  const log = createLogger({ requestId, route: "api.admin.assistants.[id]" });
+  
+  const resolvedParams = await params
+  const { id } = resolvedParams
+  
+  log.info("POST /api/admin/assistants/[id] - Processing assistant action", { assistantId: id });
+  
   try {
     // Check admin authorization
     const authError = await requireAdmin();
-    if (authError) return authError;
+    if (authError) {
+      log.warn("Unauthorized admin access attempt");
+      timer({ status: "error", reason: "unauthorized" });
+      return authError;
+    }
 
     const body = await request.json()
-    const resolvedParams = await params
-    const { id } = resolvedParams
+    
+    log.debug("Assistant action", { assistantId: id, action: body.action });
     
     const assistantId = parseInt(id, 10)
     if (isNaN(assistantId)) {
+      log.warn("Invalid assistant ID format", { id });
+      timer({ status: "error", reason: "invalid_id" });
       return NextResponse.json(
         { isSuccess: false, message: 'Invalid assistant ID' },
-        { status: 400 }
+        { status: 400, headers: { "X-Request-Id": requestId } }
       )
     }
 
     if (body.action === 'approve') {
       const result = await approveAssistantArchitect(assistantId)
-      return NextResponse.json({
-        isSuccess: true,
-        message: 'Assistant approved successfully',
-        data: result
-      })
+      log.info("Assistant approved", { assistantId });
+      timer({ status: "success", action: "approve" });
+      return NextResponse.json(
+        {
+          isSuccess: true,
+          message: 'Assistant approved successfully',
+          data: result
+        },
+        { headers: { "X-Request-Id": requestId } }
+      )
     }
 
     if (body.action === 'reject') {
       await rejectAssistantArchitect(assistantId)
-      return NextResponse.json({
-        isSuccess: true,
-        message: 'Assistant rejected successfully'
-      })
+      log.info("Assistant rejected", { assistantId });
+      timer({ status: "success", action: "reject" });
+      return NextResponse.json(
+        {
+          isSuccess: true,
+          message: 'Assistant rejected successfully'
+        },
+        { headers: { "X-Request-Id": requestId } }
+      )
     }
 
+    log.warn("Invalid action provided", { action: body.action });
+    timer({ status: "error", reason: "invalid_action" });
     return NextResponse.json(
       { isSuccess: false, message: 'Invalid action' },
-      { status: 400 }
+      { status: 400, headers: { "X-Request-Id": requestId } }
     )
   } catch (error) {
-    logger.error('Error processing assistant action:', error)
+    timer({ status: "error" });
+    log.error('Error processing assistant action:', error)
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to process action' },
-      { status: 500 }
+      { status: 500, headers: { "X-Request-Id": requestId } }
     )
   }
 }

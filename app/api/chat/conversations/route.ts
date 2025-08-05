@@ -1,12 +1,22 @@
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 import { executeSQL } from "@/lib/db/data-api-adapter"
-import logger from '@/lib/logger';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 
 export async function GET() {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.chat.conversations.list");
+  const log = createLogger({ requestId, route: "api.chat.conversations" });
+  
+  log.info("GET /api/chat/conversations - Fetching user conversations");
+  
   const currentUser = await getCurrentUserAction()
   if (!currentUser.isSuccess) {
+    log.warn("Unauthorized access attempt to conversations");
+    timer({ status: "error", reason: "unauthorized" });
     return new Response("Unauthorized", { status: 401 })
   }
+  
+  log.debug("User authenticated", { userId: currentUser.data.user.id });
 
   try {
     const query = `
@@ -22,22 +32,45 @@ export async function GET() {
     
     const conversations = await executeSQL(query, parameters);
 
+    log.info("Conversations retrieved successfully", { count: conversations.length });
+    timer({ status: "success", count: conversations.length });
+
     return new Response(JSON.stringify(conversations), {
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "X-Request-Id": requestId
+      },
     })
   } catch (error) {
-    logger.error("Error fetching conversations:", error)
+    timer({ status: "error" });
+    log.error("Error fetching conversations:", error)
     return new Response("Internal Server Error", { status: 500 })
   }
 }
 
 export async function POST(req: Request) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.chat.conversations.create");
+  const log = createLogger({ requestId, route: "api.chat.conversations" });
+  
+  log.info("POST /api/chat/conversations - Creating new conversation");
+  
   const currentUser = await getCurrentUserAction()
   if (!currentUser.isSuccess) {
+    log.warn("Unauthorized conversation creation attempt");
+    timer({ status: "error", reason: "unauthorized" });
     return new Response("Unauthorized", { status: 401 })
   }
+  
+  log.debug("User authenticated", { userId: currentUser.data.user.id });
 
   const body = await req.json()
+  
+  log.debug("Creating conversation", { 
+    title: body.title, 
+    source: body.source,
+    hasExecutionId: !!body.executionId 
+  });
 
   try {
     const insertQuery = `
@@ -57,12 +90,19 @@ export async function POST(req: Request) {
     const result = await executeSQL(insertQuery, insertParams);
     const conversation = result[0];
 
+    log.info("Conversation created successfully", { conversationId: conversation.id });
+    timer({ status: "success", conversationId: conversation.id });
+
     return new Response(JSON.stringify(conversation), {
       status: 201,
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "X-Request-Id": requestId
+      },
     })
   } catch (error) {
-    logger.error("Error creating conversation:", error)
+    timer({ status: "error" });
+    log.error("Error creating conversation:", error)
     return new Response("Internal Server Error", { status: 500 })
   }
 } 

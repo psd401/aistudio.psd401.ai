@@ -4,14 +4,23 @@ import { getServerSession } from "@/lib/auth/server-session"
 import { executeSQL } from "@/lib/db/data-api-adapter"
 import { validateImportFile, mapModelsForImport, type ExportFormat } from "@/lib/assistant-export-import"
 // UUID import removed - using auto-increment IDs
-import logger from "@/lib/logger"
+import { createLogger, generateRequestId, startTimer } from "@/lib/log"
 
 export async function POST(request: NextRequest) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.admin.assistants.import");
+  const log = createLogger({ requestId, route: "api.admin.assistants.import" });
+  
+  log.info("POST /api/admin/assistants/import - Importing assistants");
 
   try {
     // Check admin authorization
     const authError = await requireAdmin();
-    if (authError) return authError;
+    if (authError) {
+      log.warn("Unauthorized admin access attempt");
+      timer({ status: "error", reason: "unauthorized" });
+      return authError;
+    }
 
     // Get session for user ID
     const session = await getServerSession();
@@ -63,7 +72,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    logger.info(`Importing ${importData.assistants.length} assistants`)
+    log.info("Starting import", { assistantCount: importData.assistants.length })
 
     // Get user ID from Cognito sub
     const userResult = await executeSQL(
@@ -123,7 +132,7 @@ export async function POST(request: NextRequest) {
           const modelId = modelMap.get(prompt.model_name)
 
           if (!modelId) {
-            logger.warn(`No model mapping found for ${prompt.model_name}, skipping prompt`)
+            log.warn(`No model mapping found for ${prompt.model_name}, skipping prompt`)
             continue
           }
 
@@ -177,7 +186,7 @@ export async function POST(request: NextRequest) {
         })
 
       } catch (error) {
-        logger.error(`Error importing assistant ${assistant.name}:`, error)
+        log.error(`Error importing assistant ${assistant.name}:`, error)
         importResults.push({
           name: assistant.name,
           status: 'error',
@@ -200,7 +209,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    logger.info(`Successfully imported ${successCount} out of ${importData.assistants.length} assistants`)
+    log.info(`Successfully imported ${successCount} out of ${importData.assistants.length} assistants`)
 
     return NextResponse.json({
       isSuccess: true,
@@ -215,7 +224,7 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    logger.error('Error importing assistants:', error)
+    log.error('Error importing assistants:', error)
 
     return NextResponse.json(
       { isSuccess: false, message: 'Failed to import assistants' },

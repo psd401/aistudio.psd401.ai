@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import logger from '@/lib/logger';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 
 export async function GET() {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.auth.federated-signout");
+  const log = createLogger({ requestId, route: "api.auth.federated-signout" });
+  
+  log.info("GET /api/auth/federated-signout - Processing federated signout");
+  
   try {
     // Build Cognito logout URL first
     const cognitoDomain = process.env.NEXT_PUBLIC_COGNITO_DOMAIN;
@@ -10,7 +16,8 @@ export async function GET() {
     const baseUrl = process.env.AUTH_URL || 'http://localhost:3000';
     
     if (!cognitoDomain || !clientId) {
-      logger.error('Missing Cognito configuration for logout');
+      log.error('Missing Cognito configuration for logout');
+      timer({ status: "error", reason: "missing_config" });
       return NextResponse.redirect(new URL('/', baseUrl));
     }
     
@@ -70,9 +77,12 @@ export async function GET() {
       });
     });
     
+    log.info("Federated signout successful");
+    timer({ status: "success" });
     return response;
   } catch (error) {
-    logger.error('Federated signout error:', error);
+    timer({ status: "error" });
+    log.error('Federated signout error', error);
     return NextResponse.redirect(new URL('/', process.env.AUTH_URL || 'http://localhost:3000'));
   }
 }

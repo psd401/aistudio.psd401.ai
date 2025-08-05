@@ -8,19 +8,38 @@ import { createError } from "@/lib/error-utils"
 import { ErrorLevel } from "@/types/actions-types"
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents"
 import { SelectDocument } from "@/types/db-types"
-import logger from "@/lib/logger"
+import { createLogger, generateRequestId, startTimer } from "@/lib/logger"
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 import { getServerSession } from "@/lib/auth/server-session"
 import { executeSQL } from "@/lib/db/data-api-adapter"
 export async function POST(req: NextRequest) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.chat.post");
+  const log = createLogger({ requestId, route: "api.chat" });
+  
+  log.info("POST /api/chat - Processing chat request");
+  
   const session = await getServerSession()
   if (!session) {
+    log.warn("Unauthorized chat request");
+    timer({ status: "error", reason: "unauthorized" });
     return unauthorized('User not authenticated')
   }
+  
+  log.debug("User authenticated", { userId: session.sub });
 
   return withErrorHandling(async () => {
     // Destructure conversationId from body
     const { messages, modelId: textModelId, source, executionId, context, conversationId: existingConversationId, documentId } = await req.json()
+    
+    log.debug("Chat request received", {
+      modelId: textModelId,
+      source,
+      messageCount: messages?.length,
+      hasContext: !!context,
+      hasDocumentId: !!documentId,
+      existingConversationId
+    });
 
     if (!textModelId) {
       throw createError('Model ID is required', {
@@ -158,14 +177,14 @@ export async function POST(req: NextRequest) {
         const singleDoc = await getDocumentById({ id: documentId });
         if (singleDoc && !documents.find((d: SelectDocument) => d.id === documentId)) {
           documents.push(singleDoc);
-          logger.info(`Added document ${documentId} to context (total documents: ${documents.length})`);
+          log.info(`Added document ${documentId} to context (total documents: ${documents.length})`);
         }
       }
       
       // Processing chat request
       
       if (documents.length > 0) {
-        logger.info(`Found ${documents.length} documents for conversation ${conversationId}`);
+        log.info(`Found ${documents.length} documents for conversation ${conversationId}`);
         // Get the user's latest message for context search
         const latestUserMessage = userMessage.content;
         
@@ -178,7 +197,7 @@ export async function POST(req: NextRequest) {
         
         // If no chunks found and we just uploaded a document, wait a bit and retry
         if (allDocumentChunks.length === 0 && documentId) {
-          logger.info("No chunks found immediately, waiting 500ms for chunks to be saved...");
+          log.info("No chunks found immediately, waiting 500ms for chunks to be saved...");
           await new Promise(resolve => setTimeout(resolve, 500));
           
           const retryChunksPromises = documents.map(doc => 
@@ -188,7 +207,7 @@ export async function POST(req: NextRequest) {
           allDocumentChunks = retryChunksArrays.flat();
         }
         
-        logger.info(`Found ${allDocumentChunks.length} total chunks`);
+        log.info(`Found ${allDocumentChunks.length} total chunks`);
 
         // Simple keyword matching to find relevant chunks
         // In production, you'd use embedding-based semantic search
@@ -229,17 +248,17 @@ export async function POST(req: NextRequest) {
               `[Document Excerpt ${index + 1}]:\n${chunk.content}`
             ).join('\n\n')
           }\n\nPlease use this document content to answer the user's questions when relevant.`;
-          logger.info(`Including ${relevantChunks.length} relevant chunks in AI context`);
+          log.info(`Including ${relevantChunks.length} relevant chunks in AI context`);
         } else if (allDocumentChunks.length === 0 && documents.length > 0) {
           // Document exists but no chunks were found
           documentContext = `\n\nNote: A document was uploaded but its content could not be extracted or is still being processed. The document name is: ${documents.map(d => d.name).join(", ")}`;
-          logger.warn(`Document exists but no chunks found for documents: ${documents.map(d => d.id).join(", ")}`);
+          log.warn(`Document exists but no chunks found for documents: ${documents.map(d => d.id).join(", ")}`);
         } else {
-          logger.info(`No relevant chunks found for message: "${latestUserMessage}"`);
+          log.info(`No relevant chunks found for message: "${latestUserMessage}"`);
         }
       }
     } catch (docError) {
-      logger.error("Error fetching document context", { 
+      log.error("Error fetching document context", { 
         error: docError instanceof Error ? docError.message : String(docError),
         conversationId: conversationId,
         documentId
@@ -286,30 +305,51 @@ export async function POST(req: NextRequest) {
     ];
     await executeSQL(saveAssistantQuery, saveAssistantParams);
 
+    log.info("Chat response generated successfully", { 
+      conversationId,
+      responseLength: aiResponseContent.length 
+    });
+    timer({ status: "success", conversationId });
+    
     // Return data that will be wrapped in the standard response format
     return {
       text: aiResponseContent,
       conversationId: conversationId
     };
-  });
+  }, requestId);
 }
 
 export async function GET(req: NextRequest) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.chat.get");
+  const log = createLogger({ requestId, route: "api.chat" });
+  
+  const { searchParams } = new URL(req.url)
+  const conversationId = searchParams.get('conversationId')
+  
+  log.info("GET /api/chat - Fetching messages", { conversationId });
+  
   const session = await getServerSession()
   if (!session) {
+    log.warn("Unauthorized access to chat messages");
+    timer({ status: "error", reason: "unauthorized" });
     return unauthorized('User not authenticated')
   }
   
+  log.debug("User authenticated", { userId: session.sub });
+  
   const currentUser = await getCurrentUserAction()
   if (!currentUser.isSuccess) {
+    log.warn("User not found");
+    timer({ status: "error", reason: "user_not_found" });
     return unauthorized('User not found')
   }
   
   const userId = currentUser.data.user.id
 
-  const { searchParams } = new URL(req.url)
-  const conversationId = searchParams.get('conversationId')
   if (!conversationId) {
+    log.warn("Missing conversationId parameter");
+    timer({ status: "error", reason: "missing_param" });
     return badRequest('conversationId is required')
   }
 
@@ -325,6 +365,8 @@ export async function GET(req: NextRequest) {
   const conversationResult = await executeSQL<{ id: number; userId: number }>(checkQuery, checkParams);
   
   if (!conversationResult.length || conversationResult[0].userId !== userId) {
+    log.warn("Conversation access denied", { conversationId, userId });
+    timer({ status: "error", reason: "access_denied" });
     return NextResponse.json({ error: 'Conversation not found or access denied' }, { status: 403 })
   }
 
@@ -340,5 +382,14 @@ export async function GET(req: NextRequest) {
   ];
   const messages = await executeSQL<{ id: number; role: string; content: string }>(messagesQuery, messagesParams);
 
-  return NextResponse.json({ messages })
+  log.info("Messages retrieved successfully", { 
+    conversationId,
+    messageCount: messages.length 
+  });
+  timer({ status: "success" });
+
+  return NextResponse.json(
+    { messages },
+    { headers: { "X-Request-Id": requestId } }
+  )
 } 

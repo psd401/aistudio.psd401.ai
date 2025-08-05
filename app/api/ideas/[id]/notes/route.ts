@@ -2,11 +2,19 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { NextResponse } from 'next/server';
 import { executeSQL, FormattedRow } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
-import logger from '@/lib/logger';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.ideas.notes.list");
+  const log = createLogger({ requestId, route: "api.ideas.notes" });
+  
+  log.info("GET /api/ideas/[id]/notes - Fetching idea notes");
+  
   const session = await getServerSession();
   if (!session?.sub) {
-    return new NextResponse('Unauthorized', { status: 401 });
+    log.warn("Unauthorized - No session");
+    timer({ status: "error", reason: "unauthorized" });
+    return new NextResponse('Unauthorized', { status: 401, headers: { "X-Request-Id": requestId } });
   }
 
   try {
@@ -38,7 +46,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       createdBy: note.creatorName || String(note.userId)
     })));
   } catch (error) {
-    logger.error('Error fetching notes:', error);
+    log.error('Error fetching notes:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 }
@@ -116,7 +124,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       createdBy: newNote.creatorName || String(newNote.userId)
     });
   } catch (error) {
-    logger.error('Error creating note:', error);
+    log.error('Error creating note:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 } 
