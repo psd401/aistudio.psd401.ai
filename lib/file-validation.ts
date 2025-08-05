@@ -27,11 +27,11 @@ export async function getMaxFileSize(): Promise<number> {
 
 /**
  * Get the threshold for using presigned URLs vs direct upload
+ * Fixed at 1MB due to AWS Amplify request body size limit
  * @returns Threshold in bytes
  */
-export async function getPresignedUrlThreshold(): Promise<number> {
-  const thresholdMB = process.env.PRESIGNED_URL_THRESHOLD_MB || '1'
-  return parseInt(thresholdMB, 10) * 1024 * 1024
+export function getPresignedUrlThreshold(): number {
+  return 1 * 1024 * 1024 // 1MB - AWS Amplify limit
 }
 
 /**

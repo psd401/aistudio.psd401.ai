@@ -20,11 +20,9 @@ import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 
 import { 
   ALLOWED_FILE_EXTENSIONS,
-  ALLOWED_MIME_TYPES
+  ALLOWED_MIME_TYPES,
+  getMaxFileSize
 } from '@/lib/file-validation';
-
-// File size limit: 25MB (we'll validate dynamically later with getMaxFileSize)
-const MAX_FILE_SIZE = 25 * 1024 * 1024;
 
 // Enhanced file validation schema
 // Using z.any() since File/Blob classes are not available during SSR/build
@@ -35,9 +33,6 @@ const FileSchema = z.object({
       return file && typeof file === 'object' && 'size' in file && 'name' in file && 'type' in file;
     }, {
       message: 'Invalid file object',
-    })
-    .refine((file) => file.size <= MAX_FILE_SIZE, {
-      message: `File size must be less than ${MAX_FILE_SIZE / (1024 * 1024)}MB`,
     })
     .refine((file) => {
       const fileName = file.name || '';
@@ -170,6 +165,19 @@ export async function POST(request: NextRequest) {
         JSON.stringify({ 
           success: false,
           error: `Unsupported MIME type. Allowed MIME types are: ${ALLOWED_MIME_TYPES.join(', ')}` 
+        }), 
+        { status: 400, headers }
+      );
+    }
+    
+    // 3. Check file size
+    const maxFileSize = await getMaxFileSize();
+    if (file.size > maxFileSize) {
+      logger.info('File too large:', file.size, 'Max:', maxFileSize);
+      return new NextResponse(
+        JSON.stringify({ 
+          success: false,
+          error: `File size must be less than ${maxFileSize / (1024 * 1024)}MB` 
         }), 
         { status: 400, headers }
       );

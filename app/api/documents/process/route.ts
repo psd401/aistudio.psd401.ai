@@ -6,9 +6,9 @@ import { getObjectStream, documentExists } from '@/lib/aws/s3-client'
 import { saveDocument, batchInsertDocumentChunks } from '@/lib/db/queries/documents'
 import { extractTextFromDocument, chunkText, getFileTypeFromFileName } from '@/lib/document-processing'
 import logger from '@/lib/logger'
-import { withErrorHandling, unauthorized } from '@/lib/api-utils'
-import { createError } from '@/lib/error-utils'
-import { ErrorLevel } from '@/types/actions-types'
+import { withActionState, unauthorized } from '@/lib/api-utils'
+import { handleError } from '@/lib/error-utils'
+import { type ActionState } from '@/types/actions-types'
 import { getMaxFileSize, formatFileSize } from '@/lib/file-validation'
 
 // Ensure this route is built for the Node.js runtime
@@ -22,6 +22,17 @@ const ProcessDocumentRequestSchema = z.object({
   fileSize: z.number().positive(),
   conversationId: z.number().nullable().optional()
 })
+
+interface ProcessDocumentResponse {
+  document: {
+    id: number
+    name: string
+    type: string
+    size: number
+    url: string
+    totalChunks: number
+  }
+}
 
 export async function POST(request: NextRequest) {
   logger.info('[Process Document API] Handler entered')
@@ -42,7 +53,8 @@ export async function POST(request: NextRequest) {
   const userId = currentUser.data.user.id
   logger.info(`[Process Document API] User ID: ${userId}`)
 
-  return withErrorHandling(async () => {
+  return withActionState(async (): Promise<ActionState<ProcessDocumentResponse>> => {
+    try {
 
     // Parse and validate request body
     const body = await request.json()
@@ -51,10 +63,7 @@ export async function POST(request: NextRequest) {
     if (!validation.success) {
       const errorMessage = validation.error.errors.map(e => e.message).join(', ')
       logger.info('[Process Document API] Validation error:', errorMessage)
-      throw createError(errorMessage, {
-        code: 'VALIDATION',
-        level: ErrorLevel.WARN
-      })
+      return { isSuccess: false, message: errorMessage }
     }
 
     const { key, fileName, fileSize, conversationId } = validation.data
@@ -63,29 +72,29 @@ export async function POST(request: NextRequest) {
     const maxFileSize = await getMaxFileSize()
     if (fileSize > maxFileSize) {
       logger.info('[Process Document API] File size exceeds limit:', { fileSize, maxFileSize })
-      throw createError(`File size must be less than ${formatFileSize(maxFileSize)}`, {
-        code: 'VALIDATION',
-        level: ErrorLevel.WARN
-      })
+      return { 
+        isSuccess: false, 
+        message: `File size must be less than ${formatFileSize(maxFileSize)}` 
+      }
     }
 
     // Verify the S3 key belongs to this user
     if (!key.startsWith(`${userId}/`)) {
       logger.error('[Process Document API] Unauthorized access attempt to S3 key:', { key, userId })
-      throw createError('Unauthorized access to document', {
-        code: 'FORBIDDEN',
-        level: ErrorLevel.WARN
-      })
+      return { 
+        isSuccess: false, 
+        message: 'Unauthorized access to document' 
+      }
     }
 
     // Verify document exists in S3
     const exists = await documentExists(key)
     if (!exists) {
       logger.error('[Process Document API] Document not found in S3:', key)
-      throw createError('Document not found', {
-        code: 'NOT_FOUND',
-        level: ErrorLevel.WARN
-      })
+      return { 
+        isSuccess: false, 
+        message: 'Document not found' 
+      }
     }
 
     logger.info('[Process Document API] Retrieving document from S3:', key)
@@ -115,19 +124,19 @@ export async function POST(request: NextRequest) {
       logger.info(`[Process Document API] Text extracted, length: ${text?.length ?? 0}`)
     } catch (extractError) {
       logger.error('[Process Document API] Error extracting text:', extractError)
-      throw createError(`Failed to extract text from document: ${extractError instanceof Error ? extractError.message : String(extractError)}`, {
-        code: 'INTERNAL_ERROR',
-        level: ErrorLevel.ERROR
-      })
+      return { 
+        isSuccess: false, 
+        message: `Failed to extract text from document: ${extractError instanceof Error ? extractError.message : String(extractError)}` 
+      }
     }
 
     // Ensure text is not null or undefined
     if (!text) {
       logger.error('[Process Document API] No text content extracted from document')
-      throw createError('Failed to extract text content from document', {
-        code: 'INTERNAL_ERROR',
-        level: ErrorLevel.ERROR
-      })
+      return { 
+        isSuccess: false, 
+        message: 'Failed to extract text content from document' 
+      }
     }
 
     // Save document metadata to database
@@ -150,10 +159,10 @@ export async function POST(request: NextRequest) {
       logger.info(`[Process Document API] Document saved to database: ${document.id}`)
     } catch (saveError) {
       logger.error('[Process Document API] Error saving document:', saveError)
-      throw createError(`Failed to save document: ${saveError instanceof Error ? saveError.message : String(saveError)}`, {
-        code: 'INTERNAL_ERROR',
-        level: ErrorLevel.ERROR
-      })
+      return { 
+        isSuccess: false, 
+        message: `Failed to save document: ${saveError instanceof Error ? saveError.message : String(saveError)}` 
+      }
     }
 
     // Chunk text and save to database
@@ -185,14 +194,21 @@ export async function POST(request: NextRequest) {
 
     // Return success response
     return {
-      document: {
-        id: document.id,
-        name: document.name,
-        type: document.type,
-        size: document.size,
-        url: document.url,
-        totalChunks: textChunks.length
+      isSuccess: true,
+      message: 'Document processed successfully',
+      data: {
+        document: {
+          id: document.id,
+          name: document.name,
+          type: document.type,
+          size: document.size,
+          url: document.url,
+          totalChunks: textChunks.length
+        }
       }
+    }
+    } catch (error) {
+      return handleError(error, 'Failed to process document')
     }
   })
 }
