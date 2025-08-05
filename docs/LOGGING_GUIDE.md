@@ -1,5 +1,7 @@
 # Comprehensive Logging Guide
 
+**⚠️ CRITICAL: This guide documents MANDATORY logging requirements for all server-side code. Non-compliance will cause PR rejection.**
+
 ## Table of Contents
 1. [Overview](#overview)
 2. [Core Concepts](#core-concepts)
@@ -9,6 +11,7 @@
 6. [Troubleshooting](#troubleshooting)
 7. [Performance Considerations](#performance-considerations)
 8. [Security Guidelines](#security-guidelines)
+9. [Quick Reference Checklist](#quick-reference-checklist)
 
 ## Overview
 
@@ -182,18 +185,27 @@ export async function POST(request: Request) {
 import { withDatabaseLogging } from "@/lib/logging-helpers"
 
 async function getUserById(userId: number) {
-  return withDatabaseLogging("getUserById", async () => {
-    const query = "SELECT * FROM users WHERE id = :id"
-    const params = [{ name: "id", value: { longValue: userId } }]
-    
-    const result = await executeSQL(query, params)
-    
-    if (result.length === 0) {
-      throw ErrorFactories.dbRecordNotFound("users", userId)
+  return withDatabaseLogging(
+    "getUserById",
+    {
+      query: "SELECT * FROM users WHERE id = :id",
+      table: "users",
+      parameters: [userId],
+      field: "id"
+    },
+    async () => {
+      const query = "SELECT * FROM users WHERE id = :id"
+      const params = [{ name: "id", value: { longValue: userId } }]
+      
+      const result = await executeSQL(query, params)
+      
+      if (result.length === 0) {
+        throw ErrorFactories.dbRecordNotFound("users", userId)
+      }
+      
+      return result[0]
     }
-    
-    return result[0]
-  })
+  )
 }
 ```
 
@@ -532,10 +544,95 @@ When updating existing code to use the new logging system:
 - [ ] Verify CloudWatch integration in staging
 - [ ] Update monitoring dashboards
 
+## Quick Reference Checklist
+
+### Before Writing ANY Server-Side Code:
+
+**Required Imports:**
+```typescript
+import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from "@/lib/logger"
+import { handleError, ErrorFactories, createSuccess } from "@/lib/error-utils"
+```
+
+**Mandatory Pattern:**
+```typescript
+const requestId = generateRequestId()  // ✅ REQUIRED
+const timer = startTimer("operation")  // ✅ REQUIRED
+const log = createLogger({ requestId, action: "operation" })  // ✅ REQUIRED
+
+try {
+  log.info("Started", { params: sanitizeForLogging(params) })  // ✅ REQUIRED
+  // ... your logic ...
+  timer({ status: "success" })  // ✅ REQUIRED
+  return createSuccess(result, "User message")  // ✅ REQUIRED
+} catch (error) {
+  timer({ status: "error" })  // ✅ REQUIRED
+  return handleError(error, "User message", { requestId })  // ✅ REQUIRED
+}
+```
+
+### Common Mistakes to Avoid:
+
+| ❌ WRONG | ✅ CORRECT |
+|----------|------------|
+| `console.log("error", error)` | `log.error("Operation failed", { error })` |
+| `throw new Error("DB error")` | `throw ErrorFactories.dbQueryFailed(query, error)` |
+| `return { isSuccess: false, message: "Error" }` | `return handleError(error, "Helpful user message", context)` |
+| `log.info("User data", user)` | `log.info("User data", sanitizeForLogging(user))` |
+| Missing requestId | Always generate requestId at function start |
+| Missing timer | Always create timer for performance tracking |
+| Generic error messages | Use specific, actionable user messages |
+
+### Error Factory Quick Reference:
+
+```typescript
+// Authentication
+ErrorFactories.authNoSession()
+ErrorFactories.authExpiredSession()
+ErrorFactories.authInvalidToken()
+
+// Authorization
+ErrorFactories.authzInsufficientPermissions(required, actual)
+ErrorFactories.authzToolAccessDenied(toolName)
+ErrorFactories.authzAdminRequired()
+
+// Database
+ErrorFactories.dbQueryFailed(query, originalError)
+ErrorFactories.dbRecordNotFound(table, id)
+ErrorFactories.dbDuplicateEntry(table, field, value)
+ErrorFactories.dbConnectionFailed()
+
+// Validation
+ErrorFactories.validationFailed(fieldErrors)
+ErrorFactories.missingRequiredField(fieldName)
+ErrorFactories.invalidInput(field, value, expected)
+ErrorFactories.invalidFormat(field, value, format)
+
+// External Services
+ErrorFactories.externalServiceError(service, error)
+ErrorFactories.externalServiceTimeout(service, timeout)
+ErrorFactories.externalApiRateLimit(service)
+```
+
 ## Examples Repository
 
 For more examples, check the following files:
 - `/actions/db/get-current-user-action.ts` - Comprehensive server action logging
 - `/lib/logging-helpers.ts` - Reusable logging patterns
 - `/lib/error-utils.ts` - Error handling utilities
-- `/types/error-types.ts` - Error type definitions
+- `/types/error-types.ts` - Error type definitions (60+ error codes)
+- `/tests/lib/logger.test.ts` - Logger unit tests
+- `/tests/lib/error-utils.test.ts` - Error handling tests
+
+## Compliance Verification
+
+Before committing, verify:
+1. ✅ No `console.log/error/warn` in server code
+2. ✅ All server actions have requestId, timer, and logger
+3. ✅ All errors use ErrorFactories
+4. ✅ All user input is sanitized before logging
+5. ✅ All database operations include query context
+6. ✅ Performance timers call `timer()` before return
+7. ✅ Error messages are user-friendly and actionable
+8. ✅ `npm run lint` passes with zero errors
+9. ✅ `npm run typecheck` passes with zero errors

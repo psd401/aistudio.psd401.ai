@@ -101,24 +101,52 @@ The infrastructure is organized into modular CDK stacks:
 4. **StorageStack**: S3 bucket for documents with lifecycle policies
 
 ### Server Actions Pattern
-All server actions follow this pattern:
+**CRITICAL**: All server actions MUST include comprehensive logging.
 ```typescript
 "use server"
-export async function actionName(): Promise<ActionState<ReturnType>> {
-  // 1. Authentication check
-  const session = await getServerSession()
-  if (!session) return { isSuccess: false, message: "Unauthorized" }
+import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from "@/lib/logger"
+import { handleError, ErrorFactories, createSuccess } from "@/lib/error-utils"
+
+export async function actionName(params: ParamsType): Promise<ActionState<ReturnType>> {
+  // REQUIRED: Initialize logging context
+  const requestId = generateRequestId()
+  const timer = startTimer("actionName")
+  const log = createLogger({ requestId, action: "actionName" })
   
-  // 2. Authorization check (if needed)
-  const hasAccess = await hasToolAccess(session.user.sub, "toolName")
-  if (!hasAccess) return { isSuccess: false, message: "Access denied" }
-  
-  // 3. Business logic with error handling
   try {
+    log.info("Action started", { params: sanitizeForLogging(params) })
+    
+    // 1. Authentication check
+    const session = await getServerSession()
+    if (!session) {
+      log.warn("Unauthorized access attempt")
+      throw ErrorFactories.authNoSession()
+    }
+    
+    // 2. Authorization check (if needed)
+    const hasAccess = await hasToolAccess(session.user.sub, "toolName")
+    if (!hasAccess) {
+      log.warn("Access denied", { userId: session.user.sub, tool: "toolName" })
+      throw ErrorFactories.authzToolAccessDenied("toolName")
+    }
+    
+    // 3. Business logic with logging
+    log.debug("Processing operation", { detail: "value" })
     const result = await executeSQL(...)
-    return { isSuccess: true, message: "Success", data: result }
+    
+    // REQUIRED: Log success and performance
+    timer({ status: "success" })
+    log.info("Action completed successfully")
+    
+    return createSuccess(result, "User-friendly success message")
   } catch (error) {
-    return handleError(error, "Operation failed")
+    // REQUIRED: Log error and performance
+    timer({ status: "error" })
+    return handleError(error, "User-friendly error message", {
+      context: "actionName",
+      requestId,
+      operation: "actionName"
+    })
   }
 }
 ```
@@ -152,12 +180,24 @@ Parameter types: `stringValue`, `longValue`, `booleanValue`, `doubleValue`, `isN
 5. Protected routes check session in middleware
 6. Role-based access via `hasToolAccess()` function
 
-### Error Handling Architecture
+### Error Handling and Logging Architecture
+
+**MANDATORY**: All server-side code MUST implement proper logging and error handling.
+
+#### Core Requirements
+- **NO console.log/error**: Use logger from `@/lib/logger` exclusively
+- **Request Tracing**: Every server action/API route must generate a requestId
+- **Performance Tracking**: Use `startTimer()` for all operations
+- **Sensitive Data Protection**: Always use `sanitizeForLogging()` for user input
+- **Typed Errors**: Use ErrorFactories, never throw plain Error objects
+
+#### Architecture Components
 - **Server Actions**: Return `ActionState<T>` with consistent error structure
-- **API Routes**: Use `withErrorHandling()` wrapper
+- **API Routes**: Use `withErrorHandling()` wrapper with proper logging
 - **Client Components**: Use `useAction()` hook for automatic error handling
-- **Structured Errors**: `createError()` creates `AppError` with levels (USER, SYSTEM, EXTERNAL)
-- **Logging**: Winston logger with CloudWatch integration
+- **Structured Errors**: 60+ typed error codes with appropriate levels
+- **Logging**: Winston logger with CloudWatch integration, automatic PII filtering
+- **Error Levels**: INFO (validation), WARN (auth), ERROR (operations), FATAL (system)
 
 ### Project Structure
 ```
@@ -267,12 +307,17 @@ npm run test:e2e tests/e2e/working-tests.spec.ts  # Run specific test file
 - Only create PRs against `main` if explicitly instructed by the user
 - You are never to attribute commits or pull requests to yourself, DO NOT ever add yourself as the author
 - Always write very detailed intricate commit messages to document fully what was changed in the code you were working on
-- Before ANY commit: Run `npm run lint` and `npm run typecheck` on the ENTIRE codebase - both must pass with zero errors
-- **NEW**: Run E2E tests with `npm run test:e2e` - all tests must pass
+- Before ANY commit:
+  1. Run `npm run lint` on the ENTIRE codebase - MUST pass with zero errors
+  2. Run `npm run typecheck` on the ENTIRE codebase - MUST pass with zero errors
+  3. Verify all server actions and API routes have proper logging
+  4. Run E2E tests with `npm run test:e2e` - all tests must pass
 
 ## Logging Standards
 
-### Required for ALL Server Actions and API Routes
+### 🚨 MANDATORY for ALL Server Actions and API Routes 🚨
+
+**This is NOT optional. Every server action and API route MUST implement these patterns.**
 
 **CRITICAL**: Never use `console.log`, `console.error`, etc. Always use the logger.
 
@@ -393,3 +438,67 @@ In production, logs are automatically formatted as JSON for CloudWatch:
   "duration": 1500
 }
 ```
+
+### API Route Pattern
+
+**CRITICAL**: API routes MUST also implement full logging:
+
+```typescript
+import { NextRequest, NextResponse } from "next/server"
+import { createLogger, generateRequestId, startTimer } from "@/lib/logger"
+import { withErrorHandling } from "@/lib/error-utils"
+
+export async function GET(request: NextRequest) {
+  const requestId = generateRequestId()
+  const timer = startTimer("GET /api/route-name")
+  const log = createLogger({ requestId, route: "/api/route-name" })
+  
+  return withErrorHandling(async () => {
+    log.info("API route called", { 
+      method: "GET",
+      url: request.url,
+      headers: Object.fromEntries(request.headers)
+    })
+    
+    // Your API logic here
+    const result = await doSomething()
+    
+    timer({ status: "success" })
+    log.info("API route completed")
+    
+    return NextResponse.json(result)
+  })
+}
+```
+
+### Database Operation Logging
+
+When performing database operations, use the logging helpers:
+
+```typescript
+import { withDatabaseLogging } from "@/lib/logging-helpers"
+
+const result = await withDatabaseLogging(
+  "getUserById",
+  { 
+    query: "SELECT * FROM users WHERE id = :id",
+    table: "users",
+    parameters: [userId]
+  },
+  () => executeSQL(query, params)
+)
+```
+
+### Common Logging Checklist
+
+ Before implementing ANY server-side function:
+- [ ] Import all required logging utilities
+- [ ] Generate requestId at function start
+- [ ] Create timer for performance tracking
+- [ ] Initialize logger with context
+- [ ] Log operation start with sanitized params
+- [ ] Log all authentication/authorization failures
+- [ ] Use ErrorFactories for all errors
+- [ ] Call timer() before returning
+- [ ] Use handleError() in catch blocks
+- [ ] Never use console.log/error/warn

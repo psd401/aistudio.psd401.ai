@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const session = await auth();
     
     if (session) {
-      log.debug("Session found, proceeding with sign out", { sessionId: (session as Record<string, unknown>)?.sub || "unknown" });
+      log.debug("Session found, proceeding with sign out", { sessionId: (session as unknown as Record<string, unknown>)?.sub || "unknown" });
       
       // Build the Cognito logout URL first
       const cognitoLogoutUrl = buildCognitoLogoutUrl(request.nextUrl.origin);
