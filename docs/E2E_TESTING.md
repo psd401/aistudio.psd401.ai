@@ -1,121 +1,87 @@
-# E2E Testing Implementation Guide
+# E2E Testing Guide
 
 ## Overview
 
-This guide documents the E2E testing framework implementation for AI Studio using Playwright, following a hybrid approach that leverages both Claude Code's Playwright MCP integration for rapid test development and traditional Playwright tests for CI/CD integration.
+AI Studio uses Playwright for end-to-end testing with a hybrid approach:
+- **Development**: Playwright MCP integration for interactive testing with logged-in sessions
+- **CI/CD**: Traditional Playwright tests for automated testing without authentication
 
-## Implementation Approach
+## Quick Start
 
-### Phase 1: Claude Code Integration (Completed)
+### Running Tests
 
-**Purpose**: Rapid test development and exploration using AI-powered test generation.
+```bash
+# Run all E2E tests
+npm run test:e2e
 
-**Setup**:
-1. Created Claude Code commands (`.claude/commands/e2e-test.md`)
-2. Created specialized E2E testing agent (`.claude/agents/e2e-tester.md`)
-3. Configured Playwright MCP server for browser automation
+# Run in UI mode (interactive)
+npm run test:e2e:ui
 
-**Benefits**:
-- Natural language test descriptions
-- AI-powered test generation
-- Quick iteration and exploration
-- Interactive debugging
+# Run specific test file
+npm run test:e2e tests/e2e/working-tests.spec.ts
+```
 
-### Phase 2: Codebase Integration (Completed)
+### Using Playwright MCP (Development)
 
-**Purpose**: Production-ready tests integrated with CI/CD pipeline.
+When developing new features, use the Playwright MCP integration in Claude Code:
 
-**Implementation**:
-1. Added Playwright as a dev dependency
-2. Created test structure in `tests/e2e/`
-3. Configured `playwright.config.ts`
-4. Updated CI workflow to run E2E tests
-5. Created test fixtures for authentication
+```bash
+# In Claude Code, while logged into the app:
+/e2e-test Navigate to /admin/users and verify the user table loads
+/e2e-test Test chat functionality - send "Hello AI" and verify response
+/e2e-test Click on Compare Models and verify the page loads
+```
 
 ## Test Structure
 
 ```
 tests/e2e/
 ├── auth/                    # Authentication flow tests
-│   └── authentication.spec.ts
 ├── admin/                   # Admin functionality tests
-│   └── user-management.spec.ts
-├── assistant-architect/     # AI Assistant tests (TODO)
-├── documents/              # Document management tests (TODO)
+├── assistant-architect/     # AI Assistant tests
+├── chat/                    # Chat interface tests
+├── compare/                 # Model comparison tests
+├── documents/              # Document management tests
+├── repositories/           # Repository management tests
 ├── fixtures/               # Test fixtures and helpers
 │   └── auth.ts            # Authentication fixtures
-├── page-objects/           # Page object models (TODO)
-└── README.md              # E2E testing documentation
+├── page-objects/           # Page object models
+├── working-tests.spec.ts   # Tests that run in CI
+└── README.md              # Test-specific documentation
 ```
 
-## Test Data Management
+## Testing Strategy
 
-### Database Strategy
+### 1. Development Testing (Playwright MCP)
 
-Test data is managed through SQL scripts in `/infra/database/test-data/`:
+**When to use**: During feature development when you need to test authenticated features
 
-1. **Test Users** (`001-test-users.sql`):
-   - `test-user-001`: Regular user
-   - `test-admin-001`: Admin user
-   - `test-limited-001`: Limited access user
+**Benefits**:
+- Uses your existing browser session (no auth setup needed)
+- Interactive testing with visual feedback
+- AI-powered test generation
+- Quick iteration
 
-2. **Test Documents** (`002-test-documents.sql`):
-   - Processed, processing, and failed documents
-   - Sample content for search testing
+**Example workflow**:
+1. Log into the application in your browser
+2. Use `/e2e-test` command in Claude Code
+3. Describe what you want to test
+4. Claude will execute the test and report results
 
-3. **Test Assistants** (`003-test-assistants.sql`):
-   - Test AI assistants and conversations
+### 2. CI/CD Testing (Traditional Playwright)
 
-### Isolation Strategy
+**When to use**: For automated testing in CI/CD pipeline
 
-- **Transaction Rollback**: For unit tests
-- **Cleanup After Test**: For E2E tests
-- **Test-Specific IDs**: Predictable IDs prefixed with `test-`
+**Current limitations**:
+- Tests requiring authentication are skipped in CI
+- Focus on public pages and basic functionality
 
-## Running Tests
+**Example tests**:
+- Homepage loads correctly
+- Protected routes redirect to sign-in
+- Sign-in page displays properly
 
-### Local Development
-
-```bash
-# Install Playwright browsers (first time)
-npx playwright install
-
-# Run all E2E tests
-npm run test:e2e
-
-# Run tests in UI mode (recommended for debugging)
-npm run test:e2e:ui
-
-# Run tests in headed mode (see browser)
-npm run test:e2e:headed
-
-# Run specific test file
-npm run test:e2e tests/e2e/auth/authentication.spec.ts
-```
-
-### CI/CD
-
-E2E tests run automatically on:
-- Pull requests to `main` or `dev` branches
-- Pushes to `main` or `dev` branches
-
-Test results are uploaded as artifacts for debugging failures.
-
-## Authentication Handling
-
-### Development Environment
-
-In development, the application uses mock authentication that automatically logs in users without requiring real Cognito credentials.
-
-### Production Environment
-
-For production testing with real Cognito:
-1. Set up test user accounts in Cognito
-2. Configure environment variables with test credentials
-3. Implement OAuth flow handling in test fixtures
-4. Handle Cognito redirects and callbacks
-
-## Writing New Tests
+## Writing Tests
 
 ### Basic Test Structure
 
@@ -123,15 +89,9 @@ For production testing with real Cognito:
 import { test, expect } from '@playwright/test';
 
 test.describe('Feature Name', () => {
-  test('should perform expected behavior', async ({ page }) => {
-    // Arrange
-    await page.goto('/some-page');
-    
-    // Act
-    await page.click('button:has-text("Action")');
-    
-    // Assert
-    await expect(page.getByRole('heading')).toHaveText('Result');
+  test('should do something', async ({ page }) => {
+    await page.goto('/path');
+    await expect(page.getByRole('heading')).toContainText('Expected Text');
   });
 });
 ```
@@ -139,101 +99,83 @@ test.describe('Feature Name', () => {
 ### Using Authentication Fixtures
 
 ```typescript
-import { test, expect } from '../fixtures/auth';
+import { test, expect } from './fixtures/auth';
 
-test('protected route test', async ({ authenticatedPage }) => {
-  await authenticatedPage.goto('/protected');
-  // User is already authenticated
+test('admin feature', async ({ adminPage }) => {
+  await adminPage.goto('/admin/users');
+  // adminPage is already authenticated
+});
+```
+
+### Skipping Tests in CI
+
+```typescript
+const describeOrSkip = process.env.CI ? test.describe.skip : test.describe;
+
+describeOrSkip('Tests requiring auth', () => {
+  // These tests only run locally
 });
 ```
 
 ## Best Practices
 
-1. **Element Selection**:
-   - Use `data-testid` attributes when available
-   - Prefer role-based selectors (`getByRole`)
-   - Use text selectors as last resort
+1. **Test Organization**
+   - Group related tests in descriptive folders
+   - Use clear, descriptive test names
+   - Keep tests focused and atomic
 
-2. **Wait Strategies**:
-   - Rely on Playwright's auto-waiting
-   - Use explicit waits only when necessary
-   - Avoid `page.waitForTimeout()`
+2. **Selectors**
+   - Prefer semantic selectors: `getByRole()`, `getByText()`, `getByLabel()`
+   - Avoid brittle CSS selectors
+   - Use data-testid when semantic selectors aren't available
 
-3. **Test Independence**:
-   - Each test should run in isolation
-   - Don't depend on test execution order
-   - Clean up test data after each test
+3. **Assertions**
+   - Use Playwright's auto-waiting assertions
+   - Be specific about what you're testing
+   - Test user-visible behavior, not implementation details
 
-4. **Error Handling**:
-   - Take screenshots on failure
-   - Use descriptive test names
-   - Add helpful error messages in assertions
+4. **Test Data**
+   - Use test data SQL scripts in `infra/database/test-data/`
+   - Clean up test data after tests
+   - Don't rely on specific database state
 
-## Playwright MCP Tools
+## CI/CD Integration
 
-When using Claude Code for test development:
+E2E tests run automatically on:
+- Pull requests to main/dev branches
+- Pushes to main/dev branches
 
-- `mcp__playwright__browser_navigate` - Navigate to URLs
-- `mcp__playwright__browser_click` - Click elements
-- `mcp__playwright__browser_type` - Type text
-- `mcp__playwright__browser_snapshot` - Get page state
-- `mcp__playwright__browser_take_screenshot` - Capture screenshots
-- `mcp__playwright__browser_wait_for` - Wait for conditions
+The CI workflow:
+1. Installs dependencies
+2. Installs Playwright browsers
+3. Runs tests (skipping auth-required tests)
+4. Uploads test reports as artifacts
 
 ## Troubleshooting
 
-### Common Issues
+### Tests failing in CI but passing locally
+- Check if the test requires authentication
+- Ensure the test doesn't depend on local environment
+- Review the test artifacts in GitHub Actions
 
-1. **Authentication Failures**:
-   - Check if mock auth is enabled in development
-   - Verify Cognito configuration for production
-   - Check session cookie handling
+### Authentication issues
+- For local testing: Ensure you're logged into the app
+- For CI testing: Only non-authenticated tests will run
 
-2. **Flaky Tests**:
-   - Add proper wait conditions
-   - Check for race conditions
-   - Use `test.slow()` for longer operations
-
-3. **CI Failures**:
-   - Check environment variables
-   - Verify browser installation
-   - Review test artifacts for screenshots
-
-### Debug Commands
-
-```bash
-# Debug specific test
-npx playwright test --debug path/to/test.spec.ts
-
-# View last test report
-npx playwright show-report
-
-# View trace file
-npx playwright show-trace trace.zip
-```
+### Timeout errors
+- Increase timeout for slower operations
+- Use `waitForLoadState('networkidle')` for dynamic content
+- Check if the app is actually running (for local tests)
 
 ## Future Enhancements
 
-1. **Remaining Test Coverage**:
-   - Assistant Architect chat flows
-   - Document upload and search
-   - Repository integration
-   - Settings management
+1. **Test Authentication**: Implement proper test authentication for CI
+2. **Visual Testing**: Add screenshot comparison tests
+3. **Performance Testing**: Add metrics collection
+4. **API Testing**: Integrate API tests with E2E flows
 
-2. **Performance Optimization**:
-   - Parallel test execution
-   - Shared authentication state
-   - Browser context reuse
-
-3. **Advanced Features**:
-   - Visual regression testing
-   - API mocking
-   - Performance metrics
-   - Accessibility testing
-
-## References
+## Related Documentation
 
 - [Playwright Documentation](https://playwright.dev)
-- [Playwright MCP Server](https://executeautomation.github.io/mcp-playwright/docs/intro)
-- [Claude Code Documentation](https://docs.anthropic.com/en/docs/claude-code)
-- GitHub Issue: #70
+- Test implementation details: `/tests/e2e/README.md`
+- Test examples: `/tests/e2e/playwright-mcp-examples.md`

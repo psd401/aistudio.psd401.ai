@@ -44,21 +44,33 @@ VALUES (
 -- Assign roles to test users
 -- Admin user gets Administrator role
 INSERT INTO user_roles (user_id, role_id, assigned_at, assigned_by)
-SELECT u.id, r.id, CURRENT_TIMESTAMP, u.id
-FROM users u, roles r
-WHERE u.cognito_sub = 'test-admin-001' AND r.name = 'Administrator'
+SELECT
+    u.id,
+    (SELECT r.id FROM roles r WHERE r.name = 'Administrator'),
+    CURRENT_TIMESTAMP,
+    u.id
+FROM users u
+WHERE u.cognito_sub = 'test-admin-001'
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
 -- Regular user gets User role
 INSERT INTO user_roles (user_id, role_id, assigned_at, assigned_by)
-SELECT u.id, r.id, CURRENT_TIMESTAMP, u.id
-FROM users u, roles r
-WHERE u.cognito_sub = 'test-user-001' AND r.name = 'User'
+SELECT
+    u.id,
+    (SELECT r.id FROM roles r WHERE r.name = 'User'),
+    CURRENT_TIMESTAMP,
+    u.id
+FROM users u
+WHERE u.cognito_sub = 'test-user-001'
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
 -- Limited user gets User role with limited tool access
 INSERT INTO user_roles (user_id, role_id, assigned_at, assigned_by)
-SELECT u.id, r.id, CURRENT_TIMESTAMP, u.id
-FROM users u, roles r
-WHERE u.cognito_sub = 'test-limited-001' AND r.name = 'User'
+SELECT
+    u.id,
+    (SELECT r.id FROM roles r WHERE r.name = 'User'),
+    CURRENT_TIMESTAMP,
+    u.id
+FROM users u
+WHERE u.cognito_sub = 'test-limited-001'
 ON CONFLICT (user_id, role_id) DO NOTHING;

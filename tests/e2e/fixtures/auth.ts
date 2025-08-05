@@ -20,7 +20,7 @@ export const test = base.extend<{
     await use(page);
     
     // Sign out after test
-    await page.click('button:has-text("Sign out")');
+    await page.goto('/api/auth/signout');
   },
 
   // Admin authenticated user fixture  
@@ -40,7 +40,7 @@ export const test = base.extend<{
     await use(page);
     
     // Sign out after test
-    await page.click('button:has-text("Sign out")');
+    await page.goto('/api/auth/signout');
   },
 });
 

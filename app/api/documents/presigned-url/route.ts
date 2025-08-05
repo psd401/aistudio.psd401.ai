@@ -8,7 +8,8 @@ import { withErrorHandling, unauthorized } from '@/lib/api-utils'
 import { createError } from '@/lib/error-utils'
 import { ErrorLevel } from '@/types/actions-types'
 import { 
-  ALLOWED_MIME_TYPES, 
+  ALLOWED_MIME_TYPES,
+  ALLOWED_FILE_EXTENSIONS,
   getMaxFileSize, 
   isValidFileExtension,
   formatFileSize 
