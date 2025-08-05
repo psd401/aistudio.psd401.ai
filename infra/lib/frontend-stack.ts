@@ -7,17 +7,24 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as cr from 'aws-cdk-lib/custom-resources';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 
 export interface FrontendStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
   githubToken: cdk.SecretValue;
   baseDomain: string;
-  documentsBucketName: string;
+  documentsBucketName?: string; // Optional for backward compatibility
 }
 
 export class FrontendStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: FrontendStackProps) {
     super(scope, id, props);
+
+    // Retrieve bucket name from SSM Parameter Store (or use provided prop for backward compatibility)
+    const documentsBucketName = props.documentsBucketName || 
+      ssm.StringParameter.valueForStringParameter(
+        this, `/aistudio/${props.environment}/documents-bucket-name`
+      );
 
     // Keep the existing L2 construct to avoid recreating the app
     const amplifyApp = new amplify.App(this, 'AmplifyApp', {
@@ -103,8 +110,8 @@ export class FrontendStack extends cdk.Stack {
                 's3:HeadBucket'
               ],
               resources: [
-                `arn:aws:s3:::${props.documentsBucketName}`,
-                `arn:aws:s3:::${props.documentsBucketName}/*`
+                `arn:aws:s3:::${documentsBucketName}`,
+                `arn:aws:s3:::${documentsBucketName}/*`
               ]
             }),
             new iam.PolicyStatement({

@@ -10,12 +10,14 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as path from 'path';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 
 export interface ProcessingStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
-  documentsBucketName: string;
-  databaseResourceArn: string;
-  databaseSecretArn: string;
+  // Cross-stack dependencies now retrieved from SSM Parameter Store
+  documentsBucketName?: string; // Optional for backward compatibility
+  databaseResourceArn?: string; // Optional for backward compatibility
+  databaseSecretArn?: string; // Optional for backward compatibility
 }
 
 export class ProcessingStack extends cdk.Stack {
@@ -27,11 +29,27 @@ export class ProcessingStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: ProcessingStackProps) {
     super(scope, id, props);
 
+    // Retrieve values from SSM Parameter Store (or use provided props for backward compatibility)
+    const documentsBucketName = props.documentsBucketName || 
+      ssm.StringParameter.valueForStringParameter(
+        this, `/aistudio/${props.environment}/documents-bucket-name`
+      );
+    
+    const databaseResourceArn = props.databaseResourceArn ||
+      ssm.StringParameter.valueForStringParameter(
+        this, `/aistudio/${props.environment}/db-cluster-arn`
+      );
+    
+    const databaseSecretArn = props.databaseSecretArn ||
+      ssm.StringParameter.valueForStringParameter(
+        this, `/aistudio/${props.environment}/db-secret-arn`
+      );
+
     // Import the documents bucket
     const documentsBucket = s3.Bucket.fromBucketName(
       this,
       'DocumentsBucket',
-      props.documentsBucketName
+      documentsBucketName
     );
 
     // DynamoDB table for job status tracking
@@ -108,8 +126,8 @@ export class ProcessingStack extends cdk.Stack {
         NODE_OPTIONS: '--enable-source-maps',
         DOCUMENTS_BUCKET: documentsBucket.bucketName,
         JOB_STATUS_TABLE: this.jobStatusTable.tableName,
-        DATABASE_RESOURCE_ARN: props.databaseResourceArn,
-        DATABASE_SECRET_ARN: props.databaseSecretArn,
+        DATABASE_RESOURCE_ARN: databaseResourceArn,
+        DATABASE_SECRET_ARN: databaseSecretArn,
         DATABASE_NAME: 'aistudio',
         ENVIRONMENT: props.environment,
         EMBEDDING_QUEUE_URL: this.embeddingQueue.queueUrl,
@@ -129,8 +147,8 @@ export class ProcessingStack extends cdk.Stack {
       environment: {
         NODE_OPTIONS: '--enable-source-maps',
         JOB_STATUS_TABLE: this.jobStatusTable.tableName,
-        DATABASE_RESOURCE_ARN: props.databaseResourceArn,
-        DATABASE_SECRET_ARN: props.databaseSecretArn,
+        DATABASE_RESOURCE_ARN: databaseResourceArn,
+        DATABASE_SECRET_ARN: databaseSecretArn,
         DATABASE_NAME: 'aistudio',
         ENVIRONMENT: props.environment,
       },
@@ -146,8 +164,8 @@ export class ProcessingStack extends cdk.Stack {
       memorySize: 1024, // 1GB
       environment: {
         NODE_OPTIONS: '--enable-source-maps',
-        DB_CLUSTER_ARN: props.databaseResourceArn,
-        DB_SECRET_ARN: props.databaseSecretArn,
+        DB_CLUSTER_ARN: databaseResourceArn,
+        DB_SECRET_ARN: databaseSecretArn,
         DB_NAME: 'aistudio',
         ENVIRONMENT: props.environment,
       },
@@ -163,8 +181,8 @@ export class ProcessingStack extends cdk.Stack {
       memorySize: 1024, // 1GB
       environment: {
         NODE_OPTIONS: '--enable-source-maps',
-        DATABASE_RESOURCE_ARN: props.databaseResourceArn,
-        DATABASE_SECRET_ARN: props.databaseSecretArn,
+        DATABASE_RESOURCE_ARN: databaseResourceArn,
+        DATABASE_SECRET_ARN: databaseSecretArn,
         DATABASE_NAME: 'aistudio',
         EMBEDDING_QUEUE_URL: this.embeddingQueue.queueUrl,
         ENVIRONMENT: props.environment,
@@ -193,12 +211,12 @@ export class ProcessingStack extends cdk.Stack {
         'rds-data:CommitTransaction',
         'rds-data:RollbackTransaction',
       ],
-      resources: [props.databaseResourceArn],
+      resources: [databaseResourceArn],
     });
 
     const secretsManagerPolicy = new iam.PolicyStatement({
       actions: ['secretsmanager:GetSecretValue'],
-      resources: [props.databaseSecretArn],
+      resources: [databaseSecretArn],
     });
 
     fileProcessor.addToRolePolicy(rdsDataApiPolicy);

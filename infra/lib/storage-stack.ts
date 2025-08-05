@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 
 export interface StorageStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
@@ -51,7 +52,14 @@ export class StorageStack extends cdk.Stack {
     // Store bucket name for use by other stacks
     this.documentsBucketName = bucket.bucketName;
 
-    // Output the S3 bucket name
+    // Store bucket name in SSM Parameter Store for cross-stack references
+    new ssm.StringParameter(this, 'DocumentsBucketParam', {
+      parameterName: `/aistudio/${props.environment}/documents-bucket-name`,
+      stringValue: bucket.bucketName,
+      description: 'S3 bucket name for document storage',
+    });
+
+    // Keep CloudFormation output for backward compatibility and monitoring
     new cdk.CfnOutput(this, 'DocumentsBucketName', {
       value: bucket.bucketName,
       description: 'S3 bucket for document storage',

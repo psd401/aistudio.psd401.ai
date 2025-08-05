@@ -86,13 +86,8 @@ Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devStorageSta
 
 const devProcessingStack = new ProcessingStack(app, 'AIStudio-ProcessingStack-Dev', {
   environment: 'dev',
-  documentsBucketName: devStorageStack.documentsBucketName,
-  databaseResourceArn: devDbStack.databaseResourceArn,
-  databaseSecretArn: devDbStack.databaseSecretArn,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
-devProcessingStack.addDependency(devStorageStack);
-devProcessingStack.addDependency(devDbStack);
 cdk.Tags.of(devProcessingStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devProcessingStack).add(key, value));
 
@@ -124,13 +119,8 @@ Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodStorageSt
 
 const prodProcessingStack = new ProcessingStack(app, 'AIStudio-ProcessingStack-Prod', {
   environment: 'prod',
-  documentsBucketName: prodStorageStack.documentsBucketName,
-  databaseResourceArn: prodDbStack.databaseResourceArn,
-  databaseSecretArn: prodDbStack.databaseSecretArn,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
-prodProcessingStack.addDependency(prodStorageStack);
-prodProcessingStack.addDependency(prodDbStack);
 cdk.Tags.of(prodProcessingStack).add('Environment', 'Prod');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodProcessingStack).add(key, value));
 
@@ -140,10 +130,8 @@ if (baseDomain) {
     environment: 'dev',
     githubToken: SecretValue.secretsManager('aistudio-github-token'),
     baseDomain,
-    documentsBucketName: devStorageStack.documentsBucketName,
     env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
   });
-  devFrontendStack.addDependency(devStorageStack);
   cdk.Tags.of(devFrontendStack).add('Environment', 'Dev');
   Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devFrontendStack).add(key, value));
 
@@ -151,10 +139,8 @@ if (baseDomain) {
     environment: 'prod',
     githubToken: SecretValue.secretsManager('aistudio-github-token'),
     baseDomain,
-    documentsBucketName: prodStorageStack.documentsBucketName,
     env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
   });
-  prodFrontendStack.addDependency(prodStorageStack);
   cdk.Tags.of(prodFrontendStack).add('Environment', 'Prod');
   Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodFrontendStack).add(key, value));
 

@@ -8,6 +8,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as cr from 'aws-cdk-lib/custom-resources';
 import * as path from 'path';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 
 export interface DatabaseStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
@@ -208,6 +209,20 @@ export class DatabaseStack extends cdk.Stack {
     this.databaseResourceArn = cluster.clusterArn;
     this.databaseSecretArn = dbSecret.secretArn;
     
+    // Store values in SSM Parameter Store for cross-stack references
+    new ssm.StringParameter(this, 'DbClusterArnParam', {
+      parameterName: `/aistudio/${props.environment}/db-cluster-arn`,
+      stringValue: cluster.clusterArn,
+      description: 'Aurora cluster ARN for Data API',
+    });
+    
+    new ssm.StringParameter(this, 'DbSecretArnParam', {
+      parameterName: `/aistudio/${props.environment}/db-secret-arn`,
+      stringValue: dbSecret.secretArn,
+      description: 'Secrets Manager ARN for DB credentials',
+    });
+    
+    // Keep CloudFormation outputs for backward compatibility and monitoring
     new cdk.CfnOutput(this, 'ClusterArn', {
       value: cluster.clusterArn,
       description: 'Aurora cluster ARN for Data API',
