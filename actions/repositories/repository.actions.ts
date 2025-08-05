@@ -3,11 +3,12 @@
 import { getServerSession } from "@/lib/auth/server-session"
 import { executeSQL, executeTransaction } from "@/lib/db/data-api-adapter"
 import { type ActionState } from "@/types/actions-types"
-import { hasToolAccess, hasRole } from "@/utils/roles"
+import { hasToolAccess } from "@/utils/roles"
 import { handleError } from "@/lib/error-utils"
 import { createError } from "@/lib/error-utils"
 import { revalidatePath } from "next/cache"
 import { transformSnakeToCamel } from "@/lib/db/field-mapper"
+import { canModifyRepository, getUserIdFromSession } from "./repository-permissions"
 
 export interface Repository {
   id: number
@@ -37,29 +38,6 @@ export interface UpdateRepositoryInput {
   metadata?: Record<string, any>
 }
 
-/**
- * Check if a user can modify a repository
- * Returns true if the user is the owner or an administrator
- */
-async function canModifyRepository(
-  repositoryId: number,
-  userId: number
-): Promise<boolean> {
-  // Check if user owns the repository
-  const ownerCheck = await executeSQL<{ id: number }>(
-    `SELECT 1 as id FROM knowledge_repositories 
-     WHERE id = :repositoryId AND owner_id = :userId`,
-    [
-      { name: "repositoryId", value: { longValue: repositoryId } },
-      { name: "userId", value: { longValue: userId } }
-    ]
-  )
-  
-  if (ownerCheck.length > 0) return true
-  
-  // Check if user is administrator
-  return await hasRole("administrator")
-}
 
 export async function createRepository(
   input: CreateRepositoryInput
@@ -76,16 +54,7 @@ export async function createRepository(
     }
 
     // Get the user ID from the cognito_sub
-    const userResult = await executeSQL<{ id: number }>(
-      `SELECT id FROM users WHERE cognito_sub = :cognito_sub`,
-      [{ name: "cognito_sub", value: { stringValue: session.sub } }]
-    )
-
-    if (userResult.length === 0) {
-      return { isSuccess: false, message: "User not found" }
-    }
-
-    const userId = userResult[0].id
+    const userId = await getUserIdFromSession(session.sub)
 
     const result = await executeSQL<Repository>(
       `INSERT INTO knowledge_repositories (name, description, owner_id, is_public, metadata)
@@ -122,16 +91,7 @@ export async function updateRepository(
     }
 
     // Get the user ID from the cognito_sub
-    const userResult = await executeSQL<{ id: number }>(
-      `SELECT id FROM users WHERE cognito_sub = :cognito_sub`,
-      [{ name: "cognito_sub", value: { stringValue: session.sub } }]
-    )
-
-    if (userResult.length === 0) {
-      return { isSuccess: false, message: "User not found" }
-    }
-
-    const userId = userResult[0].id
+    const userId = await getUserIdFromSession(session.sub)
 
     // Check if user can modify this repository
     const canModify = await canModifyRepository(input.id, userId)
@@ -205,16 +165,7 @@ export async function deleteRepository(
     }
 
     // Get the user ID from the cognito_sub
-    const userResult = await executeSQL<{ id: number }>(
-      `SELECT id FROM users WHERE cognito_sub = :cognito_sub`,
-      [{ name: "cognito_sub", value: { stringValue: session.sub } }]
-    )
-
-    if (userResult.length === 0) {
-      return { isSuccess: false, message: "User not found" }
-    }
-
-    const userId = userResult[0].id
+    const userId = await getUserIdFromSession(session.sub)
 
     // Check if user can modify this repository
     const canModify = await canModifyRepository(id, userId)
@@ -229,18 +180,17 @@ export async function deleteRepository(
       [{ name: "repository_id", value: { longValue: id } }]
     )
 
-    // Delete all documents from S3
+    // Delete all documents from S3 in parallel
     if (items.length > 0) {
       const { deleteDocument } = await import("@/lib/aws/s3-client")
       
-      for (const item of items) {
-        try {
-          await deleteDocument(item.source)
-        } catch (error) {
+      const deletePromises = items.map(item =>
+        deleteDocument(item.source).catch(error => {
           // Log error but continue with deletion
           console.error(`Failed to delete S3 file ${item.source}:`, error)
-        }
-      }
+        })
+      )
+      await Promise.all(deletePromises)
     }
 
     // Now delete the repository (this will cascade delete all items and chunks)

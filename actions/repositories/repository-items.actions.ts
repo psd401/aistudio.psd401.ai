@@ -3,13 +3,14 @@
 import { getServerSession } from "@/lib/auth/server-session"
 import { executeSQL, executeTransaction } from "@/lib/db/data-api-adapter"
 import { type ActionState } from "@/types/actions-types"
-import { hasToolAccess, hasRole } from "@/utils/roles"
+import { hasToolAccess } from "@/utils/roles"
 import { handleError } from "@/lib/error-utils"
 import { createError } from "@/lib/error-utils"
 import { revalidatePath } from "next/cache"
 import { uploadDocument, deleteDocument } from "@/lib/aws/s3-client"
 import { createJobAction } from "@/actions/db/jobs-actions"
 import { queueFileForProcessing, processUrl } from "@/lib/services/file-processing-service"
+import { canModifyRepository, getUserIdFromSession } from "./repository-permissions"
 
 export interface RepositoryItem {
   id: number
@@ -79,29 +80,6 @@ function sanitizeFilename(filename: string): string {
     .slice(0, 255); // Limit length
 }
 
-/**
- * Check if a user can modify a repository
- * Returns true if the user is the owner or an administrator
- */
-async function canModifyRepository(
-  repositoryId: number,
-  userId: number
-): Promise<boolean> {
-  // Check if user owns the repository
-  const ownerCheck = await executeSQL<{ id: number }>(
-    `SELECT 1 as id FROM knowledge_repositories 
-     WHERE id = :repositoryId AND owner_id = :userId`,
-    [
-      { name: "repositoryId", value: { longValue: repositoryId } },
-      { name: "userId", value: { longValue: userId } }
-    ]
-  )
-  
-  if (ownerCheck.length > 0) return true
-  
-  // Check if user is administrator
-  return await hasRole("administrator")
-}
 
 export async function addDocumentItem(
   input: AddDocumentInput
@@ -130,16 +108,7 @@ export async function addDocumentItem(
     const sanitizedFilename = sanitizeFilename(input.file.fileName || input.name);
 
     // Get the user ID from the cognito_sub
-    const userResult = await executeSQL<{ id: number }>(
-      `SELECT id FROM users WHERE cognito_sub = :cognito_sub`,
-      [{ name: "cognito_sub", value: { stringValue: session.sub } }]
-    )
-
-    if (userResult.length === 0) {
-      return { isSuccess: false, message: "User not found" }
-    }
-
-    const userId = userResult[0].id
+    const userId = await getUserIdFromSession(session.sub)
 
     // Check if user can modify this repository
     const canModify = await canModifyRepository(input.repository_id, userId)
@@ -233,16 +202,7 @@ export async function addDocumentWithPresignedUrl(
     }
 
     // Get the user ID from the cognito_sub
-    const userResult = await executeSQL<{ id: number }>(
-      `SELECT id FROM users WHERE cognito_sub = :cognito_sub`,
-      [{ name: "cognito_sub", value: { stringValue: session.sub } }]
-    )
-
-    if (userResult.length === 0) {
-      return { isSuccess: false, message: "User not found" }
-    }
-
-    const userId = userResult[0].id
+    const userId = await getUserIdFromSession(session.sub)
 
     // Check if user can modify this repository
     const canModify = await canModifyRepository(input.repository_id, userId)
@@ -328,16 +288,7 @@ export async function addUrlItem(
     }
 
     // Get the user ID from the cognito_sub
-    const userResult = await executeSQL<{ id: number }>(
-      `SELECT id FROM users WHERE cognito_sub = :cognito_sub`,
-      [{ name: "cognito_sub", value: { stringValue: session.sub } }]
-    )
-
-    if (userResult.length === 0) {
-      return { isSuccess: false, message: "User not found" }
-    }
-
-    const userId = userResult[0].id
+    const userId = await getUserIdFromSession(session.sub)
 
     // Check if user can modify this repository
     const canModify = await canModifyRepository(input.repository_id, userId)
@@ -459,16 +410,7 @@ export async function removeRepositoryItem(
     }
 
     // Get the user ID from the cognito_sub
-    const userResult = await executeSQL<{ id: number }>(
-      `SELECT id FROM users WHERE cognito_sub = :cognito_sub`,
-      [{ name: "cognito_sub", value: { stringValue: session.sub } }]
-    )
-
-    if (userResult.length === 0) {
-      return { isSuccess: false, message: "User not found" }
-    }
-
-    const userId = userResult[0].id
+    const userId = await getUserIdFromSession(session.sub)
 
     // Get the item to check if it's a document (need to delete from S3)
     const items = await executeSQL<RepositoryItem>(

@@ -8,9 +8,30 @@ import { handleError } from "@/lib/error-utils"
 import { revalidatePath } from "next/cache"
 import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import type { Repository } from "@/actions/repositories/repository.actions"
+import type { RepositoryItem } from "@/actions/repositories/repository-items.actions"
+import { createError } from "@/lib/error-utils"
+import { ErrorLevel } from "@/types/actions-types"
 
 export interface RepositoryWithOwner extends Repository {
   ownerEmail: string
+}
+
+/**
+ * Helper to ensure session exists and user is administrator
+ * Throws error if authorization fails
+ */
+async function requireAdminSession() {
+  const session = await getServerSession()
+  if (!session) {
+    throw createError("Unauthorized", { level: ErrorLevel.ERROR })
+  }
+
+  const isAdmin = await hasRole("administrator")
+  if (!isAdmin) {
+    throw createError("Access denied. Administrator privileges required.", { level: ErrorLevel.ERROR })
+  }
+
+  return session
 }
 
 /**
@@ -18,16 +39,7 @@ export interface RepositoryWithOwner extends Repository {
  */
 export async function listAllRepositories(): Promise<ActionState<RepositoryWithOwner[]>> {
   try {
-    const session = await getServerSession()
-    if (!session) {
-      return { isSuccess: false, message: "Unauthorized" }
-    }
-
-    // Check if user is administrator
-    const isAdmin = await hasRole("administrator")
-    if (!isAdmin) {
-      return { isSuccess: false, message: "Access denied. Administrator privileges required." }
-    }
+    await requireAdminSession()
 
     const repositories = await executeSQL<RepositoryWithOwner>(
       `SELECT 
@@ -59,16 +71,7 @@ export async function adminUpdateRepository(
   }
 ): Promise<ActionState<Repository>> {
   try {
-    const session = await getServerSession()
-    if (!session) {
-      return { isSuccess: false, message: "Unauthorized" }
-    }
-
-    // Check if user is administrator
-    const isAdmin = await hasRole("administrator")
-    if (!isAdmin) {
-      return { isSuccess: false, message: "Access denied. Administrator privileges required." }
-    }
+    await requireAdminSession()
 
     const updates: string[] = []
     const params: any[] = [
@@ -128,16 +131,7 @@ export async function adminDeleteRepository(
   id: number
 ): Promise<ActionState<void>> {
   try {
-    const session = await getServerSession()
-    if (!session) {
-      return { isSuccess: false, message: "Unauthorized" }
-    }
-
-    // Check if user is administrator
-    const isAdmin = await hasRole("administrator")
-    if (!isAdmin) {
-      return { isSuccess: false, message: "Access denied. Administrator privileges required." }
-    }
+    await requireAdminSession()
 
     // First, get all document items to delete from S3
     const items = await executeSQL<{ id: number; type: string; source: string }>(
@@ -146,18 +140,17 @@ export async function adminDeleteRepository(
       [{ name: "repository_id", value: { longValue: id } }]
     )
 
-    // Delete all documents from S3
+    // Delete all documents from S3 in parallel
     if (items.length > 0) {
       const { deleteDocument } = await import("@/lib/aws/s3-client")
       
-      for (const item of items) {
-        try {
-          await deleteDocument(item.source)
-        } catch (error) {
+      const deletePromises = items.map(item =>
+        deleteDocument(item.source).catch(error => {
           // Log error but continue with deletion
           console.error(`Failed to delete S3 file ${item.source}:`, error)
-        }
-      }
+        })
+      )
+      await Promise.all(deletePromises)
     }
 
     // Now delete the repository (this will cascade delete all items and chunks)
@@ -179,20 +172,11 @@ export async function adminDeleteRepository(
  */
 export async function adminGetRepositoryItems(
   repositoryId: number
-): Promise<ActionState<any[]>> {
+): Promise<ActionState<RepositoryItem[]>> {
   try {
-    const session = await getServerSession()
-    if (!session) {
-      return { isSuccess: false, message: "Unauthorized" }
-    }
+    await requireAdminSession()
 
-    // Check if user is administrator
-    const isAdmin = await hasRole("administrator")
-    if (!isAdmin) {
-      return { isSuccess: false, message: "Access denied. Administrator privileges required." }
-    }
-
-    const items = await executeSQL(
+    const items = await executeSQL<RepositoryItem>(
       `SELECT * FROM repository_items 
        WHERE repository_id = :repository_id
        ORDER BY created_at DESC`,
@@ -212,16 +196,7 @@ export async function adminRemoveRepositoryItem(
   itemId: number
 ): Promise<ActionState<void>> {
   try {
-    const session = await getServerSession()
-    if (!session) {
-      return { isSuccess: false, message: "Unauthorized" }
-    }
-
-    // Check if user is administrator
-    const isAdmin = await hasRole("administrator")
-    if (!isAdmin) {
-      return { isSuccess: false, message: "Access denied. Administrator privileges required." }
-    }
+    await requireAdminSession()
 
     // Get the item to check if it's a document (need to delete from S3)
     const items = await executeSQL<{ id: number; type: string; source: string; repositoryId: number }>(
