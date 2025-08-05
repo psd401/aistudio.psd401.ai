@@ -308,10 +308,32 @@ npm run test:e2e tests/e2e/working-tests.spec.ts  # Run specific test file
 - You are never to attribute commits or pull requests to yourself, DO NOT ever add yourself as the author
 - Always write very detailed intricate commit messages to document fully what was changed in the code you were working on
 - Before ANY commit:
-  1. Run `npm run lint` on the ENTIRE codebase - MUST pass with zero errors
+  1. Run `npm run lint` on the ENTIRE codebase - MUST pass with zero errors (enforces no-console rule)
   2. Run `npm run typecheck` on the ENTIRE codebase - MUST pass with zero errors
-  3. Verify all server actions and API routes have proper logging
+  3. Verify all server actions and API routes have proper logging (ESLint will catch violations)
   4. Run E2E tests with `npm run test:e2e` - all tests must pass
+
+### ESLint Enforcement
+
+The codebase uses ESLint to automatically enforce logging standards:
+
+**Enforced Rules:**
+- ❌ `no-console`: Prevents any console.log/error/warn in server code
+- ✅ Client code (components/hooks) may use console.error only
+- ✅ Edge Runtime files must use eslint-disable comments
+
+**Custom Rules** (defined in `.eslintrc.custom.js`):
+- `no-console-in-server`: Blocks console usage in server actions/API routes
+- `require-request-id-in-server-actions`: Ensures requestId generation
+- `require-error-handling-in-async`: Ensures proper error handling
+- `no-generic-error-messages`: Prevents generic error messages
+- `use-typed-errors`: Encourages ErrorFactories usage
+
+**Files Checked:**
+- `/actions/**/*.ts` - Server actions (strict logging required)
+- `/app/api/**/*.ts` - API routes (strict logging required)
+- `/lib/**/*.ts` - Library code (must use logger)
+- `/components/**/*.tsx` - Client components (console.error allowed)
 
 ## Logging Standards
 
