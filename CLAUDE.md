@@ -235,6 +235,32 @@ Required environment variables are documented in `/docs/ENVIRONMENT_VARIABLES.md
 - Secrets managed in AWS Secrets Manager
 - No direct database connections (Data API only)
 
+### E2E Testing Requirements
+
+**IMPORTANT**: All new features MUST include E2E tests:
+- When implementing new features, create corresponding E2E tests
+- Use Playwright MCP during development to test features interactively
+- Document test scenarios in `/tests/e2e/playwright-mcp-examples.md`
+- Add basic tests to `/tests/e2e/working-tests.spec.ts` for CI/CD where possible
+- Run `npm run test:e2e` to ensure tests pass before committing
+
+**Testing Approach:**
+1. **Development**: Use Playwright MCP (`/e2e-test` command) with your logged-in session
+2. **CI/CD**: Write tests that don't require authentication in `working-tests.spec.ts`
+3. **Documentation**: Add examples to `playwright-mcp-examples.md` for authenticated features
+
+**E2E Testing Commands:**
+```bash
+# Run E2E tests
+npm run test:e2e                     # Run all E2E tests
+npm run test:e2e:ui                  # Run tests in UI mode
+npm run test:e2e tests/e2e/working-tests.spec.ts  # Run specific test file
+
+# Use Playwright MCP in Claude Code (while logged in)
+/e2e-test Navigate to /admin/users and verify user table loads
+/e2e-test Test chat at /chat - send a message and verify response
+```
+
 ### Commit & PR Process
 - **CRITICAL**: All pull requests MUST target the `dev` branch, NEVER the `main` branch
 - The `dev` branch is the default development branch for all changes
@@ -242,3 +268,4 @@ Required environment variables are documented in `/docs/ENVIRONMENT_VARIABLES.md
 - You are never to attribute commits or pull requests to yourself, DO NOT ever add yourself as the author
 - Always write very detailed intricate commit messages to document fully what was changed in the code you were working on
 - Before ANY commit: Run `npm run lint` and `npm run typecheck` on the ENTIRE codebase - both must pass with zero errors
+- **NEW**: Run E2E tests with `npm run test:e2e` - all tests must pass
