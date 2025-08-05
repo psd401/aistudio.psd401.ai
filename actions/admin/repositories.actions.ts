@@ -4,12 +4,22 @@ import { getServerSession } from "@/lib/auth/server-session"
 import { executeSQL } from "@/lib/db/data-api-adapter"
 import { type ActionState } from "@/types/actions-types"
 import { hasRole } from "@/utils/roles"
-import { handleError } from "@/lib/error-utils"
+import { 
+  handleError,
+  createError,
+  ErrorFactories,
+  createSuccess
+} from "@/lib/error-utils"
+import {
+  createLogger,
+  generateRequestId,
+  startTimer,
+  sanitizeForLogging
+} from "@/lib/logger"
 import { revalidatePath } from "next/cache"
 import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import type { Repository } from "@/actions/repositories/repository.actions"
 import type { RepositoryItem } from "@/actions/repositories/repository-items.actions"
-import { createError } from "@/lib/error-utils"
 import { ErrorLevel } from "@/types/actions-types"
 
 export interface RepositoryWithOwner extends Repository {
@@ -20,17 +30,23 @@ export interface RepositoryWithOwner extends Repository {
  * Helper to ensure session exists and user is administrator
  * Throws error if authorization fails
  */
-async function requireAdminSession() {
+async function requireAdminSession(log?: ReturnType<typeof createLogger>) {
   const session = await getServerSession()
   if (!session) {
-    throw createError("Unauthorized", { level: ErrorLevel.ERROR })
+    log?.warn("Unauthorized admin access attempt")
+    throw ErrorFactories.authNoSession()
   }
 
+  log?.debug("Checking administrator role", { userId: session.sub })
   const isAdmin = await hasRole("administrator")
   if (!isAdmin) {
-    throw createError("Access denied. Administrator privileges required.", { level: ErrorLevel.ERROR })
+    log?.warn("Admin access denied - insufficient privileges", {
+      userId: session.sub
+    })
+    throw ErrorFactories.authzAdminRequired()
   }
 
+  log?.debug("Admin access granted", { userId: session.sub })
   return session
 }
 
@@ -38,9 +54,16 @@ async function requireAdminSession() {
  * Admin function to list all repositories with owner information
  */
 export async function listAllRepositories(): Promise<ActionState<RepositoryWithOwner[]>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("admin.listAllRepositories")
+  const log = createLogger({ requestId, action: "admin.listAllRepositories" })
+  
   try {
-    await requireAdminSession()
+    log.info("Admin action started: Listing all repositories")
+    
+    await requireAdminSession(log)
 
+    log.debug("Fetching all repositories from database")
     const repositories = await executeSQL<RepositoryWithOwner>(
       `SELECT 
         kr.*,
@@ -51,10 +74,23 @@ export async function listAllRepositories(): Promise<ActionState<RepositoryWithO
        ORDER BY kr.created_at DESC`
     )
 
+    log.info("All repositories fetched successfully", {
+      repositoryCount: repositories.length
+    })
+    
     const transformed = repositories.map(repo => transformSnakeToCamel<RepositoryWithOwner>(repo))
-    return { isSuccess: true, message: "Repositories loaded successfully", data: transformed }
+    
+    timer({ status: "success", count: repositories.length })
+    
+    return createSuccess(transformed, "Repositories loaded successfully")
   } catch (error) {
-    return handleError(error, "Failed to list repositories")
+    timer({ status: "error" })
+    
+    return handleError(error, "Failed to list repositories. Please try again or contact support.", {
+      context: "admin.listAllRepositories",
+      requestId,
+      operation: "admin.listAllRepositories"
+    })
   }
 }
 
@@ -70,8 +106,17 @@ export async function adminUpdateRepository(
     metadata?: Record<string, any>
   }
 ): Promise<ActionState<Repository>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("admin.updateRepository")
+  const log = createLogger({ requestId, action: "admin.updateRepository" })
+  
   try {
-    await requireAdminSession()
+    log.info("Admin action started: Updating repository", {
+      repositoryId: input.id,
+      updates: sanitizeForLogging(input)
+    })
+    
+    await requireAdminSession(log)
 
     const updates: string[] = []
     const params: any[] = [
@@ -99,11 +144,17 @@ export async function adminUpdateRepository(
     }
 
     if (updates.length === 0) {
+      log.warn("No fields provided for update")
       return { isSuccess: false, message: "No fields to update" }
     }
 
     updates.push("updated_at = CURRENT_TIMESTAMP")
 
+    log.info("Updating repository in database (admin)", {
+      repositoryId: input.id,
+      fieldsUpdated: updates.length - 1
+    })
+    
     const result = await executeSQL<Repository>(
       `UPDATE knowledge_repositories 
        SET ${updates.join(", ")}
@@ -113,14 +164,29 @@ export async function adminUpdateRepository(
     )
 
     if (result.length === 0) {
-      return { isSuccess: false, message: "Repository not found" }
+      log.error("Repository not found for update", { repositoryId: input.id })
+      throw ErrorFactories.dbRecordNotFound("knowledge_repositories", input.id)
     }
 
+    log.info("Repository updated successfully (admin)", {
+      repositoryId: result[0].id,
+      name: result[0].name
+    })
+    
+    timer({ status: "success", repositoryId: result[0].id })
+    
     revalidatePath("/admin/repositories")
     revalidatePath(`/repositories/${input.id}`)
-    return { isSuccess: true, message: "Repository updated successfully (admin)", data: result[0] }
+    return createSuccess(result[0], "Repository updated successfully (admin)")
   } catch (error) {
-    return handleError(error, "Failed to update repository")
+    timer({ status: "error" })
+    
+    return handleError(error, "Failed to update repository. Please try again or contact support.", {
+      context: "admin.updateRepository",
+      requestId,
+      operation: "admin.updateRepository",
+      metadata: { repositoryId: input.id }
+    })
   }
 }
 
@@ -130,40 +196,70 @@ export async function adminUpdateRepository(
 export async function adminDeleteRepository(
   id: number
 ): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("admin.deleteRepository")
+  const log = createLogger({ requestId, action: "admin.deleteRepository" })
+  
   try {
-    await requireAdminSession()
+    log.info("Admin action started: Deleting repository", { repositoryId: id })
+    
+    await requireAdminSession(log)
 
     // First, get all document items to delete from S3
+    log.debug("Fetching document items for S3 deletion")
     const items = await executeSQL<{ id: number; type: string; source: string }>(
       `SELECT id, type, source FROM repository_items 
        WHERE repository_id = :repository_id AND type = 'document'`,
       [{ name: "repository_id", value: { longValue: id } }]
     )
+    
+    log.info("Found documents to delete from S3", {
+      documentCount: items.length,
+      repositoryId: id
+    })
 
     // Delete all documents from S3 in parallel
     if (items.length > 0) {
       const { deleteDocument } = await import("@/lib/aws/s3-client")
       
+      log.info("Deleting documents from S3", { count: items.length })
       const deletePromises = items.map(item =>
         deleteDocument(item.source).catch(error => {
           // Log error but continue with deletion
-          console.error(`Failed to delete S3 file ${item.source}:`, error)
+          log.error("Failed to delete S3 file", {
+            file: item.source,
+            itemId: item.id,
+            error: error instanceof Error ? error.message : "Unknown error"
+          })
         })
       )
       await Promise.all(deletePromises)
+      log.info("S3 document cleanup completed")
     }
 
     // Now delete the repository (this will cascade delete all items and chunks)
+    log.info("Deleting repository from database (admin)", { repositoryId: id })
     await executeSQL(
       `DELETE FROM knowledge_repositories WHERE id = :id`,
       [{ name: "id", value: { longValue: id } }]
     )
 
+    log.info("Repository deleted successfully (admin)", { repositoryId: id })
+    
+    timer({ status: "success", repositoryId: id })
+    
     revalidatePath("/admin/repositories")
     revalidatePath("/repositories")
-    return { isSuccess: true, message: "Repository deleted successfully (admin)", data: undefined as any }
+    return createSuccess(undefined as any, "Repository deleted successfully (admin)")
   } catch (error) {
-    return handleError(error, "Failed to delete repository")
+    timer({ status: "error" })
+    
+    return handleError(error, "Failed to delete repository. Please try again or contact support.", {
+      context: "admin.deleteRepository",
+      requestId,
+      operation: "admin.deleteRepository",
+      metadata: { repositoryId: id }
+    })
   }
 }
 
@@ -173,9 +269,16 @@ export async function adminDeleteRepository(
 export async function adminGetRepositoryItems(
   repositoryId: number
 ): Promise<ActionState<RepositoryItem[]>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("admin.getRepositoryItems")
+  const log = createLogger({ requestId, action: "admin.getRepositoryItems" })
+  
   try {
-    await requireAdminSession()
+    log.info("Admin action started: Getting repository items", { repositoryId })
+    
+    await requireAdminSession(log)
 
+    log.debug("Fetching repository items from database (admin)", { repositoryId })
     const items = await executeSQL<RepositoryItem>(
       `SELECT * FROM repository_items 
        WHERE repository_id = :repository_id
@@ -183,9 +286,23 @@ export async function adminGetRepositoryItems(
       [{ name: "repository_id", value: { longValue: repositoryId } }]
     )
 
-    return { isSuccess: true, message: "Items loaded successfully", data: items }
+    log.info("Repository items fetched successfully (admin)", {
+      repositoryId,
+      itemCount: items.length
+    })
+    
+    timer({ status: "success", count: items.length })
+    
+    return createSuccess(items, "Items loaded successfully")
   } catch (error) {
-    return handleError(error, "Failed to list repository items")
+    timer({ status: "error" })
+    
+    return handleError(error, "Failed to list repository items. Please try again or contact support.", {
+      context: "admin.getRepositoryItems",
+      requestId,
+      operation: "admin.getRepositoryItems",
+      metadata: { repositoryId }
+    })
   }
 }
 
@@ -195,42 +312,80 @@ export async function adminGetRepositoryItems(
 export async function adminRemoveRepositoryItem(
   itemId: number
 ): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("admin.removeRepositoryItem")
+  const log = createLogger({ requestId, action: "admin.removeRepositoryItem" })
+  
   try {
-    await requireAdminSession()
+    log.info("Admin action started: Removing repository item", { itemId })
+    
+    await requireAdminSession(log)
 
     // Get the item to check if it's a document (need to delete from S3)
+    log.debug("Fetching item details", { itemId })
     const items = await executeSQL<{ id: number; type: string; source: string; repositoryId: number }>(
       `SELECT * FROM repository_items WHERE id = :id`,
       [{ name: "id", value: { longValue: itemId } }]
     )
 
     if (items.length === 0) {
-      return { isSuccess: false, message: "Item not found" }
+      log.warn("Item not found for removal", { itemId })
+      throw ErrorFactories.dbRecordNotFound("repository_items", itemId)
     }
 
     const item = items[0]
+    log.debug("Item found", { 
+      itemId,
+      itemType: item.type,
+      repositoryId: item.repositoryId
+    })
 
     // Delete from S3 if it's a document
     if (item.type === 'document') {
+      log.info("Deleting document from S3 (admin)", {
+        itemId,
+        s3Key: item.source
+      })
+      
       try {
         const { deleteDocument } = await import("@/lib/aws/s3-client")
         await deleteDocument(item.source)
+        log.info("Document deleted from S3 successfully")
       } catch (error) {
         // Log error but continue with database deletion
-        console.error("Failed to delete from S3:", error)
+        log.error("Failed to delete from S3", {
+          itemId,
+          s3Key: item.source,
+          error: error instanceof Error ? error.message : "Unknown error"
+        })
       }
     }
 
     // Delete from database (cascades to chunks)
+    log.info("Deleting item from database (admin)", { itemId })
     await executeSQL(
       `DELETE FROM repository_items WHERE id = :id`,
       [{ name: "id", value: { longValue: itemId } }]
     )
 
+    log.info("Repository item removed successfully (admin)", {
+      itemId,
+      repositoryId: item.repositoryId
+    })
+    
+    timer({ status: "success", itemId })
+    
     revalidatePath(`/admin/repositories`)
     revalidatePath(`/repositories/${item.repositoryId}`)
-    return { isSuccess: true, message: "Item removed successfully (admin)", data: undefined as any }
+    return createSuccess(undefined as any, "Item removed successfully (admin)")
   } catch (error) {
-    return handleError(error, "Failed to remove item")
+    timer({ status: "error" })
+    
+    return handleError(error, "Failed to remove item. Please try again or contact support.", {
+      context: "admin.removeRepositoryItem",
+      requestId,
+      operation: "admin.removeRepositoryItem",
+      metadata: { itemId }
+    })
   }
 }

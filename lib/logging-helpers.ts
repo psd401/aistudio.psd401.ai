@@ -165,7 +165,7 @@ export function withSimpleLogging<TResult>(
 ): () => Promise<ActionState<TResult>> {
   // Create a wrapper that accepts params but doesn't use them
   const wrapper = withLogging<undefined, TResult>(
-    async (_params, _context) => fn(),
+    async () => fn(),
     {
       actionName,
       requireAuth: options?.requireAuth,

@@ -126,7 +126,7 @@ const prodFormat = winston.format.combine(
     }
     
     if (stack) {
-      (logEntry as any).stack = stack
+      (logEntry as Record<string, unknown>).stack = stack
     }
     
     // Filter sensitive data in production

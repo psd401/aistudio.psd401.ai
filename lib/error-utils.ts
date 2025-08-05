@@ -150,6 +150,20 @@ export const ErrorFactories = {
       { requiredRole: "administrator", ...details }
     ),
   
+  authzToolAccessDenied: (toolName: string, details?: Partial<AuthorizationError>) =>
+    createTypedError<AuthorizationError>(
+      ErrorCode.AUTHZ_TOOL_ACCESS_DENIED,
+      `Access denied to tool: ${toolName}`,
+      { requiredPermission: toolName, ...details }
+    ),
+  
+  authzOwnerRequired: (operation: string, details?: Partial<AuthorizationError>) =>
+    createTypedError<AuthorizationError>(
+      ErrorCode.AUTHZ_OWNER_REQUIRED,
+      `Only the owner can ${operation}`,
+      { requiredRole: "owner", ...details }
+    ),
+  
   // Validation Errors
   validationFailed: (fields: ValidationError["fields"], details?: Partial<ValidationError>) =>
     createTypedError<ValidationError>(

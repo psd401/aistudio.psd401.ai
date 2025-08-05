@@ -2,23 +2,56 @@
 
 import { executeSQL } from "@/lib/db/data-api-adapter"
 import { ActionState, SelectAiModel } from "@/types"
-import logger from "@/lib/logger"
+import { getServerSession } from "@/lib/auth/server-session"
+import { 
+  handleError,
+  ErrorFactories,
+  createSuccess
+} from "@/lib/error-utils"
+import {
+  createLogger,
+  generateRequestId,
+  startTimer
+} from "@/lib/logger"
 
 export async function getAiModelsAction(): Promise<ActionState<SelectAiModel[]>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("getAiModels")
+  const log = createLogger({ requestId, action: "getAiModels" })
+  
   try {
+    log.info("Action started: Getting AI models")
+    
+    const session = await getServerSession()
+    if (!session) {
+      log.warn("Unauthorized AI models access attempt")
+      throw ErrorFactories.authNoSession()
+    }
+    
+    log.debug("User authenticated", { userId: session.sub })
+    
+    log.debug("Fetching AI models from database")
     const models = await executeSQL<SelectAiModel>(`
       SELECT id, name, provider, model_id, description, capabilities, max_tokens, active, chat_enabled, created_at, updated_at
       FROM ai_models
       ORDER BY name ASC
     `);
 
-    return {
-      isSuccess: true,
-      message: "Models retrieved successfully",
-      data: models
-    }
+    log.info("AI models fetched successfully", {
+      modelCount: models.length,
+      activeCount: models.filter(m => m.active).length
+    })
+    
+    timer({ status: "success", count: models.length })
+    
+    return createSuccess(models, "Models retrieved successfully")
   } catch (error) {
-    logger.error("Error getting models", { error })
-    return { isSuccess: false, message: "Failed to get models" }
+    timer({ status: "error" })
+    
+    return handleError(error, "Failed to get AI models. Please try again or contact support.", {
+      context: "getAiModels",
+      requestId,
+      operation: "getAiModels"
+    })
   }
 } 
