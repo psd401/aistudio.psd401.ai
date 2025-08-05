@@ -263,6 +263,13 @@ export const ErrorFactories = {
       details
     ),
   
+  sysConfigurationError: (message: string, details?: Record<string, unknown>) =>
+    createTypedError<TypedError>(
+      ErrorCode.SYS_CONFIGURATION_ERROR,
+      message,
+      details
+    ),
+  
   // Business Logic Errors
   bizInvalidState: (operation: string, currentState: string, expectedState: string, details?: Partial<BusinessLogicError>) =>
     createTypedError<BusinessLogicError>(
