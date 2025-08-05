@@ -52,6 +52,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.ideas.notes.create");
+  const log = createLogger({ requestId, route: "api.ideas.notes.create" });
+  
   const session = await getServerSession();
   if (!session?.sub) {
     return new NextResponse('Unauthorized', { status: 401 });
@@ -119,11 +123,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const newNote = fetchResult[0];
 
     // The data is already converted to camelCase by formatDataApiResponse
+    timer({ status: "success" });
     return NextResponse.json({
       ...newNote,
       createdBy: newNote.creatorName || String(newNote.userId)
     });
   } catch (error) {
+    timer({ status: "error" });
     log.error('Error creating note:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }

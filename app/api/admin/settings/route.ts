@@ -31,7 +31,7 @@ export async function GET() {
     timer({ status: "success", count: result.data?.length || 0 });
     
     return NextResponse.json(result, { headers: { "X-Request-Id": requestId } })
-  }, requestId)
+  })
 }
 
 // POST /api/admin/settings - Create or update a setting
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     }
     
     return NextResponse.json(result, { headers: { "X-Request-Id": requestId } })
-  }, requestId)
+  })
 }
 
 // DELETE /api/admin/settings?key=SETTING_KEY - Delete a setting
@@ -107,5 +107,5 @@ export async function DELETE(req: NextRequest) {
     }
     
     return NextResponse.json(result, { headers: { "X-Request-Id": requestId } })
-  }, requestId)
+  })
 }

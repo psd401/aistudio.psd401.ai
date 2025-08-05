@@ -107,6 +107,17 @@ const devFormat = winston.format.printf(({ timestamp, level, message, ...meta })
 /**
  * Custom format for production - structured JSON with metadata
  */
+// Type for log entry with optional stack trace
+interface LogEntryWithStack extends Record<string, unknown> {
+  timestamp: string
+  level: string
+  message: string
+  environment: string
+  version: string
+  region: string
+  stack?: string
+}
+
 const prodFormat = winston.format.combine(
   winston.format.timestamp(),
   winston.format.errors({ stack: true }),
@@ -114,10 +125,10 @@ const prodFormat = winston.format.combine(
     const context = getLogContext()
     const { timestamp, level, message, stack, ...meta } = info
     
-    const logEntry = {
-      timestamp,
-      level,
-      message,
+    const logEntry: LogEntryWithStack = {
+      timestamp: timestamp as string,
+      level: level as string,
+      message: message as string,
       ...context,
       ...meta,
       environment: process.env.NODE_ENV || "development",
@@ -126,7 +137,7 @@ const prodFormat = winston.format.combine(
     }
     
     if (stack) {
-      (logEntry as Record<string, unknown>).stack = stack
+      logEntry.stack = stack as string
     }
     
     // Filter sensitive data in production

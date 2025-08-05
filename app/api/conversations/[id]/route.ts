@@ -3,7 +3,7 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { SqlParameter } from '@aws-sdk/client-rds-data';
-import { createLogger, generateRequestId, startTimer } from '@/lib/log';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 
 export async function DELETE(
   req: NextRequest,
@@ -97,6 +97,10 @@ export async function PATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.conversations.update");
+  const log = createLogger({ requestId, route: "api.conversations.update" });
+  
   const session = await getServerSession();
   if (!session) {
     return new Response('Unauthorized', { status: 401 });
@@ -148,8 +152,10 @@ export async function PATCH(
     ];
     await executeSQL(updateQuery, updateParams);
 
+    timer({ status: "success" });
     return new Response(null, { status: 204 });
   } catch (error) {
+    timer({ status: "error" });
     log.error('Failed to update conversation:', error);
     return new Response(
       JSON.stringify({ error: 'Failed to update conversation' }),

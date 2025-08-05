@@ -1,7 +1,7 @@
 import { getServerSession } from "@/lib/auth/server-session";
 import { executeSQL } from "@/lib/db/data-api-adapter";
 import { streamCompletion } from "@/lib/ai-helpers";
-import { createLogger, generateRequestId, startTimer } from "@/lib/log";
+import { createLogger, generateRequestId, startTimer } from "@/lib/logger";
 import { rateLimit } from "@/lib/rate-limit";
 import { NextRequest } from 'next/server';
 

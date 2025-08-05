@@ -43,5 +43,5 @@ export async function GET() {
     timer({ status: "success", count: models.length });
     
     return models;
-  }, requestId);
+  });
 }

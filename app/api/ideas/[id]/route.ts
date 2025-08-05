@@ -90,6 +90,10 @@ export async function DELETE(
   _request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.ideas.delete");
+  const log = createLogger({ requestId, route: "api.ideas.delete" });
+  
   const session = await getServerSession();
   if (!session?.sub) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -123,8 +127,10 @@ export async function DELETE(
     
     await executeTransaction(deleteStatements);
     
+    timer({ status: "success" });
     return new NextResponse(null, { status: 204 });
   } catch (error) {
+    timer({ status: "error" });
     log.error('Failed to delete idea:', error);
     return NextResponse.json({ error: 'Failed to delete idea' }, { status: 500 });
   }

@@ -95,11 +95,44 @@ export function withLogging<TParams, TResult>(
       }
       
       // Check authorization if roles required
-      if (options.requireRoles && options.requireRoles.length > 0) {
-        // This would need to be implemented based on your role checking logic
-        // For now, we'll add a TODO comment
-        // TODO: Implement role checking
-        log.debug("Role check required", { requiredRoles: options.requireRoles })
+      if (options.requireRoles && options.requireRoles.length > 0 && session) {
+        log.debug("Checking user roles", { 
+          requiredRoles: options.requireRoles,
+          userId 
+        })
+        
+        // Import role checking utilities
+        const { checkUserRole, getUserIdByCognitoSub, getUserRolesByCognitoSub } = await import("@/lib/db/data-api-adapter")
+        
+        // Get user's actual roles
+        const userRoles = await getUserRolesByCognitoSub(session.sub)
+        log.debug("User roles retrieved", { userRoles })
+        
+        // Check if user has any of the required roles
+        const hasRequiredRole = await Promise.all(
+          options.requireRoles.map(async (role) => {
+            const userDbId = await getUserIdByCognitoSub(session.sub)
+            if (!userDbId) return false
+            return checkUserRole(Number(userDbId), role)
+          })
+        ).then(results => results.some(hasRole => hasRole))
+        
+        if (!hasRequiredRole) {
+          log.warn("Authorization failed - insufficient permissions", {
+            requiredRoles: options.requireRoles,
+            userRoles,
+            userId
+          })
+          throw ErrorFactories.authzInsufficientPermissions(
+            options.requireRoles.join(", "), 
+            userRoles
+          )
+        }
+        
+        log.info("Authorization successful", { 
+          requiredRoles: options.requireRoles,
+          userRoles 
+        })
       }
       
       // Create context for the action
@@ -180,9 +213,19 @@ export function withSimpleLogging<TResult>(
 /**
  * Creates a logged database operation wrapper
  * Automatically handles common database errors with proper categorization
+ * 
+ * @param operation - The name of the database operation
+ * @param context - Additional context for error reporting
+ * @param query - The database query function to execute
  */
 export function withDatabaseLogging<T>(
   operation: string,
+  context: {
+    query?: string
+    table?: string
+    parameters?: unknown[]
+    field?: string
+  },
   query: () => Promise<T>
 ): Promise<T> {
   const timer = startTimer(`db.${operation}`)
@@ -197,32 +240,73 @@ export function withDatabaseLogging<T>(
       const endTimer = timer
       endTimer({ status: "error" })
       
-      // Categorize database errors
+      // Categorize database errors with full context
       if (error instanceof Error) {
         const message = error.message.toLowerCase()
         
-        if (message.includes("connection") || message.includes("connect")) {
+        if (message.includes("connection refused") || 
+            message.includes("econnrefused") || 
+            message.includes("connection") || 
+            message.includes("connect")) {
           throw ErrorFactories.dbConnectionFailed({ 
             technicalMessage: error.message,
-            cause: error 
+            cause: error,
+            ...context
           })
         }
         
-        if (message.includes("timeout")) {
-          throw ErrorFactories.dbQueryFailed("", error, {
-            technicalMessage: "Database query timed out"
-          })
+        if (message.includes("timeout") || message.includes("timedout")) {
+          throw ErrorFactories.dbQueryFailed(
+            context.query || "", 
+            error, 
+            {
+              technicalMessage: "Database query timed out",
+              table: context.table,
+              parameters: context.parameters
+            }
+          )
         }
         
-        if (message.includes("duplicate") || message.includes("unique")) {
-          throw ErrorFactories.dbDuplicateEntry("", "", "", {
-            technicalMessage: error.message,
-            cause: error
-          })
+        if (message.includes("duplicate") || 
+            message.includes("unique") || 
+            message.includes("already exists")) {
+          throw ErrorFactories.dbDuplicateEntry(
+            context.table || "", 
+            context.field || "", 
+            "", 
+            {
+              technicalMessage: error.message,
+              cause: error,
+              query: context.query,
+              parameters: context.parameters
+            }
+          )
         }
         
-        // Generic query failure
-        throw ErrorFactories.dbQueryFailed("", error)
+        if (message.includes("constraint") || 
+            message.includes("violates") || 
+            message.includes("foreign key")) {
+          // Add constraint violation handling
+          throw ErrorFactories.dbQueryFailed(
+            context.query || "",
+            error,
+            {
+              technicalMessage: "Database constraint violation",
+              table: context.table,
+              parameters: context.parameters
+            }
+          )
+        }
+        
+        // Generic query failure with full context
+        throw ErrorFactories.dbQueryFailed(
+          context.query || "", 
+          error,
+          {
+            table: context.table,
+            parameters: context.parameters
+          }
+        )
       }
       
       throw error

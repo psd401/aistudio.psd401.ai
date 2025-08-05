@@ -125,8 +125,7 @@ export async function POST(request: NextRequest) {
           key: presignedData.key,
           fields: presignedData.fields,
           expiresAt: new Date(Date.now() + 3600 * 1000).toISOString()
-        },
-        headers: { "X-Request-Id": requestId }
+        }
       }
     } catch (error) {
       timer({ status: "error" });

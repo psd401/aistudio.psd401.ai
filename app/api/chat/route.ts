@@ -316,7 +316,7 @@ export async function POST(req: NextRequest) {
       text: aiResponseContent,
       conversationId: conversationId
     };
-  }, requestId);
+  });
 }
 
 export async function GET(req: NextRequest) {

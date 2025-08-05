@@ -50,5 +50,5 @@ export async function GET() {
     timer({ status: "success", count: userConversations.length });
     
     return userConversations;
-  }, requestId);
+  });
 } 

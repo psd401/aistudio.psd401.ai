@@ -4,7 +4,7 @@ import { getServerSession } from "@/lib/auth/server-session"
 import { executeSQL } from "@/lib/db/data-api-adapter"
 import { validateImportFile, mapModelsForImport, type ExportFormat } from "@/lib/assistant-export-import"
 // UUID import removed - using auto-increment IDs
-import { createLogger, generateRequestId, startTimer } from "@/lib/log"
+import { createLogger, generateRequestId, startTimer } from "@/lib/logger"
 
 export async function POST(request: NextRequest) {
   const requestId = generateRequestId();

@@ -3,7 +3,7 @@ import { generateCompletion } from '@/lib/ai-helpers'
 import { getServerSession } from '@/lib/auth/server-session'
 import { executeSQL } from '@/lib/db/data-api-adapter'
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action'
-import { createLogger, generateRequestId, startTimer } from "@/lib/log"
+import { createLogger, generateRequestId, startTimer } from "@/lib/logger"
 import { getErrorMessage } from "@/types/errors"
 
 // Easily change the model id here

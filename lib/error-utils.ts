@@ -200,11 +200,67 @@ export const ErrorFactories = {
       { serviceName, cause: error, ...details }
     ),
   
-  externalServiceTimeout: (serviceName: string, timeout: number, details?: Partial<ExternalServiceError>) =>
+  externalServiceTimeout: (serviceName: string, timeout: number = 30000, details?: Partial<ExternalServiceError>) =>
     createTypedError<ExternalServiceError>(
       ErrorCode.EXTERNAL_SERVICE_TIMEOUT,
       `${serviceName} timeout after ${timeout}ms`,
       { serviceName, responseTime: timeout, ...details }
+    ),
+  
+  externalApiRateLimit: (serviceName: string, retryAfter?: number, details?: Partial<ExternalServiceError>) =>
+    createTypedError<ExternalServiceError>(
+      ErrorCode.EXTERNAL_API_RATE_LIMIT,
+      `Rate limit exceeded for ${serviceName}${retryAfter ? `. Retry after ${retryAfter}s` : ''}`,
+      { serviceName, nextRetryAt: retryAfter ? new Date(Date.now() + retryAfter * 1000).toISOString() : undefined, ...details }
+    ),
+  
+  // Additional Validation Errors
+  invalidFormat: (field: string, value: unknown, expectedFormat: string, details?: Partial<ValidationError>) =>
+    createTypedError<ValidationError>(
+      ErrorCode.INVALID_FORMAT,
+      `Invalid format for ${field}. Expected: ${expectedFormat}`,
+      { 
+        fields: [{ field, value, message: `Invalid format. Expected: ${expectedFormat}`, constraint: expectedFormat }],
+        ...details 
+      }
+    ),
+  
+  valueOutOfRange: (field: string, value: number, min: number, max: number, details?: Partial<ValidationError>) =>
+    createTypedError<ValidationError>(
+      ErrorCode.VALUE_OUT_OF_RANGE,
+      `${field} value ${value} is out of range [${min}, ${max}]`,
+      { 
+        fields: [{ field, value, message: `Value must be between ${min} and ${max}`, constraint: `${min}-${max}` }],
+        ...details 
+      }
+    ),
+  
+  invalidFileType: (field: string, actualType: string, allowedTypes: string[], details?: Partial<ValidationError>) =>
+    createTypedError<ValidationError>(
+      ErrorCode.INVALID_FILE_TYPE,
+      `Invalid file type for ${field}. Got: ${actualType}, Allowed: ${allowedTypes.join(', ')}`,
+      { 
+        fields: [{ field, value: actualType, message: `File type must be one of: ${allowedTypes.join(', ')}`, constraint: allowedTypes.join(',') }],
+        ...details 
+      }
+    ),
+  
+  fileTooLarge: (field: string, actualSize: number, maxSize: number, details?: Partial<ValidationError>) =>
+    createTypedError<ValidationError>(
+      ErrorCode.FILE_TOO_LARGE,
+      `File ${field} is too large. Size: ${actualSize} bytes, Max: ${maxSize} bytes`,
+      { 
+        fields: [{ field, value: actualSize, message: `File size must not exceed ${maxSize} bytes`, constraint: `max:${maxSize}` }],
+        ...details 
+      }
+    ),
+  
+  // System Errors
+  sysInternalError: (message: string, details?: Record<string, unknown>) =>
+    createTypedError<TypedError>(
+      ErrorCode.SYS_INTERNAL_ERROR,
+      message,
+      details
     ),
   
   // Business Logic Errors
@@ -240,7 +296,11 @@ function getErrorLevelForCode(code: ErrorCode): ErrorLevel {
   // Validation errors are info level
   if (code.startsWith("VALIDATION_") || 
       code === ErrorCode.INVALID_INPUT ||
-      code === ErrorCode.MISSING_REQUIRED_FIELD) {
+      code === ErrorCode.MISSING_REQUIRED_FIELD ||
+      code === ErrorCode.INVALID_FORMAT ||
+      code === ErrorCode.VALUE_OUT_OF_RANGE ||
+      code === ErrorCode.INVALID_FILE_TYPE ||
+      code === ErrorCode.FILE_TOO_LARGE) {
     return ErrorLevel.INFO
   }
   
