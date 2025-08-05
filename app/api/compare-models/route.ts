@@ -10,6 +10,7 @@ import { hasToolAccess } from "@/utils/roles"
 import { executeSQL } from "@/lib/db/data-api-adapter"
 import { Settings } from "@/lib/settings-manager"
 import { createLogger, generateRequestId, startTimer } from "@/lib/logger"
+import { ErrorFactories } from "@/lib/error-utils"
 import { ensureRDSString } from "@/lib/type-helpers"
 import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 
@@ -285,19 +286,19 @@ async function initializeModel(model: ModelData, log: ReturnType<typeof createLo
   switch (provider) {
     case 'openai': {
       const key = await Settings.getOpenAI()
-      if (!key) throw new Error('OpenAI key not configured')
+      if (!key) throw ErrorFactories.sysConfigurationError('OpenAI API key not configured')
       const openai = createOpenAI({ apiKey: key })
       return openai(modelId)
     }
     case 'azure': {
       const config = await Settings.getAzureOpenAI()
-      if (!config.key || !config.resourceName) throw new Error('Azure not configured')
+      if (!config.key || !config.resourceName) throw ErrorFactories.sysConfigurationError('Azure OpenAI not configured')
       const azure = createAzure({ apiKey: config.key, resourceName: config.resourceName })
       return azure(modelId)
     }
     case 'google': {
       const key = await Settings.getGoogleAI()
-      if (!key) throw new Error('Google key not configured')
+      if (!key) throw ErrorFactories.sysConfigurationError('Google API key not configured')
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = key
       return google(modelId)
     }
@@ -371,6 +372,6 @@ async function initializeModel(model: ModelData, log: ReturnType<typeof createLo
       }
     }
     default:
-      throw new Error(`Unknown provider: ${provider}`)
+      throw ErrorFactories.validationFailed([{ field: 'provider', message: `Unknown provider: ${provider}` }])
   }
 }

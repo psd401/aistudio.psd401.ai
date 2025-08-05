@@ -5,6 +5,7 @@ import { executeSQL } from '@/lib/db/data-api-adapter'
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action'
 import { createLogger, generateRequestId, startTimer } from "@/lib/logger"
 import { getErrorMessage } from "@/types/errors"
+import { ErrorFactories } from "@/lib/error-utils"
 
 // Easily change the model id here
 const PDF_TO_MARKDOWN_MODEL_ID = 20
@@ -204,7 +205,7 @@ async function processPdfInBackground(jobId: number, jobInput: JobInput) {
     const model = modelResult && modelResult.length > 0 ? modelResult[0] : null;
     
     if (!model) {
-      throw new Error('AI model not found');
+      throw ErrorFactories.dbRecordNotFound('ai_models', jobInput.modelId);
     }
     
     // Convert base64 back to buffer
@@ -244,7 +245,7 @@ async function processPdfInBackground(jobId: number, jobInput: JobInput) {
     log.info(`[PDF-to-Markdown Background] Markdown result length: ${markdown?.length || 0}`);
     
     if (!markdown) {
-      throw new Error('No markdown content generated');
+      throw ErrorFactories.externalServiceError('AI Model', new Error('No markdown content generated'));
     }
     
     // Update job with result

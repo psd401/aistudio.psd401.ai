@@ -55,5 +55,5 @@ export async function POST() {
       message: `Imported ${imported} settings from environment variables`,
       data: { imported, errors }
     })
-  })
+  }, 'POST /api/admin/settings/import')
 }

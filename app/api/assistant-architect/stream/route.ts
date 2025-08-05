@@ -2,6 +2,7 @@ import { getServerSession } from "@/lib/auth/server-session";
 import { executeSQL } from "@/lib/db/data-api-adapter";
 import { streamCompletion } from "@/lib/ai-helpers";
 import { createLogger, generateRequestId, startTimer } from "@/lib/logger";
+import { ErrorFactories } from "@/lib/error-utils";
 import { rateLimit } from "@/lib/rate-limit";
 import { NextRequest } from 'next/server';
 
@@ -204,7 +205,7 @@ export async function POST(req: NextRequest) {
               
               if (!processedPrompt) {
                 log.error(`[STREAM] Prompt content is empty for prompt ${i + 1}`);
-                throw new Error('Prompt content is empty');
+                throw ErrorFactories.missingRequiredField('prompt');
               }
               
               // Decode HTML entities and escapes
@@ -380,7 +381,7 @@ export async function POST(req: NextRequest) {
               // Check if model config is valid
               if (!prompt.provider || !prompt.modelId) {
                 log.error(`[STREAM] Invalid model config - Provider: ${prompt.provider}, Model ID: ${prompt.modelId}`);
-                throw new Error('Invalid model configuration');
+                throw ErrorFactories.validationFailed([{ field: 'model', message: 'Invalid model configuration' }]);
               }
               
               try {
@@ -440,7 +441,7 @@ export async function POST(req: NextRequest) {
               // If no response was generated, log error
               if (!fullResponse) {
                 log.error(`[STREAM] No response generated for prompt ${i + 1}`);
-                throw new Error('No response generated from AI model');
+                throw ErrorFactories.externalServiceError('AI Model', new Error('No response generated'));
               }
 
               // Send prompt complete event

@@ -5,6 +5,7 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createOpenAI } from '@ai-sdk/openai';
 // Removed fromNodeProviderChain - not needed when using default credential chain
 import { getServerSession } from "@/lib/auth/server-session";
+import { ErrorFactories } from "@/lib/error-utils";
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action";
 import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter";
 import { SelectDocument } from "@/types/db-types";
@@ -391,21 +392,21 @@ export async function POST(req: Request) {
     switch (aiModel.provider) {
       case 'openai': {
         const key = await Settings.getOpenAI();
-        if (!key) throw new Error('OpenAI key not configured');
+        if (!key) throw ErrorFactories.sysConfigurationError('OpenAI API key not configured');
         const openai = createOpenAI({ apiKey: key });
         model = openai(ensureRDSString(aiModel.modelId));
         break;
       }
     case 'azure': {
       const config = await Settings.getAzureOpenAI();
-      if (!config.key || !config.resourceName) throw new Error('Azure not configured');
+      if (!config.key || !config.resourceName) throw ErrorFactories.sysConfigurationError('Azure OpenAI not configured');
       const azure = createAzure({ apiKey: config.key, resourceName: config.resourceName });
       model = azure(ensureRDSString(aiModel.modelId));
       break;
     }
     case 'google': {
       const key = await Settings.getGoogleAI();
-      if (!key) throw new Error('Google key not configured');
+      if (!key) throw ErrorFactories.sysConfigurationError('Google API key not configured');
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = key;
       model = google(ensureRDSString(aiModel.modelId));
       break;
@@ -480,11 +481,11 @@ export async function POST(req: Request) {
       break;
     }
     default:
-      throw new Error(`Unknown provider: ${ensureRDSString(aiModel.provider)}`);
+      throw ErrorFactories.validationFailed([{ field: 'provider', message: `Unknown provider: ${ensureRDSString(aiModel.provider)}` }]);
     }
   } catch (modelError) {
     log.error('[stream-final] Model initialization error:', modelError);
-    throw new Error(`Failed to initialize model: ${modelError instanceof Error ? modelError.message : 'Unknown error'}`);
+    throw ErrorFactories.externalServiceError('AI Model', modelError instanceof Error ? modelError : new Error('Unknown error'));
   }
 
   // Get all messages for context

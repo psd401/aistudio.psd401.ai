@@ -88,10 +88,17 @@ module.exports = {
       create(context) {
         let hasGenerateRequestIdImport = false;
         let hasRequestIdGeneration = false;
+        let usesWithErrorHandling = false;
+        let usesCreateAuthHandlers = false;
         let isServerAction = false;
         let isApiRoute = false;
 
         const filename = context.getFilename();
+        
+        // Skip NextAuth routes
+        if (filename.includes('[...nextauth]')) {
+          return {};
+        }
         
         // Check if this is a server action or API route
         if (filename.includes('/actions/') || filename.includes('.actions.')) {
@@ -106,8 +113,26 @@ module.exports = {
             if (node.source.value === '@/lib/logger') {
               const specifiers = node.specifiers;
               for (const spec of specifiers) {
-                if (spec.imported && spec.imported.name === 'generateRequestId') {
+                if (spec.type === 'ImportSpecifier' && spec.imported && spec.imported.name === 'generateRequestId') {
                   hasGenerateRequestIdImport = true;
+                }
+              }
+            }
+            // Check if using withErrorHandling from api-utils
+            if (node.source.value === '@/lib/api-utils') {
+              const specifiers = node.specifiers;
+              for (const spec of specifiers) {
+                if (spec.type === 'ImportSpecifier' && spec.imported && spec.imported.name === 'withErrorHandling') {
+                  usesWithErrorHandling = true;
+                }
+              }
+            }
+            // Check if using createAuthHandlers (NextAuth)
+            if (node.source.value === '@/auth') {
+              const specifiers = node.specifiers;
+              for (const spec of specifiers) {
+                if (spec.type === 'ImportSpecifier' && spec.imported && spec.imported.name === 'createAuthHandlers') {
+                  usesCreateAuthHandlers = true;
                 }
               }
             }
@@ -116,8 +141,21 @@ module.exports = {
             if (node.callee.name === 'generateRequestId') {
               hasRequestIdGeneration = true;
             }
+            if (node.callee.name === 'withErrorHandling') {
+              usesWithErrorHandling = true;
+            }
           },
           'Program:exit'() {
+            // Skip if using createAuthHandlers (NextAuth)
+            if (usesCreateAuthHandlers) {
+              return;
+            }
+            
+            // Skip if using withErrorHandling as it handles logging
+            if (usesWithErrorHandling) {
+              return;
+            }
+            
             if ((isServerAction || isApiRoute) && !context.getFilename().includes('.test.')) {
               if (!hasGenerateRequestIdImport) {
                 context.report({
