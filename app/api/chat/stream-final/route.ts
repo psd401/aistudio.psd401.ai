@@ -33,7 +33,7 @@ async function loadExecutionContext(execId: number) {
       executeSQL(
         `SELECT te.input_data, te.status as exec_status, te.started_at, te.completed_at,
                 aa.name as tool_name, aa.description as tool_description,
-                te.assistant_architect_id
+                te.assistant_architect_id, aa.user_id as assistant_user_id
         FROM tool_executions te
         LEFT JOIN assistant_architects aa ON te.assistant_architect_id = aa.id
         WHERE te.id = :executionId`,
@@ -658,11 +658,26 @@ IMPORTANT: You have access to ALL the information above. Use it to answer questi
       // Get the user's latest message for knowledge retrieval
       const latestUserMessage = messages[messages.length - 1].content;
       
+      // Get assistant owner's cognito_sub if available
+      let assistantOwnerSub: string | undefined;
+      if (fullContext.completeData?.execution?.assistant_user_id) {
+        const assistantOwnerQuery = `
+          SELECT u.cognito_sub 
+          FROM users u 
+          WHERE u.id = :userId
+        `;
+        const ownerResult = await executeSQL<{ cognito_sub: string }>(assistantOwnerQuery, [
+          { name: 'userId', value: { longValue: fullContext.completeData.execution.assistant_user_id } }
+        ]);
+        assistantOwnerSub = ownerResult[0]?.cognito_sub;
+      }
+      
       // Retrieve relevant knowledge based on the user's question
       const knowledgeChunks = await retrieveKnowledgeForPrompt(
         latestUserMessage,
         fullContext.repositoryIds,
         session.sub,
+        assistantOwnerSub,
         {
           maxChunks: 10,
           maxTokens: 4000,

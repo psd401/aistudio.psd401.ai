@@ -8,6 +8,7 @@ import { handleError } from "@/lib/error-utils"
 import { createError } from "@/lib/error-utils"
 import { revalidatePath } from "next/cache"
 import { transformSnakeToCamel } from "@/lib/db/field-mapper"
+import { canModifyRepository, getUserIdFromSession } from "./repository-permissions"
 
 export interface Repository {
   id: number
@@ -37,6 +38,7 @@ export interface UpdateRepositoryInput {
   metadata?: Record<string, any>
 }
 
+
 export async function createRepository(
   input: CreateRepositoryInput
 ): Promise<ActionState<Repository>> {
@@ -52,16 +54,7 @@ export async function createRepository(
     }
 
     // Get the user ID from the cognito_sub
-    const userResult = await executeSQL<{ id: number }>(
-      `SELECT id FROM users WHERE cognito_sub = :cognito_sub`,
-      [{ name: "cognito_sub", value: { stringValue: session.sub } }]
-    )
-
-    if (userResult.length === 0) {
-      return { isSuccess: false, message: "User not found" }
-    }
-
-    const userId = userResult[0].id
+    const userId = await getUserIdFromSession(session.sub)
 
     const result = await executeSQL<Repository>(
       `INSERT INTO knowledge_repositories (name, description, owner_id, is_public, metadata)
@@ -95,6 +88,15 @@ export async function updateRepository(
     const hasAccess = await hasToolAccess("knowledge-repositories")
     if (!hasAccess) {
       return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+    }
+
+    // Get the user ID from the cognito_sub
+    const userId = await getUserIdFromSession(session.sub)
+
+    // Check if user can modify this repository
+    const canModify = await canModifyRepository(input.id, userId)
+    if (!canModify) {
+      return { isSuccess: false, message: "Permission denied. Only the repository owner can modify this repository." }
     }
 
     const updates: string[] = []
@@ -162,6 +164,15 @@ export async function deleteRepository(
       return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
     }
 
+    // Get the user ID from the cognito_sub
+    const userId = await getUserIdFromSession(session.sub)
+
+    // Check if user can modify this repository
+    const canModify = await canModifyRepository(id, userId)
+    if (!canModify) {
+      return { isSuccess: false, message: "Permission denied. Only the repository owner can delete this repository." }
+    }
+
     // First, get all document items to delete from S3
     const items = await executeSQL<{ id: number; type: string; source: string }>(
       `SELECT id, type, source FROM repository_items 
@@ -169,18 +180,17 @@ export async function deleteRepository(
       [{ name: "repository_id", value: { longValue: id } }]
     )
 
-    // Delete all documents from S3
+    // Delete all documents from S3 in parallel
     if (items.length > 0) {
       const { deleteDocument } = await import("@/lib/aws/s3-client")
       
-      for (const item of items) {
-        try {
-          await deleteDocument(item.source)
-        } catch (error) {
+      const deletePromises = items.map(item =>
+        deleteDocument(item.source).catch(error => {
           // Log error but continue with deletion
           console.error(`Failed to delete S3 file ${item.source}:`, error)
-        }
-      }
+        })
+      )
+      await Promise.all(deletePromises)
     }
 
     // Now delete the repository (this will cascade delete all items and chunks)

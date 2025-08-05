@@ -30,7 +30,7 @@ import { useToast } from "@/components/ui/use-toast"
 const formSchema = z.object({
   name: z.string().min(1, "Name is required").max(100),
   description: z.string().max(500).optional(),
-  is_public: z.boolean().default(false),
+  isPublic: z.boolean().default(false),
 })
 
 type FormData = z.infer<typeof formSchema>
@@ -49,7 +49,7 @@ export function RepositoryForm({ repository }: RepositoryFormProps) {
     defaultValues: {
       name: repository?.name || "",
       description: repository?.description || "",
-      is_public: repository?.isPublic || false,
+      isPublic: repository?.isPublic || false,
     },
   })
 
@@ -156,7 +156,7 @@ export function RepositoryForm({ repository }: RepositoryFormProps) {
 
             <FormField
               control={form.control}
-              name="is_public"
+              name="isPublic"
               render={({ field }) => (
                 <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
                   <div className="space-y-0.5">

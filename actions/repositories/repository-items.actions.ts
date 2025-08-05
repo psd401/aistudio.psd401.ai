@@ -10,6 +10,7 @@ import { revalidatePath } from "next/cache"
 import { uploadDocument, deleteDocument } from "@/lib/aws/s3-client"
 import { createJobAction } from "@/actions/db/jobs-actions"
 import { queueFileForProcessing, processUrl } from "@/lib/services/file-processing-service"
+import { canModifyRepository, getUserIdFromSession } from "./repository-permissions"
 
 export interface RepositoryItem {
   id: number
@@ -79,6 +80,7 @@ function sanitizeFilename(filename: string): string {
     .slice(0, 255); // Limit length
 }
 
+
 export async function addDocumentItem(
   input: AddDocumentInput
 ): Promise<ActionState<RepositoryItem>> {
@@ -106,16 +108,13 @@ export async function addDocumentItem(
     const sanitizedFilename = sanitizeFilename(input.file.fileName || input.name);
 
     // Get the user ID from the cognito_sub
-    const userResult = await executeSQL<{ id: number }>(
-      `SELECT id FROM users WHERE cognito_sub = :cognito_sub`,
-      [{ name: "cognito_sub", value: { stringValue: session.sub } }]
-    )
+    const userId = await getUserIdFromSession(session.sub)
 
-    if (userResult.length === 0) {
-      return { isSuccess: false, message: "User not found" }
+    // Check if user can modify this repository
+    const canModify = await canModifyRepository(input.repository_id, userId)
+    if (!canModify) {
+      return { isSuccess: false, message: "Permission denied. Only the repository owner can add items to this repository." }
     }
-
-    const userId = userResult[0].id
 
     // Convert base64 string back to Buffer if needed
     let fileContent: Buffer
@@ -203,16 +202,13 @@ export async function addDocumentWithPresignedUrl(
     }
 
     // Get the user ID from the cognito_sub
-    const userResult = await executeSQL<{ id: number }>(
-      `SELECT id FROM users WHERE cognito_sub = :cognito_sub`,
-      [{ name: "cognito_sub", value: { stringValue: session.sub } }]
-    )
+    const userId = await getUserIdFromSession(session.sub)
 
-    if (userResult.length === 0) {
-      return { isSuccess: false, message: "User not found" }
+    // Check if user can modify this repository
+    const canModify = await canModifyRepository(input.repository_id, userId)
+    if (!canModify) {
+      return { isSuccess: false, message: "Permission denied. Only the repository owner can add items to this repository." }
     }
-
-    const userId = userResult[0].id
 
     // Create repository item with S3 key reference
     const result = await executeSQL<RepositoryItem>(
@@ -292,16 +288,13 @@ export async function addUrlItem(
     }
 
     // Get the user ID from the cognito_sub
-    const userResult = await executeSQL<{ id: number }>(
-      `SELECT id FROM users WHERE cognito_sub = :cognito_sub`,
-      [{ name: "cognito_sub", value: { stringValue: session.sub } }]
-    )
+    const userId = await getUserIdFromSession(session.sub)
 
-    if (userResult.length === 0) {
-      return { isSuccess: false, message: "User not found" }
+    // Check if user can modify this repository
+    const canModify = await canModifyRepository(input.repository_id, userId)
+    if (!canModify) {
+      return { isSuccess: false, message: "Permission denied. Only the repository owner can add items to this repository." }
     }
-
-    const userId = userResult[0].id
 
     // Validate URL
     try {
@@ -416,6 +409,9 @@ export async function removeRepositoryItem(
       return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
     }
 
+    // Get the user ID from the cognito_sub
+    const userId = await getUserIdFromSession(session.sub)
+
     // Get the item to check if it's a document (need to delete from S3)
     const items = await executeSQL<RepositoryItem>(
       `SELECT * FROM repository_items WHERE id = :id`,
@@ -427,6 +423,12 @@ export async function removeRepositoryItem(
     }
 
     const item = items[0]
+
+    // Check if user can modify this repository
+    const canModify = await canModifyRepository(item.repositoryId, userId)
+    if (!canModify) {
+      return { isSuccess: false, message: "Permission denied. Only the repository owner can remove items from this repository." }
+    }
 
     // Delete from S3 if it's a document
     if (item.type === 'document') {

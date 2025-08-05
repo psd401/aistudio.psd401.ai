@@ -62,6 +62,7 @@ export async function retrieveKnowledgeForPrompt(
   promptContent: string,
   repositoryIds: number[],
   userCognitoSub: string,
+  assistantOwnerSub?: string,
   options: KnowledgeRetrievalOptions = {}
 ): Promise<KnowledgeChunk[]> {
   const opts = { ...DEFAULT_OPTIONS, ...options }
@@ -81,6 +82,8 @@ export async function retrieveKnowledgeForPrompt(
       AND (
         r.is_public = true
         OR r.owner_id = (SELECT id FROM users WHERE cognito_sub = :cognitoSub)
+        OR (:assistantOwnerSub IS NOT NULL 
+            AND r.owner_id = (SELECT id FROM users WHERE cognito_sub = :assistantOwnerSub))
         OR EXISTS (
           SELECT 1 FROM repository_access ra
           JOIN users u ON u.id = ra.user_id
@@ -100,7 +103,8 @@ export async function retrieveKnowledgeForPrompt(
         name: `repoId${index}`, 
         value: { longValue: id } 
       })),
-      { name: 'cognitoSub', value: { stringValue: userCognitoSub } }
+      { name: 'cognitoSub', value: { stringValue: userCognitoSub } },
+      { name: 'assistantOwnerSub', value: assistantOwnerSub ? { stringValue: assistantOwnerSub } : { isNull: true } }
     ]
     
     const accessibleRepos = await executeSQL<{ id: number; name: string }>(
