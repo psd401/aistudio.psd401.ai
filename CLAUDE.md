@@ -269,3 +269,127 @@ npm run test:e2e tests/e2e/working-tests.spec.ts  # Run specific test file
 - Always write very detailed intricate commit messages to document fully what was changed in the code you were working on
 - Before ANY commit: Run `npm run lint` and `npm run typecheck` on the ENTIRE codebase - both must pass with zero errors
 - **NEW**: Run E2E tests with `npm run test:e2e` - all tests must pass
+
+## Logging Standards
+
+### Required for ALL Server Actions and API Routes
+
+**CRITICAL**: Never use `console.log`, `console.error`, etc. Always use the logger.
+
+1. **Import Required Logging Utilities**:
+   ```typescript
+   import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from "@/lib/logger"
+   import { handleError, ErrorFactories, createSuccess } from "@/lib/error-utils"
+   ```
+
+2. **Server Action Pattern**:
+   ```typescript
+   export async function myAction(params: ParamsType): Promise<ActionState<ReturnType>> {
+     const requestId = generateRequestId()
+     const timer = startTimer("myAction")
+     const log = createLogger({ requestId, action: "myAction" })
+     
+     try {
+       log.info("Action started", { params: sanitizeForLogging(params) })
+       
+       // Check authentication if needed
+       const session = await getServerSession()
+       if (!session) {
+         log.warn("Unauthorized access attempt")
+         throw ErrorFactories.authNoSession()
+       }
+       
+       // Your business logic here with appropriate logging
+       log.debug("Processing operation", { detail: "value" })
+       const result = await doSomething()
+       
+       // Log success and performance
+       timer({ status: "success" })
+       log.info("Action completed successfully")
+       
+       return createSuccess(result, "User-friendly success message")
+       
+     } catch (error) {
+       timer({ status: "error" })
+       return handleError(error, "User-friendly error message", {
+         context: "myAction",
+         requestId,
+         operation: "myAction"
+       })
+     }
+   }
+   ```
+
+3. **Use Error Factories Instead of Generic Errors**:
+   ```typescript
+   // ❌ BAD - Generic error
+   throw new Error("DB error")
+   
+   // ✅ GOOD - Typed error with context
+   throw ErrorFactories.dbQueryFailed(query, originalError)
+   throw ErrorFactories.authzInsufficientPermissions("admin", userRoles)
+   throw ErrorFactories.validationFailed(fieldErrors)
+   ```
+
+4. **Log Levels**:
+   - `log.debug()` - Detailed information for debugging (not shown in production)
+   - `log.info()` - Important business events (action started, completed, user created)
+   - `log.warn()` - Warning conditions (auth failures, missing optional data)
+   - `log.error()` - Error conditions (handled in error-utils.ts)
+
+5. **Sensitive Data**:
+   - Always use `sanitizeForLogging()` for user input
+   - Email addresses are automatically masked to `***@domain.com`
+   - Passwords, tokens, and API keys are automatically redacted
+
+### Error Message Guidelines
+
+**User-Facing Messages** (in ActionState):
+- Be helpful and actionable
+- Don't expose technical details
+- Suggest next steps when possible
+
+**Examples**:
+```typescript
+// ❌ BAD
+return { isSuccess: false, message: "DB error" }
+return { isSuccess: false, message: "Error occurred" }
+
+// ✅ GOOD
+return handleError(error, "Failed to load your repositories. Please try again or contact support if the issue persists.")
+return handleError(error, "You don't have permission to delete this item. Contact the owner for access.")
+```
+
+**Technical Messages** (in logs):
+- Include all relevant context
+- Use structured metadata
+- Include operation details
+
+### Performance Tracking
+
+Always use timers for operations:
+```typescript
+const timer = startTimer("operationName")
+// ... do work ...
+timer({ status: "success", recordCount: results.length })
+```
+
+### CloudWatch Integration
+
+In production, logs are automatically formatted as JSON for CloudWatch:
+```json
+{
+  "timestamp": "2025-01-05T10:00:00Z",
+  "level": "error",
+  "requestId": "abc123",
+  "userId": "user-456",
+  "action": "getUserDetails",
+  "message": "Database query failed",
+  "error": {
+    "code": "DB_QUERY_FAILED",
+    "query": "SELECT * FROM users WHERE id = :id",
+    "details": { "id": 123 }
+  },
+  "duration": 1500
+}
+```
