@@ -2,7 +2,7 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { NextResponse } from 'next/server';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
-import { createLogger, generateRequestId, startTimer } from '@/lib/log';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { SqlParameter } from '@aws-sdk/client-rds-data';
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const requestId = generateRequestId();

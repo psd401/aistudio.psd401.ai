@@ -9,7 +9,7 @@ import { getCurrentUserAction } from "@/actions/db/get-current-user-action";
 import { executeSQL, FormattedRow } from "@/lib/db/data-api-adapter";
 import { SelectDocument } from "@/types/db-types";
 import { Settings } from "@/lib/settings-manager";
-import { createLogger, generateRequestId, startTimer } from "@/lib/log";
+import { createLogger, generateRequestId, startTimer } from "@/lib/logger";
 import { ensureRDSString, ensureRDSNumber } from "@/lib/type-helpers";
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents";
 import { contextMonitor } from "@/lib/monitoring/context-loading-monitor";
