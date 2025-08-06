@@ -10,9 +10,10 @@ import {
   ArrayValue
 } from "@aws-sdk/client-rds-data";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
-import logger from '@/lib/logger';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { snakeToCamel } from "./field-mapper";
 import type { SelectNavigationItem } from '@/types/db-types';
+import { executeWithRetry } from "./rds-error-handler";
 
 // Type aliases for cleaner code
 type DataApiResponse = ExecuteStatementCommandOutput;
@@ -59,7 +60,7 @@ function getRDSClient(): RDSDataClient {
     client = new RDSDataClient({ 
       region,
       credentials: fromNodeProviderChain(),
-      maxAttempts: 3
+      maxAttempts: 1 // We'll handle retries ourselves with circuit breaker
     });
   }
   return client;
@@ -93,7 +94,8 @@ function getDataApiConfig() {
     const errorMsg = `Missing required environment variables: ${missingVars.join(', ')}. ` +
                      `Available env vars: ${Object.keys(process.env).filter(k => 
                        k.includes('AWS') || k.includes('RDS')).join(', ')}`;
-    logger.error('Environment validation failed', { 
+    const log = createLogger({ context: "getDataApiConfig" })
+    log.error('Environment validation failed', { 
       missingVars,
       region,
       hasResourceArn: !!process.env.RDS_RESOURCE_ARN,
@@ -159,55 +161,67 @@ function formatDataApiResponse(response: DataApiResponse): FormattedRow[] {
 /**
  * Execute a single SQL statement
  */
-export async function executeSQL<T = FormattedRow>(sql: string, parameters: DataApiParameter[] = []): Promise<T[]> {
-  const maxRetries = 3;
-  let lastError: Error | undefined;
+export async function executeSQL<T = FormattedRow>(sql: string, parameters: DataApiParameter[] = [], requestIdOrTransactionId?: string, transactionId?: string): Promise<T[]> {
+  // Handle overloaded parameters - if requestIdOrTransactionId looks like a transaction ID, treat it as such
+  let reqId: string;
+  let txId: string | undefined;
   
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const config = getDataApiConfig();
-      
-      const command = new ExecuteStatementCommand({
-        ...config,
-        sql,
-        parameters: parameters.length > 0 ? parameters : undefined,
-        includeResultMetadata: true
-      });
-
-      const response = await getRDSClient().send(command);
-      return formatDataApiResponse(response as DataApiResponse) as T[];
-    } catch (error) {
-      logger.error(`Data API Error (attempt ${attempt}/${maxRetries}):`, error);
-      lastError = error as Error;
-      
-      // Check if it's a retryable error
-      const awsError = error as { name?: string; $metadata?: { httpStatusCode?: number } };
-      if (
-        awsError.name === 'InternalServerErrorException' ||
-        awsError.name === 'ServiceUnavailableException' ||
-        awsError.name === 'ThrottlingException' ||
-        awsError.$metadata?.httpStatusCode === 500 ||
-        awsError.$metadata?.httpStatusCode === 503
-      ) {
-        // Wait before retry with exponential backoff
-        if (attempt < maxRetries) {
-          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-          if (process.env.SQL_LOGGING !== 'false') {
-            logger.debug(`Retrying in ${delay}ms...`);
-          }
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
-        }
-      }
-      
-      // Non-retryable error or max retries reached
-      throw error;
-    }
+  if (transactionId) {
+    // New signature: executeSQL(sql, params, requestId, transactionId)
+    reqId = requestIdOrTransactionId || generateRequestId();
+    txId = transactionId;
+  } else if (requestIdOrTransactionId && requestIdOrTransactionId.length > 20) {
+    // Likely a transaction ID (they're long UUIDs)
+    reqId = generateRequestId();
+    txId = requestIdOrTransactionId;
+  } else {
+    // Original signature: executeSQL(sql, params, requestId)
+    reqId = requestIdOrTransactionId || generateRequestId();
+    txId = undefined;
   }
   
-  // If we get here, all retries failed
-  throw lastError || new Error('Unknown error during executeSQL');
+  const timer = startTimer("executeSQL")
+  const log = createLogger({ requestId: reqId, context: "executeSQL" })
+  
+  // Use the new retry handler with circuit breaker
+  return executeWithRetry(async () => {
+    const config = getDataApiConfig();
+    
+    if (process.env.SQL_LOGGING !== 'false') {
+      log.debug('Executing SQL', { 
+        sql: sql.substring(0, 100) + (sql.length > 100 ? '...' : ''),
+        parameters: parameters?.map(p => ({ name: p.name, hasValue: !!p.value })),
+        requestId: reqId,
+        inTransaction: !!txId
+      });
+    }
+    
+    const command = new ExecuteStatementCommand({
+      ...config,
+      sql,
+      parameters: parameters.length > 0 ? parameters : undefined,
+      includeResultMetadata: true,
+      ...(txId && { transactionId: txId })
+    });
+
+    const response = await getRDSClient().send(command);
+    const result = formatDataApiResponse(response as DataApiResponse) as T[];
+    
+    if (process.env.SQL_LOGGING !== 'false' && result.length > 0) {
+      log.debug('SQL query completed', { 
+        rowCount: result.length,
+        duration: timer({ status: "success" }),
+        requestId: reqId,
+        inTransaction: !!txId
+      });
+    }
+    
+    return result;
+  }, 'executeSQL', {
+    maxRetries: 3,
+    initialDelay: 100,
+    maxDelay: 5000
+  }, reqId);
 }
 
 /**
@@ -219,7 +233,8 @@ export async function executeTransaction<T = FormattedRow>(statements: Array<{ s
   try {
     const results = [];
     for (const stmt of statements) {
-      const result = await executeSQL<T>(stmt.sql, stmt.parameters);
+      // Pass the transactionId to executeSQL to ensure atomicity
+      const result = await executeSQL<T>(stmt.sql, stmt.parameters, undefined, transactionId);
       results.push(result);
     }
     
@@ -420,19 +435,21 @@ export interface UserData {
   cognitoSub: string;
   email: string;
   firstName?: string;
+  lastName?: string;
 }
 
 export async function createUser(userData: UserData) {
   const query = `
-    INSERT INTO users (cognito_sub, email, first_name, created_at, updated_at)
-    VALUES (:cognitoSub, :email, :firstName, NOW(), NOW())
+    INSERT INTO users (cognito_sub, email, first_name, last_name, created_at, updated_at)
+    VALUES (:cognitoSub, :email, :firstName, :lastName, NOW(), NOW())
     RETURNING id, cognito_sub, email, first_name, last_name, created_at, updated_at
   `;
 
   const parameters = [
     createParameter('cognitoSub', userData.cognitoSub),
     createParameter('email', userData.email),
-    createParameter('firstName', userData.firstName)
+    createParameter('firstName', userData.firstName),
+    createParameter('lastName', userData.lastName)
   ];
   
   const result = await executeSQL(query, parameters);
@@ -761,6 +778,265 @@ export async function deleteAIModel(id: number) {
   
   const result = await executeSQL(sql, parameters);
   return result[0];
+}
+
+/**
+ * Get count of references to a model across all tables
+ */
+export async function getModelReferenceCounts(modelId: number) {
+  const sql = `
+    SELECT 
+      (SELECT COUNT(*) FROM chain_prompts WHERE model_id = :modelId) as chain_prompts_count,
+      (SELECT COUNT(*) FROM conversations WHERE model_id = :modelId) as conversations_count,
+      (SELECT COUNT(*) FROM model_comparisons WHERE model1_id = :modelId OR model2_id = :modelId) as model_comparisons_count
+  `;
+  
+  const parameters = [
+    { name: 'modelId', value: { longValue: modelId } }
+  ];
+  
+  const result = await executeSQL(sql, parameters);
+  return result[0] || { 
+    chain_prompts_count: 0, 
+    conversations_count: 0, 
+    model_comparisons_count: 0 
+  };
+}
+
+/**
+ * Replace all references to a model with another model
+ * This is done in a transaction to ensure atomicity
+ */
+export async function replaceModelReferences(
+  targetModelId: number, 
+  replacementModelId: number,
+  userId: number
+) {
+  const requestId = generateRequestId();
+  const timer = startTimer("replaceModelReferences");
+  const log = createLogger({ requestId, operation: "replaceModelReferences" });
+  
+  log.info("Starting model replacement", { 
+    targetModelId, 
+    replacementModelId, 
+    userId 
+  });
+  
+  try {
+    // First, get model names and counts outside the transaction
+    const modelNamesSql = `
+      SELECT 
+        (SELECT name FROM ai_models WHERE id = :targetId) as target_name,
+        (SELECT name FROM ai_models WHERE id = :replacementId) as replacement_name
+    `;
+    
+    const modelNamesParams = [
+      { name: 'targetId', value: { longValue: targetModelId } },
+      { name: 'replacementId', value: { longValue: replacementModelId } }
+    ];
+    
+    const modelNames = await executeSQL(modelNamesSql, modelNamesParams, requestId);
+    const { targetName, replacementName } = modelNames[0] || {};
+    
+    if (!targetName || !replacementName) {
+      log.error("Invalid model IDs provided", { targetModelId, replacementModelId });
+      throw new Error("Invalid model IDs provided");
+    }
+    
+    // Get current counts for audit
+    const counts = await getModelReferenceCounts(targetModelId);
+    
+    // Prepare all statements for the transaction
+    const statements = [];
+    
+    // Update chain_prompts
+    if (Number(counts.chainPromptsCount) > 0) {
+      statements.push({
+        sql: `UPDATE chain_prompts SET model_id = :replacementId, updated_at = NOW() WHERE model_id = :targetId`,
+        parameters: [
+          { name: 'replacementId', value: { longValue: replacementModelId } },
+          { name: 'targetId', value: { longValue: targetModelId } }
+        ]
+      });
+    }
+    
+    // Update conversations
+    if (Number(counts.conversationsCount) > 0) {
+      statements.push({
+        sql: `UPDATE conversations SET model_id = :replacementId, updated_at = NOW() WHERE model_id = :targetId`,
+        parameters: [
+          { name: 'replacementId', value: { longValue: replacementModelId } },
+          { name: 'targetId', value: { longValue: targetModelId } }
+        ]
+      });
+    }
+    
+    // Update model_comparisons (both model1_id and model2_id)
+    if (Number(counts.modelComparisonsCount) > 0) {
+      statements.push({
+        sql: `UPDATE model_comparisons SET model1_id = :replacementId, updated_at = NOW() WHERE model1_id = :targetId`,
+        parameters: [
+          { name: 'replacementId', value: { longValue: replacementModelId } },
+          { name: 'targetId', value: { longValue: targetModelId } }
+        ]
+      });
+      
+      statements.push({
+        sql: `UPDATE model_comparisons SET model2_id = :replacementId, updated_at = NOW() WHERE model2_id = :targetId`,
+        parameters: [
+          { name: 'replacementId', value: { longValue: replacementModelId } },
+          { name: 'targetId', value: { longValue: targetModelId } }
+        ]
+      });
+    }
+    
+    // Record in audit table
+    statements.push({
+      sql: `
+        INSERT INTO model_replacement_audit (
+          original_model_id, 
+          original_model_name, 
+          replacement_model_id, 
+          replacement_model_name, 
+          replaced_by, 
+          chain_prompts_updated, 
+          conversations_updated, 
+          model_comparisons_updated,
+          executed_at
+        ) VALUES (
+          :originalId, 
+          :originalName, 
+          :replacementId, 
+          :replacementName, 
+          :userId, 
+          :chainPromptsUpdated, 
+          :conversationsUpdated, 
+          :modelComparisonsUpdated,
+          NOW()
+        )
+      `,
+      parameters: [
+        { name: 'originalId', value: { longValue: targetModelId } },
+        { name: 'originalName', value: { stringValue: String(targetName) } },
+        { name: 'replacementId', value: { longValue: replacementModelId } },
+        { name: 'replacementName', value: { stringValue: String(replacementName) } },
+        { name: 'userId', value: { longValue: userId } },
+        { name: 'chainPromptsUpdated', value: { longValue: Number(counts.chainPromptsCount || 0) } },
+        { name: 'conversationsUpdated', value: { longValue: Number(counts.conversationsCount || 0) } },
+        { name: 'modelComparisonsUpdated', value: { longValue: Number(counts.modelComparisonsCount || 0) } }
+      ]
+    });
+    
+    // Delete the original model
+    statements.push({
+      sql: `DELETE FROM ai_models WHERE id = :targetId`,
+      parameters: [{ name: 'targetId', value: { longValue: targetModelId } }]
+    });
+    
+    // Execute all statements in a transaction
+    await executeTransaction(statements);
+    
+    const result = {
+      success: true,
+      targetModel: { id: targetModelId, name: targetName },
+      replacementModel: { id: replacementModelId, name: replacementName },
+      recordsUpdated: {
+        chainPrompts: Number(counts.chainPromptsCount || 0),
+        conversations: Number(counts.conversationsCount || 0),
+        modelComparisons: Number(counts.modelComparisonsCount || 0)
+      },
+      totalUpdated: Number(counts.chainPromptsCount || 0) + Number(counts.conversationsCount || 0) + Number(counts.modelComparisonsCount || 0)
+    };
+    
+    log.info("Model replacement completed successfully", result);
+    timer({ status: "success", recordsUpdated: result.totalUpdated });
+    
+    return result;
+    
+  } catch (error) {
+    log.error("Model replacement failed", { 
+      error: error instanceof Error ? error.message : String(error),
+      targetModelId,
+      replacementModelId 
+    });
+    timer({ status: "error" });
+    
+    throw error;
+  }
+}
+
+/**
+ * Validate if a model can be used as a replacement for another
+ */
+export async function validateModelReplacement(targetModelId: number, replacementModelId: number) {
+  // Prevent self-replacement
+  if (targetModelId === replacementModelId) {
+    return {
+      valid: false,
+      reason: "A model cannot replace itself"
+    };
+  }
+  
+  const sql = `
+    SELECT 
+      target.id as target_id,
+      target.name as target_name,
+      target.active as target_active,
+      target.chat_enabled as target_chat_enabled,
+      replacement.id as replacement_id,
+      replacement.name as replacement_name,
+      replacement.active as replacement_active,
+      replacement.chat_enabled as replacement_chat_enabled
+    FROM ai_models target
+    CROSS JOIN ai_models replacement
+    WHERE target.id = :targetId 
+      AND replacement.id = :replacementId
+  `;
+  
+  const parameters = [
+    { name: 'targetId', value: { longValue: targetModelId } },
+    { name: 'replacementId', value: { longValue: replacementModelId } }
+  ];
+  
+  const result = await executeSQL(sql, parameters);
+  
+  if (!result || result.length === 0) {
+    return {
+      valid: false,
+      reason: "One or both models not found"
+    };
+  }
+  
+  const models = result[0];
+  
+  // Check if replacement model is active (fields come back in camelCase from data-api-adapter)
+  if (!models.replacementActive) {
+    return {
+      valid: false,
+      reason: `Replacement model "${models.replacementName}" is not active`
+    };
+  }
+  
+  // Warn if chat capabilities differ
+  const warnings = [];
+  if (models.targetChatEnabled && !models.replacementChatEnabled) {
+    warnings.push(`Target model has chat enabled but replacement model does not`);
+  }
+  
+  return {
+    valid: true,
+    targetModel: {
+      id: models.targetId,
+      name: models.targetName,
+      chatEnabled: models.targetChatEnabled
+    },
+    replacementModel: {
+      id: models.replacementId,
+      name: models.replacementName,
+      chatEnabled: models.replacementChatEnabled
+    },
+    warnings
+  };
 }
 
 export async function assignRoleToUser(userId: number, roleId: number) {
@@ -1173,10 +1449,11 @@ export async function rejectAssistantArchitect(id: number) {
  * Use this to debug connection issues in production
  */
 export async function validateDataAPIConnection() {
+  const log = createLogger({ context: "validateDataApiConfig" })
   try {
     // 1. Check environment variables
     const config = getDataApiConfig();
-    logger.info('Data API configuration loaded successfully', {
+    log.info('Data API configuration loaded successfully', {
       hasResourceArn: !!config.resourceArn,
       hasSecretArn: !!config.secretArn,
       database: config.database
@@ -1189,14 +1466,14 @@ export async function validateDataAPIConnection() {
                    process.env.NEXT_PUBLIC_AWS_REGION || 
                    'us-east-1';
     
-    logger.info('RDS Data API client initialized', { region });
+    log.info('RDS Data API client initialized', { region });
     
     // 3. Test database connectivity with a simple query
     const testSql = 'SELECT 1 as test';
     const result = await executeSQL(testSql);
     
     if (result && result[0] && result[0].test === 1) {
-      logger.info('Database connectivity test passed');
+      log.info('Database connectivity test passed');
       return {
         success: true,
         message: 'Data API connection validated successfully',
@@ -1211,7 +1488,7 @@ export async function validateDataAPIConnection() {
       throw new Error('Unexpected test query result');
     }
   } catch (error) {
-    logger.error('Data API validation failed', error);
+    log.error('Data API validation failed', { error: (error as Error).message });
     return {
       success: false,
       message: error instanceof Error ? error.message : 'Unknown error',

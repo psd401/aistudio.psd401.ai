@@ -7,6 +7,8 @@ declare module "next-auth" {
       email: string
       name?: string | null
       image?: string | null
+      givenName?: string | null
+      familyName?: string | null
     }
     // Add token properties to session for server-side use
     accessToken?: string

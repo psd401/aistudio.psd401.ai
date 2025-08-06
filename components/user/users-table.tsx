@@ -222,7 +222,25 @@ export function UsersTable({
         header: ({ column }) => <SortableColumnHeader column={column} title="Last Login" />,
         cell: ({ row }) => {
           const value = row.getValue('lastSignInAt') as string;
-          return value ? new Date(value).toLocaleString() : 'Never';
+          if (!value) return 'Never';
+          
+          // The database stores timestamps without timezone info (as UTC)
+          // We need to append 'Z' to indicate it's UTC before converting
+          const utcString = value.includes('Z') || value.includes('+') 
+            ? value 
+            : value + 'Z';
+          
+          // Format date in Pacific timezone
+          const date = new Date(utcString);
+          return date.toLocaleString('en-US', {
+            timeZone: 'America/Los_Angeles',
+            year: 'numeric',
+            month: 'numeric',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+          });
         },
       },
       {

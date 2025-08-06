@@ -54,10 +54,14 @@ export async function getCurrentUserAction(): Promise<
     
     const userId = session.sub
     const userEmail = session.email
+    const userGivenName = session.givenName
+    const userFamilyName = session.familyName
     
     log.info("Session validated", { 
       userId,
-      userEmail: sanitizeForLogging(userEmail)
+      userEmail: sanitizeForLogging(userEmail),
+      hasGivenName: !!userGivenName,
+      hasFamilyName: !!userFamilyName
     })
 
     // Database operations with detailed logging
@@ -126,41 +130,87 @@ export async function getCurrentUserAction(): Promise<
     if (!user) {
       log.info("Creating new user", { 
         cognitoSub: userId,
-        email: sanitizeForLogging(userEmail)
+        email: sanitizeForLogging(userEmail),
+        givenName: userGivenName,
+        familyName: userFamilyName
       })
+      
+      // Extract username once for reuse
+      const username = userEmail?.split("@")[0] || ""
+      
+      // Use names from Cognito if available, otherwise fall back to username
+      const firstName = userGivenName || username || "User"
+      const lastName = userFamilyName || undefined
       
       const newUserResult = await createUser({
         cognitoSub: userId,
         email: userEmail || `${userId}@cognito.local`,
-        firstName: userEmail?.split("@")[0] || "User"
+        firstName: firstName,
+        lastName: lastName
       })
       user = newUserResult as unknown as SelectUser
 
-      log.info("New user created", { userId: user.id })
+      log.info("New user created", { 
+        userId: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName
+      })
 
-      // Assign default "student" role to new users
-      log.debug("Assigning default student role to new user")
-      const studentRoleResult = await getRoleByName("student")
+      // Determine default role based on username pattern
+      const isNumericUsername = /^\d+$/.test(username)
+      const defaultRole = isNumericUsername ? "student" : "staff"
       
-      if (studentRoleResult.length > 0) {
-        const studentRole = studentRoleResult[0]
-        const roleId = studentRole.id as number
+      log.info("Determining default role based on username", {
+        username,
+        isNumeric: isNumericUsername,
+        assignedRole: defaultRole
+      })
+      
+      // Assign determined role to new user
+      log.debug(`Assigning ${defaultRole} role to new user`)
+      const roleResult = await getRoleByName(defaultRole)
+      
+      if (roleResult.length > 0) {
+        const role = roleResult[0]
+        const roleId = role.id as number
         await assignRoleToUser(user!.id, roleId)
-        log.info("Student role assigned to new user", { userId: user.id, roleId })
+        log.info(`${defaultRole} role assigned to new user`, { 
+          userId: user.id, 
+          roleId,
+          roleName: defaultRole 
+        })
       } else {
-        log.warn("Student role not found in database - new user has no roles")
+        log.warn(`${defaultRole} role not found in database - new user has no roles`, {
+          attemptedRole: defaultRole
+        })
       }
     }
 
-    // Update last_sign_in_at
-    log.debug("Updating last sign-in timestamp")
+    // Update last_sign_in_at and also update names if they're provided in session
+    log.debug("Updating user information and last sign-in timestamp")
+    
+    // Only log if we're updating names
+    if (userGivenName || userFamilyName) {
+      log.info("Updating user names from Cognito session", {
+        userId: user.id,
+        updatingFirstName: !!userGivenName,
+        updatingLastName: !!userFamilyName
+      })
+    }
+    
+    // Use COALESCE to conditionally update names only if provided
     const updateLastSignInQuery = `
       UPDATE users
-      SET last_sign_in_at = NOW(), updated_at = NOW()
+      SET first_name = COALESCE(:firstName, first_name),
+          last_name = COALESCE(:lastName, last_name),
+          last_sign_in_at = NOW(), 
+          updated_at = NOW()
       WHERE id = :userId
       RETURNING id, cognito_sub, email, first_name, last_name, last_sign_in_at, created_at, updated_at
     `
     const updateLastSignInParams: SqlParameter[] = [
+      { name: "firstName", value: userGivenName ? { stringValue: userGivenName } : { isNull: true } },
+      { name: "lastName", value: userFamilyName ? { stringValue: userFamilyName } : { isNull: true } },
       { name: "userId", value: { longValue: user.id } }
     ]
     const updateResult = await executeSQL<SelectUser>(updateLastSignInQuery, updateLastSignInParams)
