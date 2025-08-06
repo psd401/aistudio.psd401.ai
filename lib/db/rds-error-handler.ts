@@ -1,4 +1,4 @@
-import { createLogger } from "@/lib/logger"
+import { createLogger, generateRequestId, startTimer } from "@/lib/logger"
 
 interface CircuitBreakerState {
   failureCount: number
@@ -186,13 +186,25 @@ export function recordFailure(): void {
 export async function executeWithRetry<T>(
   fn: () => Promise<T>,
   context: string,
-  options?: RetryOptions
+  options?: RetryOptions,
+  requestId?: string
 ): Promise<T> {
   const opts = { ...DEFAULT_RETRY_OPTIONS, ...options }
-  const log = createLogger({ context, operation: "executeWithRetry" })
+  const reqId = requestId || generateRequestId()
+  const timer = startTimer(`executeWithRetry_${context}`)
+  const log = createLogger({ 
+    requestId: reqId,
+    context, 
+    operation: "executeWithRetry" 
+  })
   
   // Check circuit breaker first
   if (!checkCircuitBreaker()) {
+    log.warn("Circuit breaker is open", {
+      state: circuitBreakerState.state,
+      failureCount: circuitBreakerState.failureCount
+    })
+    timer({ status: "circuit_open" })
     throw new Error("Circuit breaker is open - service temporarily unavailable")
   }
   
@@ -200,13 +212,25 @@ export async function executeWithRetry<T>(
   
   for (let attempt = 1; attempt <= opts.maxRetries; attempt++) {
     try {
+      log.debug("Attempting operation", { 
+        attempt, 
+        maxRetries: opts.maxRetries,
+        context 
+      })
+      
       const result = await fn()
       
       // Record success
       recordSuccess()
       
       if (attempt > 1) {
-        log.info("Retry successful", { attempt, context })
+        log.info("Retry successful", { 
+          attempt, 
+          context,
+          totalDuration: timer({ status: "success_with_retry" })
+        })
+      } else {
+        timer({ status: "success" })
       }
       
       return result
@@ -217,9 +241,12 @@ export async function executeWithRetry<T>(
       if (!isRetryableError(error)) {
         log.error("Non-retryable error encountered", { 
           error: lastError.message,
+          errorName: (error as { name?: string }).name,
           context,
-          attempt 
+          attempt,
+          requestId: reqId
         })
+        timer({ status: "non_retryable_error" })
         throw error
       }
       
@@ -232,20 +259,25 @@ export async function executeWithRetry<T>(
         
         log.warn("Retryable error encountered, will retry", {
           error: lastError.message,
+          errorName: (error as { name?: string }).name,
           context,
           attempt,
           maxRetries: opts.maxRetries,
           delayMs: delay,
-          circuitState: circuitBreakerState.state
+          circuitState: circuitBreakerState.state,
+          requestId: reqId
         })
         
         await new Promise(resolve => setTimeout(resolve, delay))
       } else {
         log.error("Max retries exceeded", {
           error: lastError.message,
+          errorName: (error as { name?: string }).name,
           context,
           attempts: attempt,
-          circuitState: circuitBreakerState.state
+          circuitState: circuitBreakerState.state,
+          totalDuration: timer({ status: "max_retries_exceeded" }),
+          requestId: reqId
         })
       }
     }

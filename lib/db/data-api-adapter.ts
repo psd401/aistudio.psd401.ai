@@ -10,7 +10,7 @@ import {
   ArrayValue
 } from "@aws-sdk/client-rds-data";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
-import logger from '@/lib/logger';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { snakeToCamel } from "./field-mapper";
 import type { SelectNavigationItem } from '@/types/db-types';
 import { executeWithRetry } from "./rds-error-handler";
@@ -94,7 +94,8 @@ function getDataApiConfig() {
     const errorMsg = `Missing required environment variables: ${missingVars.join(', ')}. ` +
                      `Available env vars: ${Object.keys(process.env).filter(k => 
                        k.includes('AWS') || k.includes('RDS')).join(', ')}`;
-    logger.error('Environment validation failed', { 
+    const log = createLogger({ context: "getDataApiConfig" })
+    log.error('Environment validation failed', { 
       missingVars,
       region,
       hasResourceArn: !!process.env.RDS_RESOURCE_ARN,
@@ -160,15 +161,20 @@ function formatDataApiResponse(response: DataApiResponse): FormattedRow[] {
 /**
  * Execute a single SQL statement
  */
-export async function executeSQL<T = FormattedRow>(sql: string, parameters: DataApiParameter[] = []): Promise<T[]> {
+export async function executeSQL<T = FormattedRow>(sql: string, parameters: DataApiParameter[] = [], requestId?: string): Promise<T[]> {
+  const reqId = requestId || generateRequestId()
+  const timer = startTimer("executeSQL")
+  const log = createLogger({ requestId: reqId, context: "executeSQL" })
+  
   // Use the new retry handler with circuit breaker
   return executeWithRetry(async () => {
     const config = getDataApiConfig();
     
     if (process.env.SQL_LOGGING !== 'false') {
-      logger.debug('Executing SQL:', { 
+      log.debug('Executing SQL', { 
         sql: sql.substring(0, 100) + (sql.length > 100 ? '...' : ''),
-        parameters: parameters?.map(p => ({ name: p.name, hasValue: !!p.value }))
+        parameters: parameters?.map(p => ({ name: p.name, hasValue: !!p.value })),
+        requestId: reqId
       });
     }
     
@@ -183,7 +189,11 @@ export async function executeSQL<T = FormattedRow>(sql: string, parameters: Data
     const result = formatDataApiResponse(response as DataApiResponse) as T[];
     
     if (process.env.SQL_LOGGING !== 'false' && result.length > 0) {
-      logger.debug(`SQL returned ${result.length} rows`);
+      log.debug('SQL query completed', { 
+        rowCount: result.length,
+        duration: timer({ status: "success" }),
+        requestId: reqId
+      });
     }
     
     return result;
@@ -191,7 +201,7 @@ export async function executeSQL<T = FormattedRow>(sql: string, parameters: Data
     maxRetries: 3,
     initialDelay: 100,
     maxDelay: 5000
-  });
+  }, reqId);
 }
 
 /**
@@ -1159,10 +1169,11 @@ export async function rejectAssistantArchitect(id: number) {
  * Use this to debug connection issues in production
  */
 export async function validateDataAPIConnection() {
+  const log = createLogger({ context: "validateDataApiConfig" })
   try {
     // 1. Check environment variables
     const config = getDataApiConfig();
-    logger.info('Data API configuration loaded successfully', {
+    log.info('Data API configuration loaded successfully', {
       hasResourceArn: !!config.resourceArn,
       hasSecretArn: !!config.secretArn,
       database: config.database
@@ -1175,14 +1186,14 @@ export async function validateDataAPIConnection() {
                    process.env.NEXT_PUBLIC_AWS_REGION || 
                    'us-east-1';
     
-    logger.info('RDS Data API client initialized', { region });
+    log.info('RDS Data API client initialized', { region });
     
     // 3. Test database connectivity with a simple query
     const testSql = 'SELECT 1 as test';
     const result = await executeSQL(testSql);
     
     if (result && result[0] && result[0].test === 1) {
-      logger.info('Database connectivity test passed');
+      log.info('Database connectivity test passed');
       return {
         success: true,
         message: 'Data API connection validated successfully',
@@ -1197,7 +1208,7 @@ export async function validateDataAPIConnection() {
       throw new Error('Unexpected test query result');
     }
   } catch (error) {
-    logger.error('Data API validation failed', error);
+    log.error('Data API validation failed', { error: (error as Error).message });
     return {
       success: false,
       message: error instanceof Error ? error.message : 'Unknown error',
