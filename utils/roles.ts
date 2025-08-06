@@ -8,7 +8,7 @@ import {
   getUserRolesByCognitoSub as dbGetUserRolesByCognitoSub
 } from "@/lib/db/data-api-adapter";
 import { getServerSession } from "@/lib/auth/server-session";
-import logger from "@/lib/logger";
+import { createLogger, generateRequestId, startTimer } from "@/lib/logger";
 import type { Role } from '@/types';
 
 const roleHierarchy: Record<Role, number> = {
@@ -21,23 +21,89 @@ const roleHierarchy: Record<Role, number> = {
  * Check if a user has a specific role
  */
 export async function hasRole(roleName: string): Promise<boolean> {
+  const requestId = generateRequestId();
+  const timer = startTimer("hasRole");
+  const log = createLogger({ requestId, function: "hasRole" });
+  
+  log.debug("Checking user role", { roleName });
+  
   const session = await getServerSession();
-  if (!session) return false;
+  if (!session) {
+    log.warn("Role check failed - no session", { roleName });
+    timer({ status: "failed", reason: "no_session" });
+    return false;
+  }
   
   const userId = await getUserIdByCognitoSub(session.sub);
-  if (!userId) return false;
+  if (!userId) {
+    log.warn("Role check failed - user not found", { 
+      cognitoSub: session.sub,
+      roleName 
+    });
+    timer({ status: "failed", reason: "user_not_found" });
+    return false;
+  }
   
-  return checkUserRole(Number(userId), roleName);
+  const hasAccess = await checkUserRole(Number(userId), roleName);
+  
+  if (hasAccess) {
+    log.info("Role check successful", { 
+      userId,
+      roleName,
+      cognitoSub: session.sub 
+    });
+    timer({ status: "success" });
+  } else {
+    log.warn("Role check denied", { 
+      userId,
+      roleName,
+      cognitoSub: session.sub 
+    });
+    timer({ status: "denied" });
+  }
+  
+  return hasAccess;
 }
 
 /**
  * Check if a user has access to a specific tool
  */
 export async function hasToolAccess(toolIdentifier: string): Promise<boolean> {
-  const session = await getServerSession();
-  if (!session) return false;
+  const requestId = generateRequestId();
+  const timer = startTimer("hasToolAccess");
+  const log = createLogger({ requestId, function: "hasToolAccess" });
   
-  return dbHasToolAccess(session.sub, toolIdentifier);
+  log.debug("Checking tool access", { toolIdentifier });
+  
+  const session = await getServerSession();
+  if (!session) {
+    log.warn("Tool access check failed - no session", { toolIdentifier });
+    timer({ status: "failed", reason: "no_session" });
+    return false;
+  }
+  
+  log.debug("Session found, checking database", { 
+    cognitoSub: session.sub,
+    toolIdentifier 
+  });
+  
+  const hasAccess = await dbHasToolAccess(session.sub, toolIdentifier);
+  
+  if (hasAccess) {
+    log.info("Tool access granted", { 
+      cognitoSub: session.sub,
+      toolIdentifier 
+    });
+    timer({ status: "success" });
+  } else {
+    log.warn("Tool access denied", { 
+      cognitoSub: session.sub,
+      toolIdentifier 
+    });
+    timer({ status: "denied" });
+  }
+  
+  return hasAccess;
 }
 
 /**
@@ -54,17 +120,40 @@ export async function getUserTools(): Promise<string[]> {
  * Get all roles a user has
  */
 export async function getUserRoles(userId: string): Promise<string[]> {
+  const requestId = generateRequestId();
+  const timer = startTimer("getUserRoles");
+  const log = createLogger({ requestId, function: "getUserRoles" });
+  
   try {
+    log.debug("Getting user roles", { userId });
+    
     // Get cognito sub for the userId
     const session = await getServerSession();
-    if (!session) return [];
+    if (!session) {
+      log.warn("Cannot get user roles - no session");
+      timer({ status: "failed", reason: "no_session" });
+      return [];
+    }
     
     // Note: This function expects a userId but getUserRolesByCognitoSub expects a cognito sub
     // For now, assuming userId is the cognito sub (this may need adjustment based on usage)
-    return await dbGetUserRolesByCognitoSub(userId);
+    const roles = await dbGetUserRolesByCognitoSub(userId);
+    
+    log.info("User roles retrieved", { 
+      userId,
+      roleCount: roles.length,
+      roles 
+    });
+    timer({ status: "success", roleCount: roles.length });
+    
+    return roles;
   } catch (error) {
-    logger.error("Error getting user roles:", error)
-    return []
+    log.error("Error getting user roles", { 
+      error: error instanceof Error ? error.message : "Unknown error",
+      userId 
+    });
+    timer({ status: "error" });
+    return [];
   }
 }
 
@@ -72,12 +161,45 @@ export async function getUserRoles(userId: string): Promise<string[]> {
  * Check if user has any of the specified roles
  */
 export async function hasAnyRole(userId: string, roles: string[]): Promise<boolean> {
+  const requestId = generateRequestId();
+  const timer = startTimer("hasAnyRole");
+  const log = createLogger({ requestId, function: "hasAnyRole" });
+  
   try {
-    const userRoles = await getUserRoles(userId)
-    return roles.some(role => userRoles.includes(role))
+    log.debug("Checking if user has any of specified roles", { 
+      userId,
+      requiredRoles: roles 
+    });
+    
+    const userRoles = await getUserRoles(userId);
+    const hasMatch = roles.some(role => userRoles.includes(role));
+    
+    if (hasMatch) {
+      log.info("User has matching role", { 
+        userId,
+        userRoles,
+        requiredRoles: roles,
+        matchingRoles: roles.filter(r => userRoles.includes(r))
+      });
+      timer({ status: "success" });
+    } else {
+      log.warn("User lacks required roles", { 
+        userId,
+        userRoles,
+        requiredRoles: roles 
+      });
+      timer({ status: "denied" });
+    }
+    
+    return hasMatch;
   } catch (error) {
-    logger.error("Error checking if user has any role:", error)
-    return false
+    log.error("Error checking if user has any role", { 
+      error: error instanceof Error ? error.message : "Unknown error",
+      userId,
+      requiredRoles: roles 
+    });
+    timer({ status: "error" });
+    return false;
   }
 }
 
@@ -85,26 +207,48 @@ export async function hasAnyRole(userId: string, roles: string[]): Promise<boole
  * Get the highest role a user has based on hierarchy
  */
 export async function getHighestUserRole(userId: string): Promise<string | null> {
+  const requestId = generateRequestId();
+  const timer = startTimer("getHighestUserRole");
+  const log = createLogger({ requestId, function: "getHighestUserRole" });
+  
   try {
-    const userRoles = await getUserRoles(userId)
-    if (!userRoles.length) return null
+    log.debug("Getting highest user role", { userId });
+    
+    const userRoles = await getUserRoles(userId);
+    if (!userRoles.length) {
+      log.info("User has no roles", { userId });
+      timer({ status: "success", result: "no_roles" });
+      return null;
+    }
     
     // Find the highest role based on the hierarchy
-    let highestRole = userRoles[0]
-    let highestRank = roleHierarchy[highestRole as keyof typeof roleHierarchy] || -1
+    let highestRole = userRoles[0];
+    let highestRank = roleHierarchy[highestRole as keyof typeof roleHierarchy] || -1;
     
     for (const role of userRoles) {
-      const rank = roleHierarchy[role as keyof typeof roleHierarchy] || -1
+      const rank = roleHierarchy[role as keyof typeof roleHierarchy] || -1;
       if (rank > highestRank) {
-        highestRole = role
-        highestRank = rank
+        highestRole = role;
+        highestRank = rank;
       }
     }
     
-    return highestRole
+    log.info("Highest user role determined", { 
+      userId,
+      userRoles,
+      highestRole,
+      rank: highestRank 
+    });
+    timer({ status: "success", highestRole });
+    
+    return highestRole;
   } catch (error) {
-    logger.error("Error getting highest user role:", error)
-    return null
+    log.error("Error getting highest user role", { 
+      error: error instanceof Error ? error.message : "Unknown error",
+      userId 
+    });
+    timer({ status: "error" });
+    return null;
   }
 }
 

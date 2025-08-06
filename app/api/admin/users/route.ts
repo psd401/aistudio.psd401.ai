@@ -38,8 +38,8 @@ export async function GET() {
 
       return {
         ...dbUser,
-        role: userRolesList[0] || "",
-        roles: userRolesList.map((name: string) => ({ name }))
+        role: userRolesList[0] || "", // Legacy single role
+        roles: userRolesList // Array of role names for multi-role support
       }
     })
 

@@ -4,10 +4,11 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { IconPlus, IconEdit, IconTrash } from '@tabler/icons-react';
 import { User } from '@/lib/types';
+import { MultiRoleSelector } from './multi-role-selector';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   ColumnDef,
   flexRender,
@@ -44,8 +45,8 @@ const UserForm = React.memo(function UserForm({
   const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => 
     setUserData({ ...userData, email: e.target.value });
     
-  const handleRoleChange = (value: string) => 
-    setUserData({ ...userData, role: value });
+  const handleRolesChange = (roles: string[]) =>
+    setUserData({ ...userData, roles, role: roles[0] || 'student' });
     
   return (
     <div className="space-y-4">
@@ -80,20 +81,54 @@ const UserForm = React.memo(function UserForm({
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium">Role</label>
-        <Select
-          value={userData.role}
-          onValueChange={handleRoleChange}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select a role" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="student">Student</SelectItem>
-            <SelectItem value="staff">Staff</SelectItem>
-            <SelectItem value="administrator">Administrator</SelectItem>
-          </SelectContent>
-        </Select>
+        <label className="text-sm font-medium">Roles</label>
+        <div className="space-y-2 border rounded-md p-3">
+          <div className="flex items-center space-x-2">
+            <Checkbox 
+              id="role-administrator"
+              checked={userData.roles?.includes('administrator') || false}
+              onCheckedChange={(checked) => {
+                const newRoles = checked 
+                  ? [...(userData.roles || []), 'administrator']
+                  : (userData.roles || []).filter(r => r !== 'administrator');
+                handleRolesChange(newRoles);
+              }}
+            />
+            <label htmlFor="role-administrator" className="text-sm cursor-pointer">
+              Administrator
+            </label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Checkbox 
+              id="role-staff"
+              checked={userData.roles?.includes('staff') || false}
+              onCheckedChange={(checked) => {
+                const newRoles = checked 
+                  ? [...(userData.roles || []), 'staff']
+                  : (userData.roles || []).filter(r => r !== 'staff');
+                handleRolesChange(newRoles);
+              }}
+            />
+            <label htmlFor="role-staff" className="text-sm cursor-pointer">
+              Staff
+            </label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Checkbox 
+              id="role-student"
+              checked={userData.roles?.includes('student') || false}
+              onCheckedChange={(checked) => {
+                const newRoles = checked 
+                  ? [...(userData.roles || []), 'student']
+                  : (userData.roles || []).filter(r => r !== 'student');
+                handleRolesChange(newRoles);
+              }}
+            />
+            <label htmlFor="role-student" className="text-sm cursor-pointer">
+              Student
+            </label>
+          </div>
+        </div>
       </div>
 
       <div className="flex space-x-2 pt-4">
@@ -110,14 +145,15 @@ interface UsersTableProps {
   onAddUser?: (user: Omit<User, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
   onUpdateUser?: (userId: number | string, updates: Partial<User>) => Promise<void>;
   onDeleteUser: (userId: number | string) => void;
-  onRoleChange: (userId: number | string, newRole: string) => void;
+  onRoleChange: (userId: number | string, newRoles: string[] | string) => void;
 }
 
 type UserFormData = {
   firstName: string;
   lastName: string;
   email: string;
-  role: string;
+  role: string; // Legacy single role
+  roles?: string[]; // Multiple roles
 };
 
 const emptyUser: UserFormData = {
@@ -125,6 +161,7 @@ const emptyUser: UserFormData = {
   lastName: '',
   email: '',
   role: 'student',
+  roles: ['student'],
 };
 
 export function UsersTable({ 
@@ -174,6 +211,7 @@ export function UsersTable({
       lastName: user.lastName || '',
       email: user.email,
       role: user.role || 'student',
+      roles: user.roles || (user.role ? [user.role] : ['student']),
     });
   }, []);
 
@@ -198,24 +236,21 @@ export function UsersTable({
         header: ({ column }) => <SortableColumnHeader column={column} title="Email" />,
       },
       {
-        accessorKey: 'role',
-        header: ({ column }) => <SortableColumnHeader column={column} title="Role" />,
-        cell: ({ row }) => (
-          <Select
-            value={row.original.role || ''}
-            onValueChange={(newRole) => onRoleChange(row.original.id, newRole)}
-            disabled={currentUserId ? row.original.id === currentUserId : false}
-          >
-            <SelectTrigger className="w-[180px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="student">Student</SelectItem>
-              <SelectItem value="staff">Staff</SelectItem>
-              <SelectItem value="administrator">Administrator</SelectItem>
-            </SelectContent>
-          </Select>
-        ),
+        accessorKey: 'roles',
+        header: ({ column }) => <SortableColumnHeader column={column} title="Roles" />,
+        cell: ({ row }) => {
+          // Get roles array, fallback to single role for backward compatibility
+          const userRoles = row.original.roles || (row.original.role ? [row.original.role] : []);
+          
+          return (
+            <MultiRoleSelector
+              userId={row.original.id}
+              currentRoles={userRoles}
+              onRolesChange={onRoleChange}
+              disabled={currentUserId ? row.original.id === currentUserId : false}
+            />
+          );
+        },
       },
       {
         accessorKey: 'lastSignInAt',

@@ -67,29 +67,32 @@ export function UsersClient() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleRoleChange = async (userId: number | string, newRole: string) => {
+  const handleRoleChange = async (userId: number | string, newRoles: string[] | string) => {
     try {
-      const response = await fetch(`/api/admin/users/${userId}/role`, {
+      // Support both single role (legacy) and multiple roles
+      const roles = Array.isArray(newRoles) ? newRoles : [newRoles];
+      
+      const response = await fetch(`/api/admin/users/${userId}/roles`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: newRole }),
+        body: JSON.stringify({ roles }),
       })
       
-      if (!response.ok) throw new Error("Failed to update role")
+      if (!response.ok) throw new Error("Failed to update roles")
       
       setUsers(users.map(user => 
-        user.id === userId ? { ...user, role: newRole } : user
+        user.id === userId ? { ...user, roles, role: roles[0] } : user
       ))
 
       toast({
         title: "Success",
-        description: "User role updated successfully",
+        description: "User roles updated successfully",
         variant: "default",
       })
     } catch {
       toast({
         title: "Error",
-        description: "Failed to update user role",
+        description: "Failed to update user roles",
         variant: "destructive",
       })
     }
