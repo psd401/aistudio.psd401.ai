@@ -1,6 +1,6 @@
 'use client';
 
-import { useSession, signIn } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
@@ -19,11 +19,7 @@ export function UserButton() {
   }
 
   if (!session) {
-    return (
-      <Button size="sm" variant="outline" onClick={() => signIn('cognito')}>
-        Sign in
-      </Button>
-    );
+    return null;
   }
 
   // Extract first name from user info
