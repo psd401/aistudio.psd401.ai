@@ -13,6 +13,7 @@ import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import logger from '@/lib/logger';
 import { snakeToCamel } from "./field-mapper";
 import type { SelectNavigationItem } from '@/types/db-types';
+import { executeWithRetry } from "./rds-error-handler";
 
 // Type aliases for cleaner code
 type DataApiResponse = ExecuteStatementCommandOutput;
@@ -59,7 +60,7 @@ function getRDSClient(): RDSDataClient {
     client = new RDSDataClient({ 
       region,
       credentials: fromNodeProviderChain(),
-      maxAttempts: 3
+      maxAttempts: 1 // We'll handle retries ourselves with circuit breaker
     });
   }
   return client;
@@ -160,54 +161,37 @@ function formatDataApiResponse(response: DataApiResponse): FormattedRow[] {
  * Execute a single SQL statement
  */
 export async function executeSQL<T = FormattedRow>(sql: string, parameters: DataApiParameter[] = []): Promise<T[]> {
-  const maxRetries = 3;
-  let lastError: Error | undefined;
-  
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const config = getDataApiConfig();
-      
-      const command = new ExecuteStatementCommand({
-        ...config,
-        sql,
-        parameters: parameters.length > 0 ? parameters : undefined,
-        includeResultMetadata: true
+  // Use the new retry handler with circuit breaker
+  return executeWithRetry(async () => {
+    const config = getDataApiConfig();
+    
+    if (process.env.SQL_LOGGING !== 'false') {
+      logger.debug('Executing SQL:', { 
+        sql: sql.substring(0, 100) + (sql.length > 100 ? '...' : ''),
+        parameters: parameters?.map(p => ({ name: p.name, hasValue: !!p.value }))
       });
-
-      const response = await getRDSClient().send(command);
-      return formatDataApiResponse(response as DataApiResponse) as T[];
-    } catch (error) {
-      logger.error(`Data API Error (attempt ${attempt}/${maxRetries}):`, error);
-      lastError = error as Error;
-      
-      // Check if it's a retryable error
-      const awsError = error as { name?: string; $metadata?: { httpStatusCode?: number } };
-      if (
-        awsError.name === 'InternalServerErrorException' ||
-        awsError.name === 'ServiceUnavailableException' ||
-        awsError.name === 'ThrottlingException' ||
-        awsError.$metadata?.httpStatusCode === 500 ||
-        awsError.$metadata?.httpStatusCode === 503
-      ) {
-        // Wait before retry with exponential backoff
-        if (attempt < maxRetries) {
-          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-          if (process.env.SQL_LOGGING !== 'false') {
-            logger.debug(`Retrying in ${delay}ms...`);
-          }
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
-        }
-      }
-      
-      // Non-retryable error or max retries reached
-      throw error;
     }
-  }
-  
-  // If we get here, all retries failed
-  throw lastError || new Error('Unknown error during executeSQL');
+    
+    const command = new ExecuteStatementCommand({
+      ...config,
+      sql,
+      parameters: parameters.length > 0 ? parameters : undefined,
+      includeResultMetadata: true
+    });
+
+    const response = await getRDSClient().send(command);
+    const result = formatDataApiResponse(response as DataApiResponse) as T[];
+    
+    if (process.env.SQL_LOGGING !== 'false' && result.length > 0) {
+      logger.debug(`SQL returned ${result.length} rows`);
+    }
+    
+    return result;
+  }, 'executeSQL', {
+    maxRetries: 3,
+    initialDelay: 100,
+    maxDelay: 5000
+  });
 }
 
 /**
