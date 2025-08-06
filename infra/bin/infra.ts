@@ -6,6 +6,7 @@ import { AuthStack } from '../lib/auth-stack';
 import { StorageStack } from '../lib/storage-stack';
 import { FrontendStack } from '../lib/frontend-stack';
 import { ProcessingStack } from '../lib/processing-stack';
+import { MonitoringStack } from '../lib/monitoring-stack';
 import { SecretValue } from 'aws-cdk-lib';
 
 const app = new cdk.App();
@@ -148,6 +149,30 @@ if (baseDomain) {
   // cdk deploy AIStudio-FrontendStack-Dev --context baseDomain=yourdomain.com
   // cdk deploy AIStudio-FrontendStack-Prod --context baseDomain=yourdomain.com
 }
+
+// Monitoring stacks - created after all other stacks for comprehensive monitoring
+// Optional: pass alertEmail context to enable email notifications
+const alertEmail = app.node.tryGetContext('alertEmail');
+
+const devMonitoringStack = new MonitoringStack(app, 'AIStudio-MonitoringStack-Dev', {
+  environment: 'dev',
+  alertEmail,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+cdk.Tags.of(devMonitoringStack).add('Environment', 'Dev');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devMonitoringStack).add(key, value));
+
+const prodMonitoringStack = new MonitoringStack(app, 'AIStudio-MonitoringStack-Prod', {
+  environment: 'prod',
+  alertEmail,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+cdk.Tags.of(prodMonitoringStack).add('Environment', 'Prod');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodMonitoringStack).add(key, value));
+
+// To deploy monitoring with email alerts:
+// cdk deploy AIStudio-MonitoringStack-Dev --context alertEmail=your-email@example.com
+// cdk deploy AIStudio-MonitoringStack-Prod --context alertEmail=your-email@example.com
 
 new InfraStack(app, 'AIStudio-InfraStack', {
   /* If you don't specify 'env', this stack will be environment-agnostic.

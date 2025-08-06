@@ -113,6 +113,13 @@ export class DatabaseStack extends cdk.Stack {
       debugLogging: props.environment !== 'prod',
     });
 
+    // Create log group for database init Lambda
+    const dbInitLogGroup = new logs.LogGroup(this, 'DbInitLogGroup', {
+      logGroupName: `/aws/lambda/db-init-${props.environment}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+    });
+
     // Database initialization Lambda
     // Note: Lambda doesn't need to be in VPC since it uses RDS Data API
     const dbInitLambda = new lambda.Function(this, 'DbInitLambda', {
@@ -157,17 +164,24 @@ export class DatabaseStack extends cdk.Stack {
       environment: {
         NODE_OPTIONS: '--enable-source-maps',
       },
-      logRetention: logs.RetentionDays.ONE_WEEK,
+      logGroup: dbInitLogGroup,
     });
 
     // Grant the Lambda permission to use the Data API
     cluster.grantDataApiAccess(dbInitLambda);
     dbSecret.grantRead(dbInitLambda);
 
-    // Create Custom Resource Provider
+    // Create log group for the Provider's internal Lambda function
+    const providerLogGroup = new logs.LogGroup(this, 'DbInitProviderLogGroup', {
+      logGroupName: `/aws/lambda/db-init-provider-${props.environment}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+    });
+
+    // Create Custom Resource Provider with explicit log group to avoid deprecation warning
     const dbInitProvider = new cr.Provider(this, 'DbInitProvider', {
       onEventHandler: dbInitLambda,
-      logRetention: logs.RetentionDays.ONE_WEEK,
+      logGroup: providerLogGroup,
     });
 
     // Create Custom Resource

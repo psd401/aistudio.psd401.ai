@@ -385,6 +385,13 @@ export class FrontendStack extends cdk.Stack {
       exportName: `${props.environment}-WAFArn`
     });
 
+    // Store Amplify app ID in SSM Parameter Store for cross-stack references
+    new ssm.StringParameter(this, 'AmplifyAppIdParam', {
+      parameterName: `/aistudio/${props.environment}/amplify-app-id`,
+      stringValue: amplifyApp.appId,
+      description: 'Amplify app ID for monitoring and logging',
+    });
+
     // Outputs
     new cdk.CfnOutput(this, 'AmplifyAppId', {
       value: amplifyApp.appId,
