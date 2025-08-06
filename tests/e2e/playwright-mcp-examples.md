@@ -28,6 +28,24 @@ This file demonstrates how to use Playwright MCP with Claude Code to test the ap
 /e2e-test Model comparison - go to /compare, enter "Write a haiku about testing", select two models, run comparison, verify results are displayed
 ```
 
+### 4. Test Model Replacement Workflow
+
+```
+/e2e-test Model replacement - navigate to /admin/models, try to delete a model that has references (like "gpt-4o"), verify the replacement dialog appears, check that reference counts are shown, select a replacement model, confirm the replacement
+```
+
+### 5. Test Direct Model Deletion
+
+```
+/e2e-test Direct model deletion - navigate to /admin/models, find a model with no references, delete it directly, verify it's removed from the list
+```
+
+### 6. Test Model Replacement Validation
+
+```
+/e2e-test Model replacement validation - navigate to /admin/models, try to delete a chat-enabled model, verify that replacement dialog shows warnings when selecting a non-chat-enabled replacement
+```
+
 ### 4. Test Chat Functionality
 
 ```

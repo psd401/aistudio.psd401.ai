@@ -2,6 +2,7 @@
 
 import { useState, useCallback, memo } from 'react';
 import { AiModelsTable } from './ai-models-table';
+import { ModelReplacementDialog } from './model-replacement-dialog';
 import type { SelectAiModel } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -11,6 +12,19 @@ interface AiModelsClientProps {
 
 export const AiModelsClient = memo(function AiModelsClient({ initialModels = [] }: AiModelsClientProps) {
   const [models, setModels] = useState(initialModels);
+  const [replacementDialog, setReplacementDialog] = useState<{
+    isOpen: boolean;
+    model: SelectAiModel | null;
+    referenceCounts: {
+      chainPrompts: number;
+      conversations: number;
+      modelComparisons: number;
+    };
+  }>({
+    isOpen: false,
+    model: null,
+    referenceCounts: { chainPrompts: 0, conversations: 0, modelComparisons: 0 }
+  });
   const { toast } = useToast();
 
   const handleAddModel = useCallback(async (model: Omit<SelectAiModel, 'id' | 'createdAt' | 'updatedAt'>) => {
@@ -75,21 +89,43 @@ export const AiModelsClient = memo(function AiModelsClient({ initialModels = [] 
 
   const handleDeleteModel = useCallback(async (modelId: number) => {
     try {
-      const response = await fetch(`/api/admin/models?id=${modelId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || 'Failed to delete model');
+      // First, check if the model has references
+      const referenceResponse = await fetch(`/api/admin/models/${modelId}/references`);
+      
+      if (!referenceResponse.ok) {
+        throw new Error('Failed to check model references');
       }
+      
+      const referenceData = await referenceResponse.json();
+      
+      if (referenceData.data?.hasReferences) {
+        // Model has references, show replacement dialog
+        const modelToDelete = models.find(m => m.id === modelId);
+        if (modelToDelete) {
+          setReplacementDialog({
+            isOpen: true,
+            model: modelToDelete,
+            referenceCounts: referenceData.data.counts
+          });
+        }
+      } else {
+        // No references, proceed with direct deletion
+        const response = await fetch(`/api/admin/models?id=${modelId}`, {
+          method: 'DELETE',
+        });
 
-      setModels(models.filter(model => model.id !== modelId));
-      toast({
-        title: 'Success',
-        description: 'AI model deleted successfully',
-        variant: 'default',
-      });
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || 'Failed to delete model');
+        }
+
+        setModels(models.filter(model => model.id !== modelId));
+        toast({
+          title: 'Success',
+          description: 'AI model deleted successfully',
+          variant: 'default',
+        });
+      }
     } catch (error) {
       toast({
         title: 'Error',
@@ -98,13 +134,71 @@ export const AiModelsClient = memo(function AiModelsClient({ initialModels = [] 
       });
     }
   }, [models, toast]);
+  
+  const handleModelReplacement = useCallback(async (replacementModelId: number) => {
+    if (!replacementDialog.model) return;
+    
+    try {
+      const response = await fetch(`/api/admin/models/${replacementDialog.model.id}/replace`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ replacementModelId }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to replace model');
+      }
+
+      const result = await response.json();
+      
+      // Remove the deleted model from the list
+      setModels(models.filter(model => model.id !== replacementDialog.model?.id));
+      
+      // Close the dialog
+      setReplacementDialog({
+        isOpen: false,
+        model: null,
+        referenceCounts: { chainPrompts: 0, conversations: 0, modelComparisons: 0 }
+      });
+      
+      toast({
+        title: 'Success',
+        description: result.message || 'Model replaced and deleted successfully',
+        variant: 'default',
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to replace model',
+        variant: 'destructive',
+      });
+    }
+  }, [replacementDialog.model, models, toast]);
 
   return (
-    <AiModelsTable
-      models={models}
-      onAddModel={handleAddModel}
-      onDeleteModel={handleDeleteModel}
-      onUpdateModel={handleUpdateModel}
-    />
+    <>
+      <AiModelsTable
+        models={models}
+        onAddModel={handleAddModel}
+        onDeleteModel={handleDeleteModel}
+        onUpdateModel={handleUpdateModel}
+      />
+      
+      {replacementDialog.model && (
+        <ModelReplacementDialog
+          isOpen={replacementDialog.isOpen}
+          onClose={() => setReplacementDialog({
+            isOpen: false,
+            model: null,
+            referenceCounts: { chainPrompts: 0, conversations: 0, modelComparisons: 0 }
+          })}
+          modelToDelete={replacementDialog.model}
+          availableModels={models}
+          referenceCounts={replacementDialog.referenceCounts}
+          onConfirm={handleModelReplacement}
+        />
+      )}
+    </>
   );
 }); 

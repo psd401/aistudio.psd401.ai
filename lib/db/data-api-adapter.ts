@@ -759,6 +759,265 @@ export async function deleteAIModel(id: number) {
   return result[0];
 }
 
+/**
+ * Get count of references to a model across all tables
+ */
+export async function getModelReferenceCounts(modelId: number) {
+  const sql = `
+    SELECT 
+      (SELECT COUNT(*) FROM chain_prompts WHERE model_id = :modelId) as chain_prompts_count,
+      (SELECT COUNT(*) FROM conversations WHERE model_id = :modelId) as conversations_count,
+      (SELECT COUNT(*) FROM model_comparisons WHERE model1_id = :modelId OR model2_id = :modelId) as model_comparisons_count
+  `;
+  
+  const parameters = [
+    { name: 'modelId', value: { longValue: modelId } }
+  ];
+  
+  const result = await executeSQL(sql, parameters);
+  return result[0] || { 
+    chain_prompts_count: 0, 
+    conversations_count: 0, 
+    model_comparisons_count: 0 
+  };
+}
+
+/**
+ * Replace all references to a model with another model
+ * This is done in a transaction to ensure atomicity
+ */
+export async function replaceModelReferences(
+  targetModelId: number, 
+  replacementModelId: number,
+  userId: number
+) {
+  const requestId = generateRequestId();
+  const timer = startTimer("replaceModelReferences");
+  const log = createLogger({ requestId, operation: "replaceModelReferences" });
+  
+  log.info("Starting model replacement", { 
+    targetModelId, 
+    replacementModelId, 
+    userId 
+  });
+  
+  try {
+    // First, get model names and counts outside the transaction
+    const modelNamesSql = `
+      SELECT 
+        (SELECT name FROM ai_models WHERE id = :targetId) as target_name,
+        (SELECT name FROM ai_models WHERE id = :replacementId) as replacement_name
+    `;
+    
+    const modelNamesParams = [
+      { name: 'targetId', value: { longValue: targetModelId } },
+      { name: 'replacementId', value: { longValue: replacementModelId } }
+    ];
+    
+    const modelNames = await executeSQL(modelNamesSql, modelNamesParams, requestId);
+    const { targetName, replacementName } = modelNames[0] || {};
+    
+    if (!targetName || !replacementName) {
+      log.error("Invalid model IDs provided", { targetModelId, replacementModelId });
+      throw new Error("Invalid model IDs provided");
+    }
+    
+    // Get current counts for audit
+    const counts = await getModelReferenceCounts(targetModelId);
+    
+    // Prepare all statements for the transaction
+    const statements = [];
+    
+    // Update chain_prompts
+    if (Number(counts.chainPromptsCount) > 0) {
+      statements.push({
+        sql: `UPDATE chain_prompts SET model_id = :replacementId, updated_at = NOW() WHERE model_id = :targetId`,
+        parameters: [
+          { name: 'replacementId', value: { longValue: replacementModelId } },
+          { name: 'targetId', value: { longValue: targetModelId } }
+        ]
+      });
+    }
+    
+    // Update conversations
+    if (Number(counts.conversationsCount) > 0) {
+      statements.push({
+        sql: `UPDATE conversations SET model_id = :replacementId, updated_at = NOW() WHERE model_id = :targetId`,
+        parameters: [
+          { name: 'replacementId', value: { longValue: replacementModelId } },
+          { name: 'targetId', value: { longValue: targetModelId } }
+        ]
+      });
+    }
+    
+    // Update model_comparisons (both model1_id and model2_id)
+    if (Number(counts.modelComparisonsCount) > 0) {
+      statements.push({
+        sql: `UPDATE model_comparisons SET model1_id = :replacementId, updated_at = NOW() WHERE model1_id = :targetId`,
+        parameters: [
+          { name: 'replacementId', value: { longValue: replacementModelId } },
+          { name: 'targetId', value: { longValue: targetModelId } }
+        ]
+      });
+      
+      statements.push({
+        sql: `UPDATE model_comparisons SET model2_id = :replacementId, updated_at = NOW() WHERE model2_id = :targetId`,
+        parameters: [
+          { name: 'replacementId', value: { longValue: replacementModelId } },
+          { name: 'targetId', value: { longValue: targetModelId } }
+        ]
+      });
+    }
+    
+    // Record in audit table
+    statements.push({
+      sql: `
+        INSERT INTO model_replacement_audit (
+          original_model_id, 
+          original_model_name, 
+          replacement_model_id, 
+          replacement_model_name, 
+          replaced_by, 
+          chain_prompts_updated, 
+          conversations_updated, 
+          model_comparisons_updated,
+          executed_at
+        ) VALUES (
+          :originalId, 
+          :originalName, 
+          :replacementId, 
+          :replacementName, 
+          :userId, 
+          :chainPromptsUpdated, 
+          :conversationsUpdated, 
+          :modelComparisonsUpdated,
+          NOW()
+        )
+      `,
+      parameters: [
+        { name: 'originalId', value: { longValue: targetModelId } },
+        { name: 'originalName', value: { stringValue: String(targetName) } },
+        { name: 'replacementId', value: { longValue: replacementModelId } },
+        { name: 'replacementName', value: { stringValue: String(replacementName) } },
+        { name: 'userId', value: { longValue: userId } },
+        { name: 'chainPromptsUpdated', value: { longValue: Number(counts.chainPromptsCount || 0) } },
+        { name: 'conversationsUpdated', value: { longValue: Number(counts.conversationsCount || 0) } },
+        { name: 'modelComparisonsUpdated', value: { longValue: Number(counts.modelComparisonsCount || 0) } }
+      ]
+    });
+    
+    // Delete the original model
+    statements.push({
+      sql: `DELETE FROM ai_models WHERE id = :targetId`,
+      parameters: [{ name: 'targetId', value: { longValue: targetModelId } }]
+    });
+    
+    // Execute all statements in a transaction
+    await executeTransaction(statements);
+    
+    const result = {
+      success: true,
+      targetModel: { id: targetModelId, name: targetName },
+      replacementModel: { id: replacementModelId, name: replacementName },
+      recordsUpdated: {
+        chainPrompts: Number(counts.chainPromptsCount || 0),
+        conversations: Number(counts.conversationsCount || 0),
+        modelComparisons: Number(counts.modelComparisonsCount || 0)
+      },
+      totalUpdated: Number(counts.chainPromptsCount || 0) + Number(counts.conversationsCount || 0) + Number(counts.modelComparisonsCount || 0)
+    };
+    
+    log.info("Model replacement completed successfully", result);
+    timer({ status: "success", recordsUpdated: result.totalUpdated });
+    
+    return result;
+    
+  } catch (error) {
+    log.error("Model replacement failed", { 
+      error: error instanceof Error ? error.message : String(error),
+      targetModelId,
+      replacementModelId 
+    });
+    timer({ status: "error" });
+    
+    throw error;
+  }
+}
+
+/**
+ * Validate if a model can be used as a replacement for another
+ */
+export async function validateModelReplacement(targetModelId: number, replacementModelId: number) {
+  // Prevent self-replacement
+  if (targetModelId === replacementModelId) {
+    return {
+      valid: false,
+      reason: "A model cannot replace itself"
+    };
+  }
+  
+  const sql = `
+    SELECT 
+      target.id as target_id,
+      target.name as target_name,
+      target.active as target_active,
+      target.chat_enabled as target_chat_enabled,
+      replacement.id as replacement_id,
+      replacement.name as replacement_name,
+      replacement.active as replacement_active,
+      replacement.chat_enabled as replacement_chat_enabled
+    FROM ai_models target
+    CROSS JOIN ai_models replacement
+    WHERE target.id = :targetId 
+      AND replacement.id = :replacementId
+  `;
+  
+  const parameters = [
+    { name: 'targetId', value: { longValue: targetModelId } },
+    { name: 'replacementId', value: { longValue: replacementModelId } }
+  ];
+  
+  const result = await executeSQL(sql, parameters);
+  
+  if (!result || result.length === 0) {
+    return {
+      valid: false,
+      reason: "One or both models not found"
+    };
+  }
+  
+  const models = result[0];
+  
+  // Check if replacement model is active (fields come back in camelCase from data-api-adapter)
+  if (!models.replacementActive) {
+    return {
+      valid: false,
+      reason: `Replacement model "${models.replacementName}" is not active`
+    };
+  }
+  
+  // Warn if chat capabilities differ
+  const warnings = [];
+  if (models.targetChatEnabled && !models.replacementChatEnabled) {
+    warnings.push(`Target model has chat enabled but replacement model does not`);
+  }
+  
+  return {
+    valid: true,
+    targetModel: {
+      id: models.targetId,
+      name: models.targetName,
+      chatEnabled: models.targetChatEnabled
+    },
+    replacementModel: {
+      id: models.replacementId,
+      name: models.replacementName,
+      chatEnabled: models.replacementChatEnabled
+    },
+    warnings
+  };
+}
+
 export async function assignRoleToUser(userId: number, roleId: number) {
   const sql = `
     INSERT INTO user_roles (user_id, role_id, created_at, updated_at)
