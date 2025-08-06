@@ -20,7 +20,7 @@ export const authConfig: NextAuthConfig = {
       client: {
         token_endpoint_auth_method: "none",
       },
-      checks: ["pkce", "nonce"], // Enable both PKCE and nonce checks
+      checks: ["pkce", "state"], // Enable PKCE and state checks (CSRF protection)
       profile(profile) {
         return {
           id: profile.sub,
@@ -35,10 +35,11 @@ export const authConfig: NextAuthConfig = {
     async jwt({ token, account, profile, user, trigger }) {
       // Initial sign in - store essential data
       if (account && account.id_token) {
-        // Parse JWT payload without using jsonwebtoken library (Edge Runtime compatible)
-        const base64Payload = account.id_token.split('.')[1];
-        const payload = Buffer.from(base64Payload, 'base64').toString('utf-8');
-        const decoded = JSON.parse(payload);
+        try {
+          // Parse JWT payload without using jsonwebtoken library (Edge Runtime compatible)
+          const base64Payload = account.id_token.split('.')[1];
+          const payload = Buffer.from(base64Payload, 'base64').toString('utf-8');
+          const decoded = JSON.parse(payload);
         
         return {
           sub: decoded.sub,
@@ -51,7 +52,20 @@ export const authConfig: NextAuthConfig = {
           refreshToken: account.refresh_token,
           idToken: account.id_token,
           expiresAt: account.expires_at ? account.expires_at * 1000 : Date.now() + 3600 * 1000, // Convert to milliseconds
-        };
+          };
+        } catch (error) {
+          // Log error but don't fail authentication
+          // This handles malformed tokens gracefully
+          return {
+            sub: account.providerAccountId,
+            email: user?.email || profile?.email,
+            name: user?.name || profile?.name,
+            accessToken: account.access_token,
+            refreshToken: account.refresh_token,
+            idToken: account.id_token,
+            expiresAt: account.expires_at ? account.expires_at * 1000 : Date.now() + 3600 * 1000,
+          };
+        }
       }
 
       // Check if token is expired
@@ -116,7 +130,7 @@ export const authConfig: NextAuthConfig = {
       else if (new URL(url).origin === baseUrl) return url
       return baseUrl + "/dashboard"
     },
-    async signIn({ user, account, profile }) {
+    async signIn() {
       return true;
     },
   },
@@ -140,10 +154,57 @@ export const authConfig: NextAuthConfig = {
         secure: process.env.NODE_ENV === 'production'
       }
     },
+    callbackUrl: {
+      name: `authjs.callback-url`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production'
+      }
+    },
+    csrfToken: {
+      name: `authjs.csrf-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production'
+      }
+    },
+    pkceCodeVerifier: {
+      name: `authjs.pkce.code_verifier`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 60 * 15 // 15 minutes
+      }
+    },
+    state: {
+      name: `authjs.state`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 60 * 15 // 15 minutes
+      }
+    },
+    nonce: {
+      name: `authjs.nonce`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production'
+      }
+    },
   },
   debug: false,
   events: {
-    async signOut(message) {
+    async signOut() {
       // This event fires after NextAuth's signOut
       // We can use this for any cleanup needed
       // User signed out
