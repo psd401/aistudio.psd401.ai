@@ -5,6 +5,7 @@ import type { NextAuthConfig } from "next-auth"
 export const authConfig: NextAuthConfig = {
   providers: [
     Cognito({
+      name: "AI Studio",
       clientId: process.env.AUTH_COGNITO_CLIENT_ID!,
       clientSecret: process.env.AUTH_COGNITO_CLIENT_SECRET || "",
       issuer: process.env.AUTH_COGNITO_ISSUER!,
@@ -20,7 +21,7 @@ export const authConfig: NextAuthConfig = {
       client: {
         token_endpoint_auth_method: "none",
       },
-      checks: ["pkce", "state"], // Enable PKCE and state checks (CSRF protection)
+      checks: ["pkce", "state", "nonce"], // Enable PKCE, state and nonce checks (CSRF protection)
       profile(profile) {
         return {
           id: profile.sub,

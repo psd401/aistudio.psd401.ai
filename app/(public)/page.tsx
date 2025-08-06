@@ -3,10 +3,9 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Image from "next/image";
-import { useSession } from "next-auth/react";
+import { useSession, signIn } from "next-auth/react";
 import { useEffect, Suspense } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 
 function LandingPageContent() {
   const router = useRouter();
@@ -15,7 +14,11 @@ function LandingPageContent() {
   // Get callbackUrl from query params if present
   const searchParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
-  const signInUrl = `/api/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`;
+  
+  const handleSignIn = () => {
+    // Use signIn function to skip the intermediate page
+    signIn('cognito', { callbackUrl });
+  };
 
   useEffect(() => {
     // Only redirect to dashboard if truly authenticated
@@ -59,17 +62,13 @@ function LandingPageContent() {
             <p className="text-center mb-6 text-muted-foreground">
               Your creative space for building, exploring, and innovating with AI in education.
             </p>
-            <Link 
-              href={signInUrl}
-              className="w-full"
+            <Button
+              className="w-full bg-sky-600 hover:bg-sky-700 text-white shadow-lg"
+              size="lg"
+              onClick={handleSignIn}
             >
-              <Button
-                className="w-full bg-sky-600 hover:bg-sky-700 text-white shadow-lg"
-                size="lg"
-              >
-                Sign In with Cognito
-              </Button>
-            </Link>
+              Sign In
+            </Button>
           </CardContent>
         </Card>
       </div>
