@@ -4,10 +4,21 @@ import { getServerSession } from "@/lib/auth/server-session"
 import { executeSQL, executeTransaction } from "@/lib/db/data-api-adapter"
 import { type ActionState } from "@/types/actions-types"
 import { hasToolAccess } from "@/utils/roles"
-import { handleError } from "@/lib/error-utils"
-import { createError } from "@/lib/error-utils"
+import { 
+  handleError,
+  createError,
+  ErrorFactories,
+  createSuccess
+} from "@/lib/error-utils"
+import {
+  createLogger,
+  generateRequestId,
+  startTimer,
+  sanitizeForLogging
+} from "@/lib/logger"
 import { revalidatePath } from "next/cache"
 import { transformSnakeToCamel } from "@/lib/db/field-mapper"
+import { canModifyRepository, getUserIdFromSession } from "./repository-permissions"
 
 export interface Repository {
   id: number
@@ -37,32 +48,45 @@ export interface UpdateRepositoryInput {
   metadata?: Record<string, any>
 }
 
+
 export async function createRepository(
   input: CreateRepositoryInput
 ): Promise<ActionState<Repository>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("createRepository")
+  const log = createLogger({ requestId, action: "createRepository" })
+  
   try {
+    log.info("Action started: Creating repository", { 
+      input: sanitizeForLogging(input) 
+    })
+    
     const session = await getServerSession()
     if (!session) {
-      return { isSuccess: false, message: "Unauthorized" }
+      log.warn("Unauthorized repository creation attempt")
+      throw ErrorFactories.authNoSession()
     }
 
+    log.debug("Checking repository access permissions")
     const hasAccess = await hasToolAccess("knowledge-repositories")
     if (!hasAccess) {
-      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+      log.warn("Repository creation denied - insufficient permissions", {
+        userId: session.sub
+      })
+      throw ErrorFactories.authzToolAccessDenied("knowledge-repositories")
     }
 
     // Get the user ID from the cognito_sub
-    const userResult = await executeSQL<{ id: number }>(
-      `SELECT id FROM users WHERE cognito_sub = :cognito_sub`,
-      [{ name: "cognito_sub", value: { stringValue: session.sub } }]
-    )
+    log.debug("Getting user ID from session")
+    const userId = await getUserIdFromSession(session.sub)
+    log.debug("User ID retrieved", { userId })
 
-    if (userResult.length === 0) {
-      return { isSuccess: false, message: "User not found" }
-    }
-
-    const userId = userResult[0].id
-
+    log.info("Creating repository in database", {
+      name: input.name,
+      isPublic: input.isPublic || false,
+      ownerId: userId
+    })
+    
     const result = await executeSQL<Repository>(
       `INSERT INTO knowledge_repositories (name, description, owner_id, is_public, metadata)
        VALUES (:name, :description, :owner_id, :is_public, :metadata::jsonb)
@@ -76,25 +100,70 @@ export async function createRepository(
       ]
     )
 
+    log.info("Repository created successfully", {
+      repositoryId: result[0].id,
+      name: result[0].name
+    })
+    
+    const endTimer = timer
+    endTimer({ status: "success", repositoryId: result[0].id })
+    
     revalidatePath("/repositories")
-    return { isSuccess: true, message: "Repository created successfully", data: result[0] }
+    return createSuccess(result[0], "Repository created successfully")
   } catch (error) {
-    return handleError(error, "Failed to create repository")
+    const endTimer = timer
+    endTimer({ status: "error" })
+    
+    return handleError(error, "Failed to create repository. Please try again or contact support.", {
+      context: "createRepository",
+      requestId,
+      operation: "createRepository"
+    })
   }
 }
 
 export async function updateRepository(
   input: UpdateRepositoryInput
 ): Promise<ActionState<Repository>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("updateRepository")
+  const log = createLogger({ requestId, action: "updateRepository" })
+  
   try {
+    log.info("Action started: Updating repository", { 
+      repositoryId: input.id,
+      updates: sanitizeForLogging(input) 
+    })
+    
     const session = await getServerSession()
     if (!session) {
-      return { isSuccess: false, message: "Unauthorized" }
+      log.warn("Unauthorized repository update attempt")
+      throw ErrorFactories.authNoSession()
     }
 
+    log.debug("Checking repository access permissions")
     const hasAccess = await hasToolAccess("knowledge-repositories")
     if (!hasAccess) {
-      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+      log.warn("Repository update denied - insufficient permissions", {
+        userId: session.sub,
+        repositoryId: input.id
+      })
+      throw ErrorFactories.authzToolAccessDenied("knowledge-repositories")
+    }
+
+    // Get the user ID from the cognito_sub
+    log.debug("Getting user ID from session")
+    const userId = await getUserIdFromSession(session.sub)
+
+    // Check if user can modify this repository
+    log.debug("Checking repository ownership", { repositoryId: input.id, userId })
+    const canModify = await canModifyRepository(input.id, userId)
+    if (!canModify) {
+      log.warn("Repository update denied - not owner", {
+        userId,
+        repositoryId: input.id
+      })
+      throw ErrorFactories.authzOwnerRequired("modify repository")
     }
 
     const updates: string[] = []
@@ -123,10 +192,16 @@ export async function updateRepository(
     }
 
     if (updates.length === 0) {
-      return { isSuccess: false, message: "No fields to update" }
+      log.warn("No fields provided for update")
+      return createSuccess(null as unknown as Repository, "No changes to apply")
     }
 
     updates.push("updated_at = CURRENT_TIMESTAMP")
+
+    log.info("Updating repository in database", {
+      repositoryId: input.id,
+      fieldsUpdated: updates.length - 1
+    })
 
     const result = await executeSQL<Repository>(
       `UPDATE knowledge_repositories 
@@ -137,77 +212,157 @@ export async function updateRepository(
     )
 
     if (result.length === 0) {
-      return { isSuccess: false, message: "Repository not found" }
+      log.error("Repository not found for update", { repositoryId: input.id })
+      throw ErrorFactories.dbRecordNotFound("knowledge_repositories", input.id)
     }
 
+    log.info("Repository updated successfully", {
+      repositoryId: result[0].id,
+      name: result[0].name
+    })
+    
+    const endTimer = timer
+    endTimer({ status: "success", repositoryId: result[0].id })
+    
     revalidatePath("/repositories")
     revalidatePath(`/repositories/${input.id}`)
-    return { isSuccess: true, message: "Repository updated successfully", data: result[0] }
+    return createSuccess(result[0], "Repository updated successfully")
   } catch (error) {
-    return handleError(error, "Failed to update repository")
+    const endTimer = timer
+    endTimer({ status: "error" })
+    
+    return handleError(error, "Failed to update repository. Please try again or contact support.", {
+      context: "updateRepository",
+      requestId,
+      operation: "updateRepository",
+      metadata: { repositoryId: input.id }
+    })
   }
 }
 
 export async function deleteRepository(
   id: number
 ): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("deleteRepository")
+  const log = createLogger({ requestId, action: "deleteRepository" })
+  
   try {
+    log.info("Action started: Deleting repository", { repositoryId: id })
+    
     const session = await getServerSession()
     if (!session) {
-      return { isSuccess: false, message: "Unauthorized" }
+      log.warn("Unauthorized repository deletion attempt")
+      throw ErrorFactories.authNoSession()
     }
 
+    log.debug("Checking repository access permissions")
     const hasAccess = await hasToolAccess("knowledge-repositories")
     if (!hasAccess) {
-      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+      log.warn("Repository deletion denied - insufficient permissions", {
+        userId: session.sub,
+        repositoryId: id
+      })
+      throw ErrorFactories.authzToolAccessDenied("knowledge-repositories")
+    }
+
+    // Get the user ID from the cognito_sub
+    log.debug("Getting user ID from session")
+    const userId = await getUserIdFromSession(session.sub)
+
+    // Check if user can modify this repository
+    log.debug("Checking repository ownership", { repositoryId: id, userId })
+    const canModify = await canModifyRepository(id, userId)
+    if (!canModify) {
+      log.warn("Repository deletion denied - not owner", {
+        userId,
+        repositoryId: id
+      })
+      throw ErrorFactories.authzOwnerRequired("delete repository")
     }
 
     // First, get all document items to delete from S3
+    log.debug("Fetching document items for deletion")
     const items = await executeSQL<{ id: number; type: string; source: string }>(
       `SELECT id, type, source FROM repository_items 
        WHERE repository_id = :repository_id AND type = 'document'`,
       [{ name: "repository_id", value: { longValue: id } }]
     )
 
-    // Delete all documents from S3
+    log.info("Found documents to delete from S3", { 
+      documentCount: items.length,
+      repositoryId: id 
+    })
+
+    // Delete all documents from S3 in parallel
     if (items.length > 0) {
       const { deleteDocument } = await import("@/lib/aws/s3-client")
       
-      for (const item of items) {
-        try {
-          await deleteDocument(item.source)
-        } catch (error) {
+      const deletePromises = items.map(item =>
+        deleteDocument(item.source).catch(error => {
           // Log error but continue with deletion
-          console.error(`Failed to delete S3 file ${item.source}:`, error)
-        }
-      }
+          log.error("Failed to delete S3 file", { 
+            file: item.source,
+            itemId: item.id,
+            error: error instanceof Error ? error.message : "Unknown error"
+          })
+        })
+      )
+      await Promise.all(deletePromises)
+      log.info("S3 document cleanup completed")
     }
 
     // Now delete the repository (this will cascade delete all items and chunks)
+    log.info("Deleting repository from database", { repositoryId: id })
     await executeSQL(
       `DELETE FROM knowledge_repositories WHERE id = :id`,
       [{ name: "id", value: { longValue: id } }]
     )
 
+    log.info("Repository deleted successfully", { repositoryId: id })
+    
+    const endTimer = timer
+    endTimer({ status: "success", repositoryId: id })
+    
     revalidatePath("/repositories")
-    return { isSuccess: true, message: "Repository deleted successfully", data: undefined as any }
+    return createSuccess(undefined as any, "Repository deleted successfully")
   } catch (error) {
-    return handleError(error, "Failed to delete repository")
+    const endTimer = timer
+    endTimer({ status: "error" })
+    
+    return handleError(error, "Failed to delete repository. Please try again or contact support.", {
+      context: "deleteRepository",
+      requestId,
+      operation: "deleteRepository",
+      metadata: { repositoryId: id }
+    })
   }
 }
 
 export async function listRepositories(): Promise<ActionState<Repository[]>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("listRepositories")
+  const log = createLogger({ requestId, action: "listRepositories" })
+  
   try {
+    log.info("Action started: Listing repositories")
+    
     const session = await getServerSession()
     if (!session) {
-      return { isSuccess: false, message: "Unauthorized" }
+      log.warn("Unauthorized repository list attempt")
+      throw ErrorFactories.authNoSession()
     }
 
+    log.debug("Checking repository access permissions")
     const hasAccess = await hasToolAccess("knowledge-repositories")
     if (!hasAccess) {
-      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+      log.warn("Repository list denied - insufficient permissions", {
+        userId: session.sub
+      })
+      throw ErrorFactories.authzToolAccessDenied("knowledge-repositories")
     }
 
+    log.debug("Fetching repositories from database")
     const repositories = await executeSQL<Repository>(
       `SELECT 
         r.*,
@@ -220,26 +375,53 @@ export async function listRepositories(): Promise<ActionState<Repository[]>> {
        ORDER BY r.created_at DESC`
     )
 
-    return { isSuccess: true, message: "Repositories loaded successfully", data: repositories }
+    log.info("Repositories fetched successfully", { 
+      repositoryCount: repositories.length 
+    })
+    
+    const endTimer = timer
+    endTimer({ status: "success", count: repositories.length })
+    
+    return createSuccess(repositories, "Repositories loaded successfully")
   } catch (error) {
-    return handleError(error, "Failed to list repositories")
+    const endTimer = timer
+    endTimer({ status: "error" })
+    
+    return handleError(error, "Failed to list repositories. Please try again or contact support.", {
+      context: "listRepositories",
+      requestId,
+      operation: "listRepositories"
+    })
   }
 }
 
 export async function getRepository(
   id: number
 ): Promise<ActionState<Repository>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("getRepository")
+  const log = createLogger({ requestId, action: "getRepository" })
+  
   try {
+    log.info("Action started: Getting repository", { repositoryId: id })
+    
     const session = await getServerSession()
     if (!session) {
-      return { isSuccess: false, message: "Unauthorized" }
+      log.warn("Unauthorized repository access attempt")
+      throw ErrorFactories.authNoSession()
     }
 
+    log.debug("Checking repository access permissions")
     const hasAccess = await hasToolAccess("knowledge-repositories")
     if (!hasAccess) {
-      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+      log.warn("Repository access denied - insufficient permissions", {
+        userId: session.sub,
+        repositoryId: id
+      })
+      throw ErrorFactories.authzToolAccessDenied("knowledge-repositories")
     }
 
+    log.debug("Fetching repository from database", { repositoryId: id })
     const result = await executeSQL<Repository>(
       `SELECT 
         r.*,
@@ -254,29 +436,59 @@ export async function getRepository(
     )
 
     if (result.length === 0) {
-      return { isSuccess: false, message: "Repository not found" }
+      log.warn("Repository not found", { repositoryId: id })
+      throw ErrorFactories.dbRecordNotFound("knowledge_repositories", id)
     }
 
-    return { isSuccess: true, message: "Repository loaded successfully", data: result[0] }
+    log.info("Repository fetched successfully", {
+      repositoryId: result[0].id,
+      name: result[0].name
+    })
+    
+    const endTimer = timer
+    endTimer({ status: "success", repositoryId: id })
+    
+    return createSuccess(result[0], "Repository loaded successfully")
   } catch (error) {
-    return handleError(error, "Failed to get repository")
+    const endTimer = timer
+    endTimer({ status: "error" })
+    
+    return handleError(error, "Failed to get repository. Please try again or contact support.", {
+      context: "getRepository",
+      requestId,
+      operation: "getRepository",
+      metadata: { repositoryId: id }
+    })
   }
 }
 
 export async function getRepositoryAccess(
   repositoryId: number
 ): Promise<ActionState<any[]>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("getRepositoryAccess")
+  const log = createLogger({ requestId, action: "getRepositoryAccess" })
+  
   try {
+    log.info("Action started: Getting repository access list", { repositoryId })
+    
     const session = await getServerSession()
     if (!session) {
-      return { isSuccess: false, message: "Unauthorized" }
+      log.warn("Unauthorized repository access list attempt")
+      throw ErrorFactories.authNoSession()
     }
 
+    log.debug("Checking repository access permissions")
     const hasAccess = await hasToolAccess("knowledge-repositories")
     if (!hasAccess) {
-      return { isSuccess: false, message: "Access denied. You need knowledge repository access." }
+      log.warn("Repository access list denied - insufficient permissions", {
+        userId: session.sub,
+        repositoryId
+      })
+      throw ErrorFactories.authzToolAccessDenied("knowledge-repositories")
     }
 
+    log.debug("Fetching repository access list from database", { repositoryId })
     const access = await executeSQL(
       `SELECT 
         ra.*,
@@ -290,9 +502,25 @@ export async function getRepositoryAccess(
       [{ name: "repository_id", value: { longValue: repositoryId } }]
     )
 
-    return { isSuccess: true, message: "Access list loaded successfully", data: access }
+    log.info("Repository access list fetched successfully", {
+      repositoryId,
+      accessCount: access.length
+    })
+    
+    const endTimer = timer
+    endTimer({ status: "success", count: access.length })
+    
+    return createSuccess(access, "Access list loaded successfully")
   } catch (error) {
-    return handleError(error, "Failed to get repository access")
+    const endTimer = timer
+    endTimer({ status: "error" })
+    
+    return handleError(error, "Failed to get repository access. Please try again or contact support.", {
+      context: "getRepositoryAccess",
+      requestId,
+      operation: "getRepositoryAccess",
+      metadata: { repositoryId }
+    })
   }
 }
 

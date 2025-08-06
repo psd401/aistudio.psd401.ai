@@ -3,15 +3,23 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { SqlParameter } from '@aws-sdk/client-rds-data';
-import logger from '@/lib/logger';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 
 export async function DELETE(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.conversations.delete");
+  const log = createLogger({ requestId, route: "api.conversations" });
+  
+  log.info("DELETE /api/conversations/[id] - Deleting conversation");
+  
   const session = await getServerSession();
   if (!session) {
-    return new Response('Unauthorized', { status: 401 });
+    log.warn("Unauthorized - No session");
+    timer({ status: "error", reason: "unauthorized" });
+    return new Response('Unauthorized', { status: 401, headers: { "X-Request-Id": requestId } });
   }
   
   const currentUser = await getCurrentUserAction();
@@ -77,7 +85,7 @@ export async function DELETE(
 
     return new Response(null, { status: 204 });
   } catch (error) {
-    logger.error('Failed to delete conversation:', error);
+    log.error('Failed to delete conversation:', error);
     return new Response(
       JSON.stringify({ error: 'Failed to delete conversation' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
@@ -89,6 +97,10 @@ export async function PATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.conversations.update");
+  const log = createLogger({ requestId, route: "api.conversations.update" });
+  
   const session = await getServerSession();
   if (!session) {
     return new Response('Unauthorized', { status: 401 });
@@ -140,9 +152,11 @@ export async function PATCH(
     ];
     await executeSQL(updateQuery, updateParams);
 
+    timer({ status: "success" });
     return new Response(null, { status: 204 });
   } catch (error) {
-    logger.error('Failed to update conversation:', error);
+    timer({ status: "error" });
+    log.error('Failed to update conversation:', error);
     return new Response(
       JSON.stringify({ error: 'Failed to update conversation' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }

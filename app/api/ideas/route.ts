@@ -2,13 +2,26 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { hasRole } from '@/utils/roles';
-import logger from '@/lib/logger';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 
 export async function GET() {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.ideas.list");
+  const log = createLogger({ requestId, route: "api.ideas" });
+  
+  log.info("GET /api/ideas - Fetching ideas");
+  
   const session = await getServerSession();
   if (!session?.sub) {
-    return new NextResponse('Unauthorized', { status: 401 });
+    log.warn("Unauthorized access attempt to ideas");
+    timer({ status: "error", reason: "unauthorized" });
+    return new NextResponse('Unauthorized', { 
+      status: 401,
+      headers: { "X-Request-Id": requestId }
+    });
   }
+  
+  log.debug("User authenticated", { userId: session.sub });
 
   try {
     const ideasSql = `
@@ -59,31 +72,66 @@ export async function GET() {
       hasVoted: userVotedIdeaIds.has(idea.id)
     }));
     
-    return NextResponse.json(ideasWithVotes);
+    log.info("Ideas retrieved successfully", { count: ideasWithVotes.length });
+    timer({ status: "success", count: ideasWithVotes.length });
+    
+    return NextResponse.json(ideasWithVotes, {
+      headers: { "X-Request-Id": requestId }
+    });
   } catch (error) {
-    logger.error('Error fetching ideas:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
+    timer({ status: "error" });
+    log.error('Error fetching ideas:', error);
+    return new NextResponse('Internal Server Error', { 
+      status: 500,
+      headers: { "X-Request-Id": requestId }
+    });
   }
 }
 
 export async function POST(request: Request) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.ideas.create");
+  const log = createLogger({ requestId, route: "api.ideas" });
+  
+  log.info("POST /api/ideas - Creating new idea");
+  
   const session = await getServerSession();
   if (!session?.sub) {
-    return new NextResponse('Unauthorized', { status: 401 });
+    log.warn("Unauthorized idea creation attempt");
+    timer({ status: "error", reason: "unauthorized" });
+    return new NextResponse('Unauthorized', { 
+      status: 401,
+      headers: { "X-Request-Id": requestId }
+    });
   }
+  
+  log.debug("User authenticated", { userId: session.sub });
 
   const [isStaff, isAdmin] = await Promise.all([
     hasRole('staff'),
     hasRole('administrator')
   ]);
   if (!isStaff && !isAdmin) {
-    return new NextResponse('Forbidden', { status: 403 });
+    log.warn("Insufficient permissions to create idea", { userId: session.sub });
+    timer({ status: "error", reason: "forbidden" });
+    return new NextResponse('Forbidden', { 
+      status: 403,
+      headers: { "X-Request-Id": requestId }
+    });
   }
 
   try {
     const { title, description, priorityLevel } = await request.json();
+    
+    log.debug("Creating idea", { title, priorityLevel });
+    
     if (!title || !description || !priorityLevel) {
-      return new NextResponse('Missing required fields', { status: 400 });
+      log.warn("Missing required fields for idea creation");
+      timer({ status: "error", reason: "validation_error" });
+      return new NextResponse('Missing required fields', { 
+        status: 400,
+        headers: { "X-Request-Id": requestId }
+      });
     }
 
     // First get the user's numeric ID from their cognito_sub
@@ -91,7 +139,12 @@ export async function POST(request: Request) {
     const userResult = await executeSQL(userSql, [{ name: 'cognitoSub', value: { stringValue: session.sub } }]);
     
     if (!userResult || userResult.length === 0) {
-      return new NextResponse('User not found', { status: 404 });
+      log.error("User not found in database", { cognitoSub: session.sub });
+      timer({ status: "error", reason: "user_not_found" });
+      return new NextResponse('User not found', { 
+        status: 404,
+        headers: { "X-Request-Id": requestId }
+      });
     }
     
     const userId = userResult[0].id;
@@ -111,12 +164,22 @@ export async function POST(request: Request) {
     const newIdea = result[0];
 
     // The data is already converted to camelCase by formatDataApiResponse
-    return NextResponse.json({
-      ...newIdea,
-      createdBy: String(newIdea.userId)
-    });
+    log.info("Idea created successfully", { ideaId: newIdea.id });
+    timer({ status: "success" });
+    
+    return NextResponse.json(
+      {
+        ...newIdea,
+        createdBy: String(newIdea.userId)
+      },
+      { headers: { "X-Request-Id": requestId } }
+    );
   } catch (error) {
-    logger.error('Error creating idea:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
+    timer({ status: "error" });
+    log.error('Error creating idea:', error);
+    return new NextResponse('Internal Server Error', { 
+      status: 500,
+      headers: { "X-Request-Id": requestId }
+    });
   }
 } 

@@ -9,6 +9,9 @@
     "lint": "next lint",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
     "typecheck": "tsc --noEmit",
     "ts-node": "tsx"
   },
@@ -74,6 +77,7 @@
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.525.0",
     "mammoth": "^1.9.0",
+    "nanoid": "^5.1.5",
     "next": "^15.2.3",
     "next-auth": "^5.0.0-beta.29",
     "pdf-lib": "^1.17.1",
@@ -94,6 +98,7 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.48.2",
     "@tailwindcss/postcss": "^4.1.11",
     "@testing-library/jest-dom": "^6.4.2",
     "@testing-library/react": "^16.1.0",
@@ -116,5 +121,8 @@
     "postcss": "^8.4.38",
     "tailwindcss": "^4.1.11",
     "typescript": "^5.4.3"
+  },
+  "overrides": {
+    "prismjs": "^1.30.0"
   }
 }

@@ -28,7 +28,7 @@ The application now uses a hybrid approach for file uploads to work around AWS A
 
 ## Configuration
 - File size limit is controlled by `MAX_FILE_SIZE_MB` environment variable (default: 25MB)
-- The 1MB threshold for switching to presigned URLs is hardcoded but can be adjusted
+- The 1MB threshold for switching to presigned URLs is hardcoded based on AWS Amplify's request body size limit
 
 ## Security
 - Presigned URLs expire after 1 hour

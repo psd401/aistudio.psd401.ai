@@ -1,25 +1,40 @@
 import { NextResponse } from 'next/server';
 import { handleError } from './error-utils';
+import { generateRequestId, startTimer, createLogger } from './logger';
+import { type ActionState } from '@/types/actions-types';
 
 /**
- * Wrapper for API route handlers to standardize error handling
+ * Wrapper for API route handlers to standardize error handling and logging
  * @param handler The route handler function
+ * @param routeName Optional name for the route for logging
  * @returns A function that catches errors and returns standardized responses
  */
 export function withErrorHandling<T>(
-  handler: () => Promise<T>
+  handler: () => Promise<T>,
+  routeName: string = 'unknown-route'
 ): Promise<NextResponse> {
+  const requestId = generateRequestId();
+  const timer = startTimer(routeName);
+  const log = createLogger({ requestId, route: routeName });
+  
+  log.info(`API route ${routeName} started`);
+  
   return handler()
     .then((data) => {
+      timer({ status: 'success' });
+      log.info(`API route ${routeName} completed successfully`);
       return NextResponse.json({ 
         success: true, 
-        data 
+        data,
+        requestId 
       });
     })
     .catch((error) => {
+      timer({ status: 'error' });
       // Use the common error handler for logging
       const result = handleError(error, "API request failed", {
-        context: "API",
+        context: routeName,
+        requestId,
         includeErrorInResponse: process.env.NODE_ENV === 'development'
       });
       
@@ -61,6 +76,38 @@ export function withErrorHandling<T>(
       }
       
       return NextResponse.json(errorData, { status: statusCode });
+    });
+}
+
+/**
+ * Wrapper for API route handlers using ActionState pattern
+ * @param handler The route handler function that returns ActionState
+ * @returns A NextResponse with proper status codes
+ */
+export function withActionState<T>(
+  handler: () => Promise<ActionState<T>>
+): Promise<NextResponse> {
+  return handler()
+    .then((result) => {
+      if (result.isSuccess) {
+        return NextResponse.json(result);
+      } else {
+        // Determine status code based on error message or default to 400
+        let statusCode = 400;
+        if (result.message.toLowerCase().includes('unauthorized')) {
+          statusCode = 401;
+        } else if (result.message.toLowerCase().includes('forbidden') || result.message.toLowerCase().includes('access denied')) {
+          statusCode = 403;
+        } else if (result.message.toLowerCase().includes('not found')) {
+          statusCode = 404;
+        }
+        
+        return NextResponse.json(result, { status: statusCode });
+      }
+    })
+    .catch((error) => {
+      const result = handleError(error, "API request failed");
+      return NextResponse.json(result, { status: 500 });
     });
 }
 

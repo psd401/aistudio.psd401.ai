@@ -9,29 +9,55 @@ import { getServerSession } from "@/lib/auth/server-session"
 import { hasToolAccess } from "@/utils/roles"
 import { executeSQL } from "@/lib/db/data-api-adapter"
 import { Settings } from "@/lib/settings-manager"
-import logger from "@/lib/logger"
+import { createLogger, generateRequestId, startTimer } from "@/lib/logger"
+import { ErrorFactories } from "@/lib/error-utils"
 import { ensureRDSString } from "@/lib/type-helpers"
 import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 
 export async function POST(req: NextRequest) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.compare-models");
+  const log = createLogger({ requestId, route: "api.compare-models" });
+  
+  log.info("POST /api/compare-models - Starting model comparison");
+  
   try {
     // Check authentication
     const session = await getServerSession()
     if (!session) {
-      return new Response('Unauthorized', { status: 401 })
+      log.warn("Unauthorized access attempt to model comparison");
+      timer({ status: "error", reason: "unauthorized" });
+      return new Response('Unauthorized', { 
+        status: 401,
+        headers: { "X-Request-Id": requestId }
+      })
     }
+    
+    log.debug("User authenticated", { userId: session.sub });
 
     // Check tool access
     const hasAccess = await hasToolAccess("model-compare")
     if (!hasAccess) {
-      return new Response('Access denied', { status: 403 })
+      log.warn("Access denied to model comparison tool", { userId: session.sub });
+      timer({ status: "error", reason: "access_denied" });
+      return new Response('Access denied', { 
+        status: 403,
+        headers: { "X-Request-Id": requestId }
+      })
     }
 
     const { prompt, model1Id, model2Id } = await req.json()
     
+    log.debug("Model comparison request", { model1Id, model2Id, promptLength: prompt?.length });
+    
     // Validate inputs
     if (!prompt || !model1Id || !model2Id) {
-      return new Response('Missing required fields', { status: 400 })
+      log.warn("Missing required fields in model comparison request");
+      timer({ status: "error", reason: "validation_error" });
+      return new Response('Missing required fields', { 
+        status: 400,
+        headers: { "X-Request-Id": requestId }
+      })
     }
 
     // Get user ID for database persistence
@@ -41,7 +67,12 @@ export async function POST(req: NextRequest) {
     )
 
     if (userResult.length === 0) {
-      return new Response('User not found', { status: 404 })
+      log.error("User not found in database", { userId: session.sub });
+      timer({ status: "error", reason: "user_not_found" });
+      return new Response('User not found', { 
+        status: 404,
+        headers: { "X-Request-Id": requestId }
+      })
     }
 
     const userId = Number(userResult[0].id)
@@ -57,7 +88,12 @@ export async function POST(req: NextRequest) {
     )
 
     if (modelsRaw.length !== 2) {
-      return new Response('Invalid model selection', { status: 400 })
+      log.warn("Invalid model selection", { model1Id, model2Id, foundCount: modelsRaw.length });
+      timer({ status: "error", reason: "invalid_models" });
+      return new Response('Invalid model selection', { 
+        status: 400,
+        headers: { "X-Request-Id": requestId }
+      })
     }
 
     // Transform snake_case fields to camelCase
@@ -67,12 +103,22 @@ export async function POST(req: NextRequest) {
     const model2 = models.find(m => m.modelId === model2Id)
 
     if (!model1 || !model2) {
-      return new Response('Models not found', { status: 404 })
+      log.error("Models not found after transformation", { model1Id, model2Id });
+      timer({ status: "error", reason: "models_not_found" });
+      return new Response('Models not found', { 
+        status: 404,
+        headers: { "X-Request-Id": requestId }
+      })
     }
 
     // Initialize model instances
-    const modelInstance1 = await initializeModel(model1 as ModelData)
-    const modelInstance2 = await initializeModel(model2 as ModelData)
+    const modelInstance1 = await initializeModel(model1 as ModelData, log)
+    const modelInstance2 = await initializeModel(model2 as ModelData, log)
+    
+    log.info("Models initialized successfully", { 
+      model1: model1.name, 
+      model2: model2.name 
+    });
 
     const messages = [
       { role: 'system' as const, content: 'You are a helpful AI assistant.' },
@@ -101,7 +147,7 @@ export async function POST(req: NextRequest) {
         // Handle abort signal
         const cleanup = () => {
           aborted = true
-          logger.info('Model comparison request aborted by client')
+          log.info('Model comparison request aborted by client')
         }
         req.signal.addEventListener('abort', cleanup)
         
@@ -125,7 +171,7 @@ export async function POST(req: NextRequest) {
               sendData({ model1Finished: true })
             } catch (error) {
               if (!aborted) {
-                logger.error('Model 1 streaming error:', error)
+                log.error('Model 1 streaming error:', error)
                 sendData({ model1Error: error instanceof Error ? error.message : 'Unknown error' })
               }
             }
@@ -149,7 +195,7 @@ export async function POST(req: NextRequest) {
               sendData({ model2Finished: true })
             } catch (error) {
               if (!aborted) {
-                logger.error('Model 2 streaming error:', error)
+                log.error('Model 2 streaming error:', error)
                 sendData({ model2Error: error instanceof Error ? error.message : 'Unknown error' })
               }
             }
@@ -181,9 +227,13 @@ export async function POST(req: NextRequest) {
                 { name: 'executionTime2', value: executionTime2 ? { longValue: executionTime2 } : { isNull: true } }
               ]
             )
-            logger.info(`Saved model comparison for user ${userId}`)
+            log.info(`Saved model comparison for user ${userId}`, { 
+              executionTime1, 
+              executionTime2 
+            });
+            timer({ status: "success" });
           } catch (error) {
-            logger.error('Failed to save model comparison:', error)
+            log.error('Failed to save model comparison:', error)
             // Don't fail the stream if save fails
           }
         }
@@ -205,13 +255,18 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
+        'X-Request-Id': requestId
       },
     })
   } catch (error) {
-    logger.error('Compare models error:', error)
+    timer({ status: "error" });
+    log.error('Compare models error:', error)
     return new Response(
       error instanceof Error ? error.message : 'Internal server error', 
-      { status: 500 }
+      { 
+        status: 500,
+        headers: { "X-Request-Id": requestId }
+      }
     )
   }
 }
@@ -224,35 +279,35 @@ interface ModelData {
   [key: string]: unknown
 }
 
-async function initializeModel(model: ModelData) {
+async function initializeModel(model: ModelData, log: ReturnType<typeof createLogger>) {
   const provider = ensureRDSString(model.provider)
   const modelId = ensureRDSString(model.modelId)
 
   switch (provider) {
     case 'openai': {
       const key = await Settings.getOpenAI()
-      if (!key) throw new Error('OpenAI key not configured')
+      if (!key) throw ErrorFactories.sysConfigurationError('OpenAI API key not configured')
       const openai = createOpenAI({ apiKey: key })
       return openai(modelId)
     }
     case 'azure': {
       const config = await Settings.getAzureOpenAI()
-      if (!config.key || !config.resourceName) throw new Error('Azure not configured')
+      if (!config.key || !config.resourceName) throw ErrorFactories.sysConfigurationError('Azure OpenAI not configured')
       const azure = createAzure({ apiKey: config.key, resourceName: config.resourceName })
       return azure(modelId)
     }
     case 'google': {
       const key = await Settings.getGoogleAI()
-      if (!key) throw new Error('Google key not configured')
+      if (!key) throw ErrorFactories.sysConfigurationError('Google API key not configured')
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = key
       return google(modelId)
     }
     case 'amazon-bedrock': {
-      logger.info('[compare-models] Starting Bedrock initialization for model:', modelId)
+      log.info('[compare-models] Starting Bedrock initialization for model:', modelId)
       
       try {
         const config = await Settings.getBedrock()
-        logger.info('[compare-models] Bedrock settings retrieved:', {
+        log.info('[compare-models] Bedrock settings retrieved:', {
           hasAccessKey: !!config.accessKeyId,
           hasSecretKey: !!config.secretAccessKey,
           region: config.region || 'us-east-1',
@@ -269,17 +324,17 @@ async function initializeModel(model: ModelData) {
         
         if (config.accessKeyId && config.secretAccessKey && !isAwsLambda) {
           // Only use stored credentials for local development
-          logger.info('[compare-models] Using explicit credentials from settings (local dev)')
+          log.info('[compare-models] Using explicit credentials from settings (local dev)')
           bedrockConfig.accessKeyId = config.accessKeyId
           bedrockConfig.secretAccessKey = config.secretAccessKey
         } else {
           // AWS environment or no stored credentials - let SDK handle credentials automatically
-          logger.info('[compare-models] Using default AWS credential chain', { isAwsLambda })
+          log.info('[compare-models] Using default AWS credential chain', { isAwsLambda })
           // Don't set any credentials - let the SDK use the default credential provider chain
           // This will use IAM role credentials in Lambda, which work properly
         }
         
-        logger.info('[compare-models] Creating Bedrock client with options:', {
+        log.info('[compare-models] Creating Bedrock client with options:', {
           region: bedrockConfig.region,
           hasAccessKeyId: !!bedrockConfig.accessKeyId,
           hasSecretAccessKey: !!bedrockConfig.secretAccessKey,
@@ -289,10 +344,10 @@ async function initializeModel(model: ModelData) {
         const bedrock = createAmazonBedrock(bedrockConfig)
         const model = bedrock(modelId)
         
-        logger.info('[compare-models] Bedrock model created successfully')
+        log.info('[compare-models] Bedrock model created successfully')
         return model
       } catch (error) {
-        logger.error('[compare-models] BEDROCK INITIALIZATION FAILED:', {
+        log.error('[compare-models] BEDROCK INITIALIZATION FAILED:', {
           modelId: modelId,
           provider: provider,
           error: error instanceof Error ? {
@@ -317,6 +372,6 @@ async function initializeModel(model: ModelData) {
       }
     }
     default:
-      throw new Error(`Unknown provider: ${provider}`)
+      throw ErrorFactories.validationFailed([{ field: 'provider', message: `Unknown provider: ${provider}` }])
   }
 }

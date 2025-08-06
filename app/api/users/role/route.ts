@@ -2,27 +2,41 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL, updateUserRole } from '@/lib/db/data-api-adapter';
 import { NextResponse } from 'next/server';
 import { hasRole } from '@/utils/roles';
-import logger from '@/lib/logger';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 
 export async function POST(request: Request) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.users.role.update");
+  const log = createLogger({ requestId, route: "api.users.role" });
+  
+  log.info("POST /api/users/role - Updating user role");
+  
   const session = await getServerSession();
   
   if (!session) {
-    return new NextResponse('Unauthorized', { status: 401 });
+    log.warn("Unauthorized - No session");
+    timer({ status: "error", reason: "unauthorized" });
+    return new NextResponse('Unauthorized', { status: 401, headers: { "X-Request-Id": requestId } });
   }
 
   // Check if current user is administrator
   const isAdmin = await hasRole('administrator');
   if (!isAdmin) {
-    return new NextResponse('Forbidden', { status: 403 });
+    log.warn("Forbidden - User is not administrator");
+    timer({ status: "error", reason: "forbidden" });
+    return new NextResponse('Forbidden', { status: 403, headers: { "X-Request-Id": requestId } });
   }
 
   try {
     const { targetUserId, role } = await request.json();
 
     if (!targetUserId || !role || !['student', 'staff', 'administrator'].includes(role)) {
-      return new NextResponse('Invalid request', { status: 400 });
+      log.warn("Invalid request", { targetUserId, role });
+      timer({ status: "error", reason: "validation_error" });
+      return new NextResponse('Invalid request', { status: 400, headers: { "X-Request-Id": requestId } });
     }
+    
+    log.debug("Updating user role", { targetUserId, role });
 
     // Update user role using RDS Data API
     await updateUserRole(targetUserId, role);
@@ -33,12 +47,17 @@ export async function POST(request: Request) {
     const result = await executeSQL(sql, params);
     
     if (!result || result.length === 0) {
-      return new NextResponse('User not found', { status: 404 });
+      log.warn("User not found", { targetUserId });
+      timer({ status: "error", reason: "user_not_found" });
+      return new NextResponse('User not found', { status: 404, headers: { "X-Request-Id": requestId } });
     }
     
-    return NextResponse.json(result[0]);
+    log.info("User role updated successfully", { targetUserId, role });
+    timer({ status: "success" });
+    return NextResponse.json(result[0], { headers: { "X-Request-Id": requestId } });
   } catch (error) {
-    logger.error('Error updating user role:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
+    timer({ status: "error" });
+    log.error('Error updating user role', error);
+    return new NextResponse('Internal Server Error', { status: 500, headers: { "X-Request-Id": requestId } });
   }
 } 

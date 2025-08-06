@@ -1,0 +1,9 @@
+{
+  "name": "eslint-plugin-logging",
+  "version": "1.0.0",
+  "description": "Custom ESLint rules for enforcing logging standards",
+  "main": "index.js",
+  "keywords": ["eslint", "eslintplugin", "logging"],
+  "author": "",
+  "license": "MIT"
+}

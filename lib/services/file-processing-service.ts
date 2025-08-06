@@ -238,10 +238,5 @@ export function isFileTypeSupported(contentType: string): boolean {
   return contentType in getSupportedFileTypes();
 }
 
-/**
- * Get maximum file size in bytes
- */
-export function getMaxFileSize(): number {
-  const maxSizeMB = parseInt(process.env.MAX_FILE_SIZE_MB || '100', 10);
-  return maxSizeMB * 1024 * 1024;
-}
+// Note: getMaxFileSize has been moved to @/lib/file-validation for centralization
+// Import from there if needed: import { getMaxFileSize } from '@/lib/file-validation'

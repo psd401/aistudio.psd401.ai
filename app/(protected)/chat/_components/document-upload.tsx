@@ -29,6 +29,7 @@ export function DocumentUpload({
 }: DocumentUploadProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [uploadMessage, setUploadMessage] = useState("")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploadCompleted, setUploadCompleted] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
@@ -115,6 +116,7 @@ export function DocumentUpload({
     let progressInterval: NodeJS.Timeout | null = null
     
     try {
+      setUploadMessage("Uploading document...")
       // Simulate upload progress
       progressInterval = setInterval(() => {
         setUploadProgress(prev => {
@@ -130,6 +132,8 @@ export function DocumentUpload({
       
       clearInterval(progressInterval)
       progressInterval = null
+      
+      setUploadMessage("Processing document...")
       
       if (!response.ok) {
         let errMsg = `Server error (${response.status})`
@@ -209,6 +213,7 @@ export function DocumentUpload({
   const uploadViaPresignedUrl = useCallback(async (file: File) => {
     // Progress: 0-5% for getting presigned URL
     setUploadProgress(2)
+    setUploadMessage("Preparing upload...")
     // Step 1: Get presigned URL
     const presignedResponse = await fetch('/api/documents/presigned-url', {
       method: 'POST',
@@ -222,10 +227,11 @@ export function DocumentUpload({
     
     if (!presignedResponse.ok) {
       const error = await presignedResponse.json()
-      throw new Error(error.error || 'Failed to get upload URL')
+      throw new Error(error.message || error.error || 'Failed to get upload URL')
     }
     
-    const { url, key } = await presignedResponse.json()
+    const presignedData = await presignedResponse.json()
+    const { url, key } = presignedData.data || presignedData
     setUploadProgress(5) // Got presigned URL
     
     // Step 2: Upload directly to S3 with progress tracking (5-95%)
@@ -246,10 +252,11 @@ export function DocumentUpload({
     
     if (!processResponse.ok) {
       const error = await processResponse.json()
-      throw new Error(error.error || 'Failed to process document')
+      throw new Error(error.message || error.error || 'Failed to process document')
     }
     
-    const { document } = await processResponse.json()
+    const processData = await processResponse.json()
+    const { document } = processData.data || processData
     setUploadProgress(100) // Processing complete
     
     // Notify parent that upload finished
@@ -272,7 +279,8 @@ export function DocumentUpload({
     setUploadProgress(0)
     
     // Decide upload method based on file size threshold
-    const thresholdMB = parseInt(process.env.NEXT_PUBLIC_PRESIGNED_URL_THRESHOLD_MB || '1', 10)
+    // Files larger than 1MB use presigned URLs to bypass Amplify's 1MB body size limit
+    const thresholdMB = 1
     const usePresignedUrl = fileToUpload.size > thresholdMB * 1024 * 1024
     
     try {
@@ -287,6 +295,7 @@ export function DocumentUpload({
       // Mark upload as completed
       setUploadCompleted(true)
       setUploadProgress(100)
+      setUploadMessage("Upload complete!")
       hasAttemptedUpload.current = true;
       
     } catch (error) {
@@ -298,6 +307,7 @@ export function DocumentUpload({
       hasAttemptedUpload.current = false;
     } finally {
       setIsUploading(false)
+      setUploadMessage("")
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
@@ -412,7 +422,7 @@ export function DocumentUpload({
                 ></div>
               </div>
               <p className="text-xs text-center text-muted-foreground">
-                {uploadProgress < 95 ? 'Uploading' : 'Processing'} document... {uploadProgress}%
+                {uploadMessage || `${uploadProgress < 95 ? 'Uploading' : 'Processing'} document... ${uploadProgress}%`}
               </p>
             </div>
           )}

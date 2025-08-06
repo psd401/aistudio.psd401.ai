@@ -8,6 +8,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as cr from 'aws-cdk-lib/custom-resources';
 import * as path from 'path';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 
 export interface DatabaseStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
@@ -112,6 +113,13 @@ export class DatabaseStack extends cdk.Stack {
       debugLogging: props.environment !== 'prod',
     });
 
+    // Create log group for database init Lambda
+    const dbInitLogGroup = new logs.LogGroup(this, 'DbInitLogGroup', {
+      logGroupName: `/aws/lambda/db-init-${props.environment}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+    });
+
     // Database initialization Lambda
     // Note: Lambda doesn't need to be in VPC since it uses RDS Data API
     const dbInitLambda = new lambda.Function(this, 'DbInitLambda', {
@@ -156,17 +164,24 @@ export class DatabaseStack extends cdk.Stack {
       environment: {
         NODE_OPTIONS: '--enable-source-maps',
       },
-      logRetention: logs.RetentionDays.ONE_WEEK,
+      logGroup: dbInitLogGroup,
     });
 
     // Grant the Lambda permission to use the Data API
     cluster.grantDataApiAccess(dbInitLambda);
     dbSecret.grantRead(dbInitLambda);
 
-    // Create Custom Resource Provider
+    // Create log group for the Provider's internal Lambda function
+    const providerLogGroup = new logs.LogGroup(this, 'DbInitProviderLogGroup', {
+      logGroupName: `/aws/lambda/db-init-provider-${props.environment}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+    });
+
+    // Create Custom Resource Provider with explicit log group to avoid deprecation warning
     const dbInitProvider = new cr.Provider(this, 'DbInitProvider', {
       onEventHandler: dbInitLambda,
-      logRetention: logs.RetentionDays.ONE_WEEK,
+      logGroup: providerLogGroup,
     });
 
     // Create Custom Resource
@@ -208,6 +223,20 @@ export class DatabaseStack extends cdk.Stack {
     this.databaseResourceArn = cluster.clusterArn;
     this.databaseSecretArn = dbSecret.secretArn;
     
+    // Store values in SSM Parameter Store for cross-stack references
+    new ssm.StringParameter(this, 'DbClusterArnParam', {
+      parameterName: `/aistudio/${props.environment}/db-cluster-arn`,
+      stringValue: cluster.clusterArn,
+      description: 'Aurora cluster ARN for Data API',
+    });
+    
+    new ssm.StringParameter(this, 'DbSecretArnParam', {
+      parameterName: `/aistudio/${props.environment}/db-secret-arn`,
+      stringValue: dbSecret.secretArn,
+      description: 'Secrets Manager ARN for DB credentials',
+    });
+    
+    // Keep CloudFormation outputs for backward compatibility and monitoring
     new cdk.CfnOutput(this, 'ClusterArn', {
       value: cluster.clusterArn,
       description: 'Aurora cluster ARN for Data API',

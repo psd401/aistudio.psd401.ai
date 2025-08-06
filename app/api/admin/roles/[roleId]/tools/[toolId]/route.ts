@@ -1,27 +1,41 @@
 import { NextRequest, NextResponse } from "next/server"
 import { assignToolToRole, removeToolFromRole } from "@/lib/db/data-api-adapter"
 import { requireAdmin } from "@/lib/auth/admin-check"
-import logger from '@/lib/logger';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { getErrorMessage } from "@/types/errors";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ roleId: string; toolId: string }> }
 ) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.admin.roles.tools.assign");
+  const log = createLogger({ requestId, route: "api.admin.roles.tools" });
+  
+  log.info("POST /api/admin/roles/[roleId]/tools/[toolId] - Assigning tool to role");
+  
   try {
     // Check admin authorization
     const authError = await requireAdmin();
-    if (authError) return authError;
+    if (authError) {
+      log.warn("Unauthorized admin access attempt");
+      timer({ status: "error", reason: "unauthorized" });
+      return authError;
+    }
     
     const { roleId, toolId } = await params
+    log.debug("Assigning tool to role", { roleId, toolId });
     const success = await assignToolToRole(roleId, toolId)
     
-    return NextResponse.json({ success })
+    log.info("Tool assigned to role successfully", { roleId, toolId });
+    timer({ status: "success" });
+    return NextResponse.json({ success }, { headers: { "X-Request-Id": requestId } })
   } catch (error) {
-    logger.error("Error assigning tool to role:", error)
+    timer({ status: "error" });
+    log.error("Error assigning tool to role", error)
     return NextResponse.json(
       { error: getErrorMessage(error) || "Failed to assign tool" },
-      { status: 500 }
+      { status: 500, headers: { "X-Request-Id": requestId } }
     )
   }
 }
@@ -30,20 +44,34 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ roleId: string; toolId: string }> }
 ) {
+  const requestId = generateRequestId();
+  const timer = startTimer("api.admin.roles.tools.remove");
+  const log = createLogger({ requestId, route: "api.admin.roles.tools" });
+  
+  log.info("DELETE /api/admin/roles/[roleId]/tools/[toolId] - Removing tool from role");
+  
   try {
     // Check admin authorization
     const authError = await requireAdmin();
-    if (authError) return authError;
+    if (authError) {
+      log.warn("Unauthorized admin access attempt");
+      timer({ status: "error", reason: "unauthorized" });
+      return authError;
+    }
     
     const { roleId, toolId } = await params
+    log.debug("Removing tool from role", { roleId, toolId });
     const success = await removeToolFromRole(roleId, toolId)
     
-    return NextResponse.json({ success })
+    log.info("Tool removed from role successfully", { roleId, toolId });
+    timer({ status: "success" });
+    return NextResponse.json({ success }, { headers: { "X-Request-Id": requestId } })
   } catch (error) {
-    logger.error("Error removing tool from role:", error)
+    timer({ status: "error" });
+    log.error("Error removing tool from role", error)
     return NextResponse.json(
       { error: getErrorMessage(error) || "Failed to remove tool" },
-      { status: 500 }
+      { status: 500, headers: { "X-Request-Id": requestId } }
     )
   }
 } 

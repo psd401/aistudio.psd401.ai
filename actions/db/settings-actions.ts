@@ -4,8 +4,18 @@ import { getServerSession } from "@/lib/auth/server-session"
 import { executeSQL } from "@/lib/db/data-api-adapter"
 import { hasRole } from "@/lib/auth/role-helpers"
 import { ActionState } from "@/types/actions-types"
-import { createError, createSuccess, handleError } from "@/lib/error-utils"
-import logger from "@/lib/logger"
+import { 
+  createError, 
+  createSuccess, 
+  handleError,
+  ErrorFactories
+} from "@/lib/error-utils"
+import {
+  createLogger,
+  generateRequestId,
+  startTimer,
+  sanitizeForLogging
+} from "@/lib/logger"
 import { revalidateSettingsCache } from "@/lib/settings-manager"
 
 export interface Setting {
@@ -36,18 +46,28 @@ export interface UpdateSettingInput {
 
 // Get all settings (admin only)
 export async function getSettingsAction(): Promise<ActionState<Setting[]>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("getSettings")
+  const log = createLogger({ requestId, action: "getSettings" })
+  
   try {
+    log.info("Action started: Getting settings")
+    
     const session = await getServerSession()
     if (!session) {
-      return handleError(createError("Unauthorized", { code: "UNAUTHORIZED" }))
+      log.warn("Unauthorized settings access attempt")
+      throw ErrorFactories.authNoSession()
     }
 
+    log.debug("Checking administrator role")
     // Check if user is an administrator
     const isAdmin = await hasRole("administrator")
     if (!isAdmin) {
-      return handleError(createError("Only administrators can view settings", { code: "FORBIDDEN" }))
+      log.warn("Settings access denied - not admin", { userId: session.sub })
+      throw ErrorFactories.authzAdminRequired("view settings")
     }
 
+    log.debug("Fetching settings from database")
     const result = await executeSQL(`
       SELECT 
         id,
@@ -69,16 +89,34 @@ export async function getSettingsAction(): Promise<ActionState<Setting[]>> {
       ORDER BY category, key
     `)
 
+    log.info("Settings retrieved successfully", {
+      settingCount: result.length,
+      secretCount: result.filter(s => s.is_secret).length
+    })
+    
+    timer({ status: "success", count: result.length })
+    
     return createSuccess(result as unknown as Setting[], "Settings retrieved successfully")
   } catch (error) {
-    logger.error("Error getting settings:", error)
-    return handleError(error)
+    timer({ status: "error" })
+    
+    return handleError(error, "Failed to get settings. Please try again or contact support.", {
+      context: "getSettings",
+      requestId,
+      operation: "getSettings"
+    })
   }
 }
 
 // Get a single setting value (for internal use)
 export async function getSettingValueAction(key: string): Promise<string | null> {
+  const requestId = generateRequestId()
+  const timer = startTimer("getSettingValue")
+  const log = createLogger({ requestId, action: "getSettingValue" })
+  
   try {
+    log.debug("Getting setting value", { key })
+    
     const result = await executeSQL(
       `SELECT value FROM settings WHERE key = :key`,
       [{ name: 'key', value: { stringValue: key } }]
@@ -86,31 +124,51 @@ export async function getSettingValueAction(key: string): Promise<string | null>
 
     if (result && result.length > 0) {
       const value = result[0].value
+      log.debug("Setting value retrieved", { key, hasValue: !!value })
+      timer({ status: "success", key })
       return typeof value === 'string' ? value : null
     }
 
+    log.debug("Setting not found", { key })
+    timer({ status: "not_found", key })
     return null
   } catch (error) {
-    logger.error(`Error getting setting value for ${key}:`, error)
+    log.error("Error getting setting value", { key, error })
+    timer({ status: "error" })
     return null
   }
 }
 
 // Create or update a setting (admin only)
 export async function upsertSettingAction(input: CreateSettingInput): Promise<ActionState<Setting>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("upsertSetting")
+  const log = createLogger({ requestId, action: "upsertSetting" })
+  
   try {
+    log.info("Action started: Upserting setting", {
+      key: input.key,
+      category: input.category,
+      isSecret: input.isSecret,
+      hasValue: !!input.value
+    })
+    
     const session = await getServerSession()
     if (!session) {
-      return handleError(createError("Unauthorized", { code: "UNAUTHORIZED" }))
+      log.warn("Unauthorized setting upsert attempt")
+      throw ErrorFactories.authNoSession()
     }
 
+    log.debug("Checking administrator role")
     // Check if user is an administrator
     const isAdmin = await hasRole("administrator")
     if (!isAdmin) {
-      return handleError(createError("Only administrators can manage settings", { code: "FORBIDDEN" }))
+      log.warn("Setting upsert denied - not admin", { userId: session.sub, key: input.key })
+      throw ErrorFactories.authzAdminRequired("manage settings")
     }
 
     // Check if setting exists
+    log.debug("Checking if setting exists", { key: input.key })
     const existingResult = await executeSQL(
       `SELECT id FROM settings WHERE key = :key`,
       [{ name: 'key', value: { stringValue: input.key } }]
@@ -210,64 +268,111 @@ export async function upsertSettingAction(input: CreateSettingInput): Promise<Ac
     }
 
     if (!result || result.length === 0) {
-      throw createError("Failed to save setting")
+      log.error("Failed to save setting", { key: input.key })
+      throw ErrorFactories.dbQueryFailed("INSERT/UPDATE settings", new Error("No record returned"))
     }
 
     const setting = result[0] as unknown as Setting
 
     // Invalidate the settings cache
+    log.debug("Invalidating settings cache")
     await revalidateSettingsCache()
 
+    log.info("Setting saved successfully", {
+      key: setting.key,
+      category: setting.category,
+      isUpdate: !!(existingResult && existingResult.length > 0)
+    })
+    
+    timer({ status: "success", key: setting.key })
+    
     return createSuccess(setting, "Setting saved successfully")
   } catch (error) {
-    logger.error("Error saving setting:", error)
-    return handleError(error)
+    timer({ status: "error" })
+    
+    return handleError(error, "Failed to save setting. Please try again or contact support.", {
+      context: "upsertSetting",
+      requestId,
+      operation: "upsertSetting",
+      metadata: sanitizeForLogging({ key: input.key, category: input.category }) as Record<string, unknown>
+    })
   }
 }
 
 // Delete a setting (admin only)
 export async function deleteSettingAction(key: string): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("deleteSetting")
+  const log = createLogger({ requestId, action: "deleteSetting" })
+  
   try {
+    log.info("Action started: Deleting setting", { key })
+    
     const session = await getServerSession()
     if (!session) {
-      return handleError(createError("Unauthorized", { code: "UNAUTHORIZED" }))
+      log.warn("Unauthorized setting deletion attempt")
+      throw ErrorFactories.authNoSession()
     }
 
+    log.debug("Checking administrator role")
     // Check if user is an administrator
     const isAdmin = await hasRole("administrator")
     if (!isAdmin) {
-      return handleError(createError("Only administrators can delete settings", { code: "FORBIDDEN" }))
+      log.warn("Setting deletion denied - not admin", { userId: session.sub, key })
+      throw ErrorFactories.authzAdminRequired("delete settings")
     }
 
+    log.info("Deleting setting from database", { key })
     await executeSQL(
       `DELETE FROM settings WHERE key = :key`,
       [{ name: 'key', value: { stringValue: key } }]
     )
 
     // Invalidate the settings cache
+    log.debug("Invalidating settings cache")
     await revalidateSettingsCache()
 
+    log.info("Setting deleted successfully", { key })
+    
+    timer({ status: "success", key })
+    
     return createSuccess(undefined, "Setting deleted successfully")
   } catch (error) {
-    logger.error("Error deleting setting:", error)
-    return handleError(error)
+    timer({ status: "error" })
+    
+    return handleError(error, "Failed to delete setting. Please try again or contact support.", {
+      context: "deleteSetting",
+      requestId,
+      operation: "deleteSetting",
+      metadata: { key }
+    })
   }
 }
 
 // Get actual (unmasked) value for a secret setting (admin only)
 export async function getSettingActualValueAction(key: string): Promise<ActionState<string | null>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("getSettingActualValue")
+  const log = createLogger({ requestId, action: "getSettingActualValue" })
+  
   try {
+    log.info("Action started: Getting actual setting value", { key })
+    
     const session = await getServerSession()
     if (!session) {
-      return handleError(createError("Unauthorized", { code: "UNAUTHORIZED" }))
+      log.warn("Unauthorized secret value access attempt")
+      throw ErrorFactories.authNoSession()
     }
 
+    log.debug("Checking administrator role")
     // Check if user is an administrator
     const isAdmin = await hasRole("administrator")
     if (!isAdmin) {
-      return handleError(createError("Only administrators can view secret values", { code: "FORBIDDEN" }))
+      log.warn("Secret value access denied - not admin", { userId: session.sub, key })
+      throw ErrorFactories.authzAdminRequired("view secret values")
     }
 
+    log.debug("Fetching actual setting value from database", { key })
     const result = await executeSQL(
       `SELECT value FROM settings WHERE key = :key`,
       [{ name: 'key', value: { stringValue: key } }]
@@ -275,53 +380,23 @@ export async function getSettingActualValueAction(key: string): Promise<ActionSt
 
     if (result && result.length > 0) {
       const value = result[0].value
+      log.info("Actual setting value retrieved", { key, hasValue: !!value })
+      timer({ status: "success", key })
       return createSuccess(typeof value === 'string' ? value : null, "Value retrieved successfully")
     }
 
+    log.warn("Setting not found", { key })
+    timer({ status: "not_found", key })
     return createSuccess(null, "Setting not found")
   } catch (error) {
-    logger.error(`Error getting actual value for ${key}:`, error)
-    return handleError(error)
+    timer({ status: "error" })
+    
+    return handleError(error, "Failed to get setting value. Please try again or contact support.", {
+      context: "getSettingActualValue",
+      requestId,
+      operation: "getSettingActualValue",
+      metadata: { key }
+    })
   }
 }
 
-// Test API connection (admin only)
-export async function testSettingConnectionAction(key: string, value: string): Promise<ActionState<void>> {
-  try {
-    const session = await getServerSession()
-    if (!session) {
-      return handleError(createError("Unauthorized", { code: "UNAUTHORIZED" }))
-    }
-
-    // Check if user is an administrator
-    const isAdmin = await hasRole("administrator")
-    if (!isAdmin) {
-      return handleError(createError("Only administrators can test settings", { code: "FORBIDDEN" }))
-    }
-
-    // Test based on the key type
-    switch (key) {
-      case 'AZURE_OPENAI_KEY':
-        // TODO: Implement Azure OpenAI test
-        return createSuccess(undefined, "Azure OpenAI connection test not yet implemented")
-      
-      case 'GOOGLE_API_KEY':
-        // TODO: Implement Google AI test
-        return createSuccess(undefined, "Google AI connection test not yet implemented")
-      
-      case 'S3_BUCKET':
-        // TODO: Implement S3 bucket test
-        return createSuccess(undefined, "S3 bucket connection test not yet implemented")
-      
-      case 'GITHUB_ISSUE_TOKEN':
-        // TODO: Implement GitHub token test
-        return createSuccess(undefined, "GitHub token test not yet implemented")
-      
-      default:
-        return createSuccess(undefined, "Connection test not available for this setting")
-    }
-  } catch (error) {
-    logger.error("Error testing setting connection:", error)
-    return handleError(error)
-  }
-}
