@@ -20,6 +20,9 @@ export async function POST(
   const targetModelId = parseInt(id);
   log.info("POST /api/admin/models/[id]/replace - Starting model replacement", { targetModelId });
   
+  // Read request body as text first for error logging
+  const bodyText = await request.text();
+  
   try {
     // Check admin authorization
     const authError = await requireAdmin();
@@ -51,8 +54,8 @@ export async function POST(
       );
     }
     
-    // Parse request body
-    const body = await request.json();
+    // Parse request body from the text we already read
+    const body = JSON.parse(bodyText);
     const { replacementModelId } = body;
     
     log.debug("Replacement request details", { 
@@ -143,7 +146,7 @@ export async function POST(
     log.error("Model replacement failed", { 
       error: errorMessage,
       targetModelId,
-      body: sanitizeForLogging(await request.text().catch(() => '{}'))
+      body: sanitizeForLogging(bodyText)
     });
     
     // Check for specific database errors

@@ -161,8 +161,25 @@ function formatDataApiResponse(response: DataApiResponse): FormattedRow[] {
 /**
  * Execute a single SQL statement
  */
-export async function executeSQL<T = FormattedRow>(sql: string, parameters: DataApiParameter[] = [], requestId?: string): Promise<T[]> {
-  const reqId = requestId || generateRequestId()
+export async function executeSQL<T = FormattedRow>(sql: string, parameters: DataApiParameter[] = [], requestIdOrTransactionId?: string, transactionId?: string): Promise<T[]> {
+  // Handle overloaded parameters - if requestIdOrTransactionId looks like a transaction ID, treat it as such
+  let reqId: string;
+  let txId: string | undefined;
+  
+  if (transactionId) {
+    // New signature: executeSQL(sql, params, requestId, transactionId)
+    reqId = requestIdOrTransactionId || generateRequestId();
+    txId = transactionId;
+  } else if (requestIdOrTransactionId && requestIdOrTransactionId.length > 20) {
+    // Likely a transaction ID (they're long UUIDs)
+    reqId = generateRequestId();
+    txId = requestIdOrTransactionId;
+  } else {
+    // Original signature: executeSQL(sql, params, requestId)
+    reqId = requestIdOrTransactionId || generateRequestId();
+    txId = undefined;
+  }
+  
   const timer = startTimer("executeSQL")
   const log = createLogger({ requestId: reqId, context: "executeSQL" })
   
@@ -174,7 +191,8 @@ export async function executeSQL<T = FormattedRow>(sql: string, parameters: Data
       log.debug('Executing SQL', { 
         sql: sql.substring(0, 100) + (sql.length > 100 ? '...' : ''),
         parameters: parameters?.map(p => ({ name: p.name, hasValue: !!p.value })),
-        requestId: reqId
+        requestId: reqId,
+        inTransaction: !!txId
       });
     }
     
@@ -182,7 +200,8 @@ export async function executeSQL<T = FormattedRow>(sql: string, parameters: Data
       ...config,
       sql,
       parameters: parameters.length > 0 ? parameters : undefined,
-      includeResultMetadata: true
+      includeResultMetadata: true,
+      ...(txId && { transactionId: txId })
     });
 
     const response = await getRDSClient().send(command);
@@ -192,7 +211,8 @@ export async function executeSQL<T = FormattedRow>(sql: string, parameters: Data
       log.debug('SQL query completed', { 
         rowCount: result.length,
         duration: timer({ status: "success" }),
-        requestId: reqId
+        requestId: reqId,
+        inTransaction: !!txId
       });
     }
     
@@ -213,7 +233,8 @@ export async function executeTransaction<T = FormattedRow>(statements: Array<{ s
   try {
     const results = [];
     for (const stmt of statements) {
-      const result = await executeSQL<T>(stmt.sql, stmt.parameters);
+      // Pass the transactionId to executeSQL to ensure atomicity
+      const result = await executeSQL<T>(stmt.sql, stmt.parameters, undefined, transactionId);
       results.push(result);
     }
     
