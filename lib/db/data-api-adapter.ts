@@ -420,19 +420,21 @@ export interface UserData {
   cognitoSub: string;
   email: string;
   firstName?: string;
+  lastName?: string;
 }
 
 export async function createUser(userData: UserData) {
   const query = `
-    INSERT INTO users (cognito_sub, email, first_name, created_at, updated_at)
-    VALUES (:cognitoSub, :email, :firstName, NOW(), NOW())
+    INSERT INTO users (cognito_sub, email, first_name, last_name, created_at, updated_at)
+    VALUES (:cognitoSub, :email, :firstName, :lastName, NOW(), NOW())
     RETURNING id, cognito_sub, email, first_name, last_name, created_at, updated_at
   `;
 
   const parameters = [
     createParameter('cognitoSub', userData.cognitoSub),
     createParameter('email', userData.email),
-    createParameter('firstName', userData.firstName)
+    createParameter('firstName', userData.firstName),
+    createParameter('lastName', userData.lastName)
   ];
   
   const result = await executeSQL(query, parameters);

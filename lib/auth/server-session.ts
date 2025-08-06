@@ -7,6 +7,8 @@ import { createRequestContext } from "./request-context";
 export interface CognitoSession {
   sub: string;
   email?: string;
+  givenName?: string | null;
+  familyName?: string | null;
   [key: string]: unknown;
 }
 
@@ -43,6 +45,8 @@ export async function getServerSession(): Promise<CognitoSession | null> {
       ...session.user,
       sub: session.user.id,
       email: session.user.email || undefined,
+      givenName: session.user.givenName || undefined,
+      familyName: session.user.familyName || undefined,
     };
   } catch (error) {
     // Sanitize error to prevent exposing sensitive information

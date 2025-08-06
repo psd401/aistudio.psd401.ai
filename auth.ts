@@ -89,6 +89,8 @@ export const authConfig: NextAuthConfig = {
         id: token.sub as string,
         email: email,
         name: displayName,
+        givenName: givenName || null,
+        familyName: familyName || null,
       }
       
       // Store tokens in session for server-side use
