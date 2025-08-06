@@ -47,6 +47,15 @@ const UserForm = React.memo(function UserForm({
     
   const handleRolesChange = (roles: string[]) =>
     setUserData({ ...userData, roles, role: roles[0] || 'student' });
+  
+  // Single handler for role checkbox changes
+  const handleRoleCheckboxChange = (checked: boolean, role: string) => {
+    const currentRoles = userData.roles || [];
+    const newRoles = checked
+      ? [...currentRoles, role]
+      : currentRoles.filter(r => r !== role);
+    handleRolesChange(newRoles);
+  };
     
   return (
     <div className="space-y-4">
@@ -83,51 +92,18 @@ const UserForm = React.memo(function UserForm({
       <div className="space-y-2">
         <label className="text-sm font-medium">Roles</label>
         <div className="space-y-2 border rounded-md p-3">
-          <div className="flex items-center space-x-2">
-            <Checkbox 
-              id="role-administrator"
-              checked={userData.roles?.includes('administrator') || false}
-              onCheckedChange={(checked) => {
-                const newRoles = checked 
-                  ? [...(userData.roles || []), 'administrator']
-                  : (userData.roles || []).filter(r => r !== 'administrator');
-                handleRolesChange(newRoles);
-              }}
-            />
-            <label htmlFor="role-administrator" className="text-sm cursor-pointer">
-              Administrator
-            </label>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Checkbox 
-              id="role-staff"
-              checked={userData.roles?.includes('staff') || false}
-              onCheckedChange={(checked) => {
-                const newRoles = checked 
-                  ? [...(userData.roles || []), 'staff']
-                  : (userData.roles || []).filter(r => r !== 'staff');
-                handleRolesChange(newRoles);
-              }}
-            />
-            <label htmlFor="role-staff" className="text-sm cursor-pointer">
-              Staff
-            </label>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Checkbox 
-              id="role-student"
-              checked={userData.roles?.includes('student') || false}
-              onCheckedChange={(checked) => {
-                const newRoles = checked 
-                  ? [...(userData.roles || []), 'student']
-                  : (userData.roles || []).filter(r => r !== 'student');
-                handleRolesChange(newRoles);
-              }}
-            />
-            <label htmlFor="role-student" className="text-sm cursor-pointer">
-              Student
-            </label>
-          </div>
+          {['administrator', 'staff', 'student'].map((role) => (
+            <div key={role} className="flex items-center space-x-2">
+              <Checkbox 
+                id={`role-${role}`}
+                checked={userData.roles?.includes(role) || false}
+                onCheckedChange={(checked) => handleRoleCheckboxChange(!!checked, role)}
+              />
+              <label htmlFor={`role-${role}`} className="text-sm cursor-pointer capitalize">
+                {role}
+              </label>
+            </div>
+          ))}
         </div>
       </div>
 

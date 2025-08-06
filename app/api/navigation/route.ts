@@ -108,6 +108,54 @@ export async function GET() {
         roles: userRoles 
       });
 
+      // Get navigation item roles from the junction table
+      const navItemRolesQuery = await executeSQL(
+        'SELECT navigation_item_id, role_name FROM navigation_item_roles'
+      );
+      
+      // Create a map of navigation item IDs to their required roles
+      const navItemRolesMap = new Map<number, string[]>();
+      for (const row of navItemRolesQuery) {
+        const itemId = row.navigation_item_id as number;
+        const roleName = row.role_name as string;
+        
+        if (!navItemRolesMap.has(itemId)) {
+          navItemRolesMap.set(itemId, []);
+        }
+        navItemRolesMap.get(itemId)?.push(roleName);
+      }
+      
+      // Collect all tool IDs that need to be looked up
+      const toolIdsToLookup = new Set<number>();
+      for (const item of navItems) {
+        if (item.toolId) {
+          const toolId = Number(item.toolId);
+          if (!isNaN(toolId)) {
+            toolIdsToLookup.add(toolId);
+          }
+        }
+      }
+      
+      // Batch fetch all tool identifiers in a single query
+      const toolsMap = new Map<number, string>();
+      if (toolIdsToLookup.size > 0) {
+        const toolIds = Array.from(toolIdsToLookup);
+        const placeholders = toolIds.map((_, index) => `:id${index}`).join(', ');
+        const params = toolIds.map((id, index) => ({
+          name: `id${index}`,
+          value: { longValue: id }
+        }));
+        
+        const toolsQuery = await executeSQL(
+          `SELECT id, identifier FROM tools WHERE id IN (${placeholders})`,
+          params
+        );
+        
+        for (const tool of toolsQuery) {
+          toolsMap.set(tool.id as number, tool.identifier as string);
+        }
+      }
+
       // Filter navigation items based on user permissions
       const filteredNavItems = [];
       const parentIds = new Set();
@@ -115,10 +163,22 @@ export async function GET() {
       for (const item of navItems) {
         let shouldInclude = true;
         
-        // Check if item requires a specific role
-        if (item.requiresRole) {
+        // Check if item requires specific roles (multi-role support)
+        const requiredRoles = navItemRolesMap.get(item.id);
+        if (requiredRoles && requiredRoles.length > 0) {
+          // User must have at least one of the required roles
+          shouldInclude = requiredRoles.some(role => userRoles.includes(role));
+          log.debug("Multi-role check for navigation item", {
+            itemId: item.id,
+            label: item.label,
+            requiredRoles,
+            userRoles,
+            granted: shouldInclude
+          });
+        } else if (item.requiresRole) {
+          // Fallback to single role check for backward compatibility
           shouldInclude = userRoles.includes(item.requiresRole);
-          log.debug("Role check for navigation item", {
+          log.debug("Single role check for navigation item", {
             itemId: item.id,
             label: item.label,
             requiredRole: item.requiresRole,
@@ -129,44 +189,46 @@ export async function GET() {
         
         // Check if item requires tool access
         if (shouldInclude && item.toolId) {
-          // First, get the tool identifier from the tool_id
-          // The hasToolAccess function expects the identifier string, not the numeric ID
-          try {
-            const toolQuery = await executeSQL(
-              'SELECT identifier FROM tools WHERE id = :toolId',
-              [{ name: 'toolId', value: { longValue: Number(item.toolId) } }]
-            );
-            
-            if (toolQuery.length > 0 && toolQuery[0].identifier) {
-              const toolIdentifier = toolQuery[0].identifier as string;
-              const toolAccess = await hasToolAccess(toolIdentifier);
-              shouldInclude = toolAccess;
-              
-              log.debug("Tool access check for navigation item", {
-                itemId: item.id,
-                label: item.label,
-                toolId: item.toolId,
-                toolIdentifier,
-                granted: shouldInclude
-              });
+          const toolId = Number(item.toolId);
+          if (isNaN(toolId)) {
+            log.warn("Invalid tool ID for navigation item", {
+              itemId: item.id,
+              label: item.label,
+              toolId: item.toolId
+            });
+            shouldInclude = false;
+          } else {
+            const toolIdentifier = toolsMap.get(toolId);
+            if (toolIdentifier) {
+              try {
+                const toolAccess = await hasToolAccess(toolIdentifier);
+                shouldInclude = toolAccess;
+                
+                log.debug("Tool access check for navigation item", {
+                  itemId: item.id,
+                  label: item.label,
+                  toolId,
+                  toolIdentifier,
+                  granted: shouldInclude
+                });
+              } catch (toolError) {
+                log.error("Error checking tool access", {
+                  itemId: item.id,
+                  label: item.label,
+                  toolId,
+                  toolIdentifier,
+                  error: toolError instanceof Error ? toolError.message : 'Unknown error'
+                });
+                shouldInclude = false;
+              }
             } else {
-              // Tool not found in database
               log.warn("Tool not found for navigation item", {
                 itemId: item.id,
                 label: item.label,
-                toolId: item.toolId
+                toolId
               });
               shouldInclude = false;
             }
-          } catch (toolError) {
-            // Error looking up tool, exclude the item for safety
-            log.error("Error checking tool access", {
-              itemId: item.id,
-              label: item.label,
-              toolId: item.toolId,
-              error: toolError instanceof Error ? toolError.message : 'Unknown error'
-            });
-            shouldInclude = false;
           }
         }
         

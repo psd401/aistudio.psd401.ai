@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getUserRoles, updateUserRoles } from '@/lib/db/user-roles';
 import { requireAdmin } from '@/lib/auth/admin-check';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
+import { executeSQL } from '@/lib/db/data-api-adapter';
 
 /**
  * Get user's roles
@@ -107,15 +108,20 @@ export async function PUT(
       );
     }
     
-    // Validate role names
-    const validRoles = ['administrator', 'staff', 'student'];
+    // Fetch valid roles from database
+    const validRolesResult = await executeSQL('SELECT name FROM roles');
+    const validRoles = validRolesResult.map(row => row.name as string);
+    
+    log.debug("Valid roles fetched from database", { validRoles });
+    
+    // Validate role names against database roles
     const invalidRoles = roles.filter(role => !validRoles.includes(role));
     
     if (invalidRoles.length > 0) {
-      log.warn("Invalid role names", { invalidRoles });
+      log.warn("Invalid role names", { invalidRoles, validRoles });
       timer({ status: "error", reason: "invalid_roles" });
       return NextResponse.json(
-        { isSuccess: false, message: `Invalid roles: ${invalidRoles.join(', ')}` },
+        { isSuccess: false, message: `Invalid roles: ${invalidRoles.join(', ')}. Valid roles are: ${validRoles.join(', ')}` },
         { status: 400, headers: { "X-Request-Id": requestId } }
       );
     }

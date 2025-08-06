@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "@/lib/auth/server-session"
 import { createLogger, generateRequestId, startTimer } from "@/lib/logger"
+import { executeSQL } from "@/lib/db/data-api-adapter"
 
 /**
  * Force session refresh API
@@ -115,18 +116,73 @@ export async function GET() {
       )
     }
     
-    // TODO: Check role_version from database and compare with session
-    // For now, just return that no refresh is needed
-    
-    timer({ status: "success" })
-    return NextResponse.json(
-      { 
-        isSuccess: true,
-        needsRefresh: false,
-        message: "Session is up to date"
-      },
-      { headers: { "X-Request-Id": requestId } }
-    )
+    // Check role_version from database and compare with session
+    try {
+      // Get the user's current role version from the database
+      const userQuery = await executeSQL(
+        'SELECT role_version FROM users WHERE cognito_sub = :sub',
+        [{ name: 'sub', value: { stringValue: session.sub } }]
+      )
+      
+      if (userQuery.length === 0) {
+        log.warn("User not found in database", { sub: session.sub })
+        timer({ status: "error", reason: "user_not_found" })
+        return NextResponse.json(
+          { 
+            isSuccess: false,
+            needsRefresh: false,
+            message: "User not found"
+          },
+          { status: 404, headers: { "X-Request-Id": requestId } }
+        )
+      }
+      
+      const dbRoleVersion = userQuery[0].role_version as number || 0
+      const sessionRoleVersion = (session as { roleVersion?: number }).roleVersion || 0
+      
+      log.debug("Role version comparison", {
+        userId: session.sub,
+        dbRoleVersion,
+        sessionRoleVersion
+      })
+      
+      const needsRefresh = dbRoleVersion !== sessionRoleVersion
+      
+      if (needsRefresh) {
+        log.info("Session needs refresh due to role version mismatch", {
+          userId: session.sub,
+          dbRoleVersion,
+          sessionRoleVersion
+        })
+      }
+      
+      timer({ status: "success", needsRefresh })
+      return NextResponse.json(
+        { 
+          isSuccess: true,
+          needsRefresh,
+          message: needsRefresh 
+            ? "Your permissions have changed. Please sign in again to apply the updates."
+            : "Session is up to date"
+        },
+        { headers: { "X-Request-Id": requestId } }
+      )
+    } catch (dbError) {
+      log.error("Error checking role version", {
+        error: dbError instanceof Error ? dbError.message : "Unknown error"
+      })
+      
+      // If we can't check, assume no refresh needed to avoid disrupting the user
+      timer({ status: "error", reason: "db_error" })
+      return NextResponse.json(
+        { 
+          isSuccess: true,
+          needsRefresh: false,
+          message: "Session is up to date"
+        },
+        { headers: { "X-Request-Id": requestId } }
+      )
+    }
     
   } catch (error) {
     timer({ status: "error" })
