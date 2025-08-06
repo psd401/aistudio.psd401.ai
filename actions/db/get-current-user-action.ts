@@ -135,8 +135,11 @@ export async function getCurrentUserAction(): Promise<
         familyName: userFamilyName
       })
       
-      // Use names from Cognito if available, otherwise fall back to email prefix
-      const firstName = userGivenName || userEmail?.split("@")[0] || "User"
+      // Extract username once for reuse
+      const username = userEmail?.split("@")[0] || ""
+      
+      // Use names from Cognito if available, otherwise fall back to username
+      const firstName = userGivenName || username || "User"
       const lastName = userFamilyName || undefined
       
       const newUserResult = await createUser({
@@ -154,7 +157,6 @@ export async function getCurrentUserAction(): Promise<
       })
 
       // Determine default role based on username pattern
-      const username = userEmail?.split("@")[0] || ""
       const isNumericUsername = /^\d+$/.test(username)
       const defaultRole = isNumericUsername ? "student" : "staff"
       
@@ -187,25 +189,8 @@ export async function getCurrentUserAction(): Promise<
     // Update last_sign_in_at and also update names if they're provided in session
     log.debug("Updating user information and last sign-in timestamp")
     
-    // Only update names if they're provided in the session (non-null)
-    const nameUpdateFields = []
-    const nameUpdateParams: SqlParameter[] = []
-    
-    if (userGivenName) {
-      nameUpdateFields.push("first_name = :firstName")
-      nameUpdateParams.push({ name: "firstName", value: { stringValue: userGivenName } })
-    }
-    
-    if (userFamilyName) {
-      nameUpdateFields.push("last_name = :lastName")
-      nameUpdateParams.push({ name: "lastName", value: { stringValue: userFamilyName } })
-    }
-    
-    const nameUpdateClause = nameUpdateFields.length > 0 
-      ? nameUpdateFields.join(", ") + ","
-      : ""
-    
-    if (nameUpdateFields.length > 0) {
+    // Only log if we're updating names
+    if (userGivenName || userFamilyName) {
       log.info("Updating user names from Cognito session", {
         userId: user.id,
         updatingFirstName: !!userGivenName,
@@ -213,16 +198,19 @@ export async function getCurrentUserAction(): Promise<
       })
     }
     
+    // Use COALESCE to conditionally update names only if provided
     const updateLastSignInQuery = `
       UPDATE users
-      SET ${nameUpdateClause}
+      SET first_name = COALESCE(:firstName, first_name),
+          last_name = COALESCE(:lastName, last_name),
           last_sign_in_at = NOW(), 
           updated_at = NOW()
       WHERE id = :userId
       RETURNING id, cognito_sub, email, first_name, last_name, last_sign_in_at, created_at, updated_at
     `
     const updateLastSignInParams: SqlParameter[] = [
-      ...nameUpdateParams,
+      { name: "firstName", value: userGivenName ? { stringValue: userGivenName } : { isNull: true } },
+      { name: "lastName", value: userFamilyName ? { stringValue: userFamilyName } : { isNull: true } },
       { name: "userId", value: { longValue: user.id } }
     ]
     const updateResult = await executeSQL<SelectUser>(updateLastSignInQuery, updateLastSignInParams)
