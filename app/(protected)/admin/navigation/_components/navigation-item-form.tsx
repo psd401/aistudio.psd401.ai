@@ -393,7 +393,7 @@ export function NavigationItemForm({
                         <SelectContent>
                           <SelectItem value="none">None</SelectItem>
                           {roles.map((role) => (
-                            <SelectItem key={role.id} value={role.id}>
+                            <SelectItem key={role.id} value={role.name}>
                               {role.name}
                             </SelectItem>
                           ))}

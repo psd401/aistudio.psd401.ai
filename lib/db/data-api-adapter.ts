@@ -25,7 +25,7 @@ export interface FormattedRow {
 }
 
 // Helper function to create SQL parameters with proper types
-function createParameter(name: string, value: string | number | boolean | null | undefined | Uint8Array): SqlParameter {
+export function createParameter(name: string, value: string | number | boolean | null | undefined | Uint8Array): SqlParameter {
   if (value === null || value === undefined) {
     return { name, value: { isNull: true } };
   } else if (typeof value === 'boolean') {
@@ -591,6 +591,15 @@ export async function getUserRolesByCognitoSub(cognitoSub: string): Promise<stri
 }
 
 export async function hasToolAccess(cognitoSub: string, toolIdentifier: string): Promise<boolean> {
+  const requestId = generateRequestId();
+  const timer = startTimer("db.hasToolAccess");
+  const log = createLogger({ requestId, function: "db.hasToolAccess" });
+  
+  log.debug("Checking tool access in database", { 
+    cognitoSub,
+    toolIdentifier 
+  });
+  
   const query = `
     SELECT COUNT(*) as count
     FROM users u
@@ -606,8 +615,33 @@ export async function hasToolAccess(cognitoSub: string, toolIdentifier: string):
     createParameter('toolIdentifier', toolIdentifier)
   ];
   
-  const result = await executeSQL(query, parameters);
-  return Number(result[0].count) > 0;
+  try {
+    const result = await executeSQL(query, parameters);
+    const hasAccess = Number(result[0].count) > 0;
+    
+    if (hasAccess) {
+      log.info("Database: Tool access granted", { 
+        cognitoSub,
+        toolIdentifier 
+      });
+    } else {
+      log.warn("Database: Tool access denied", { 
+        cognitoSub,
+        toolIdentifier 
+      });
+    }
+    
+    timer({ status: "success", hasAccess });
+    return hasAccess;
+  } catch (error) {
+    log.error("Database error checking tool access", {
+      error: error instanceof Error ? error.message : "Unknown error",
+      cognitoSub,
+      toolIdentifier
+    });
+    timer({ status: "error" });
+    throw error;
+  }
 }
 
 export async function getUserTools(cognitoSub: string): Promise<string[]> {
@@ -656,7 +690,7 @@ export async function updateUserRole(userId: number, newRoleName: string) {
     throw new Error(`Role '${newRoleName}' not found`);
   }
   
-  // Start a transaction to update user roles
+  // Start a transaction to update user roles and increment role_version
   const statements = [
     {
       sql: 'DELETE FROM user_roles WHERE user_id = :userId',
@@ -668,6 +702,11 @@ export async function updateUserRole(userId: number, newRoleName: string) {
         createParameter('userId', userId),
         createParameter('roleId', Number(role.id))
       ]
+    },
+    {
+      // Increment role_version to invalidate cached sessions
+      sql: 'UPDATE users SET role_version = COALESCE(role_version, 0) + 1, updated_at = NOW() WHERE id = :userId',
+      parameters: [createParameter('userId', userId)]
     }
   ];
   

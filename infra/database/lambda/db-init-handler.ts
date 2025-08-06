@@ -39,7 +39,10 @@ const MIGRATION_FILES = [
   '015-add-model-compare-tool.sql',
   '016-assistant-architect-repositories.sql',
   '017-add-user-roles-updated-at.sql',
-  '018-model-replacement-audit.sql'
+  '018-model-replacement-audit.sql',
+  '019-fix-navigation-role-display.sql',
+  '020-add-user-role-version.sql',
+  '023-navigation-multi-roles.sql'
   // ADD NEW MIGRATIONS HERE - they will run once and be tracked
 ];
 
