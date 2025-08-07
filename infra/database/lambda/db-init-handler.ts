@@ -42,7 +42,8 @@ const MIGRATION_FILES = [
   '018-model-replacement-audit.sql',
   '019-fix-navigation-role-display.sql',
   '020-add-user-role-version.sql',
-  '023-navigation-multi-roles.sql'
+  '023-navigation-multi-roles.sql',
+  '024-model-role-restrictions.sql'
   // ADD NEW MIGRATIONS HERE - they will run once and be tracked
 ];
 

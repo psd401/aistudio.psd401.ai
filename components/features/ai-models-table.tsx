@@ -10,6 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { IconPlus, IconEdit, IconTrash } from '@tabler/icons-react';
 import type { SelectAiModel } from '@/types';
+import { MultiSelect, type MultiSelectOption } from '@/components/ui/multi-select';
+import { Badge } from '@/components/ui/badge';
 import {
   ColumnDef,
   flexRender,
@@ -49,8 +51,11 @@ const ModelForm = React.memo(function ModelForm({
   const handleDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => 
     setModelData({ ...modelData, description: e.target.value });
     
-  const handleCapabilitiesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => 
-    setModelData({ ...modelData, capabilities: e.target.value });
+  const handleRolesChange = (roles: string[]) =>
+    setModelData({ ...modelData, allowedRoles: roles });
+    
+  const handleCapabilitiesListChange = (capabilities: string[]) =>
+    setModelData({ ...modelData, capabilitiesList: capabilities });
     
   const handleMaxTokensChange = (e: React.ChangeEvent<HTMLInputElement>) => 
     setModelData({ ...modelData, maxTokens: parseInt(e.target.value) || 4096 });
@@ -58,8 +63,6 @@ const ModelForm = React.memo(function ModelForm({
   const handleActiveChange = (checked: boolean) => 
     setModelData({ ...modelData, active: checked });
     
-  const handleChatEnabledChange = (checked: boolean) => 
-    setModelData({ ...modelData, chatEnabled: checked });
     
   return (
     <div className="space-y-4">
@@ -111,14 +114,33 @@ const ModelForm = React.memo(function ModelForm({
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium">Capabilities (JSON)</label>
-        <Textarea
-          value={modelData.capabilities || ''}
-          onChange={handleCapabilitiesChange}
-          className="font-mono"
-          rows={4}
-          placeholder='{"tasks": ["chat"], "context_window": 128000}'
+        <label className="text-sm font-medium">Capabilities</label>
+        <MultiSelect
+          options={capabilityOptions}
+          value={modelData.capabilitiesList}
+          onChange={handleCapabilitiesListChange}
+          placeholder="Select capabilities"
+          allowCustom={true}
+          customPlaceholder="Add custom capability..."
+          className="w-full"
         />
+        <p className="text-xs text-muted-foreground">
+          Select model capabilities or add custom ones
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Allowed Roles</label>
+        <MultiSelect
+          options={roleOptions}
+          value={modelData.allowedRoles}
+          onChange={handleRolesChange}
+          placeholder="All roles (unrestricted)"
+          className="w-full"
+        />
+        <p className="text-xs text-muted-foreground">
+          Leave empty to allow access for all roles
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -139,13 +161,6 @@ const ModelForm = React.memo(function ModelForm({
             onCheckedChange={handleActiveChange}
           />
           <label className="text-sm font-medium">Active</label>
-        </div>
-        <div className="flex items-center space-x-2">
-          <Switch
-            checked={modelData.chatEnabled}
-            onCheckedChange={handleChatEnabledChange}
-          />
-          <label className="text-sm font-medium">Chat Enabled</label>
         </div>
       </div>
 
@@ -172,7 +187,8 @@ type ModelFormData = {
   capabilities: string;
   maxTokens: number;
   active: boolean;
-  chatEnabled: boolean;
+  allowedRoles: string[];
+  capabilitiesList: string[];
 };
 
 const emptyModel: ModelFormData = {
@@ -183,8 +199,28 @@ const emptyModel: ModelFormData = {
   capabilities: '',
   maxTokens: 4096,
   active: true,
-  chatEnabled: false,
+  allowedRoles: [],
+  capabilitiesList: []
 };
+
+// Predefined role options
+const roleOptions: MultiSelectOption[] = [
+  { value: 'administrator', label: 'Administrator', description: 'Full system access' },
+  { value: 'staff', label: 'Staff', description: 'Staff member access' },
+  { value: 'student', label: 'Student', description: 'Basic user access' },
+];
+
+// Common AI model capabilities
+const capabilityOptions: MultiSelectOption[] = [
+  { value: 'chat', label: 'Chat', description: 'General conversation' },
+  { value: 'code_interpreter', label: 'Code Interpreter', description: 'Execute code' },
+  { value: 'web_search', label: 'Web Search', description: 'Search the internet' },
+  { value: 'image_generation', label: 'Image Generation', description: 'Create images' },
+  { value: 'image_analysis', label: 'Image Analysis', description: 'Analyze images' },
+  { value: 'file_analysis', label: 'File Analysis', description: 'Process documents' },
+  { value: 'function_calling', label: 'Function Calling', description: 'Use tools/functions' },
+  { value: 'json_mode', label: 'JSON Mode', description: 'Structured JSON output' },
+];
 
 export const AiModelsTable = React.memo(function AiModelsTable({ 
   models, 
@@ -229,22 +265,61 @@ export const AiModelsTable = React.memo(function AiModelsTable({
   }, [onUpdateModel]);
 
   // Event handler for toggling chat enabled status
-  const handleChatEnabledToggle = useCallback((id: number, checked: boolean) => {
-    onUpdateModel?.(id, { chatEnabled: checked });
-  }, [onUpdateModel]);
 
   // Event handler for edit button
   const handleEditClick = useCallback((model: SelectAiModel) => {
     setEditingModel(model);
+    
+    // Parse capabilities if it's a JSON string
+    let capabilitiesList: string[] = [];
+    if (model.capabilities) {
+      try {
+        const parsed = typeof model.capabilities === 'string' 
+          ? JSON.parse(model.capabilities) 
+          : model.capabilities;
+        if (Array.isArray(parsed)) {
+          capabilitiesList = parsed;
+        } else {
+          // If it's not an array but valid JSON (e.g., an object), 
+          // show it as a custom item that can be cleared
+          capabilitiesList = [JSON.stringify(parsed)];
+        }
+      } catch {
+        // If not valid JSON, show the raw string as a custom item
+        if (typeof model.capabilities === 'string' && model.capabilities.trim()) {
+          capabilitiesList = [model.capabilities];
+        } else {
+          capabilitiesList = [];
+        }
+      }
+    }
+    
+    // Parse allowed roles if it's a JSON string
+    let allowedRoles: string[] = [];
+    if (model.allowedRoles) {
+      try {
+        const parsed = typeof model.allowedRoles === 'string' 
+          ? JSON.parse(model.allowedRoles) 
+          : model.allowedRoles;
+        if (Array.isArray(parsed)) {
+          allowedRoles = parsed;
+        }
+      } catch {
+        // If not valid JSON, treat as empty
+        allowedRoles = [];
+      }
+    }
+    
     setModelData({
       name: model.name,
       provider: model.provider || '',
       modelId: model.modelId,
       description: model.description || '',
       capabilities: model.capabilities || '',
+      capabilitiesList,
+      allowedRoles,
       maxTokens: model.maxTokens || 4096,
       active: model.active,
-      chatEnabled: model.chatEnabled,
     });
   }, []);
 
@@ -270,6 +345,73 @@ export const AiModelsTable = React.memo(function AiModelsTable({
       {
         accessorKey: 'description',
         header: ({ column }) => <SortableColumnHeader column={column} title="Description" />,
+        cell: ({ row }) => {
+          const description = row.getValue('description') as string;
+          return description ? (
+            <div className="max-w-xs truncate" title={description}>
+              {description}
+            </div>
+          ) : null;
+        },
+      },
+      {
+        accessorKey: 'capabilities',
+        header: 'Capabilities',
+        cell: ({ row }) => {
+          const capabilities = row.original.capabilities;
+          if (!capabilities) return null;
+          
+          try {
+            const capList = typeof capabilities === 'string' ? JSON.parse(capabilities) : capabilities;
+            if (Array.isArray(capList) && capList.length > 0) {
+              return (
+                <div className="flex flex-wrap gap-1 max-w-xs">
+                  {capList.slice(0, 3).map((cap, idx) => (
+                    <Badge key={idx} variant="secondary" className="text-xs">
+                      {cap}
+                    </Badge>
+                  ))}
+                  {capList.length > 3 && (
+                    <Badge variant="outline" className="text-xs">
+                      +{capList.length - 3}
+                    </Badge>
+                  )}
+                </div>
+              );
+            }
+          } catch {
+            // If not valid JSON, just show as text
+            return <span className="text-xs text-muted-foreground">{capabilities}</span>;
+          }
+          return null;
+        },
+      },
+      {
+        accessorKey: 'allowedRoles',
+        header: 'Roles',
+        cell: ({ row }) => {
+          const roles = row.original.allowedRoles;
+          if (!roles) return <span className="text-xs text-muted-foreground">All roles</span>;
+          
+          try {
+            const roleList = typeof roles === 'string' ? JSON.parse(roles) : roles;
+            if (Array.isArray(roleList) && roleList.length > 0) {
+              return (
+                <div className="flex flex-wrap gap-1 max-w-xs">
+                  {roleList.map((role, idx) => (
+                    <Badge key={idx} variant="outline" className="text-xs">
+                      {role}
+                    </Badge>
+                  ))}
+                </div>
+              );
+            }
+          } catch {
+            // If not valid JSON, just show as text
+            return <span className="text-xs text-muted-foreground">{roles}</span>;
+          }
+          return <span className="text-xs text-muted-foreground">All roles</span>;
+        },
       },
       {
         accessorKey: 'maxTokens',
@@ -289,18 +431,6 @@ export const AiModelsTable = React.memo(function AiModelsTable({
             <Switch
               checked={row.getValue('active') as boolean}
               onCheckedChange={(checked) => handleActiveToggle(row.original.id, checked)}
-            />
-          </div>
-        ),
-      },
-      {
-        accessorKey: 'chatEnabled',
-        header: 'Chat',
-        cell: ({ row }) => (
-          <div className="text-center">
-            <Switch
-              checked={row.getValue('chatEnabled') as boolean}
-              onCheckedChange={(checked) => handleChatEnabledToggle(row.original.id, checked)}
             />
           </div>
         ),
@@ -330,7 +460,7 @@ export const AiModelsTable = React.memo(function AiModelsTable({
         ),
       },
     ],
-    [SortableColumnHeader, handleActiveToggle, handleChatEnabledToggle, handleEditClick, handleDeleteClick]
+    [SortableColumnHeader, handleActiveToggle, handleEditClick, handleDeleteClick]
   );
 
   const table = useReactTable({
@@ -346,11 +476,33 @@ export const AiModelsTable = React.memo(function AiModelsTable({
   });
 
   const handleSubmit = useCallback(() => {
+    // Convert arrays to JSON strings for database storage
+    const dataToSubmit = {
+      ...modelData,
+      capabilities: modelData.capabilitiesList.length > 0 
+        ? JSON.stringify(modelData.capabilitiesList) 
+        : null,
+      allowedRoles: modelData.allowedRoles.length > 0 
+        ? JSON.stringify(modelData.allowedRoles) 
+        : null
+    };
+    
+    // Remove the list fields as they're not part of the database schema
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { capabilitiesList, allowedRoles, ...dbData } = dataToSubmit;
+    const finalData = {
+      ...dbData,
+      capabilities: dataToSubmit.capabilities,
+      allowedRoles: dataToSubmit.allowedRoles,
+      // Set chatEnabled based on whether "chat" is in capabilities
+      chatEnabled: modelData.capabilitiesList.includes('chat')
+    };
+    
     if (editingModel) {
-      onUpdateModel?.(editingModel.id, modelData);
+      onUpdateModel?.(editingModel.id, finalData);
       setEditingModel(null);
     } else {
-      onAddModel?.(modelData);
+      onAddModel?.(finalData);
       setShowAddForm(false);
     }
     setModelData(emptyModel);

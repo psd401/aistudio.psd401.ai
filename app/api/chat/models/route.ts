@@ -22,15 +22,13 @@ export async function GET() {
   return withErrorHandling(async () => {
     const query = `
       SELECT id, name, provider, model_id, description, capabilities,
-             max_tokens, active, chat_enabled, created_at, updated_at
+             max_tokens, active, chat_enabled, allowed_roles, created_at, updated_at
       FROM ai_models
       WHERE active = :active
-        AND chat_enabled = :chatEnabled
       ORDER BY provider ASC, name ASC
     `;
     const parameters = [
-      { name: 'active', value: { booleanValue: true } },
-      { name: 'chatEnabled', value: { booleanValue: true } }
+      { name: 'active', value: { booleanValue: true } }
     ];
     
     const models = await executeSQL(query, parameters);

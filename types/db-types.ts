@@ -241,4 +241,5 @@ export type SelectAiModel = {
   chatEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
+  allowedRoles?: string | null;
 }
