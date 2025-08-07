@@ -1,6 +1,6 @@
 "use client"
 
-import { useChat } from 'ai/react'
+import { useChat } from '@ai-sdk/react'
 import { useEffect, useRef, useState } from "react"
 import { Message } from "./message"
 import { ChatInput } from "./chat-input"
@@ -417,7 +417,12 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
             {messages.map((message) => (
               <Message 
                 key={message.id} 
-                message={message} 
+                message={{
+                  id: message.id,
+                  role: message.role === 'data' ? 'assistant' : message.role,
+                  content: typeof message.content === 'string' ? message.content : '',
+                  createdAt: message.createdAt
+                }} 
                 messageId={`message-${message.id}`}
               />
             ))}

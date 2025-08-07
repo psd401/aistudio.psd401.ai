@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback } from 'react';
-import { useChat } from 'ai/react';
+import { useChat } from '@ai-sdk/react';
 import { IconPlayerStop } from '@tabler/icons-react';
 import { Message } from './message';
 import { ChatInput } from './chat-input';
@@ -129,7 +129,12 @@ export function SimpleChat({ conversationId, initialMessages = [] }: SimpleChatP
       <ScrollArea ref={scrollRef} className="flex-1 h-[calc(100vh-180px)] p-4">
         <div className="space-y-4">
           {messages.map((message) => (
-            <Message key={message.id} message={message} />
+            <Message key={message.id} message={{
+              id: message.id,
+              role: message.role === 'data' ? 'assistant' : message.role,
+              content: typeof message.content === 'string' ? message.content : '',
+              createdAt: message.createdAt
+            }} />
           ))}
           {messages.length === 0 && (
             <div className="text-center text-muted-foreground">

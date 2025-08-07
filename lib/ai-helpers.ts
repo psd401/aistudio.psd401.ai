@@ -6,15 +6,11 @@ import {
   embedMany,
   tool,
   CoreMessage,
-  CoreTool,
+  Tool as CoreTool,
   StreamTextResult,
-  ToolExecutionError,
-  InvalidToolArgumentsError,
   NoSuchToolError,
-  ToolCallRepairError,
-  FinishReason,
-  CoreToolCall,
-  CoreToolResult
+  InvalidArgumentError,
+  FinishReason
 } from 'ai'
 import { createAzure } from '@ai-sdk/azure'
 import { google } from '@ai-sdk/google'
@@ -33,12 +29,13 @@ export interface StreamingOptions {
   onToken?: (token: string) => void
   onFinish?: (result: { 
     text?: string; 
-    toolCalls?: CoreToolCall<string, unknown>[]; 
-    toolResults?: CoreToolResult<string, unknown, unknown>[]; 
+    toolCalls?: unknown[]; 
+    toolResults?: unknown[]; 
     finishReason?: FinishReason; 
     usage?: { 
-      promptTokens?: number; 
-      completionTokens?: number 
+      inputTokens?: number; 
+      outputTokens?: number;
+      totalTokens?: number 
     } 
   }) => void
   onError?: (error: Error) => void
@@ -47,8 +44,8 @@ export interface StreamingOptions {
 export interface ToolDefinition {
   name: string
   description: string
-  parameters: z.ZodType<unknown>
-  execute: (args: unknown) => Promise<unknown>
+  inputSchema: z.ZodType<unknown>
+  execute: (input: unknown) => Promise<unknown>
 }
 
 // Get the appropriate model client based on provider
@@ -182,8 +179,7 @@ export async function generateCompletion(
     const result = await generateText({
       model,
       messages,
-      tools,
-      maxSteps: tools ? 5 : undefined // Allow multi-step tool calling
+      tools
     });
 
     if (!result.text) {
@@ -194,14 +190,12 @@ export async function generateCompletion(
   } catch (error) {
     // Handle specific AI SDK errors
     if (error instanceof NoSuchToolError) {
-      logger.error('[generateCompletion] Tool not found:', error.toolName);
-      throw new Error(`AI tried to use unknown tool: ${error.toolName}`);
-    } else if (error instanceof InvalidToolArgumentsError) {
-      logger.error('[generateCompletion] Invalid tool arguments:', error);
-      throw new Error(`Invalid arguments for tool ${error.toolName}: ${error.message}`);
-    } else if (error instanceof ToolExecutionError) {
-      logger.error('[generateCompletion] Tool execution failed:', error);
-      throw new Error(`Tool ${error.toolName} failed: ${error.message}`);
+      const errorWithToolName = error as { toolName?: string };
+      logger.error('[generateCompletion] Tool not found:', errorWithToolName.toolName || 'unknown');
+      throw new Error(`AI tried to use unknown tool: ${errorWithToolName.toolName || 'unknown'}`);
+    } else if (error instanceof InvalidArgumentError) {
+      logger.error('[generateCompletion] Invalid arguments:', error);
+      throw new Error(`Invalid arguments: ${error.message}`);
     }
     
     throw error;
@@ -222,10 +216,9 @@ export async function streamCompletion(
       model,
       messages,
       tools,
-      maxSteps: tools ? 5 : undefined,
       onChunk: ({ chunk }) => {
         if (chunk.type === 'text-delta' && options?.onToken) {
-          options.onToken(chunk.textDelta);
+          options.onToken(chunk.text);
         }
       },
       onFinish: options?.onFinish
@@ -249,28 +242,26 @@ export async function generateStructuredOutput<T>(
   const result = await generateObject({
     model,
     messages,
-    schema,
-    mode: 'json' // Use JSON mode for better compatibility
-  });
+    schema
+  } as Parameters<typeof generateObject>[0]);
 
-  return result.object;
+  return result.object as T;
 }
 
 // Helper to create a tool from a definition
 export function createTool(definition: ToolDefinition): CoreTool {
+  // In v5, tool() expects different properties
   return tool({
     description: definition.description,
-    parameters: definition.parameters,
+    parameters: definition.inputSchema,
     execute: definition.execute
-  });
+  } as Parameters<typeof tool>[0]) as CoreTool;
 }
 
 // Export error types for consumers
 export {
-  ToolExecutionError,
-  InvalidToolArgumentsError,
   NoSuchToolError,
-  ToolCallRepairError
+  InvalidArgumentError
 };
 
 // Embedding configuration interface

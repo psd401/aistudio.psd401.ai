@@ -2,7 +2,13 @@
 
 import { cn } from "@/lib/utils"
 import { IconUser, IconRobot, IconThumbUp, IconThumbDown, IconCopy } from "@tabler/icons-react"
-import type { Message as MessageType } from "ai"
+// Define our own Message type for compatibility
+type MessageType = {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  createdAt?: Date;
+}
 import ReactMarkdown from "react-markdown"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"

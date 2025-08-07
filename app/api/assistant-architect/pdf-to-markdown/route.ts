@@ -220,7 +220,7 @@ async function processPdfInBackground(jobId: number, jobInput: JobInput) {
         role: 'user' as const,
         content: [
           { type: 'text' as const, text: systemPrompt },
-          { type: 'file' as const, data: pdfBuffer, mimeType: 'application/pdf' }
+          { type: 'file' as const, data: pdfBuffer, mediaType: 'application/pdf' }
         ]
       }
     ];

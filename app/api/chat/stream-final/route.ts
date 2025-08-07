@@ -773,7 +773,7 @@ Use all this information to provide accurate and helpful responses about both wh
   log.info("Stream started successfully", { conversationId });
   timer({ status: "success", conversationId });
   
-  return result.toDataStreamResponse({
+  return result.toTextStreamResponse({
     headers: {
       'X-Conversation-Id': conversationId.toString(),
       'X-Request-Id': requestId
