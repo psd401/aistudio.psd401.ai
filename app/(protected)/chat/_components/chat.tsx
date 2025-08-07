@@ -4,7 +4,7 @@ import { useChat } from 'ai/react'
 import { useEffect, useRef, useState } from "react"
 import { Message } from "./message"
 import { ChatInput } from "./chat-input"
-import { ModelSelector } from "./model-selector"
+import { ModelSelector } from "@/components/features/model-selector"
 import { DocumentUpload } from "./document-upload"
 import { DocumentList } from "./document-list"
 import { AiThinkingIndicator } from "./ai-thinking-indicator"
@@ -305,11 +305,23 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
           return
         }
         
-        const chatModels = modelsData.filter(model => model.chatEnabled === true)
+        // Set all active models - let the ModelSelector handle filtering
+        setModels(modelsData)
         
-        if (chatModels.length > 0) {
-          setModels(chatModels)
-          setSelectedModel(chatModels[0])
+        // Find first model with chat capability for default selection
+        const chatCapableModel = modelsData.find(model => {
+          try {
+            const capabilities = typeof model.capabilities === 'string' 
+              ? JSON.parse(model.capabilities) 
+              : model.capabilities
+            return Array.isArray(capabilities) && capabilities.includes('chat')
+          } catch {
+            return false
+          }
+        })
+        
+        if (chatCapableModel) {
+          setSelectedModel(chatCapableModel)
         }
       } catch (error) {
         // Don't show toast if the request was aborted
@@ -360,8 +372,14 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       <div className="flex items-center justify-between p-3 border-b border-border">
         <ModelSelector
           models={models}
-          selectedModel={selectedModel}
-          onModelSelect={setSelectedModel}
+          value={selectedModel}
+          onChange={setSelectedModel}
+          requiredCapabilities={["chat"]}
+          placeholder="Select a chat model"
+          showDescription={true}
+          groupByProvider={true}
+          hideRoleRestricted={true}
+          hideCapabilityMissing={true}
         />
         
         <div className="flex items-center gap-2">

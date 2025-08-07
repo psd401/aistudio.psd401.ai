@@ -730,7 +730,7 @@ export async function getRoles() {
  */
 export async function getAIModels() {
   const sql = `
-    SELECT id, name, provider, model_id, description, capabilities, 
+    SELECT id, name, provider, model_id, description, capabilities, allowed_roles,
            max_tokens, active, chat_enabled, created_at, updated_at
     FROM ai_models
     ORDER BY name ASC
@@ -745,13 +745,14 @@ export async function createAIModel(modelData: {
   provider?: string;
   description?: string;
   capabilities?: string;
+  allowedRoles?: string;
   maxTokens?: number;
   isActive?: boolean;
   chatEnabled?: boolean;
 }) {
   const sql = `
-    INSERT INTO ai_models (name, model_id, provider, description, capabilities, max_tokens, active, chat_enabled, created_at, updated_at)
-    VALUES (:name, :modelId, :provider, :description, :capabilities, :maxTokens, :isActive, :chatEnabled, NOW(), NOW())
+    INSERT INTO ai_models (name, model_id, provider, description, capabilities, allowed_roles, max_tokens, active, chat_enabled, created_at, updated_at)
+    VALUES (:name, :modelId, :provider, :description, :capabilities::jsonb, :allowedRoles::jsonb, :maxTokens, :isActive, :chatEnabled, NOW(), NOW())
     RETURNING *
   `;
   
@@ -761,6 +762,7 @@ export async function createAIModel(modelData: {
     createParameter('provider', modelData.provider),
     createParameter('description', modelData.description),
     createParameter('capabilities', modelData.capabilities),
+    createParameter('allowedRoles', modelData.allowedRoles),
     createParameter('maxTokens', modelData.maxTokens),
     createParameter('isActive', modelData.isActive ?? true),
     createParameter('chatEnabled', modelData.chatEnabled ?? false)
@@ -778,9 +780,18 @@ export async function updateAIModel(id: number, updates: Record<string, string |
     snakeCaseUpdates[snakeKey] = value;
   }
   
+  // Fields that need JSONB casting
+  const jsonbFields = ['capabilities', 'allowed_roles'];
+  
   const updateFields = Object.keys(snakeCaseUpdates)
     .filter(key => key !== 'id')
-    .map((key, index) => `${key} = :param${index}`);
+    .map((key, index) => {
+      // Cast to JSONB for JSON fields
+      if (jsonbFields.includes(key) && snakeCaseUpdates[key] !== null) {
+        return `${key} = :param${index}::jsonb`;
+      }
+      return `${key} = :param${index}`;
+    });
   
   if (updateFields.length === 0) {
     throw new Error('No fields to update');
