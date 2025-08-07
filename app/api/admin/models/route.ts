@@ -1,7 +1,127 @@
 import { NextResponse } from 'next/server';
-import { getAIModels, createAIModel, updateAIModel, deleteAIModel } from '@/lib/db/data-api-adapter';
+import { getAIModels, createAIModel, updateAIModel, deleteAIModel, getRoles } from '@/lib/db/data-api-adapter';
 import { requireAdmin } from '@/lib/auth/admin-check';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
+
+/**
+ * Validate and sanitize allowedRoles field
+ * @param allowedRoles - The roles to validate (can be string or array)
+ * @param log - Logger instance for warnings
+ * @returns Validated JSON string of roles or null
+ */
+async function validateAllowedRoles(
+  allowedRoles: unknown, 
+  log: ReturnType<typeof createLogger>
+): Promise<string | null> {
+  if (!allowedRoles) return null;
+  
+  try {
+    // Parse if string
+    let roles: unknown;
+    if (typeof allowedRoles === 'string') {
+      // Try to parse as JSON
+      try {
+        roles = JSON.parse(allowedRoles);
+      } catch {
+        // Not JSON, treat as single role
+        roles = [allowedRoles];
+      }
+    } else {
+      roles = allowedRoles;
+    }
+    
+    // Validate it's an array of strings
+    if (!Array.isArray(roles)) {
+      log.warn('Invalid allowedRoles format - not an array', { allowedRoles });
+      return null;
+    }
+    
+    const validRoles = roles.filter(r => typeof r === 'string' && r.trim().length > 0);
+    
+    if (validRoles.length === 0) {
+      return null;
+    }
+    
+    // Validate against existing roles in the system
+    const existingRoles = await getRoles();
+    const existingRoleNames = existingRoles.map(r => r.name);
+    const filteredRoles = validRoles.filter(r => existingRoleNames.includes(r));
+    
+    if (filteredRoles.length !== validRoles.length) {
+      const invalidRoles = validRoles.filter(r => !existingRoleNames.includes(r));
+      log.warn('Some roles do not exist in the system', { 
+        invalidRoles,
+        validRoles: filteredRoles 
+      });
+    }
+    
+    // Return validated roles as JSON string
+    return filteredRoles.length > 0 ? JSON.stringify(filteredRoles) : null;
+  } catch (error) {
+    log.warn('Failed to validate allowedRoles', { 
+      allowedRoles,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+    return null;
+  }
+}
+
+/**
+ * Validate and sanitize capabilities field
+ * @param capabilities - The capabilities to validate (can be string or array)
+ * @param log - Logger instance for warnings
+ * @returns Validated JSON string of capabilities or null
+ */
+function validateCapabilities(
+  capabilities: unknown,
+  log: ReturnType<typeof createLogger>
+): string | null {
+  if (!capabilities) return null;
+  
+  try {
+    // Parse if string
+    let caps: unknown;
+    if (typeof capabilities === 'string') {
+      const trimmed = capabilities.trim();
+      if (!trimmed) return null;
+      
+      // Try to parse as JSON
+      if (trimmed.startsWith('[')) {
+        try {
+          caps = JSON.parse(trimmed);
+        } catch {
+          // Not valid JSON, try comma-separated
+          caps = trimmed.split(',').map(c => c.trim()).filter(Boolean);
+        }
+      } else if (trimmed.includes(',')) {
+        // Comma-separated values
+        caps = trimmed.split(',').map(c => c.trim()).filter(Boolean);
+      } else {
+        // Single value
+        caps = [trimmed];
+      }
+    } else {
+      caps = capabilities;
+    }
+    
+    // Validate it's an array of strings
+    if (!Array.isArray(caps)) {
+      log.warn('Invalid capabilities format - not an array', { capabilities });
+      return null;
+    }
+    
+    const validCaps = caps.filter(c => typeof c === 'string' && c.trim().length > 0);
+    
+    // Return validated capabilities as JSON string
+    return validCaps.length > 0 ? JSON.stringify(validCaps) : null;
+  } catch (error) {
+    log.warn('Failed to validate capabilities', {
+      capabilities,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+    return null;
+  }
+}
 
 export async function GET() {
   const requestId = generateRequestId();
@@ -61,13 +181,18 @@ export async function POST(request: Request) {
     const body = await request.json();
     
     log.debug("Creating model", { modelName: body.name, provider: body.provider });
+    
+    // Validate and sanitize capabilities and allowedRoles
+    const validatedCapabilities = validateCapabilities(body.capabilities, log);
+    const validatedAllowedRoles = await validateAllowedRoles(body.allowedRoles, log);
+    
     const modelData = {
       name: body.name,
       modelId: body.modelId,
       provider: body.provider,
       description: body.description,
-      capabilities: body.capabilities,
-      allowedRoles: body.allowedRoles,
+      capabilities: validatedCapabilities || undefined,
+      allowedRoles: validatedAllowedRoles || undefined,
       maxTokens: body.maxTokens ? parseInt(body.maxTokens) : undefined,
       isActive: body.active ?? true,
       chatEnabled: body.chatEnabled ?? false
@@ -116,6 +241,16 @@ export async function PUT(request: Request) {
     const { id, ...updates } = body;
     
     log.debug("Updating model", { modelId: id, updates });
+    
+    // Validate and sanitize capabilities if present
+    if ('capabilities' in updates) {
+      updates.capabilities = validateCapabilities(updates.capabilities, log);
+    }
+    
+    // Validate and sanitize allowedRoles if present
+    if ('allowedRoles' in updates) {
+      updates.allowedRoles = await validateAllowedRoles(updates.allowedRoles, log);
+    }
     
     // Convert maxTokens to number if present
     if (updates.maxTokens !== undefined) {

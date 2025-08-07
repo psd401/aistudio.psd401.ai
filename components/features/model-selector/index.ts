@@ -1,4 +1,5 @@
 export { ModelSelector } from "./model-selector"
+export { ModelSelectorErrorBoundary } from "./model-selector-error-boundary"
 export { useFilteredModels } from "./use-filtered-models"
 export type { 
   ModelSelectorProps, 

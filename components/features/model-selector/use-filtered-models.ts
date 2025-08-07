@@ -7,6 +7,54 @@ import type {
   FilteredModel 
 } from "./model-selector-types"
 
+/**
+ * Safely parse a JSON array from various input types
+ * @param value - The value to parse (can be string, array, or unknown)
+ * @param fallback - Default value if parsing fails
+ * @returns Validated array of strings
+ */
+function safeParseJsonArray(value: unknown, fallback: string[] = []): string[] {
+  if (!value) return fallback
+  
+  // Already an array
+  if (Array.isArray(value)) {
+    return value.filter(item => typeof item === 'string')
+  }
+  
+  // String that needs parsing
+  if (typeof value === 'string') {
+    const trimmedValue = value.trim()
+    
+    // Empty string
+    if (!trimmedValue) return fallback
+    
+    // Try parsing as JSON
+    if (trimmedValue.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmedValue)
+        if (Array.isArray(parsed)) {
+          return parsed.filter(item => typeof item === 'string')
+        }
+      } catch {
+        // Invalid JSON, continue to comma-separated fallback
+      }
+    }
+    
+    // Try as comma-separated values
+    if (trimmedValue.includes(',')) {
+      return trimmedValue
+        .split(',')
+        .map(s => s.trim())
+        .filter(s => s.length > 0)
+    }
+    
+    // Single value
+    return [trimmedValue]
+  }
+  
+  return fallback
+}
+
 export function useFilteredModels({
   models,
   requiredCapabilities = [],
@@ -19,20 +67,8 @@ export function useFilteredModels({
   
   const result = useMemo(() => {
     let filteredModels: FilteredModel[] = models.map(model => {
-      // Parse capabilities if it's a string
-      let modelCapabilities: string[] = []
-      if (model.capabilities) {
-        try {
-          if (typeof model.capabilities === 'string') {
-            modelCapabilities = JSON.parse(model.capabilities)
-          } else if (Array.isArray(model.capabilities)) {
-            modelCapabilities = model.capabilities
-          }
-        } catch {
-          // If parsing fails, treat as comma-separated string
-          modelCapabilities = model.capabilities.split(',').map(c => c.trim())
-        }
-      }
+      // Safely parse capabilities
+      const modelCapabilities = safeParseJsonArray(model.capabilities, [])
 
       // Check capability requirements
       const missingCapabilities = requiredCapabilities.filter(
@@ -40,19 +76,8 @@ export function useFilteredModels({
       )
       const matchesCapabilities = missingCapabilities.length === 0
 
-      // Parse allowed roles for the model
-      let modelAllowedRoles: string[] = []
-      if (model.allowedRoles) {
-        try {
-          if (typeof model.allowedRoles === 'string') {
-            modelAllowedRoles = JSON.parse(model.allowedRoles)
-          } else if (Array.isArray(model.allowedRoles)) {
-            modelAllowedRoles = model.allowedRoles
-          }
-        } catch {
-          modelAllowedRoles = []
-        }
-      }
+      // Safely parse allowed roles for the model
+      const modelAllowedRoles = safeParseJsonArray(model.allowedRoles, [])
 
       // Check role-based access
       // If modelAllowedRoles is empty or null, model is accessible to all

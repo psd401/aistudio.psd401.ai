@@ -40,8 +40,27 @@ export function ModelSelector({
 }: ModelSelectorProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
   const [userRoles, setUserRoles] = useState<string[]>([])
   const commandListRef = useRef<HTMLDivElement>(null)
+  const debounceTimerRef = useRef<NodeJS.Timeout | undefined>(undefined)
+
+  // Debounce search input
+  useEffect(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+    }
+    
+    debounceTimerRef.current = setTimeout(() => {
+      setDebouncedSearch(search)
+    }, 300) // 300ms delay
+    
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
+    }
+  }, [search])
 
   // Fetch user roles on mount
   useEffect(() => {
@@ -69,7 +88,7 @@ export function ModelSelector({
     requiredCapabilities,
     allowedRoles,
     userRoles,
-    searchQuery: search,
+    searchQuery: debouncedSearch,
     hideRoleRestricted,
     hideCapabilityMissing
   })
@@ -78,6 +97,7 @@ export function ModelSelector({
     onChange(model)
     setOpen(false)
     setSearch("")
+    setDebouncedSearch("")
   }, [onChange])
 
   // Determine if we should use virtualization

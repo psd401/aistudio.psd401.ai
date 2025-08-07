@@ -17,14 +17,22 @@ COMMENT ON COLUMN ai_models.allowed_roles IS
 
 -- Ensure capabilities column is properly formatted as JSON
 -- This standardizes the format for capability-based filtering
+-- Using safe validation to prevent SQL injection
 UPDATE ai_models 
 SET capabilities = 
   CASE 
-    WHEN capabilities IS NULL THEN NULL
-    WHEN capabilities::text = '' THEN NULL
-    WHEN capabilities::text LIKE '[%' THEN capabilities::jsonb
-    ELSE to_jsonb(string_to_array(capabilities::text, ','))
-  END::text
+    WHEN capabilities IS NULL OR capabilities::text = '' THEN NULL
+    -- Validate JSON array structure before casting
+    WHEN capabilities::text ~ '^\[.*\]$' THEN 
+      CASE 
+        WHEN jsonb_typeof(capabilities::jsonb) = 'array' THEN capabilities::jsonb::text
+        ELSE '[]'::text -- Default to empty array if not valid array
+      END
+    -- Handle comma-separated values with strict validation
+    WHEN capabilities::text ~ '^[a-zA-Z0-9_\-]+(,[a-zA-Z0-9_\-]+)*$' THEN 
+      to_jsonb(string_to_array(trim(capabilities::text), ','))::text
+    ELSE '[]'::text -- Default to empty array for invalid data
+  END
 WHERE capabilities IS NOT NULL;
 
 -- Add index for efficient capability-based filtering
