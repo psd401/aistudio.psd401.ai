@@ -4,7 +4,8 @@ export interface User {
   name?: string;
   firstName?: string;
   lastName?: string;
-  role?: string;
+  role?: string; // Legacy single role for backward compatibility
+  roles?: string[]; // Multiple roles support
   lastSignInAt?: string;
   createdAt?: Date;
   updatedAt?: Date;

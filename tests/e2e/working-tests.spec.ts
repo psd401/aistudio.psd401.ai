@@ -26,6 +26,18 @@ describeOrSkip('Public Pages', () => {
     await expect(welcomeHeading.or(loadingText)).toBeVisible();
   });
 
+  test('should display only one sign-in button when not authenticated', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+    
+    // Check that there's only one "Sign In" button on the page
+    const signInButtons = page.getByRole('button', { name: /Sign In/i });
+    await expect(signInButtons).toHaveCount(1);
+    
+    // Verify the button text is "Sign In" (not "Sign In with Cognito")
+    await expect(signInButtons).toHaveText('Sign In');
+  });
+
   test('should protect routes from unauthenticated access', async ({ page }) => {
     const protectedRoutes = ['/dashboard', '/chat', '/admin/users', '/compare', '/repositories'];
     
@@ -35,9 +47,23 @@ describeOrSkip('Public Pages', () => {
     }
   });
 
-  test('should show sign in page', async ({ page }) => {
-    await page.goto('/api/auth/signin');
-    await expect(page.getByRole('button', { name: 'Sign in with Cognito' })).toBeVisible();
+  test('should trigger sign in when clicking the button', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+    
+    // Click the sign in button
+    const signInButton = page.getByRole('button', { name: 'Sign In' });
+    
+    // Verify the button exists and is clickable
+    await expect(signInButton).toBeVisible();
+    await expect(signInButton).toBeEnabled();
+    
+    // Click will trigger signIn('cognito') function
+    await signInButton.click();
+    
+    // Should navigate away from home page (to Cognito)
+    await page.waitForTimeout(1000);
+    expect(page.url()).not.toBe('http://localhost:3000/');
   });
 });
 

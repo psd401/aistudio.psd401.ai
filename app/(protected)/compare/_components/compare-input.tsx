@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { ModelSelector } from "@/app/(protected)/chat/_components/model-selector"
+import { ModelSelector } from "@/components/features/model-selector"
 import { IconPlayerPlay, IconPlayerStop, IconRefresh } from "@tabler/icons-react"
 import type { SelectAiModel } from "@/types"
 
@@ -83,8 +83,14 @@ export function CompareInput({
           <span className="text-sm font-medium text-gray-700">Model 1:</span>
           <ModelSelector
             models={models}
-            selectedModel={selectedModel1}
-            onModelSelect={onModel1Change}
+            value={selectedModel1}
+            onChange={onModel1Change}
+            placeholder="Select first model"
+            showDescription={true}
+            groupByProvider={true}
+            requiredCapabilities={["chat"]}
+            hideRoleRestricted={true}
+            hideCapabilityMissing={true}
           />
         </div>
         
@@ -92,8 +98,14 @@ export function CompareInput({
           <span className="text-sm font-medium text-gray-700">Model 2:</span>
           <ModelSelector
             models={models}
-            selectedModel={selectedModel2}
-            onModelSelect={onModel2Change}
+            value={selectedModel2}
+            onChange={onModel2Change}
+            placeholder="Select second model"
+            showDescription={true}
+            groupByProvider={true}
+            requiredCapabilities={["chat"]}
+            hideRoleRestricted={true}
+            hideCapabilityMissing={true}
           />
         </div>
         

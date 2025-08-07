@@ -25,7 +25,7 @@ export interface FormattedRow {
 }
 
 // Helper function to create SQL parameters with proper types
-function createParameter(name: string, value: string | number | boolean | null | undefined | Uint8Array): SqlParameter {
+export function createParameter(name: string, value: string | number | boolean | null | undefined | Uint8Array): SqlParameter {
   if (value === null || value === undefined) {
     return { name, value: { isNull: true } };
   } else if (typeof value === 'boolean') {
@@ -591,6 +591,15 @@ export async function getUserRolesByCognitoSub(cognitoSub: string): Promise<stri
 }
 
 export async function hasToolAccess(cognitoSub: string, toolIdentifier: string): Promise<boolean> {
+  const requestId = generateRequestId();
+  const timer = startTimer("db.hasToolAccess");
+  const log = createLogger({ requestId, function: "db.hasToolAccess" });
+  
+  log.debug("Checking tool access in database", { 
+    cognitoSub,
+    toolIdentifier 
+  });
+  
   const query = `
     SELECT COUNT(*) as count
     FROM users u
@@ -606,8 +615,33 @@ export async function hasToolAccess(cognitoSub: string, toolIdentifier: string):
     createParameter('toolIdentifier', toolIdentifier)
   ];
   
-  const result = await executeSQL(query, parameters);
-  return Number(result[0].count) > 0;
+  try {
+    const result = await executeSQL(query, parameters);
+    const hasAccess = Number(result[0].count) > 0;
+    
+    if (hasAccess) {
+      log.info("Database: Tool access granted", { 
+        cognitoSub,
+        toolIdentifier 
+      });
+    } else {
+      log.warn("Database: Tool access denied", { 
+        cognitoSub,
+        toolIdentifier 
+      });
+    }
+    
+    timer({ status: "success", hasAccess });
+    return hasAccess;
+  } catch (error) {
+    log.error("Database error checking tool access", {
+      error: error instanceof Error ? error.message : "Unknown error",
+      cognitoSub,
+      toolIdentifier
+    });
+    timer({ status: "error" });
+    throw error;
+  }
 }
 
 export async function getUserTools(cognitoSub: string): Promise<string[]> {
@@ -656,7 +690,7 @@ export async function updateUserRole(userId: number, newRoleName: string) {
     throw new Error(`Role '${newRoleName}' not found`);
   }
   
-  // Start a transaction to update user roles
+  // Start a transaction to update user roles and increment role_version
   const statements = [
     {
       sql: 'DELETE FROM user_roles WHERE user_id = :userId',
@@ -668,6 +702,11 @@ export async function updateUserRole(userId: number, newRoleName: string) {
         createParameter('userId', userId),
         createParameter('roleId', Number(role.id))
       ]
+    },
+    {
+      // Increment role_version to invalidate cached sessions
+      sql: 'UPDATE users SET role_version = COALESCE(role_version, 0) + 1, updated_at = NOW() WHERE id = :userId',
+      parameters: [createParameter('userId', userId)]
     }
   ];
   
@@ -691,7 +730,7 @@ export async function getRoles() {
  */
 export async function getAIModels() {
   const sql = `
-    SELECT id, name, provider, model_id, description, capabilities, 
+    SELECT id, name, provider, model_id, description, capabilities, allowed_roles,
            max_tokens, active, chat_enabled, created_at, updated_at
     FROM ai_models
     ORDER BY name ASC
@@ -706,13 +745,14 @@ export async function createAIModel(modelData: {
   provider?: string;
   description?: string;
   capabilities?: string;
+  allowedRoles?: string;
   maxTokens?: number;
   isActive?: boolean;
   chatEnabled?: boolean;
 }) {
   const sql = `
-    INSERT INTO ai_models (name, model_id, provider, description, capabilities, max_tokens, active, chat_enabled, created_at, updated_at)
-    VALUES (:name, :modelId, :provider, :description, :capabilities, :maxTokens, :isActive, :chatEnabled, NOW(), NOW())
+    INSERT INTO ai_models (name, model_id, provider, description, capabilities, allowed_roles, max_tokens, active, chat_enabled, created_at, updated_at)
+    VALUES (:name, :modelId, :provider, :description, :capabilities::jsonb, :allowedRoles::jsonb, :maxTokens, :isActive, :chatEnabled, NOW(), NOW())
     RETURNING *
   `;
   
@@ -722,6 +762,7 @@ export async function createAIModel(modelData: {
     createParameter('provider', modelData.provider),
     createParameter('description', modelData.description),
     createParameter('capabilities', modelData.capabilities),
+    createParameter('allowedRoles', modelData.allowedRoles),
     createParameter('maxTokens', modelData.maxTokens),
     createParameter('isActive', modelData.isActive ?? true),
     createParameter('chatEnabled', modelData.chatEnabled ?? false)
@@ -739,9 +780,18 @@ export async function updateAIModel(id: number, updates: Record<string, string |
     snakeCaseUpdates[snakeKey] = value;
   }
   
+  // Fields that need JSONB casting
+  const jsonbFields = ['capabilities', 'allowed_roles'];
+  
   const updateFields = Object.keys(snakeCaseUpdates)
     .filter(key => key !== 'id')
-    .map((key, index) => `${key} = :param${index}`);
+    .map((key, index) => {
+      // Cast to JSONB for JSON fields
+      if (jsonbFields.includes(key) && snakeCaseUpdates[key] !== null) {
+        return `${key} = :param${index}::jsonb`;
+      }
+      return `${key} = :param${index}`;
+    });
   
   if (updateFields.length === 0) {
     throw new Error('No fields to update');

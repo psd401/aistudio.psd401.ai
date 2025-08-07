@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 import { getServerSession } from "@/lib/auth/server-session"
-import { getNavigationItems as getNavigationItemsViaDataAPI } from "@/lib/db/data-api-adapter"
-import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
+import { getNavigationItems as getNavigationItemsViaDataAPI, executeSQL } from "@/lib/db/data-api-adapter"
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger'
+import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
+import { hasToolAccess } from "@/utils/roles";
 
 /**
  * Navigation API
@@ -94,9 +96,167 @@ export async function GET() {
     
     try {
       const navItems = await getNavigationItemsViaDataAPI();
+      
+      // Get current user's roles
+      const userResult = await getCurrentUserAction();
+      const userRoles = userResult.isSuccess && userResult.data 
+        ? userResult.data.roles.map(r => r.name)
+        : [];
+      
+      log.debug("User roles for navigation filtering", { 
+        userId: session.sub,
+        roles: userRoles 
+      });
+
+      // Get navigation item roles from the junction table
+      const navItemRolesQuery = await executeSQL(
+        'SELECT navigation_item_id, role_name FROM navigation_item_roles'
+      );
+      
+      // Create a map of navigation item IDs to their required roles
+      const navItemRolesMap = new Map<number, string[]>();
+      for (const row of navItemRolesQuery) {
+        const itemId = row.navigation_item_id as number;
+        const roleName = row.role_name as string;
+        
+        if (!navItemRolesMap.has(itemId)) {
+          navItemRolesMap.set(itemId, []);
+        }
+        navItemRolesMap.get(itemId)?.push(roleName);
+      }
+      
+      // Collect all tool IDs that need to be looked up
+      const toolIdsToLookup = new Set<number>();
+      for (const item of navItems) {
+        if (item.toolId) {
+          const toolId = Number(item.toolId);
+          if (!isNaN(toolId)) {
+            toolIdsToLookup.add(toolId);
+          }
+        }
+      }
+      
+      // Batch fetch all tool identifiers in a single query
+      const toolsMap = new Map<number, string>();
+      if (toolIdsToLookup.size > 0) {
+        const toolIds = Array.from(toolIdsToLookup);
+        const placeholders = toolIds.map((_, index) => `:id${index}`).join(', ');
+        const params = toolIds.map((id, index) => ({
+          name: `id${index}`,
+          value: { longValue: id }
+        }));
+        
+        const toolsQuery = await executeSQL(
+          `SELECT id, identifier FROM tools WHERE id IN (${placeholders})`,
+          params
+        );
+        
+        for (const tool of toolsQuery) {
+          toolsMap.set(tool.id as number, tool.identifier as string);
+        }
+      }
+
+      // Filter navigation items based on user permissions
+      const filteredNavItems = [];
+      const parentIds = new Set();
+      
+      for (const item of navItems) {
+        let shouldInclude = true;
+        
+        // Check if item requires specific roles (multi-role support)
+        const requiredRoles = navItemRolesMap.get(item.id);
+        if (requiredRoles && requiredRoles.length > 0) {
+          // User must have at least one of the required roles
+          shouldInclude = requiredRoles.some(role => userRoles.includes(role));
+          log.debug("Multi-role check for navigation item", {
+            itemId: item.id,
+            label: item.label,
+            requiredRoles,
+            userRoles,
+            granted: shouldInclude
+          });
+        } else if (item.requiresRole) {
+          // Fallback to single role check for backward compatibility
+          shouldInclude = userRoles.includes(item.requiresRole);
+          log.debug("Single role check for navigation item", {
+            itemId: item.id,
+            label: item.label,
+            requiredRole: item.requiresRole,
+            userRoles,
+            granted: shouldInclude
+          });
+        }
+        
+        // Check if item requires tool access
+        if (shouldInclude && item.toolId) {
+          const toolId = Number(item.toolId);
+          if (isNaN(toolId)) {
+            log.warn("Invalid tool ID for navigation item", {
+              itemId: item.id,
+              label: item.label,
+              toolId: item.toolId
+            });
+            shouldInclude = false;
+          } else {
+            const toolIdentifier = toolsMap.get(toolId);
+            if (toolIdentifier) {
+              try {
+                const toolAccess = await hasToolAccess(toolIdentifier);
+                shouldInclude = toolAccess;
+                
+                log.debug("Tool access check for navigation item", {
+                  itemId: item.id,
+                  label: item.label,
+                  toolId,
+                  toolIdentifier,
+                  granted: shouldInclude
+                });
+              } catch (toolError) {
+                log.error("Error checking tool access", {
+                  itemId: item.id,
+                  label: item.label,
+                  toolId,
+                  toolIdentifier,
+                  error: toolError instanceof Error ? toolError.message : 'Unknown error'
+                });
+                shouldInclude = false;
+              }
+            } else {
+              log.warn("Tool not found for navigation item", {
+                itemId: item.id,
+                label: item.label,
+                toolId
+              });
+              shouldInclude = false;
+            }
+          }
+        }
+        
+        if (shouldInclude) {
+          filteredNavItems.push(item);
+          // Track parent IDs that have visible children
+          if (item.parentId) {
+            parentIds.add(item.parentId);
+          }
+        }
+      }
+      
+      // Include parent items if they have visible children
+      const finalNavItems = filteredNavItems.filter(item => {
+        // Keep items that are either:
+        // 1. Not parent items (have a parent_id)
+        // 2. Parent items that have visible children
+        // 3. Parent items with direct links (standalone pages)
+        if (item.parentId !== null) return true; // Child item
+        if (parentIds.has(item.id)) return true; // Parent with visible children
+        if (item.link) return true; // Parent with direct link
+        
+        // Don't include empty parent sections
+        return false;
+      });
 
       // Format the navigation items
-      const formattedNavItems = navItems.map(item => ({
+      const formattedNavItems = finalNavItems.map(item => ({
         id: item.id,
         label: item.label,
         icon: item.icon,
@@ -110,8 +270,12 @@ export async function GET() {
         color: null // This column doesn't exist in the current table
       }))
 
-      log.info("Navigation items retrieved successfully", { count: formattedNavItems.length });
-      timer({ status: "success", count: formattedNavItems.length });
+      log.info("Navigation items filtered and retrieved", { 
+        totalCount: navItems.length,
+        filteredCount: formattedNavItems.length,
+        userRoleCount: userRoles.length
+      });
+      timer({ status: "success", filteredCount: formattedNavItems.length });
       
       return NextResponse.json(
         {

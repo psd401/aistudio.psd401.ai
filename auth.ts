@@ -5,6 +5,7 @@ import type { NextAuthConfig } from "next-auth"
 export const authConfig: NextAuthConfig = {
   providers: [
     Cognito({
+      name: "AI Studio",
       clientId: process.env.AUTH_COGNITO_CLIENT_ID!,
       clientSecret: process.env.AUTH_COGNITO_CLIENT_SECRET || "",
       issuer: process.env.AUTH_COGNITO_ISSUER!,
@@ -20,7 +21,7 @@ export const authConfig: NextAuthConfig = {
       client: {
         token_endpoint_auth_method: "none",
       },
-      checks: ["pkce", "state"], // Enable PKCE and state checks (CSRF protection)
+      checks: ["pkce", "state", "nonce"], // Enable PKCE, state and nonce checks (CSRF protection)
       profile(profile) {
         return {
           id: profile.sub,
@@ -33,6 +34,13 @@ export const authConfig: NextAuthConfig = {
   ],
   callbacks: {
     async jwt({ token, account, profile, user, trigger }) {
+      // Handle session update trigger (when roles change)
+      if (trigger === "update") {
+        // Force token refresh by returning null
+        // This will cause the user to re-authenticate
+        return null;
+      }
+      
       // Initial sign in - store essential data
       if (account && account.id_token) {
         try {
@@ -52,6 +60,7 @@ export const authConfig: NextAuthConfig = {
           refreshToken: account.refresh_token,
           idToken: account.id_token,
           expiresAt: account.expires_at ? account.expires_at * 1000 : Date.now() + 3600 * 1000, // Convert to milliseconds
+          roleVersion: 0, // Initialize role version
           };
         } catch (error) {
           // Log error but don't fail authentication
@@ -64,6 +73,7 @@ export const authConfig: NextAuthConfig = {
             refreshToken: account.refresh_token,
             idToken: account.id_token,
             expiresAt: account.expires_at ? account.expires_at * 1000 : Date.now() + 3600 * 1000,
+            roleVersion: 0,
           };
         }
       }

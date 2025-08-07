@@ -28,7 +28,7 @@ import "@xyflow/react/dist/style.css"
 // Dialog components removed - using Sheet instead
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ModelSelectorFormAdapter } from "@/components/features/model-selector/model-selector-form-adapter"
 
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
@@ -914,22 +914,16 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
               </div>
               <div className="space-y-2">
                 <Label htmlFor="model">AI Model</Label>
-                <Select
-                  value={modelId ?? ""}
-                  onValueChange={(value) => setModelId(value)}
-                  required
-                >
-                  <SelectTrigger className="bg-muted">
-                    <SelectValue placeholder="Select an AI model" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {models.map(model => (
-                      <SelectItem key={model.id} value={model.id.toString()}>
-                        {model.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <ModelSelectorFormAdapter
+                  models={models}
+                  value={modelId}
+                  onValueChange={setModelId}
+                  placeholder="Select an AI model"
+                  className="bg-muted"
+                  requiredCapabilities={["chat"]}
+                  hideRoleRestricted={true}
+                  hideCapabilityMissing={true}
+                />
               </div>
               <KnowledgeSection
                 useExternalKnowledge={useExternalKnowledge}
@@ -1058,22 +1052,16 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="edit-model">AI Model</Label>
-                  <Select
-                    value={modelId ?? ""}
-                    onValueChange={(value) => setModelId(value)}
-                    required
-                  >
-                    <SelectTrigger className="bg-muted">
-                      <SelectValue placeholder="Select an AI model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {models.map(model => (
-                        <SelectItem key={model.id} value={model.id.toString()}>
-                          {model.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <ModelSelectorFormAdapter
+                    models={models}
+                    value={modelId}
+                    onValueChange={setModelId}
+                    placeholder="Select an AI model"
+                    className="bg-muted"
+                    requiredCapabilities={["chat"]}
+                    hideRoleRestricted={true}
+                    hideCapabilityMissing={true}
+                  />
                 </div>
                 <KnowledgeSection
                   useExternalKnowledge={useExternalKnowledge}
