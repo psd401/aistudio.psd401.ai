@@ -746,7 +746,7 @@ Use all this information to provide accurate and helpful responses about both wh
 
   // Start streaming
 
-  // Stream the response
+  // Stream the response with reasoning support
   const result = await streamText({
     model,
     messages: aiMessages,

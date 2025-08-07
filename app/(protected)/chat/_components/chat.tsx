@@ -50,6 +50,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   // Use Vercel AI SDK's useChat hook
   const { messages, input, handleInputChange, handleSubmit: handleChatSubmit, isLoading, stop, setMessages, setInput } = useChat({
     api: '/api/chat/stream-final',
+    streamProtocol: 'text',
     initialMessages,
     body: {
       modelId: selectedModel?.modelId,
@@ -284,6 +285,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     handleChatSubmit(e)
   }
 
+
   useEffect(() => {
     const abortController = new AbortController()
     
@@ -417,12 +419,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
             {messages.map((message) => (
               <Message 
                 key={message.id} 
-                message={{
-                  id: message.id,
-                  role: message.role === 'data' ? 'assistant' : message.role,
-                  content: typeof message.content === 'string' ? message.content : '',
-                  createdAt: message.createdAt
-                }} 
+                message={message} // Pass the message directly - Message component handles conversion
                 messageId={`message-${message.id}`}
               />
             ))}

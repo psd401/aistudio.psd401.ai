@@ -25,7 +25,7 @@ export function SimpleChat({ conversationId, initialMessages = [] }: SimpleChatP
   const { toast } = useToast();
   
   const { messages, input, handleInputChange, handleSubmit: handleChatSubmit, isLoading, reload, stop } = useChat({
-    api: '/api/chat',
+    api: '/api/chat/stream-final',
     id: conversationId?.toString(),
     initialMessages: initialMessages.map(msg => ({
       id: msg.id,
@@ -35,7 +35,7 @@ export function SimpleChat({ conversationId, initialMessages = [] }: SimpleChatP
     body: {
       conversationId,
     },
-    streamProtocol: 'text',
+    // Remove streamProtocol - let it use default for v5
     maxSteps: 10,
     onResponse: (response) => {
       if (!response.ok) {
@@ -129,12 +129,10 @@ export function SimpleChat({ conversationId, initialMessages = [] }: SimpleChatP
       <ScrollArea ref={scrollRef} className="flex-1 h-[calc(100vh-180px)] p-4">
         <div className="space-y-4">
           {messages.map((message) => (
-            <Message key={message.id} message={{
-              id: message.id,
-              role: message.role === 'data' ? 'assistant' : message.role,
-              content: typeof message.content === 'string' ? message.content : '',
-              createdAt: message.createdAt
-            }} />
+            <Message 
+              key={message.id} 
+              message={message} // Pass the message directly - Message component handles conversion
+            />
           ))}
           {messages.length === 0 && (
             <div className="text-center text-muted-foreground">
