@@ -18,6 +18,7 @@ import { createOpenAI } from '@ai-sdk/openai'
 // Removed fromNodeProviderChain - not needed when using default credential chain
 import { z } from 'zod'
 import logger from "@/lib/logger"
+import { ErrorFactories } from "@/lib/error-utils"
 
 interface ModelConfig {
   provider: string
@@ -182,7 +183,10 @@ export async function generateCompletion(
     });
 
     if (!result.text) {
-      throw new Error(`No content returned from ${modelConfig.provider}`);
+      throw ErrorFactories.externalServiceError(
+        modelConfig.provider,
+        new Error('No content returned from model')
+      );
     }
 
     return result.text;
@@ -191,10 +195,15 @@ export async function generateCompletion(
     if (error instanceof NoSuchToolError) {
       const errorWithToolName = error as { toolName?: string };
       logger.error('[generateCompletion] Tool not found:', errorWithToolName.toolName || 'unknown');
-      throw new Error(`AI tried to use unknown tool: ${errorWithToolName.toolName || 'unknown'}`);
+      throw ErrorFactories.externalServiceError(
+        'AI Model',
+        new Error(`AI tried to use unknown tool: ${errorWithToolName.toolName || 'unknown'}`)
+      );
     } else if (error instanceof InvalidArgumentError) {
       logger.error('[generateCompletion] Invalid arguments:', error);
-      throw new Error(`Invalid arguments: ${error.message}`);
+      throw ErrorFactories.validationFailed(
+        [{ field: 'arguments', value: 'invalid', message: error.message }]
+      );
     }
     
     throw error;
@@ -247,16 +256,16 @@ export async function generateStructuredOutput<T>(
   return result.object as T;
 }
 
-// Helper to create a tool from a definition
+/**
+ * @deprecated This function is not compatible with AI SDK v5 and will be removed.
+ * Use the new tool definition pattern from AI SDK v5 directly.
+ * @throws {Error} Always throws an error to prevent usage
+ */
 export function createTool(definition: ToolDefinition): CoreTool {
-  // In v5, tool() function has a different API
-  // Since this function is not currently used, we'll provide a temporary implementation
-  // that satisfies TypeScript while maintaining the interface
-  return {
-    description: definition.description,
-    parameters: definition.inputSchema,
-    execute: definition.execute
-  } as unknown as CoreTool;
+  throw ErrorFactories.sysConfigurationError(
+    'createTool is deprecated in AI SDK v5. Use the new tool definition pattern directly.',
+    { toolName: definition.name }
+  );
 }
 
 // Export error types for consumers

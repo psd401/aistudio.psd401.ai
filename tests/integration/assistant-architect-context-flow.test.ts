@@ -45,7 +45,7 @@ jest.mock('openai', () => ({
 }))
 jest.mock('ai', () => ({
   streamText: jest.fn().mockResolvedValue({
-    toDataStreamResponse: jest.fn().mockReturnValue(new Response())
+    toTextStreamResponse: jest.fn().mockReturnValue(new Response())
   }),
   createOpenAI: jest.fn().mockReturnValue(() => ({}))
 }))

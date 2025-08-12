@@ -9,7 +9,6 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { 
-  UIMessageV5, 
   extractTextFromParts, 
   extractReasoningFromParts, 
   hasReasoning,
@@ -19,10 +18,9 @@ import {
   ImagePart
 } from "@/types/ai-sdk-v5-types"
 import Image from "next/image"
-import type { Message } from "@ai-sdk/react"
 
 interface MessageProps {
-  message: UIMessageV5 | Message | Record<string, unknown> // Accept v5, AI SDK, and legacy formats
+  message: unknown // Accept any message format - will be converted by convertLegacyMessage
   /** Unique ID for the message for accessibility purposes */
   messageId?: string
 }
