@@ -35,7 +35,7 @@ export function SimpleChat({ conversationId, initialMessages = [] }: SimpleChatP
     body: {
       conversationId,
     },
-    // Remove streamProtocol - let it use default for v5
+    streamProtocol: 'text',
     maxSteps: 10,
     onResponse: (response) => {
       if (!response.ok) {

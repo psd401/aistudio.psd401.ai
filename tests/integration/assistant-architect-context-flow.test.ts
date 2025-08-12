@@ -32,20 +32,12 @@ jest.mock('@/lib/settings-manager', () => ({
     getOpenAI: jest.fn().mockResolvedValue('test-key')
   }
 }))
-jest.mock('openai', () => ({
-  default: jest.fn().mockImplementation(() => ({
-    chat: {
-      completions: {
-        create: jest.fn().mockResolvedValue({
-          choices: [{ message: { content: 'AI response' } }]
-        })
-      }
-    }
-  }))
-}))
 jest.mock('ai', () => ({
   streamText: jest.fn().mockResolvedValue({
     toTextStreamResponse: jest.fn().mockReturnValue(new Response())
+  }),
+  generateText: jest.fn().mockResolvedValue({
+    text: 'Test response'
   }),
   createOpenAI: jest.fn().mockReturnValue(() => ({}))
 }))
