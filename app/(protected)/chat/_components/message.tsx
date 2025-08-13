@@ -1,16 +1,26 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import { IconUser, IconRobot, IconThumbUp, IconThumbDown, IconCopy } from "@tabler/icons-react"
-import type { Message as MessageType } from "ai"
+import { IconUser, IconRobot, IconThumbUp, IconThumbDown, IconCopy, IconChevronDown, IconChevronUp } from "@tabler/icons-react"
+import { useState } from "react"
 import ReactMarkdown from "react-markdown"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
+import { 
+  extractTextFromParts, 
+  extractReasoningFromParts, 
+  hasReasoning,
+  convertLegacyMessage,
+  ToolCallPart,
+  FilePart,
+  ImagePart
+} from "@/types/ai-sdk-v5-types"
+import Image from "next/image"
 
 interface MessageProps {
-  message: MessageType
+  message: unknown // Accept any message format - will be converted by convertLegacyMessage
   /** Unique ID for the message for accessibility purposes */
   messageId?: string
 }
@@ -37,14 +47,26 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
   )
 }
 
-export function Message({ message, messageId }: MessageProps) {
+export function Message({ message: rawMessage, messageId }: MessageProps) {
   const { toast } = useToast()
+  const [showReasoning, setShowReasoning] = useState(false)
+  
+  // Convert message to v5 format if needed
+  const message = convertLegacyMessage(rawMessage)
   const isAssistant = message.role === "assistant"
   const uniqueId = messageId || `message-${message.id}`
   
+  // Extract content from parts
+  const textContent = extractTextFromParts(message.parts)
+  const reasoningContent = extractReasoningFromParts(message.parts)
+  const hasReasoningContent = hasReasoning(message)
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(message.content)
+    const contentToCopy = hasReasoningContent && showReasoning 
+      ? `Reasoning:\n${reasoningContent}\n\nResponse:\n${textContent}`
+      : textContent
+    
+    navigator.clipboard.writeText(contentToCopy)
       .then(() => toast({ title: "Copied to clipboard" }))
       .catch(() => toast({ title: "Failed to copy", variant: "destructive" }));
   };
@@ -82,6 +104,37 @@ export function Message({ message, messageId }: MessageProps) {
           >
             {isAssistant ? "Assistant" : "You"}
           </span>
+          
+          {/* Reasoning Section (for assistant messages with reasoning) */}
+          {isAssistant && hasReasoningContent && (
+            <div className="mb-3 border-l-2 border-muted pl-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowReasoning(!showReasoning)}
+                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+              >
+                {showReasoning ? (
+                  <>
+                    <IconChevronUp className="h-3 w-3 mr-1" />
+                    Hide reasoning
+                  </>
+                ) : (
+                  <>
+                    <IconChevronDown className="h-3 w-3 mr-1" />
+                    Show reasoning
+                  </>
+                )}
+              </Button>
+              {showReasoning && (
+                <div className="mt-2 text-sm text-muted-foreground italic">
+                  <ReactMarkdown>{reasoningContent}</ReactMarkdown>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Main content */}
           <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0">
             <ReactMarkdown
               components={{
@@ -137,9 +190,45 @@ export function Message({ message, messageId }: MessageProps) {
               }
             }}
           >
-            {message.content}
+            {textContent || (message.parts.length === 0 ? "..." : "")}
             </ReactMarkdown>
           </div>
+          
+          {/* Tool calls, files, and other part types rendering */}
+          {message.parts
+            .filter((part): part is ToolCallPart => part.type === 'tool-call')
+            .map((part, idx) => (
+              <div key={idx} className="mt-2 p-2 bg-muted/50 rounded text-xs">
+                🔧 Calling {part.toolName}...
+              </div>
+            ))}
+          
+          {message.parts
+            .filter((part): part is (FilePart | ImagePart) => part.type === 'file' || part.type === 'image')
+            .map((part, idx) => (
+              <div key={idx} className="mt-2">
+                {part.type === 'image' ? (
+                  <Image 
+                    src={(() => {
+                      const img = (part as ImagePart).image;
+                      // Only use string URLs for Next.js Image component
+                      if (typeof img === 'string') return img;
+                      // For other types, show a placeholder
+                      return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNTAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2NjYyIvPjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjI1MCIgeT0iMTUwIiBmaWxsPSIjOTk5IiBmb250LXNpemU9IjIwIj5JbWFnZTwvdGV4dD48L3N2Zz4=';
+                    })()} 
+                    alt="Uploaded image" 
+                    width={500}
+                    height={300}
+                    className="max-w-full rounded"
+                    style={{ width: 'auto', height: 'auto' }}
+                  />
+                ) : (
+                  <div className="p-2 bg-muted/50 rounded text-sm">
+                    📎 {(part as FilePart).filename || 'File attachment'}
+                  </div>
+                )}
+              </div>
+            ))}
         </div>
 
         {/* Action Buttons (Show on Hover, ONLY for Assistant) */}

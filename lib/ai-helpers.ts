@@ -4,17 +4,12 @@ import {
   generateObject,
   embed,
   embedMany,
-  tool,
   CoreMessage,
-  CoreTool,
+  Tool as CoreTool,
   StreamTextResult,
-  ToolExecutionError,
-  InvalidToolArgumentsError,
   NoSuchToolError,
-  ToolCallRepairError,
-  FinishReason,
-  CoreToolCall,
-  CoreToolResult
+  InvalidArgumentError,
+  FinishReason
 } from 'ai'
 import { createAzure } from '@ai-sdk/azure'
 import { google } from '@ai-sdk/google'
@@ -23,6 +18,7 @@ import { createOpenAI } from '@ai-sdk/openai'
 // Removed fromNodeProviderChain - not needed when using default credential chain
 import { z } from 'zod'
 import logger from "@/lib/logger"
+import { ErrorFactories } from "@/lib/error-utils"
 
 interface ModelConfig {
   provider: string
@@ -33,12 +29,13 @@ export interface StreamingOptions {
   onToken?: (token: string) => void
   onFinish?: (result: { 
     text?: string; 
-    toolCalls?: CoreToolCall<string, unknown>[]; 
-    toolResults?: CoreToolResult<string, unknown, unknown>[]; 
+    toolCalls?: unknown[]; 
+    toolResults?: unknown[]; 
     finishReason?: FinishReason; 
     usage?: { 
-      promptTokens?: number; 
-      completionTokens?: number 
+      inputTokens?: number; 
+      outputTokens?: number;
+      totalTokens?: number 
     } 
   }) => void
   onError?: (error: Error) => void
@@ -47,8 +44,8 @@ export interface StreamingOptions {
 export interface ToolDefinition {
   name: string
   description: string
-  parameters: z.ZodType<unknown>
-  execute: (args: unknown) => Promise<unknown>
+  inputSchema: z.ZodType<unknown>
+  execute: (input: unknown) => Promise<unknown>
 }
 
 // Get the appropriate model client based on provider
@@ -182,26 +179,31 @@ export async function generateCompletion(
     const result = await generateText({
       model,
       messages,
-      tools,
-      maxSteps: tools ? 5 : undefined // Allow multi-step tool calling
+      tools
     });
 
     if (!result.text) {
-      throw new Error(`No content returned from ${modelConfig.provider}`);
+      throw ErrorFactories.externalServiceError(
+        modelConfig.provider,
+        new Error('No content returned from model')
+      );
     }
 
     return result.text;
   } catch (error) {
     // Handle specific AI SDK errors
     if (error instanceof NoSuchToolError) {
-      logger.error('[generateCompletion] Tool not found:', error.toolName);
-      throw new Error(`AI tried to use unknown tool: ${error.toolName}`);
-    } else if (error instanceof InvalidToolArgumentsError) {
-      logger.error('[generateCompletion] Invalid tool arguments:', error);
-      throw new Error(`Invalid arguments for tool ${error.toolName}: ${error.message}`);
-    } else if (error instanceof ToolExecutionError) {
-      logger.error('[generateCompletion] Tool execution failed:', error);
-      throw new Error(`Tool ${error.toolName} failed: ${error.message}`);
+      const errorWithToolName = error as { toolName?: string };
+      logger.error('[generateCompletion] Tool not found:', errorWithToolName.toolName || 'unknown');
+      throw ErrorFactories.externalServiceError(
+        'AI Model',
+        new Error(`AI tried to use unknown tool: ${errorWithToolName.toolName || 'unknown'}`)
+      );
+    } else if (error instanceof InvalidArgumentError) {
+      logger.error('[generateCompletion] Invalid arguments:', error);
+      throw ErrorFactories.validationFailed(
+        [{ field: 'arguments', value: 'invalid', message: error.message }]
+      );
     }
     
     throw error;
@@ -222,10 +224,9 @@ export async function streamCompletion(
       model,
       messages,
       tools,
-      maxSteps: tools ? 5 : undefined,
       onChunk: ({ chunk }) => {
         if (chunk.type === 'text-delta' && options?.onToken) {
-          options.onToken(chunk.textDelta);
+          options.onToken(chunk.text);
         }
       },
       onFinish: options?.onFinish
@@ -249,28 +250,28 @@ export async function generateStructuredOutput<T>(
   const result = await generateObject({
     model,
     messages,
-    schema,
-    mode: 'json' // Use JSON mode for better compatibility
-  });
+    schema
+  } as Parameters<typeof generateObject>[0]);
 
-  return result.object;
+  return result.object as T;
 }
 
-// Helper to create a tool from a definition
+/**
+ * @deprecated This function is not compatible with AI SDK v5 and will be removed.
+ * Use the new tool definition pattern from AI SDK v5 directly.
+ * @throws {Error} Always throws an error to prevent usage
+ */
 export function createTool(definition: ToolDefinition): CoreTool {
-  return tool({
-    description: definition.description,
-    parameters: definition.parameters,
-    execute: definition.execute
-  });
+  throw ErrorFactories.sysConfigurationError(
+    'createTool is deprecated in AI SDK v5. Use the new tool definition pattern directly.',
+    { toolName: definition.name }
+  );
 }
 
 // Export error types for consumers
 export {
-  ToolExecutionError,
-  InvalidToolArgumentsError,
   NoSuchToolError,
-  ToolCallRepairError
+  InvalidArgumentError
 };
 
 // Embedding configuration interface

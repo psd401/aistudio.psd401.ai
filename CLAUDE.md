@@ -86,6 +86,7 @@ npx cdk deploy --all    # Deploy all stacks
 
 ### Application Stack
 - **Framework**: Next.js 15+ with App Router
+- **AI SDK**: Vercel AI SDK v5.0+ with streaming, reasoning models, and enhanced tool support
 - **Authentication**: AWS Cognito + NextAuth v5 (JWT strategy)
 - **Database**: AWS Aurora Serverless v2 PostgreSQL via RDS Data API
 - **Hosting**: AWS Amplify with SSR compute (WEB_COMPUTE platform)
@@ -334,6 +335,40 @@ The codebase uses ESLint to automatically enforce logging standards:
 - `/app/api/**/*.ts` - API routes (strict logging required)
 - `/lib/**/*.ts` - Library code (must use logger)
 - `/components/**/*.tsx` - Client components (console.error allowed)
+
+## AI SDK v5 Implementation
+
+The application uses Vercel AI SDK v5.0+ with the following key features and patterns:
+
+### Key Changes from v4 to v5
+- **React Hooks**: Import from `@ai-sdk/react` instead of `ai/react`
+- **Message Format**: Uses UIMessage with parts array for multi-modal content
+- **Streaming**: Three-phase pattern with `*-start`, `*-delta`, `*-end` events
+- **Token Usage**: Properties renamed (`inputTokens`, `outputTokens`, `totalTokens`)
+- **Tool System**: Property names updated (`input` instead of `args`, `output` instead of `result`)
+
+### Supported Features
+- **Reasoning Models**: Support for o1, o3, DeepSeek R1 with reasoning extraction
+- **Enhanced Tools**: Dynamic tools, tool streaming, code interpreter support
+- **Multi-Modal**: File attachments, images, and structured content support
+- **Provider Support**: OpenAI, Azure, Google, Amazon Bedrock with unified interface
+
+### Implementation Patterns
+```typescript
+// Import from @ai-sdk/react for UI components
+import { useChat } from '@ai-sdk/react'
+
+// Tool definitions use inputSchema instead of parameters
+export interface ToolDefinition {
+  name: string
+  description: string
+  inputSchema: z.ZodType<unknown>
+  execute: (input: unknown) => Promise<unknown>
+}
+
+// Streaming responses use toTextStreamResponse
+return result.toTextStreamResponse({ headers })
+```
 
 ## Logging Standards
 
