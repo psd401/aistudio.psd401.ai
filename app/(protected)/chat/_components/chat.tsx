@@ -1,6 +1,6 @@
 "use client"
 
-import { useChat } from 'ai/react'
+import { useChat } from '@ai-sdk/react'
 import { useEffect, useRef, useState } from "react"
 import { Message } from "./message"
 import { ChatInput } from "./chat-input"
@@ -14,7 +14,9 @@ import { Button } from "@/components/ui/button"
 import { IconPlayerStop } from "@tabler/icons-react"
 import { FileTextIcon } from "lucide-react"
 import type { SelectAiModel } from "@/types"
+import type { Message as AIMessage } from "@ai-sdk/react"
 import { RefreshCwIcon } from "lucide-react"
+import { useConversationContext } from "./conversation-context"
 
 interface Document {
   id: string
@@ -45,24 +47,44 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   const [processingDocumentId, setProcessingDocumentId] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
+  const { refreshConversations } = useConversationContext()
   const hiddenFileInputRef = useRef<HTMLInputElement>(null)
   
-  // Use Vercel AI SDK's useChat hook
-  const { messages, input, handleInputChange, handleSubmit: handleChatSubmit, isLoading, stop, setMessages, setInput } = useChat({
+  // AI SDK v5: Use same pattern as working assistant-architect-chat component
+  const { 
+    messages, 
+    input, 
+    handleInputChange, 
+    handleSubmit: handleChatSubmit, 
+    isLoading, 
+    stop, 
+    setMessages, 
+    setInput 
+  } = useChat({
     api: '/api/chat/stream-final',
-    initialMessages,
+    initialMessages: initialMessages.map(msg => ({
+      id: msg.id,
+      role: msg.role,
+      content: msg.content
+    })),
+    // AI SDK v5: Body as object (not function) - same as working component
     body: {
-      modelId: selectedModel?.modelId,
+      modelId: selectedModel?.modelId || selectedModel?.id,
       conversationId: currentConversationId,
       documentId: currentConversationId === undefined && processingDocumentId ? processingDocumentId : undefined
     },
-    onResponse: (response) => {
+    // AI SDK v5: Handle response headers and metadata
+    onResponse: (response: Response) => {
       // Get conversation ID from header
       const headerConversationId = response.headers.get('X-Conversation-Id')
       if (headerConversationId && !currentConversationId) {
         const newId = parseInt(headerConversationId)
         setCurrentConversationId(newId)
         window.history.pushState({}, '', `/chat?conversation=${newId}`)
+        
+        // Trigger conversation refresh for sidebar
+        refreshConversations()
+        
         if (processingDocumentId) {
           linkUnlinkedDocuments(newId).then(() => {
             setProcessingDocumentId(null)
@@ -70,13 +92,18 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         }
       }
     },
-    onError: (error) => {
+    // AI SDK v5: Handle streaming completion (same pattern as working component)
+    onFinish: () => {
+      // Message streaming completed
+    },
+    // AI SDK v5: Error handling (same pattern as working component)
+    onError: (error: Error) => {
       toast({
         title: "Error",
         description: error.message || "Failed to send message",
         variant: "destructive"
       })
-    }
+    },
   })
 
   // Initialize component state
@@ -87,7 +114,11 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     
     if (initialConversationId) {
       // Load existing conversation
-      setMessages(initialMessages)
+      setMessages(initialMessages.map(msg => ({
+        id: msg.id,
+        role: msg.role,
+        content: msg.content
+      })))
       fetchDocuments(initialConversationId, abortController.signal)
     } else {
       // New chat - ensure everything is cleared
@@ -147,7 +178,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         setDocuments([])
       }
     } catch {
-      // console.error('[fetchDocuments] Error:', _error)
       setDocuments([])
     }
   }
@@ -187,7 +217,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         
         fetchDocuments(currentConversationId)
       } catch {
-        // console.error("[handleDocumentUpload] Error linking document:", _error)
         toast({
           title: "Warning",
           description: "Document uploaded but not linked to conversation.",
@@ -228,11 +257,10 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         })
         
         if (!response.ok) {
-          // console.error(`Failed to link document ${doc.id}`)
           continue
         }
       } catch {
-        // console.error(`Error linking document ${doc.id}:`, _error)
+        // Continue to next document
       }
     }
     
@@ -252,7 +280,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       
       return true
     } catch (error) {
-      // console.error('[handleDocumentDelete] Error:', error)
       toast({
         title: "Error",
         description: "Failed to delete document",
@@ -294,7 +321,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         })
         
         if (!response.ok) {
-          // console.error(`[loadModels] Error: ${response.status} ${response.statusText}`)
           return
         }
         
@@ -328,7 +354,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         if (error instanceof Error && error.name === 'AbortError') {
           return
         }
-        // console.error('[loadModels] Error:', error)
         toast({
           title: "Error",
           description: "Failed to load models",
@@ -414,7 +439,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       <div className="flex flex-1 overflow-hidden">
         <ScrollArea ref={scrollRef} className="flex-1 p-4 bg-white">
           <div role="list" aria-label="Chat messages">
-            {messages.map((message) => (
+            {messages.map((message: AIMessage) => (
               <Message 
                 key={message.id} 
                 message={message} 
