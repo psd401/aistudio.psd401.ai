@@ -14,6 +14,10 @@ import {
 import { useState } from "react"
 import type { UIMessage as MessageType } from "@ai-sdk/react"
 import type { SelectMessage } from "@/types/schema-types"
+
+// Define proper types for message parts
+type TextPart = { type: 'text'; text: string };
+type MessagePart = TextPart | { type: string; [key: string]: unknown };
 import ReactMarkdown from "react-markdown"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
@@ -67,18 +71,25 @@ export function Message({ message, messageId }: MessageProps) {
   
   // AI SDK v2 format with parts array
   if ('parts' in message && Array.isArray(message.parts)) {
-    content = message.parts
-      .filter((part: { type?: string }) => part.type === 'text')
-      .map((part: { text?: string }) => part.text || '')
+    const parts = message.parts as MessagePart[];
+    content = parts
+      .filter((part): part is TextPart => part.type === 'text')
+      .map(part => part.text)
       .join('')
   }
   // Legacy format with content string
-  else if (typeof message.content === 'string') {
-    content = message.content
-  }
-  // Legacy format with content array
-  else if (message.content && Array.isArray(message.content)) {
-    content = (message.content as Array<string | { text?: string }>).map((c) => typeof c === 'string' ? c : c.text || '').join('')
+  else if ('content' in message) {
+    const msg = message as SelectMessage;
+    if (msg.content) {
+      if (typeof msg.content === 'string') {
+        content = msg.content;
+      } else if (Array.isArray(msg.content)) {
+        const contentArray = msg.content as Array<string | { text?: string }>;
+        content = contentArray.map(c => 
+          typeof c === 'string' ? c : c.text || ''
+        ).join('');
+      }
+    }
   }
   
   // Check for reasoning content and parse if needed

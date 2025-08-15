@@ -1,4 +1,4 @@
-import { streamText, LanguageModel } from 'ai';
+import { streamText, LanguageModel, convertToModelMessages, UIMessage } from 'ai';
 import { createAzure } from '@ai-sdk/azure';
 import { google } from '@ai-sdk/google';
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
@@ -256,11 +256,8 @@ export async function POST(req: Request) {
       return new Response('Unauthorized', { status: 401 });
     }
 
-    const { messages, modelId: textModelId, modelProvider: forcedProvider, conversationId: existingConversationId, documentId, source, executionId, context } = await req.json();
-    log.info("Model selection received", {
-      requestedModelId: String(textModelId),
-      requestedProvider: forcedProvider || null
-    });
+    const body = await req.json();
+  const { messages, modelId: textModelId, conversationId: existingConversationId, documentId, source, executionId, context } = body;
     
     // Process chat request
 
@@ -291,11 +288,21 @@ export async function POST(req: Request) {
       { name: 'modelId', value: { stringValue: String(textModelId) } }
     ]);
   }
-  log.info("Model lookup result", { found: modelResult.length > 0, byNumeric: isNumericId });
   
-  // If model not found, return a clear error (no silent fallback)
+  // If model not found, fall back to first available chat-enabled model
   if (!modelResult.length) {
-    return new Response("Selected model not found or not enabled for chat", { status: 404 });
+    const fallbackQuery = `
+      SELECT id, name, provider, model_id
+      FROM ai_models
+      WHERE active = true AND chat_enabled = true
+      ORDER BY id
+      LIMIT 1
+    `;
+    modelResult = await executeSQL<FormattedRow>(fallbackQuery);
+    
+    if (!modelResult.length) {
+      return new Response("No chat-enabled models available", { status: 503 });
+    }
   }
   
   const aiModel = modelResult[0];
@@ -385,13 +392,19 @@ export async function POST(req: Request) {
   let model: LanguageModel;
   
   try {
-    const providerToUse = forcedProvider || aiModel.provider;
-    switch (providerToUse) {
+    switch (aiModel.provider) {
       case 'openai': {
         const key = await Settings.getOpenAI();
-        if (!key) throw ErrorFactories.sysConfigurationError('OpenAI API key not configured');
+        log.info('[stream-final] OpenAI key retrieval', { hasKey: !!key, keyLength: key?.length });
+        if (!key) {
+          log.error('[stream-final] OpenAI API key not found in settings');
+          throw ErrorFactories.sysConfigurationError('OpenAI API key not configured');
+        }
         const openai = createOpenAI({ apiKey: key });
-        model = openai(ensureRDSString(aiModel.modelId)) as unknown as LanguageModel;
+        const modelId = ensureRDSString(aiModel.modelId);
+        log.info('[stream-final] Using OpenAI model', { modelId });
+        model = openai(modelId);
+        log.info('[stream-final] OpenAI model initialized successfully');
         break;
       }
     case 'azure': {
@@ -409,8 +422,17 @@ export async function POST(req: Request) {
       break;
     }
     case 'amazon-bedrock': {
+      log.info('[stream-final] Starting Bedrock initialization for model:', aiModel.modelId);
+      
       try {
         const config = await Settings.getBedrock();
+        log.info('[stream-final] Bedrock settings retrieved:', {
+          hasAccessKey: !!config.accessKeyId,
+          hasSecretKey: !!config.secretAccessKey,
+          region: config.region || 'us-east-1',
+          environment: process.env.AWS_EXECUTION_ENV || 'local',
+          lambdaFunction: process.env.AWS_LAMBDA_FUNCTION_NAME
+        });
         
         const bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
           region: config.region || 'us-east-1'
@@ -421,16 +443,27 @@ export async function POST(req: Request) {
         
         if (config.accessKeyId && config.secretAccessKey && !isAwsLambda) {
           // Only use stored credentials for local development
+          log.info('[stream-final] Using explicit credentials from settings (local dev)');
           bedrockOptions.accessKeyId = config.accessKeyId;
           bedrockOptions.secretAccessKey = config.secretAccessKey;
         } else {
           // AWS environment or no stored credentials - let SDK handle credentials automatically
+          log.info('[stream-final] Using default AWS credential chain', { isAwsLambda });
           // Don't set any credentials - let the SDK use the default credential provider chain
           // This will use IAM role credentials in Lambda, which work properly
         }
         
+        log.info('[stream-final] Creating Bedrock client with options:', {
+          region: bedrockOptions.region,
+          hasAccessKeyId: !!bedrockOptions.accessKeyId,
+          hasSecretAccessKey: !!bedrockOptions.secretAccessKey,
+          hasSessionToken: !!bedrockOptions.sessionToken
+        });
+        
         const bedrock = createAmazonBedrock(bedrockOptions);
         model = bedrock(ensureRDSString(aiModel.modelId)) as unknown as LanguageModel;
+        
+        log.info('[stream-final] Bedrock model created successfully');
       } catch (error) {
         log.error('[stream-final] BEDROCK INITIALIZATION FAILED:', {
           modelId: aiModel.modelId,
@@ -458,7 +491,7 @@ export async function POST(req: Request) {
       break;
     }
     default:
-      throw ErrorFactories.validationFailed([{ field: 'provider', message: `Unknown provider: ${ensureRDSString(String(providerToUse))}` }]);
+      throw ErrorFactories.validationFailed([{ field: 'provider', message: `Unknown provider: ${ensureRDSString(aiModel.provider)}` }]);
     }
   } catch (modelError) {
     log.error('[stream-final] Model initialization error:', modelError);
@@ -711,26 +744,32 @@ Use all this information to provide accurate and helpful responses about both wh
   systemPrompt += executionContext;
   systemPrompt += knowledgeContext;
 
-  const aiMessages = [
-    { role: 'system' as const, content: systemPrompt },
-    // Include context for new conversations or if we have full context from retrieval
-    ...(fullContext && allMessages.length === 1 ? [{ role: 'system' as const, content: `Initial execution context: ${JSON.stringify(fullContext)}` }] : []),
-    ...allMessages.map(msg => ({ 
-      role: msg.role === 'user' ? 'user' as const : 'assistant' as const, 
-      content: String(msg.content) 
-    }))
-  ];
+  // Prepare messages for streaming - exactly as shown in AI SDK docs
+  // Use the messages directly from the request body
 
   // Start streaming
 
   // Stream the response with reasoning support
+  log.info('[stream-final] About to call streamText', {
+    modelProvider: aiModel.provider,
+    modelId: aiModel.modelId,
+    messageCount: messages ? messages.length : 0,
+    lastMessage: messages && messages.length > 0 ? messages[messages.length - 1]?.content?.substring(0, 100) : 'no messages'
+  });
 
   // streamText returns a streaming result immediately - don't await it
   const result = streamText({
-    model,
-    messages: aiMessages,
-    onFinish: async ({ text, reasoning, usage }) => {
+      model,
+      system: systemPrompt,
+      messages: convertToModelMessages(messages),
+      onFinish: async ({ text, reasoning, usage }) => {
         // Stream finished
+        log.info('[stream-final] Stream finished', { 
+          hasText: !!text, 
+          textLength: text?.length || 0,
+          hasReasoning: !!reasoning,
+          hasUsage: !!usage 
+        });
         
         // Save assistant message with model tracking
         if (text && text.length > 0) {
@@ -752,9 +791,17 @@ Use all this information to provide accurate and helpful responses about both wh
             ]
           );
           // Assistant response saved with model tracking
+          log.info('Assistant message saved with model tracking', {
+            conversationId,
+            modelId: aiModel.id,
+            hasReasoning: !!reasoning,
+            hasUsage: !!usage
+          });
         } catch (error) {
           log.error('[stream-final] Error saving response:', error);
         }
+      } else {
+        log.warn('[stream-final] No text to save - streaming completed without content');
       }
     }
   });
@@ -763,13 +810,14 @@ Use all this information to provide accurate and helpful responses about both wh
   log.info("Stream started successfully", { conversationId });
   timer({ status: "success", conversationId });
   
-  // Use toUIMessageStreamResponse for useChat compatibility
-  return result.toUIMessageStreamResponse({
-    headers: {
-      'X-Conversation-Id': conversationId.toString(),
-      'X-Request-Id': requestId
-    }
-  });
+  // Return the stream for useChat compatibility
+  // According to AI SDK v5 docs, streamText result has toUIMessageStreamResponse method
+  const response = result.toUIMessageStreamResponse();
+  // Add conversation ID header for new conversations
+  if (!existingConversationId && conversationId) {
+    response.headers.set('X-Conversation-Id', conversationId.toString());
+  }
+  return response;
   } catch (error) {
     timer({ status: "error" });
     

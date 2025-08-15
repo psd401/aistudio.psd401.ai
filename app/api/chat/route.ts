@@ -123,8 +123,21 @@ export async function POST(req: Request) {
     }
     
     // 6. Handle conversation (create/update)
+    // Convert UIMessage to ChatMessage format    
+    const chatMessages = messages.map((msg: { role: string; parts?: unknown[]; content?: string }) => ({
+      role: msg.role as 'user' | 'assistant' | 'system',
+      parts: msg.parts?.map((p: unknown) => {
+        const part = p as { type?: string; text?: string };
+        return {
+          type: part.type || 'text',
+          text: part.text
+        };
+      }),
+      content: msg.content
+    }));
+    
     const conversationId = await handleConversation({
-      messages,
+      messages: chatMessages,
       modelId: modelConfig.id,
       conversationId: existingConversationId,
       userId: currentUser.data.user.id,
@@ -158,7 +171,16 @@ export async function POST(req: Request) {
       executionId: validateExecutionId(executionId),
       conversationId,
       documentId,
-      userMessage: messages[messages.length - 1].content,
+      userMessage: (() => {
+        const lastMsg = messages[messages.length - 1] as { parts?: Array<{ type?: string; text?: string }>; content?: string };
+        // Try to get content from parts first (AI SDK v2)
+        if (lastMsg.parts && lastMsg.parts.length > 0) {
+          const textPart = lastMsg.parts.find(p => p.type === 'text');
+          if (textPart?.text) return textPart.text;
+        }
+        // Fallback to content field
+        return lastMsg.content || '';
+      })(),
       session: { sub: session.sub },
       existingContext: {
         repositoryIds,

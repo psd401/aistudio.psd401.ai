@@ -4,7 +4,7 @@ import { ensureRDSNumber, ensureRDSString } from '@/lib/type-helpers';
 import type { SqlParameter } from "@aws-sdk/client-rds-data";
 interface ChatMessage {
   content?: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   parts?: Array<{ type: string; text?: string }>;
 }
 
@@ -61,7 +61,7 @@ export async function handleConversation(
     if (messages[0]) {
       // Handle AI SDK v2 format with parts array
       if ('parts' in messages[0] && Array.isArray(messages[0].parts)) {
-        const textPart = messages[0].parts.find((part: any) => part.type === 'text');
+        const textPart = messages[0].parts.find((part: { type?: string; text?: string }) => part.type === 'text');
         if (textPart && textPart.text) {
           title = textPart.text.substring(0, 100);
         }
@@ -136,7 +136,7 @@ async function createConversation(params: {
  */
 async function saveUserMessage(
   conversationId: number,
-  message: ChatMessage | any
+  message: ChatMessage
 ): Promise<void> {
   // Extract text content from message (AI SDK v2 format or legacy)
   let content = '';
@@ -144,7 +144,7 @@ async function saveUserMessage(
   if (message) {
     // Handle AI SDK v2 format with parts array
     if ('parts' in message && Array.isArray(message.parts)) {
-      const textPart = message.parts.find((part: any) => part.type === 'text');
+      const textPart = message.parts.find((part: { type?: string; text?: string }) => part.type === 'text');
       if (textPart && textPart.text) {
         content = textPart.text;
       }

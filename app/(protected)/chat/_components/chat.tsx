@@ -1,6 +1,6 @@
 "use client"
 
-import { useChat } from '@ai-sdk/react'
+import { useChat, type UseChatOptions, type UIMessage } from '@ai-sdk/react'
 import { useEffect, useRef, useState, useCallback } from "react"
 import { Message } from "./message"
 import { ChatInput } from "./chat-input"
@@ -10,7 +10,7 @@ import { DocumentList } from "./document-list"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/components/ui/use-toast"
 import { Button } from "@/components/ui/button"
-import { IconPlayerStop, IconSparkles, IconLoader2 } from "@tabler/icons-react"
+import { IconPlayerStop, IconSparkles, IconLoader2, IconBrain } from "@tabler/icons-react"
 import { FileTextIcon, RefreshCwIcon } from "lucide-react"
 import type { SelectAiModel } from "@/types"
 import { useConversationContext } from "./conversation-context"
@@ -82,7 +82,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     pendingDocumentRef.current = pendingDocument
   }, [pendingDocument])
   
-  // AI SDK v5: Simplified useChat configuration
+  // AI SDK v2: Standard useChat configuration following documentation
   const { 
     messages, 
     sendMessage,
@@ -92,26 +92,25 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     regenerate,
     setMessages
   } = useChat({
-    onResponse: (response: Response) => {
-      const header = response.headers.get('X-Conversation-Id')
-      if (header) {
-        const newId = parseInt(header, 10)
-        if (!Number.isNaN(newId)) {
-          if (!conversationIdRef.current) {
-            setCurrentConversationId(newId)
-          }
-          conversationIdRef.current = newId
-        }
-      }
-    },
     onError: (error: Error) => {
       toast({
         title: "Error",
         description: error.message || "Failed to send message",
         variant: "destructive"
       })
+    },
+    onResponse: (response: Response) => {
+      // Handle conversation ID from response headers
+      const header = response.headers.get('X-Conversation-Id')
+      if (header) {
+        const newId = parseInt(header, 10)
+        if (!Number.isNaN(newId)) {
+          setCurrentConversationId(newId)
+          conversationIdRef.current = newId
+        }
+      }
     }
-  })
+  } as UseChatOptions<UIMessage>)
 
   // Initialize component state
   useEffect(() => {
@@ -279,6 +278,10 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     
     // AI SDK v2: sendMessage with message object and options
     const messageId = nanoid();
+    
+    // Clear input immediately for better UX
+    setInput('')
+    
     await sendMessage({
       id: messageId,
       role: 'user' as const,
@@ -291,8 +294,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         source: "chat"
       }
     })
-    
-    setInput('')
   }, [input, selectedModel, sendMessage, toast, pendingDocument?.id])
 
   // Load models on mount
@@ -435,6 +436,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     }
   }, [models, initialConversationId, initialMessages, selectedModel, setSelectedModel])
 
+
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     if (scrollRef.current) {
@@ -459,36 +461,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     }
   }
 
-  // Ensure unique keys for messages - use index as stable key
-  const messagesWithKeys = messages
-    .filter(msg => {
-      // Filter out null/undefined messages and messages with no parts and no valid role
-      if (!msg) return false
-      // Keep messages that have parts (AI SDK v2) OR a valid role
-      const hasParts = msg.parts && Array.isArray(msg.parts) && msg.parts.length > 0
-      const hasValidRole = msg.role === 'user' || msg.role === 'assistant'
-      return hasParts || hasValidRole
-    })
-    .map((msg, index) => {
-      // If message has a valid ID, use it; otherwise use index-based key
-      const hasValidId = msg.id && typeof msg.id === 'string' && msg.id.trim() !== ''
-      
-      if (hasValidId) {
-        return msg
-      }
-      
-      // For messages without valid IDs, create a stable key based on index and role
-      const role = msg.role || 'unknown'
-      const partsPreview = msg.parts && msg.parts.length > 0 && msg.parts[0].text 
-        ? msg.parts[0].text.substring(0, 20) 
-        : 'empty'
-      const stableKey = `msg-${index}-${role}-${partsPreview}`
-      
-      return {
-        ...msg,
-        id: stableKey
-      }
-    })
 
   return (
     <div className="flex flex-col h-full bg-gradient-to-br from-background via-background to-muted/20">
@@ -540,8 +512,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         {/* Messages Area - Independent scroll */}
         <div className="flex-1 flex flex-col min-h-0">
           <ScrollArea ref={scrollRef} className="flex-1 p-6">
-            <AnimatePresence mode="popLayout">
-              {messages.length === 0 && status !== 'streaming' && (
+            <AnimatePresence>
+              {messages.length === 0 && (
                 <motion.div 
                   key="empty-state"
                   initial={{ opacity: 0, y: 20 }}
@@ -562,61 +534,29 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                 </motion.div>
               )}
               
-              <div key="messages-list" role="list" aria-label="Chat messages" className="space-y-4">
-                {messagesWithKeys.length > 0 && messagesWithKeys.map((message, index) => {
-                  // Use the ID that was already generated in messagesWithKeys
-                  const messageKey = message.id
-                  
-                  return (
-                    <motion.div
-                      key={messageKey}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: Math.min(index * 0.05, 0.3) }}
-                    >
-                      <Message 
-                        message={message} 
-                        messageId={messageKey}
-                      />
-                    </motion.div>
-                  )
-                })}
+              {/* Messages list - following AI SDK documentation pattern */}
+              <div className="space-y-4">
+                {messages.map((message) => (
+                  <Message 
+                    key={message.id}
+                    message={message} 
+                    messageId={message.id}
+                  />
+                ))}
                 
-                {/* Enhanced loading indicator */}
+                {/* Standard loading indicator based on status */}
                 {status === 'streaming' && (
-                  <motion.div
-                    key="loading-indicator"
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="flex items-center space-x-3 p-4 rounded-lg bg-primary/5 border border-primary/20"
-                  >
-                    <div className="relative">
-                      <IconLoader2 className="h-5 w-5 text-primary animate-spin" />
-                      <div className="absolute inset-0 bg-primary/20 blur-xl animate-pulse" />
-                    </div>
-                    <div className="flex space-x-1">
-                      <span className="text-sm text-muted-foreground">
-                        {selectedModel?.name || 'AI'} is thinking
-                      </span>
-                      <motion.span
-                        animate={{ opacity: [0, 1, 0] }}
-                        transition={{ repeat: Infinity, duration: 1.5 }}
-                        className="text-primary"
-                      >
-                        ...
-                      </motion.span>
-                    </div>
-                  </motion.div>
+                  <div className="flex items-center gap-2 px-4 py-2 text-muted-foreground">
+                    <IconLoader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-sm">
+                      {selectedModel?.name || 'AI'} is responding...
+                    </span>
+                  </div>
                 )}
                 
                 {/* Error display */}
                 {error && (
-                  <motion.div
-                    key="error-indicator"
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive"
-                  >
+                  <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive">
                     <p className="text-sm font-medium">Error occurred</p>
                     <p className="text-xs mt-1">{error.message}</p>
                     <Button
@@ -627,7 +567,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                     >
                       Retry
                     </Button>
-                  </motion.div>
+                  </div>
                 )}
               </div>
             </AnimatePresence>

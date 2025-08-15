@@ -46,7 +46,6 @@ export function ConversationsList() {
   const pathname = usePathname()
   const { toast } = useToast()
   const { registerRefreshFunction } = useConversationContext()
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const lastFetchTimeRef = useRef<number>(0)
 
   const loadConversations = useCallback(async () => {
@@ -103,18 +102,11 @@ export function ConversationsList() {
     
     const unregister = registerRefreshFunction(refreshConversations)
     
-    // Reduced polling interval for better UX
-    pollIntervalRef.current = setInterval(() => {
-      if (!document.hidden && !isRefreshing) {
-        refreshConversations()
-      }
-    }, 60000) // Poll every 60 seconds
+    // Disable auto-polling to avoid unexpected UI refreshes
+    // Users can manually refresh via the refresh button
     
     return () => {
       unregister()
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-      }
     }
   }, [refreshConversations, registerRefreshFunction, isRefreshing, loadConversations])
 
