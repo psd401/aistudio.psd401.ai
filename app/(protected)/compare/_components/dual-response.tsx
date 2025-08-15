@@ -14,7 +14,7 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 interface ModelResponse {
   model: SelectAiModel | null
   response: string
-  isLoading: boolean
+  status: 'ready' | 'submitted' | 'streaming' | 'error'
   error?: string
 }
 
@@ -44,7 +44,7 @@ export function DualResponse({
   }
 
   const renderResponse = (response: ModelResponse, modelKey: 'model1' | 'model2', onStop: () => void) => {
-    const hasContent = response.response || response.error || response.isLoading
+    const hasContent = response.response || response.error || response.status !== 'ready'
 
     return (
       <div className="flex flex-col h-full">
@@ -53,7 +53,7 @@ export function DualResponse({
             {response.model?.name || 'Select a model'}
           </h3>
           <div className="flex items-center gap-2">
-            {response.isLoading && (
+            {(response.status === 'submitted' || response.status === 'streaming') && (
               <Button
                 onClick={onStop}
                 size="sm"
@@ -123,10 +123,10 @@ export function DualResponse({
             </div>
           )}
           
-          {response.isLoading && !response.response && (
+          {(response.status === 'submitted' || (response.status === 'streaming' && !response.response)) && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-              <span>Generating response...</span>
+              <span>{response.status === 'submitted' ? 'Thinking...' : 'Generating response...'}</span>
             </div>
           )}
         </ScrollArea>

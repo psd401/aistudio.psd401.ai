@@ -1,18 +1,11 @@
 import { NextRequest } from 'next/server'
-import { streamText, LanguageModel } from 'ai'
-import { createAzure } from '@ai-sdk/azure'
-import { google } from '@ai-sdk/google'
-import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
-import { createOpenAI } from '@ai-sdk/openai'
-// Removed fromNodeProviderChain - not needed when using default credential chain
+import { streamText } from 'ai'
 import { getServerSession } from "@/lib/auth/server-session"
 import { hasToolAccess } from "@/utils/roles"
 import { executeSQL } from "@/lib/db/data-api-adapter"
-import { Settings } from "@/lib/settings-manager"
 import { createLogger, generateRequestId, startTimer } from "@/lib/logger"
-import { ErrorFactories } from "@/lib/error-utils"
-import { ensureRDSString } from "@/lib/type-helpers"
-import { transformSnakeToCamel } from "@/lib/db/field-mapper"
+import { createProviderModel } from "../chat/lib/provider-factory"
+import { getModelConfig } from "../chat/lib/conversation-handler"
 
 export async function POST(req: NextRequest) {
   const requestId = generateRequestId();
@@ -77,18 +70,12 @@ export async function POST(req: NextRequest) {
 
     const userId = Number(userResult[0].id)
 
-    // Get models from database
-    const modelsRaw = await executeSQL(
-      `SELECT id, model_id, provider, name FROM ai_models 
-       WHERE model_id IN (:model1Id, :model2Id) AND active = true AND chat_enabled = true`,
-      [
-        { name: 'model1Id', value: { stringValue: model1Id } },
-        { name: 'model2Id', value: { stringValue: model2Id } }
-      ]
-    )
+    // Get model configurations using the same logic as chat
+    const model1Config = await getModelConfig(model1Id)
+    const model2Config = await getModelConfig(model2Id)
 
-    if (modelsRaw.length !== 2) {
-      log.warn("Invalid model selection", { model1Id, model2Id, foundCount: modelsRaw.length });
+    if (!model1Config || !model2Config) {
+      log.warn("Invalid model selection", { model1Id, model2Id });
       timer({ status: "error", reason: "invalid_models" });
       return new Response('Invalid model selection', { 
         status: 400,
@@ -96,28 +83,13 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Transform snake_case fields to camelCase
-    const models = modelsRaw.map(m => transformSnakeToCamel<ModelData>(m))
-
-    const model1 = models.find(m => m.modelId === model1Id)
-    const model2 = models.find(m => m.modelId === model2Id)
-
-    if (!model1 || !model2) {
-      log.error("Models not found after transformation", { model1Id, model2Id });
-      timer({ status: "error", reason: "models_not_found" });
-      return new Response('Models not found', { 
-        status: 404,
-        headers: { "X-Request-Id": requestId }
-      })
-    }
-
-    // Initialize model instances
-    const modelInstance1 = await initializeModel(model1 as ModelData, log)
-    const modelInstance2 = await initializeModel(model2 as ModelData, log)
+    // Initialize model instances using the provider factory
+    const modelInstance1 = await createProviderModel(model1Config.provider, model1Config.model_id)
+    const modelInstance2 = await createProviderModel(model2Config.provider, model2Config.model_id)
     
     log.info("Models initialized successfully", { 
-      model1: model1.name, 
-      model2: model2.name 
+      model1: model1Config.name, 
+      model2: model2Config.name 
     });
 
     const messages = [
@@ -157,7 +129,7 @@ export async function POST(req: NextRequest) {
             const startTime = Date.now()
             try {
               const result = streamText({
-                model: modelInstance1 as unknown as LanguageModel,
+                model: modelInstance1,
                 messages,
                 abortSignal: req.signal,
               })
@@ -181,7 +153,7 @@ export async function POST(req: NextRequest) {
             const startTime = Date.now()
             try {
               const result = streamText({
-                model: modelInstance2 as unknown as LanguageModel,
+                model: modelInstance2,
                 messages,
                 abortSignal: req.signal,
               })
@@ -217,12 +189,12 @@ export async function POST(req: NextRequest) {
               [
                 { name: 'userId', value: { longValue: userId } },
                 { name: 'prompt', value: { stringValue: prompt } },
-                { name: 'model1Id', value: { longValue: model1.id } },
-                { name: 'model2Id', value: { longValue: model2.id } },
+                { name: 'model1Id', value: { longValue: model1Config.id } },
+                { name: 'model2Id', value: { longValue: model2Config.id } },
                 { name: 'response1', value: response1 ? { stringValue: response1 } : { isNull: true } },
                 { name: 'response2', value: response2 ? { stringValue: response2 } : { isNull: true } },
-                { name: 'model1Name', value: { stringValue: model1.name } },
-                { name: 'model2Name', value: { stringValue: model2.name } },
+                { name: 'model1Name', value: { stringValue: model1Config.name } },
+                { name: 'model2Name', value: { stringValue: model2Config.name } },
                 { name: 'executionTime1', value: executionTime1 ? { longValue: executionTime1 } : { isNull: true } },
                 { name: 'executionTime2', value: executionTime2 ? { longValue: executionTime2 } : { isNull: true } }
               ]
@@ -268,110 +240,5 @@ export async function POST(req: NextRequest) {
         headers: { "X-Request-Id": requestId }
       }
     )
-  }
-}
-
-interface ModelData {
-  id: number
-  provider: string
-  modelId: string
-  name: string
-  [key: string]: unknown
-}
-
-async function initializeModel(model: ModelData, log: ReturnType<typeof createLogger>) {
-  const provider = ensureRDSString(model.provider)
-  const modelId = ensureRDSString(model.modelId)
-
-  switch (provider) {
-    case 'openai': {
-      const key = await Settings.getOpenAI()
-      if (!key) throw ErrorFactories.sysConfigurationError('OpenAI API key not configured')
-      const openai = createOpenAI({ apiKey: key })
-      return openai(modelId)
-    }
-    case 'azure': {
-      const config = await Settings.getAzureOpenAI()
-      if (!config.key || !config.resourceName) throw ErrorFactories.sysConfigurationError('Azure OpenAI not configured')
-      const azure = createAzure({ apiKey: config.key, resourceName: config.resourceName })
-      return azure(modelId)
-    }
-    case 'google': {
-      const key = await Settings.getGoogleAI()
-      if (!key) throw ErrorFactories.sysConfigurationError('Google API key not configured')
-      process.env.GOOGLE_GENERATIVE_AI_API_KEY = key
-      return google(modelId)
-    }
-    case 'amazon-bedrock': {
-      log.info('[compare-models] Starting Bedrock initialization for model:', modelId)
-      
-      try {
-        const config = await Settings.getBedrock()
-        log.info('[compare-models] Bedrock settings retrieved:', {
-          hasAccessKey: !!config.accessKeyId,
-          hasSecretKey: !!config.secretAccessKey,
-          region: config.region || 'us-east-1',
-          environment: process.env.AWS_EXECUTION_ENV || 'local',
-          lambdaFunction: process.env.AWS_LAMBDA_FUNCTION_NAME
-        })
-        
-        const bedrockConfig: Parameters<typeof createAmazonBedrock>[0] = {
-          region: config.region || 'us-east-1'
-        }
-        
-        // In AWS Lambda, always use IAM role credentials (ignore stored credentials)
-        const isAwsLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME
-        
-        if (config.accessKeyId && config.secretAccessKey && !isAwsLambda) {
-          // Only use stored credentials for local development
-          log.info('[compare-models] Using explicit credentials from settings (local dev)')
-          bedrockConfig.accessKeyId = config.accessKeyId
-          bedrockConfig.secretAccessKey = config.secretAccessKey
-        } else {
-          // AWS environment or no stored credentials - let SDK handle credentials automatically
-          log.info('[compare-models] Using default AWS credential chain', { isAwsLambda })
-          // Don't set any credentials - let the SDK use the default credential provider chain
-          // This will use IAM role credentials in Lambda, which work properly
-        }
-        
-        log.info('[compare-models] Creating Bedrock client with options:', {
-          region: bedrockConfig.region,
-          hasAccessKeyId: !!bedrockConfig.accessKeyId,
-          hasSecretAccessKey: !!bedrockConfig.secretAccessKey,
-          hasSessionToken: !!bedrockConfig.sessionToken
-        })
-        
-        const bedrock = createAmazonBedrock(bedrockConfig)
-        const model = bedrock(modelId)
-        
-        log.info('[compare-models] Bedrock model created successfully')
-        return model
-      } catch (error) {
-        log.error('[compare-models] BEDROCK INITIALIZATION FAILED:', {
-          modelId: modelId,
-          provider: provider,
-          error: error instanceof Error ? {
-            name: error.name,
-            message: error.message,
-            stack: error.stack,
-            ...Object.getOwnPropertyNames(error).reduce((acc: Record<string, unknown>, key) => {
-              if (!['name', 'message', 'stack'].includes(key)) {
-                acc[key] = (error as unknown as Record<string, unknown>)[key]
-              }
-              return acc
-            }, {} as Record<string, unknown>)
-          } : String(error),
-          environment: {
-            AWS_REGION: process.env.AWS_REGION,
-            AWS_EXECUTION_ENV: process.env.AWS_EXECUTION_ENV,
-            AWS_LAMBDA_FUNCTION_NAME: process.env.AWS_LAMBDA_FUNCTION_NAME,
-            NODE_ENV: process.env.NODE_ENV
-          }
-        })
-        throw error
-      }
-    }
-    default:
-      throw ErrorFactories.validationFailed([{ field: 'provider', message: `Unknown provider: ${provider}` }])
   }
 }

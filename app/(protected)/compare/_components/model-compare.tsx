@@ -1,25 +1,42 @@
 "use client"
 
-import { useState, useCallback } from "react"
-import { useComparison } from "./use-comparison"
+import { useState, useCallback, useEffect } from "react"
+import { useComparisonV2 } from "./use-comparison-v2"
 import { CompareInput } from "./compare-input"
 import { DualResponse } from "./dual-response"
 import { useToast } from "@/components/ui/use-toast"
 import type { SelectAiModel } from "@/types"
 
 export function ModelCompare() {
-  const [selectedModel1, setSelectedModel1] = useState<SelectAiModel | null>(null)
-  const [selectedModel2, setSelectedModel2] = useState<SelectAiModel | null>(null)
+  const [selectedModel1, setSelectedModel1State] = useState<SelectAiModel | null>(null)
+  const [selectedModel2, setSelectedModel2State] = useState<SelectAiModel | null>(null)
+  
+  // Wrapper to persist model selections to localStorage
+  const setSelectedModel1 = useCallback((model: SelectAiModel | null) => {
+    setSelectedModel1State(model)
+    if (model) {
+      localStorage.setItem('compareModel1Id', model.modelId)
+      localStorage.setItem('compareModel1Data', JSON.stringify(model))
+    }
+  }, [])
+  
+  const setSelectedModel2 = useCallback((model: SelectAiModel | null) => {
+    setSelectedModel2State(model)
+    if (model) {
+      localStorage.setItem('compareModel2Id', model.modelId)
+      localStorage.setItem('compareModel2Data', JSON.stringify(model))
+    }
+  }, [])
   const [prompt, setPrompt] = useState("")
   const { toast } = useToast()
   
   const {
     responses,
-    isLoading,
+    status,
     streamComparison,
     stopStream,
     clearResponses
-  } = useComparison()
+  } = useComparisonV2()
 
   const handleSubmit = useCallback(async () => {
     if (!selectedModel1 || !selectedModel2) {
@@ -60,6 +77,26 @@ export function ModelCompare() {
     clearResponses()
     setPrompt("")
   }, [clearResponses])
+  
+  // Load persisted model selections on mount
+  useEffect(() => {
+    const model1Data = localStorage.getItem('compareModel1Data')
+    const model2Data = localStorage.getItem('compareModel2Data')
+    
+    if (model1Data) {
+      try {
+        const model = JSON.parse(model1Data)
+        setSelectedModel1State(model)
+      } catch {}
+    }
+    
+    if (model2Data) {
+      try {
+        const model = JSON.parse(model2Data)
+        setSelectedModel2State(model)
+      } catch {}
+    }
+  }, [])
 
   return (
     <div className="flex h-full flex-col">
@@ -81,7 +118,7 @@ export function ModelCompare() {
           onModel1Change={setSelectedModel1}
           onModel2Change={setSelectedModel2}
           onSubmit={handleSubmit}
-          isLoading={isLoading.model1 || isLoading.model2}
+          isLoading={status.model1 !== 'ready' || status.model2 !== 'ready'}
           onNewComparison={handleNewComparison}
           hasResponses={!!responses.model1 || !!responses.model2}
         />
@@ -91,13 +128,13 @@ export function ModelCompare() {
             model1={{
               model: selectedModel1,
               response: responses.model1,
-              isLoading: isLoading.model1,
+              status: status.model1,
               error: responses.error1
             }}
             model2={{
               model: selectedModel2,
               response: responses.model2,
-              isLoading: isLoading.model2,
+              status: status.model2,
               error: responses.error2
             }}
             onStopModel1={() => stopStream('model1')}
