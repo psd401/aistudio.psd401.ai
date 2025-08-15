@@ -12,7 +12,7 @@ import {
   IconSparkles
 } from "@tabler/icons-react"
 import { useState } from "react"
-import type { Message as MessageType } from "@ai-sdk/react"
+import type { UIMessage as MessageType } from "@ai-sdk/react"
 import type { SelectMessage } from "@/types/schema-types"
 import ReactMarkdown from "react-markdown"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
@@ -62,11 +62,22 @@ export function Message({ message, messageId }: MessageProps) {
   const isAssistant = message.role === "assistant"
   const uniqueId = messageId || `message-${message.id}`
   
-  // Get content - handle both old format (content string) and new format (content array)
+  // Get content - handle AI SDK v2 format (parts array) and legacy formats
   let content = ''
-  if (typeof message.content === 'string') {
+  
+  // AI SDK v2 format with parts array
+  if ('parts' in message && Array.isArray(message.parts)) {
+    content = message.parts
+      .filter((part: { type?: string }) => part.type === 'text')
+      .map((part: { text?: string }) => part.text || '')
+      .join('')
+  }
+  // Legacy format with content string
+  else if (typeof message.content === 'string') {
     content = message.content
-  } else if (message.content && Array.isArray(message.content)) {
+  }
+  // Legacy format with content array
+  else if (message.content && Array.isArray(message.content)) {
     content = (message.content as Array<string | { text?: string }>).map((c) => typeof c === 'string' ? c : c.text || '').join('')
   }
   

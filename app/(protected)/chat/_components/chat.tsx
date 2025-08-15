@@ -46,66 +46,65 @@ interface ChatProps {
 export function Chat({ conversationId: initialConversationId, initialMessages = [] }: ChatProps) {
   const [currentConversationId, setCurrentConversationId] = useState<number | undefined>(initialConversationId)
   const [models, setModels] = useState<SelectAiModel[]>([])
-  const [selectedModel, setSelectedModel] = useState<SelectAiModel | null>(null)
+  const [selectedModel, setSelectedModelState] = useState<SelectAiModel | null>(null)
+  
+  // Wrapper to persist model selection to localStorage
+  const setSelectedModel = useCallback((model: SelectAiModel | null) => {
+    setSelectedModelState(model)
+    if (model) {
+      localStorage.setItem('selectedModelId', model.modelId)
+      localStorage.setItem('selectedModelData', JSON.stringify(model))
+    }
+  }, [])
   const [documents, setDocuments] = useState<Document[]>([])
   const [showDocuments, setShowDocuments] = useState(false)
   const [pendingDocument, setPendingDocument] = useState<Document | null>(null)
-  const [processingDocumentId, setProcessingDocumentId] = useState<string | null>(null)
+  const [, setProcessingDocumentId] = useState<string | null>(null)
+  const [input, setInput] = useState<string>('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
-  const { refreshConversations } = useConversationContext()
+  const { } = useConversationContext()
   const hiddenFileInputRef = useRef<HTMLInputElement>(null)
   const conversationIdRef = useRef<number | undefined>(currentConversationId)
+  const selectedModelRef = useRef<SelectAiModel | null>(null)
+  const pendingDocumentRef = useRef<Document | null>(null)
   
-  // Update ref when conversation ID changes
+  // Update refs when values change
   useEffect(() => {
     conversationIdRef.current = currentConversationId
   }, [currentConversationId])
   
-  // AI SDK v5: Proper useChat configuration
+  useEffect(() => {
+    selectedModelRef.current = selectedModel
+  }, [selectedModel])
+  
+  useEffect(() => {
+    pendingDocumentRef.current = pendingDocument
+  }, [pendingDocument])
+  
+  // AI SDK v5: Simplified useChat configuration
   const { 
     messages, 
-    input, 
-    setInput,
-    append,
-    isLoading, 
+    sendMessage,
+    status,
     stop,
     error,
-    reload,
+    regenerate,
     setMessages
   } = useChat({
-    id: currentConversationId?.toString(),
-    api: '/api/chat/stream-final',
-    initialMessages: initialMessages.map((msg, index) => ({
-      id: msg.id && msg.id.trim() !== '' ? msg.id : `initial-${index}-${nanoid()}`,
-      role: msg.role,
-      content: msg.content,
-      ...(msg.modelName && { modelName: msg.modelName }),
-      ...(msg.reasoningContent && { reasoningContent: msg.reasoningContent })
-    })),
-    body: {
-      modelId: selectedModel?.modelId || selectedModel?.id,
-      documentId: processingDocumentId,
-      conversationId: conversationIdRef.current
-    },
-    onResponse: (response) => {
-      // Get conversation ID from header
-      const headerConversationId = response.headers.get('X-Conversation-Id')
-      if (headerConversationId && !conversationIdRef.current) {
-        const newId = parseInt(headerConversationId)
-        conversationIdRef.current = newId
-        setCurrentConversationId(newId)
-        window.history.pushState({}, '', `/chat?conversation=${newId}`)
-        refreshConversations()
-        
-        if (processingDocumentId) {
-          linkUnlinkedDocuments(newId).then(() => {
-            setProcessingDocumentId(null)
-          })
+    onResponse: (response: Response) => {
+      const header = response.headers.get('X-Conversation-Id')
+      if (header) {
+        const newId = parseInt(header, 10)
+        if (!Number.isNaN(newId)) {
+          if (!conversationIdRef.current) {
+            setCurrentConversationId(newId)
+          }
+          conversationIdRef.current = newId
         }
       }
     },
-    onError: (error) => {
+    onError: (error: Error) => {
       toast({
         title: "Error",
         description: error.message || "Failed to send message",
@@ -124,8 +123,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       // Only set messages if we have actual messages to display
       const processedMessages = initialMessages.map((msg, index) => ({
         id: msg.id && msg.id.trim() !== '' ? msg.id : `initial-${index}-${nanoid()}`,
-        role: msg.role,
-        content: msg.content,
+        role: msg.role as 'user' | 'assistant',
+        parts: [{ type: 'text' as const, text: msg.content }],
         // Preserve model information for the model selector
         ...(msg.modelId && { modelId: msg.modelId }),
         ...(msg.modelName && { modelName: msg.modelName }),
@@ -232,37 +231,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     setPendingDocument(documentInfo as Document)
   }
 
-  const linkUnlinkedDocuments = async (conversationId: number) => {
-    const documentsToLink = documents.filter(doc => !doc.conversationId || doc.conversationId !== conversationId)
-    
-    if (processingDocumentId && !documentsToLink.find(doc => doc.id === processingDocumentId)) {
-      documentsToLink.push({ id: processingDocumentId, name: "Processing document" } as Document)
-    }
-    
-    if (documentsToLink.length === 0) return
-    
-    for (const doc of documentsToLink) {
-      try {
-        const response = await fetch('/api/documents/link', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            documentId: doc.id,
-            conversationId: conversationId
-          })
-        })
-        
-        if (!response.ok) {
-          continue
-        }
-      } catch {
-        // Continue to next document
-      }
-    }
-    
-    const abortController = new AbortController()
-    fetchDocuments(conversationId, abortController.signal)
-  }
 
   const handleDocumentDelete = async (documentId: string) => {
     try {
@@ -306,15 +274,26 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       return
     }
 
-    // Use append to send the message with a unique ID
-    await append({
-      id: nanoid(),
-      role: 'user',
-      content: input
+    // Use sendMessage to send the message with a unique ID and dynamic body
+    // Pass the model identifier string (e.g., "gpt-5") not the database ID
+    
+    // AI SDK v2: sendMessage with message object and options
+    const messageId = nanoid();
+    await sendMessage({
+      id: messageId,
+      role: 'user' as const,
+      parts: [{ type: 'text' as const, text: input }]
+    }, {
+      body: {
+        modelId: selectedModel.modelId,  // Send the MODEL IDENTIFIER STRING
+        conversationId: conversationIdRef.current,
+        documentId: pendingDocument?.id,
+        source: "chat"
+      }
     })
     
     setInput('')
-  }, [input, selectedModel, append, setInput, toast])
+  }, [input, selectedModel, sendMessage, toast, pendingDocument?.id])
 
   // Load models on mount
   useEffect(() => {
@@ -339,8 +318,19 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         
         setModels(modelsData)
         
-        // If no model is selected yet, select the first chat-capable model
+        // If no model is selected yet, try to restore from localStorage or select the first chat-capable model
         if (!selectedModel) {
+          // First try to restore from localStorage
+          const savedModelId = localStorage.getItem('selectedModelId')
+          if (savedModelId) {
+            const savedModel = modelsData.find(model => model.modelId === savedModelId)
+            if (savedModel) {
+              setSelectedModel(savedModel)
+              return
+            }
+          }
+          
+          // If no saved model or it's not available, select the first chat-capable model
           const chatCapableModel = modelsData.find(model => {
             try {
               const capabilities = typeof model.capabilities === 'string' 
@@ -380,8 +370,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   useEffect(() => {
     if (models.length === 0) return
     
-    // Check if we have messages with model information
-    if (initialMessages.length > 0) {
+    // For existing conversations with messages, try to use the conversation's model
+    if (initialConversationId && initialMessages.length > 0) {
       const lastAssistantMessage = [...initialMessages].reverse().find(msg => msg.role === 'assistant')
       
       if (lastAssistantMessage) {
@@ -416,7 +406,19 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       }
     }
     
-    // If no model from conversation or new conversation, select first chat-capable model
+    // For new conversations or when no conversation model found, try localStorage
+    if (!initialConversationId || initialMessages.length === 0) {
+      const savedModelId = localStorage.getItem('selectedModelId')
+      if (savedModelId) {
+        const savedModel = models.find(model => model.modelId === savedModelId)
+        if (savedModel) {
+          setSelectedModel(savedModel)
+          return
+        }
+      }
+    }
+    
+    // If no saved model or conversation model, select first chat-capable model
     const chatCapableModel = models.find(model => {
       try {
         const capabilities = typeof model.capabilities === 'string' 
@@ -428,10 +430,10 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       }
     })
     
-    if (chatCapableModel) {
+    if (chatCapableModel && !selectedModel) {
       setSelectedModel(chatCapableModel)
     }
-  }, [models, initialConversationId, initialMessages])
+  }, [models, initialConversationId, initialMessages, selectedModel, setSelectedModel])
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -460,10 +462,12 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   // Ensure unique keys for messages - use index as stable key
   const messagesWithKeys = messages
     .filter(msg => {
-      // Filter out null/undefined messages and messages with no content and no valid role
+      // Filter out null/undefined messages and messages with no parts and no valid role
       if (!msg) return false
-      // Keep messages that have content OR a valid role (user/assistant)
-      return msg.content || (msg.role === 'user' || msg.role === 'assistant')
+      // Keep messages that have parts (AI SDK v2) OR a valid role
+      const hasParts = msg.parts && Array.isArray(msg.parts) && msg.parts.length > 0
+      const hasValidRole = msg.role === 'user' || msg.role === 'assistant'
+      return hasParts || hasValidRole
     })
     .map((msg, index) => {
       // If message has a valid ID, use it; otherwise use index-based key
@@ -473,10 +477,12 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         return msg
       }
       
-      // For messages without valid IDs, create a stable key based on index and content
+      // For messages without valid IDs, create a stable key based on index and role
       const role = msg.role || 'unknown'
-      const contentPreview = msg.content ? msg.content.substring(0, 20) : 'empty'
-      const stableKey = `msg-${index}-${role}-${contentPreview}`
+      const partsPreview = msg.parts && msg.parts.length > 0 && msg.parts[0].text 
+        ? msg.parts[0].text.substring(0, 20) 
+        : 'empty'
+      const stableKey = `msg-${index}-${role}-${partsPreview}`
       
       return {
         ...msg,
@@ -535,7 +541,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         <div className="flex-1 flex flex-col min-h-0">
           <ScrollArea ref={scrollRef} className="flex-1 p-6">
             <AnimatePresence mode="popLayout">
-              {messages.length === 0 && !isLoading && (
+              {messages.length === 0 && status !== 'streaming' && (
                 <motion.div 
                   key="empty-state"
                   initial={{ opacity: 0, y: 20 }}
@@ -577,7 +583,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                 })}
                 
                 {/* Enhanced loading indicator */}
-                {isLoading && (
+                {status === 'streaming' && (
                   <motion.div
                     key="loading-indicator"
                     initial={{ opacity: 0, scale: 0.8 }}
@@ -616,7 +622,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => reload()}
+                      onClick={() => regenerate()}
                       className="mt-2"
                     >
                       Retry
@@ -634,8 +640,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                 input={input}
                 handleInputChange={(e) => setInput(e.target.value)}
                 handleSubmit={handleSubmit}
-                isLoading={isLoading}
-                disabled={!selectedModel}
+                isLoading={status === 'streaming'}
+                disabled={!selectedModel || status === 'streaming'}
                 onAttachClick={handleAttachClick}
                 showAttachButton={true}
                 ariaLabel="Type your message"
@@ -643,7 +649,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                 sendButtonAriaLabel="Send message"
                 attachButtonAriaLabel="Attach document"
               />
-              {isLoading && (
+              {status === 'streaming' && (
                 <Button
                   variant="outline"
                   size="icon"
