@@ -62,8 +62,9 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
       ];
       const messages = await executeSQL(messagesQuery, messagesParams);
       
-      
-      initialMessages = messages.map(msg => {
+      // Ensure messages is an array before mapping
+      if (messages && Array.isArray(messages)) {
+        initialMessages = messages.map(msg => {
         const mapped = {
           id: ensureRDSNumber(msg.id).toString(), // Convert serial ID to string if needed by Chat component
           content: ensureRDSString(msg.content),
@@ -74,11 +75,24 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
           modelName: msg.modelName || msg.model_name ? ensureRDSString(msg.modelName || msg.model_name) : null,
           modelProvider: msg.modelProvider || msg.model_provider ? ensureRDSString(msg.modelProvider || msg.model_provider) : null,
           modelIdentifier: msg.modelIdentifier || msg.model_identifier ? ensureRDSString(msg.modelIdentifier || msg.model_identifier) : null,
-          reasoningContent: msg.reasoningContent || msg.reasoning_content ? ensureRDSString(msg.reasoningContent || msg.reasoning_content) : null,
+          reasoningContent: msg.reasoningContent || msg.reasoning_content ? 
+            (() => {
+              const content = ensureRDSString(msg.reasoningContent || msg.reasoning_content);
+              try {
+                // Try to parse if it looks like JSON
+                if (content && (content.startsWith('{') || content.startsWith('['))) {
+                  return JSON.stringify(JSON.parse(content), null, 2);
+                }
+                return content;
+              } catch {
+                return content;
+              }
+            })() : null,
           tokenUsage: (msg.tokenUsage || msg.token_usage) ? JSON.parse(ensureRDSString(msg.tokenUsage || msg.token_usage)) : null
         };
         return mapped;
       });
+      }
     } else {
       // Optionally redirect or show an error if the conversation is not accessible
       // For now, it will just proceed with an empty initialMessages array and default title

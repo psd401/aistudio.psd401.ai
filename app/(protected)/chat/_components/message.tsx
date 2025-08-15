@@ -70,8 +70,21 @@ export function Message({ message, messageId }: MessageProps) {
     content = (message.content as Array<string | { text?: string }>).map((c) => typeof c === 'string' ? c : c.text || '').join('')
   }
   
-  // Check for reasoning content
-  const reasoningContent = 'reasoningContent' in message ? message.reasoningContent : null
+  // Check for reasoning content and parse if needed
+  const reasoningContent = 'reasoningContent' in message ? 
+    (() => {
+      const raw = message.reasoningContent;
+      if (!raw) return null;
+      try {
+        // If it's a string that looks like JSON, parse and re-stringify for formatting
+        if (typeof raw === 'string' && (raw.startsWith('{') || raw.startsWith('['))) {
+          return JSON.stringify(JSON.parse(raw), null, 2);
+        }
+        return raw;
+      } catch {
+        return raw;
+      }
+    })() : null;
   const hasReasoningData = !!reasoningContent
   
   // Get model display name

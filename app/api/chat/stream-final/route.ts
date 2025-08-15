@@ -763,8 +763,8 @@ Use all this information to provide accurate and helpful responses about both wh
 
   let result;
   try {
-    // Don't await streamText - it returns immediately with streaming methods
-    result = streamText({
+    // Await streamText to get the result object with streaming methods
+    result = await streamText({
       model,
       messages: aiMessages,
       onFinish: async ({ text, reasoning, usage }) => {
@@ -791,7 +791,7 @@ Use all this information to provide accurate and helpful responses about both wh
               { name: 'role', value: { stringValue: 'assistant' } },
               { name: 'content', value: { stringValue: text } },
               { name: 'modelId', value: { longValue: ensureRDSNumber(aiModel.id) } },
-              { name: 'reasoningContent', value: reasoning ? { stringValue: String(reasoning) } : { isNull: true } },
+              { name: 'reasoningContent', value: reasoning ? { stringValue: typeof reasoning === 'string' ? reasoning : JSON.stringify(reasoning) } : { isNull: true } },
               { name: 'tokenUsage', value: usage ? { stringValue: JSON.stringify(usage) } : { isNull: true } }
             ]
           );
@@ -828,8 +828,8 @@ Use all this information to provide accurate and helpful responses about both wh
   log.info("Stream started successfully", { conversationId });
   timer({ status: "success", conversationId });
   
-  // Use toTextStreamResponse for UI message format streaming
-  return result.toTextStreamResponse({
+  // Use toUIMessageStreamResponse for useChat compatibility
+  return result.toUIMessageStreamResponse({
     headers: {
       'X-Conversation-Id': conversationId.toString(),
       'X-Request-Id': requestId
