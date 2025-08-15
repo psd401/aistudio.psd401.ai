@@ -545,11 +545,11 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                 ))}
                 
                 {/* Standard loading indicator based on status */}
-                {status === 'streaming' && (
+                {(status === 'submitted' || status === 'streaming') && (
                   <div className="flex items-center gap-2 px-4 py-2 text-muted-foreground">
                     <IconLoader2 className="h-4 w-4 animate-spin" />
                     <span className="text-sm">
-                      {selectedModel?.name || 'AI'} is responding...
+                      {selectedModel?.name || 'AI'} is {status === 'submitted' ? 'thinking...' : 'responding...'}
                     </span>
                   </div>
                 )}
@@ -580,8 +580,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                 input={input}
                 handleInputChange={(e) => setInput(e.target.value)}
                 handleSubmit={handleSubmit}
-                isLoading={status === 'streaming'}
-                disabled={!selectedModel || status === 'streaming'}
+                isLoading={status === 'submitted' || status === 'streaming'}
+                disabled={!selectedModel || status === 'submitted' || status === 'streaming'}
                 onAttachClick={handleAttachClick}
                 showAttachButton={true}
                 ariaLabel="Type your message"
@@ -589,7 +589,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                 sendButtonAriaLabel="Send message"
                 attachButtonAriaLabel="Attach document"
               />
-              {status === 'streaming' && (
+              {(status === 'submitted' || status === 'streaming') && (
                 <Button
                   variant="outline"
                   size="icon"
