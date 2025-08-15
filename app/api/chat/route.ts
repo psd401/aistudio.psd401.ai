@@ -293,15 +293,16 @@ export async function POST(req: NextRequest) {
       aiMessages
     );
 
-    // Save the assistant's response
+    // Save the assistant's response with model_id
     const saveAssistantQuery = `
-      INSERT INTO messages (conversation_id, role, content)
-      VALUES (:conversationId, :role, :content)
+      INSERT INTO messages (conversation_id, role, content, model_id)
+      VALUES (:conversationId, :role, :content, :modelId)
     `;
     const saveAssistantParams = [
       { name: 'conversationId', value: { longValue: conversationId } },
       { name: 'role', value: { stringValue: "assistant" } },
-      { name: 'content', value: { stringValue: aiResponseContent } }
+      { name: 'content', value: { stringValue: aiResponseContent } },
+      { name: 'modelId', value: { longValue: aiModel.id } }
     ];
     await executeSQL(saveAssistantQuery, saveAssistantParams);
 

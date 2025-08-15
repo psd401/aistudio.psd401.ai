@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { streamText } from 'ai'
+import { streamText, LanguageModel } from 'ai'
 import { createAzure } from '@ai-sdk/azure'
 import { google } from '@ai-sdk/google'
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
             const startTime = Date.now()
             try {
               const result = streamText({
-                model: modelInstance1,
+                model: modelInstance1 as unknown as LanguageModel,
                 messages,
                 abortSignal: req.signal,
               })
@@ -181,7 +181,7 @@ export async function POST(req: NextRequest) {
             const startTime = Date.now()
             try {
               const result = streamText({
-                model: modelInstance2,
+                model: modelInstance2 as unknown as LanguageModel,
                 messages,
                 abortSignal: req.signal,
               })

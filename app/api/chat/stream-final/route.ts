@@ -1,4 +1,4 @@
-import { streamText } from 'ai';
+import { streamText, LanguageModel } from 'ai';
 import { createAzure } from '@ai-sdk/azure';
 import { google } from '@ai-sdk/google';
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
@@ -15,6 +15,8 @@ import { ensureRDSString, ensureRDSNumber } from "@/lib/type-helpers";
 import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents";
 import { contextMonitor } from "@/lib/monitoring/context-loading-monitor";
 import { retrieveKnowledgeForPrompt, formatKnowledgeContext } from "@/lib/assistant-architect/knowledge-retrieval";
+// Reasoning model support will be implemented in future AI SDK versions
+// import { isReasoningModel } from "@/types/ai-sdk-v5-types";
 
 // Helper function to load complete execution context
 async function loadExecutionContext(execId: number) {
@@ -104,14 +106,14 @@ async function loadExecutionContext(execId: number) {
     
     // SAFEGUARD: Robust system context extraction with validation
     const systemContexts = allChainPrompts
-      .map((row, index) => {
+      .map((row) => {
         // RDS Data API returns snake_case column names
         const context = row.system_context || row.systemContext || '';
         
         // SAFEGUARD: Log if we find empty contexts
         if (!context || String(context).trim() === '') {
           const log = createLogger({ requestId: 'exec-context', route: 'api.chat.stream-final' });
-          log.warn('Empty system_context found for chain prompt', { index });
+          log.warn('Empty system_context found for chain prompt');
         }
         
         return String(context);
@@ -374,7 +376,7 @@ export async function POST(req: Request) {
     conversationId = newConversation[0].id;
   }
 
-  // Save user message
+  // Save user message (users don't have a model_id, only assistant messages do)
   const userMessage = messages[messages.length - 1];
   await executeSQL(
     `INSERT INTO messages (conversation_id, role, content) VALUES (:conversationId, :role, :content)`,
@@ -386,29 +388,34 @@ export async function POST(req: Request) {
   );
 
   // Get the model
-  let model;
+  let model: LanguageModel;
   
   try {
     switch (aiModel.provider) {
       case 'openai': {
         const key = await Settings.getOpenAI();
-        if (!key) throw ErrorFactories.sysConfigurationError('OpenAI API key not configured');
+        log.info('[stream-final] OpenAI key retrieval', { hasKey: !!key, keyLength: key?.length });
+        if (!key) {
+          log.error('[stream-final] OpenAI API key not found in settings');
+          throw ErrorFactories.sysConfigurationError('OpenAI API key not configured');
+        }
         const openai = createOpenAI({ apiKey: key });
-        model = openai(ensureRDSString(aiModel.modelId));
+        model = openai(ensureRDSString(aiModel.modelId)) as unknown as LanguageModel;
+        log.info('[stream-final] OpenAI model initialized successfully');
         break;
       }
     case 'azure': {
       const config = await Settings.getAzureOpenAI();
       if (!config.key || !config.resourceName) throw ErrorFactories.sysConfigurationError('Azure OpenAI not configured');
       const azure = createAzure({ apiKey: config.key, resourceName: config.resourceName });
-      model = azure(ensureRDSString(aiModel.modelId));
+      model = azure(ensureRDSString(aiModel.modelId)) as unknown as LanguageModel;
       break;
     }
     case 'google': {
       const key = await Settings.getGoogleAI();
       if (!key) throw ErrorFactories.sysConfigurationError('Google API key not configured');
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = key;
-      model = google(ensureRDSString(aiModel.modelId));
+      model = google(ensureRDSString(aiModel.modelId)) as unknown as LanguageModel;
       break;
     }
     case 'amazon-bedrock': {
@@ -451,7 +458,7 @@ export async function POST(req: Request) {
         });
         
         const bedrock = createAmazonBedrock(bedrockOptions);
-        model = bedrock(ensureRDSString(aiModel.modelId));
+        model = bedrock(ensureRDSString(aiModel.modelId)) as unknown as LanguageModel;
         
         log.info('[stream-final] Bedrock model created successfully');
       } catch (error) {
@@ -570,8 +577,8 @@ export async function POST(req: Request) {
       if (relevantChunks.length > 0) {
         const documentNames = documents.map(doc => doc.name).join(", ");
         documentContext = `\n\nRelevant content from uploaded documents (${documentNames}):\n\n${
-          relevantChunks.map((chunk, index) => 
-            `[Document Excerpt ${index + 1}]:\n${chunk.content}`
+          relevantChunks.map((chunk, idx) => 
+            `[Document Excerpt ${idx + 1}]:\n${chunk.content}`
           ).join('\n\n')
         }\n\nPlease use this document content to answer the user's questions when relevant.`;
         // Include relevant chunks in context
@@ -746,34 +753,83 @@ Use all this information to provide accurate and helpful responses about both wh
 
   // Start streaming
 
-  // Stream the response
-  const result = await streamText({
-    model,
-    messages: aiMessages,
-    onFinish: async ({ text }) => {
-      // Stream finished
-      // Save assistant message
-      try {
-        await executeSQL<FormattedRow>(
-          `INSERT INTO messages (conversation_id, role, content) VALUES (:conversationId, :role, :content)`,
-          [
-            { name: 'conversationId', value: { longValue: conversationId } },
-            { name: 'role', value: { stringValue: 'assistant' } },
-            { name: 'content', value: { stringValue: text } }
-          ]
-        );
-        // Assistant response saved
-      } catch (error) {
-        log.error('[stream-final] Error saving response:', error);
+  // Stream the response with reasoning support
+  log.info('[stream-final] About to call streamText', {
+    modelProvider: aiModel.provider,
+    modelId: aiModel.modelId,
+    messageCount: aiMessages.length,
+    lastMessage: aiMessages[aiMessages.length - 1]?.content?.substring(0, 100)
+  });
+
+  let result;
+  try {
+    // Don't await streamText - it returns immediately with streaming methods
+    result = streamText({
+      model,
+      messages: aiMessages,
+      onFinish: async ({ text, reasoning, usage }) => {
+        // Stream finished
+        log.info('[stream-final] Stream finished', { 
+          hasText: !!text, 
+          textLength: text?.length || 0,
+          hasReasoning: !!reasoning,
+          hasUsage: !!usage 
+        });
+        
+        // Save assistant message with model tracking
+        if (text && text.length > 0) {
+        try {
+          const insertQuery = `
+            INSERT INTO messages (conversation_id, role, content, model_id, reasoning_content, token_usage) 
+            VALUES (:conversationId, :role, :content, :modelId, :reasoningContent, :tokenUsage::jsonb)
+          `;
+          
+          await executeSQL<FormattedRow>(
+            insertQuery,
+            [
+              { name: 'conversationId', value: { longValue: conversationId } },
+              { name: 'role', value: { stringValue: 'assistant' } },
+              { name: 'content', value: { stringValue: text } },
+              { name: 'modelId', value: { longValue: ensureRDSNumber(aiModel.id) } },
+              { name: 'reasoningContent', value: reasoning ? { stringValue: String(reasoning) } : { isNull: true } },
+              { name: 'tokenUsage', value: usage ? { stringValue: JSON.stringify(usage) } : { isNull: true } }
+            ]
+          );
+          // Assistant response saved with model tracking
+          log.info('Assistant message saved with model tracking', {
+            conversationId,
+            modelId: aiModel.id,
+            hasReasoning: !!reasoning,
+            hasUsage: !!usage
+          });
+        } catch (error) {
+          log.error('[stream-final] Error saving response:', error);
+        }
+      } else {
+        log.warn('[stream-final] No text to save - streaming completed without content');
       }
     }
   });
+  
+    log.info('[stream-final] streamText returned result', {
+      hasResult: !!result,
+      resultType: typeof result,
+      hasToTextStreamResponse: typeof result?.toTextStreamResponse === 'function'
+    });
+  } catch (streamError) {
+    log.error('[stream-final] Error calling streamText:', {
+      error: streamError instanceof Error ? streamError.message : String(streamError),
+      stack: streamError instanceof Error ? streamError.stack : undefined
+    });
+    throw streamError;
+  }
 
   // Return the stream with conversation ID in header
   log.info("Stream started successfully", { conversationId });
   timer({ status: "success", conversationId });
   
-  return result.toDataStreamResponse({
+  // Use toTextStreamResponse for UI message format streaming
+  return result.toTextStreamResponse({
     headers: {
       'X-Conversation-Id': conversationId.toString(),
       'X-Request-Id': requestId
@@ -781,7 +837,19 @@ Use all this information to provide accurate and helpful responses about both wh
   });
   } catch (error) {
     timer({ status: "error" });
-    log.error('Error in chat stream', error);
+    
+    // Enhanced error logging
+    const errorDetails = error instanceof Error ? {
+      message: error.message,
+      name: error.name,
+      stack: error.stack,
+      cause: error.cause
+    } : String(error);
+    
+    log.error('Error in chat stream', {
+      error: errorDetails,
+      requestId
+    });
     
     // Return a proper error response for non-streaming errors
     // Check if this is a critical error that should stop execution
@@ -789,8 +857,20 @@ Use all this information to provide accurate and helpful responses about both wh
       return new Response('Model not found', { status: 404, headers: { 'X-Request-Id': requestId } });
     }
     
-    // For other errors, try to continue with streaming if possible
-    // This allows the chat to work even if there are minor issues
-    throw error;
+    // Return a more detailed error response
+    return new Response(
+      JSON.stringify({
+        error: 'Failed to process chat request',
+        details: error instanceof Error ? error.message : 'Unknown error',
+        requestId
+      }),
+      { 
+        status: 500, 
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Request-Id': requestId 
+        } 
+      }
+    );
   }
 }

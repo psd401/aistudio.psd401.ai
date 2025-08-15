@@ -43,7 +43,8 @@ const MIGRATION_FILES = [
   '019-fix-navigation-role-display.sql',
   '020-add-user-role-version.sql',
   '023-navigation-multi-roles.sql',
-  '024-model-role-restrictions.sql'
+  '024-model-role-restrictions.sql',
+  '025-enhanced-message-tracking.sql'
   // ADD NEW MIGRATIONS HERE - they will run once and be tracked
 ];
 
@@ -276,6 +277,47 @@ async function executeFileStatements(
             (error.message?.includes('already exists') || 
              error.message?.includes('duplicate key'))) {
           console.log(`⚠️  Skipping (already exists): ${error.message}`);
+        } else if (MIGRATION_FILES.includes(filename)) {
+          // For migration files, check if it's an ALTER TABLE that actually succeeded
+          // RDS Data API sometimes returns an error-like response for successful ALTER TABLEs
+          const isAlterTable = statement.trim().toUpperCase().startsWith('ALTER TABLE');
+          
+          if (isAlterTable) {
+            // Verify if the ALTER actually succeeded by checking the table structure
+            console.log(`⚠️  ALTER TABLE may have succeeded despite error response. Verifying...`);
+            
+            // Extract table name and column from ALTER statement
+            const alterMatch = statement.match(/ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(IF\s+NOT\s+EXISTS\s+)?(\w+)/i);
+            
+            if (alterMatch) {
+              const tableName = alterMatch[1];
+              const columnName = alterMatch[3];
+              
+              try {
+                // Check if the column exists
+                const checkResult = await executeSql(
+                  clusterArn,
+                  secretArn,
+                  database,
+                  `SELECT column_name FROM information_schema.columns 
+                   WHERE table_schema = 'public' 
+                   AND table_name = '${tableName}' 
+                   AND column_name = '${columnName}'`
+                );
+                
+                if (checkResult.records && checkResult.records.length > 0) {
+                  console.log(`✅ Column ${columnName} exists in table ${tableName} - ALTER succeeded`);
+                  // Column exists, so the ALTER worked - continue
+                  continue;
+                }
+              } catch (checkError) {
+                console.log(`Could not verify column existence: ${checkError}`);
+              }
+            }
+          }
+          
+          // If we couldn't verify success, throw the original error
+          throw error;
         } else {
           throw error;
         }
@@ -298,8 +340,25 @@ async function executeSql(
     includeResultMetadata: true
   });
 
-  const response = await rdsClient.send(command);
-  return response;
+  try {
+    const response = await rdsClient.send(command);
+    return response;
+  } catch (error: any) {
+    // Log the full error for debugging
+    console.error(`SQL execution error for statement: ${sql.substring(0, 100)}...`);
+    console.error(`Error details:`, JSON.stringify(error, null, 2));
+    
+    // Check if this is a false-positive error for ALTER TABLE
+    // RDS Data API sometimes returns errors for successful DDL operations
+    if (sql.trim().toUpperCase().startsWith('ALTER TABLE') && 
+        error.message && 
+        (error.message.includes('Database returned SQL exception') || 
+         error.message.includes('BadRequestException'))) {
+      console.log(`⚠️  Potential false-positive error for ALTER TABLE - will verify in caller`);
+    }
+    
+    throw error;
+  }
 }
 
 function splitSqlStatements(sql: string): string[] {

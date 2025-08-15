@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback } from 'react';
-import { useChat } from 'ai/react';
+import { useChat } from '@ai-sdk/react';
 import { IconPlayerStop } from '@tabler/icons-react';
 import { Message } from './message';
 import { ChatInput } from './chat-input';

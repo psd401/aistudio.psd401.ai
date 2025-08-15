@@ -47,23 +47,38 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
     if (conversation && conversation.length > 0) {
       // Conversation verified
 
-      // Step 2: Fetch messages for the verified conversation
+      // Step 2: Fetch messages for the verified conversation with model info
       const messagesQuery = `
-        SELECT id, content, role
-        FROM messages
-        WHERE conversation_id = :conversationId
-        ORDER BY created_at ASC
+        SELECT m.id, m.content, m.role, m.model_id, m.reasoning_content, m.token_usage,
+               am.name as model_name, am.provider as model_provider, 
+               am.model_id as model_identifier
+        FROM messages m
+        LEFT JOIN ai_models am ON m.model_id = am.id
+        WHERE m.conversation_id = :conversationId
+        ORDER BY m.created_at ASC
       `;
       const messagesParams = [
         { name: 'conversationId', value: { longValue: conversationId } }
       ];
       const messages = await executeSQL(messagesQuery, messagesParams);
       
-      initialMessages = messages.map(msg => ({
-        id: ensureRDSNumber(msg.id).toString(), // Convert serial ID to string if needed by Chat component
-        content: ensureRDSString(msg.content),
-        role: ensureRDSString(msg.role) as "user" | "assistant"
-      }));
+      
+      initialMessages = messages.map(msg => {
+        const mapped = {
+          id: ensureRDSNumber(msg.id).toString(), // Convert serial ID to string if needed by Chat component
+          content: ensureRDSString(msg.content),
+          role: ensureRDSString(msg.role) as "user" | "assistant",
+          // Handle both snake_case and camelCase field names (data-api-adapter may convert)
+          modelId: msg.modelId !== undefined ? ensureRDSNumber(msg.modelId) : 
+                   msg.model_id !== undefined ? ensureRDSNumber(msg.model_id) : null,
+          modelName: msg.modelName || msg.model_name ? ensureRDSString(msg.modelName || msg.model_name) : null,
+          modelProvider: msg.modelProvider || msg.model_provider ? ensureRDSString(msg.modelProvider || msg.model_provider) : null,
+          modelIdentifier: msg.modelIdentifier || msg.model_identifier ? ensureRDSString(msg.modelIdentifier || msg.model_identifier) : null,
+          reasoningContent: msg.reasoningContent || msg.reasoning_content ? ensureRDSString(msg.reasoningContent || msg.reasoning_content) : null,
+          tokenUsage: (msg.tokenUsage || msg.token_usage) ? JSON.parse(ensureRDSString(msg.tokenUsage || msg.token_usage)) : null
+        };
+        return mapped;
+      });
     } else {
       // Optionally redirect or show an error if the conversation is not accessible
       // For now, it will just proceed with an empty initialMessages array and default title

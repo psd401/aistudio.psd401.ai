@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, memo, useMemo } from "react"
-import { useChat } from 'ai/react'
+import { useChat } from '@ai-sdk/react'
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/components/ui/use-toast"

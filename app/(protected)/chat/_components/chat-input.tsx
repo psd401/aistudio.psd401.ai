@@ -48,27 +48,25 @@ export function ChatInput({
     }
   }, [input])
 
-  const onSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    if (!input.trim() || isLoading || disabled) return
-    handleSubmit(e)
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "48px"
-    }
-  }
-
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !isLoading) {
       e.preventDefault()
-      const form = e.currentTarget.form
-      if (form && input.trim()) {
-        onSubmit(new SubmitEvent("submit", { bubbles: true, cancelable: true, submitter: form }) as unknown as FormEvent<HTMLFormElement>);
+      if (input.trim() && !disabled) {
+        // Create a synthetic form event
+        const syntheticEvent = {
+          preventDefault: () => {},
+          currentTarget: { reset: () => {} }
+        } as FormEvent<HTMLFormElement>
+        handleSubmit(syntheticEvent)
+        if (textareaRef.current) {
+          textareaRef.current.style.height = "48px"
+        }
       }
     }
   }
 
   return (
-    <form onSubmit={onSubmit} className="relative w-full" aria-label="Chat message form">
+    <div className="relative w-full" aria-label="Chat message form">
       <Textarea
         ref={textareaRef}
         id={inputId}
@@ -105,17 +103,29 @@ export function ChatInput({
       )}
       
       <Button
-        type="submit"
+        type="button"
         size="icon"
         variant="default"
         disabled={input.trim().length === 0 || isLoading || disabled}
         className="absolute bottom-2.5 right-3 h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:bg-muted"
         aria-label={sendButtonAriaLabel}
         aria-disabled={input.trim().length === 0 || isLoading || disabled}
+        onClick={() => {
+          if (input.trim() && !disabled && !isLoading) {
+            const syntheticEvent = {
+              preventDefault: () => {},
+              currentTarget: { reset: () => {} }
+            } as FormEvent<HTMLFormElement>
+            handleSubmit(syntheticEvent)
+            if (textareaRef.current) {
+              textareaRef.current.style.height = "48px"
+            }
+          }
+        }}
       >
         <IconSend className="h-4 w-4" />
         <span className="sr-only">{sendButtonAriaLabel}</span>
       </Button>
-    </form>
+    </div>
   )
 } 
