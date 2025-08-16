@@ -98,34 +98,34 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     onResponse: (response: Response) => {
       // Handle conversation ID from response headers
       const header = response.headers.get('X-Conversation-Id')
-      console.log('[Chat] onResponse triggered, X-Conversation-Id header:', header)
+      // Handle conversation ID from response headers
       
       if (header) {
         const newId = parseInt(header, 10)
-        console.log('[Chat] Parsed conversation ID:', newId, 'Current ID:', currentConversationId)
+        // Parsed conversation ID from header
         
         if (!Number.isNaN(newId)) {
           // Always update the conversation ID from the server response
           // This ensures we use the same conversation for all messages
           if (currentConversationId !== newId) {
-            console.log('[Chat] Updating conversation ID from', currentConversationId, 'to', newId)
+            // Update conversation ID and URL
             setCurrentConversationId(newId)
             conversationIdRef.current = newId
             
             // Update URL to reflect the conversation ID
             const newUrl = `/chat?conversation=${newId}`
-            console.log('[Chat] Updating URL to:', newUrl)
+            // URL updated with conversation parameter
             router.replace(newUrl, { scroll: false })
           } else {
-            console.log('[Chat] Conversation ID unchanged:', newId)
+            // Conversation ID already set correctly
           }
         }
       } else {
-        console.log('[Chat] No X-Conversation-Id header in response')
+        // No conversation ID in response header
       }
     },
     onFinish: () => {
-      console.log('[Chat] onFinish triggered')
+      // Message processing complete, refresh conversation list
       // Refresh the conversation list in the sidebar
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('refresh-conversations'))
@@ -137,6 +137,10 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   // This is a workaround for AI SDK v2 not calling onResponse for streaming
   useEffect(() => {
     if (messages.length > 0 && !currentConversationId) {
+      let retryCount = 0
+      const maxRetries = 5
+      const baseDelay = 1000 // Start with 1 second
+      
       // Poll for conversation ID from the server after sending first message
       const checkForConversationId = async () => {
         try {
@@ -148,20 +152,29 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
               const latestConv = conversations[0]
               if (latestConv?.id && !currentConversationId) {
                 const convId = latestConv.id
-                console.log('[Chat] Retrieved conversation ID from API:', convId)
+                // Successfully retrieved conversation ID from API
                 setCurrentConversationId(convId)
                 conversationIdRef.current = convId
                 router.replace(`/chat?conversation=${convId}`, { scroll: false })
+                return true // Success, stop retrying
               }
             }
           }
-        } catch (error) {
-          console.error('[Chat] Error fetching conversation ID:', error)
+        } catch {
+          // Error fetching conversation ID - will retry
         }
+        
+        // Retry with exponential backoff if not successful
+        if (retryCount < maxRetries) {
+          retryCount++
+          const delay = Math.min(baseDelay * Math.pow(2, retryCount - 1), 8000) // Cap at 8 seconds
+          setTimeout(checkForConversationId, delay)
+        }
+        return false
       }
       
-      // Check after a short delay to allow server to process
-      const timer = setTimeout(checkForConversationId, 1000)
+      // Initial check after a short delay to allow server to process
+      const timer = setTimeout(checkForConversationId, baseDelay)
       return () => clearTimeout(timer)
     }
   }, [messages.length, currentConversationId, router])
@@ -333,8 +346,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     // AI SDK v2: sendMessage with message object and options
     const messageId = nanoid();
     
-    console.log('[Chat] Sending message with conversation ID:', conversationIdRef.current)
-    console.log('[Chat] Selected model:', selectedModel.modelId)
+    // Send message with current conversation ID and selected model
     
     // Clear input immediately for better UX
     setInput('')

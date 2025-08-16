@@ -1,11 +1,11 @@
 "use client"
 
-import { useRef, useEffect } from "react"
+import { useRef, useEffect, useCallback } from "react"
+import type { FormEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { IconSend } from "@tabler/icons-react"
 import { PaperclipIcon } from "lucide-react"
-import type { FormEvent } from "react"
 
 interface ChatInputProps {
   input: string
@@ -51,20 +51,23 @@ export function ChatInput({
     }
   }, [input])
 
+  const submitMessage = useCallback(() => {
+    if (input.trim() && !disabled && !isLoading) {
+      const syntheticEvent = {
+        preventDefault: () => {},
+        currentTarget: { reset: () => {} }
+      } as FormEvent<HTMLFormElement>
+      handleSubmit(syntheticEvent)
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "48px"
+      }
+    }
+  }, [input, disabled, isLoading, handleSubmit])
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !isLoading) {
       e.preventDefault()
-      if (input.trim() && !disabled) {
-        // Create a synthetic form event
-        const syntheticEvent = {
-          preventDefault: () => {},
-          currentTarget: { reset: () => {} }
-        } as FormEvent<HTMLFormElement>
-        handleSubmit(syntheticEvent)
-        if (textareaRef.current) {
-          textareaRef.current.style.height = "48px"
-        }
-      }
+      submitMessage()
     }
   }
 
@@ -113,18 +116,7 @@ export function ChatInput({
         className="absolute bottom-2.5 right-3 h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:bg-muted"
         aria-label={sendButtonAriaLabel}
         aria-disabled={input.trim().length === 0 || isLoading || disabled}
-        onClick={() => {
-          if (input.trim() && !disabled && !isLoading) {
-            const syntheticEvent = {
-              preventDefault: () => {},
-              currentTarget: { reset: () => {} }
-            } as FormEvent<HTMLFormElement>
-            handleSubmit(syntheticEvent)
-            if (textareaRef.current) {
-              textareaRef.current.style.height = "48px"
-            }
-          }
-        }}
+        onClick={submitMessage}
       >
         <IconSend className="h-4 w-4" />
         <span className="sr-only">{sendButtonAriaLabel}</span>

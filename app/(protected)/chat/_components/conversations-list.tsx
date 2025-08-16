@@ -102,11 +102,19 @@ export function ConversationsList() {
     
     const unregister = registerRefreshFunction(refreshConversations)
     
+    // Listen for the refresh-conversations event from the chat component
+    const handleRefreshEvent = () => {
+      refreshConversations()
+    }
+    
+    window.addEventListener('refresh-conversations', handleRefreshEvent)
+    
     // Disable auto-polling to avoid unexpected UI refreshes
     // Users can manually refresh via the refresh button
     
     return () => {
       unregister()
+      window.removeEventListener('refresh-conversations', handleRefreshEvent)
     }
   }, [refreshConversations, registerRefreshFunction, isRefreshing, loadConversations])
 

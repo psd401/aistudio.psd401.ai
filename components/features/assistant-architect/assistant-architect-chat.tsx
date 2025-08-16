@@ -293,7 +293,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
                 role: message.role === "user" ? "user" : "assistant", 
                 content: content,
                 parts: [{ type: 'text', text: content }]
-              } as any}
+              }}
               messageId={message.id}
             />
           );

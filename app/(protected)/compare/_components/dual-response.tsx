@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Message } from "@/app/(protected)/chat/_components/message"
 import { IconPlayerStop, IconCopy, IconCheck, IconLoader2 } from "@tabler/icons-react"
 import type { SelectAiModel } from "@/types"
@@ -126,9 +127,32 @@ export function DualResponse({
   }
 
   return (
-    <div className="grid grid-cols-2 divide-x divide-gray-200 h-full">
-      {renderResponse(model1, 'model1', onStopModel1)}
-      {renderResponse(model2, 'model2', onStopModel2)}
-    </div>
+    <>
+      {/* Mobile view - Tabs */}
+      <div className="md:hidden h-full">
+        <Tabs defaultValue="model1" className="h-full flex flex-col">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="model1">
+              {model1.model?.name || 'Model 1'}
+            </TabsTrigger>
+            <TabsTrigger value="model2">
+              {model2.model?.name || 'Model 2'}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="model1" className="flex-1 mt-0">
+            {renderResponse(model1, 'model1', onStopModel1)}
+          </TabsContent>
+          <TabsContent value="model2" className="flex-1 mt-0">
+            {renderResponse(model2, 'model2', onStopModel2)}
+          </TabsContent>
+        </Tabs>
+      </div>
+      
+      {/* Desktop view - Side by side */}
+      <div className="hidden md:grid grid-cols-2 divide-x divide-gray-200 h-full">
+        {renderResponse(model1, 'model1', onStopModel1)}
+        {renderResponse(model2, 'model2', onStopModel2)}
+      </div>
+    </>
   )
 }
