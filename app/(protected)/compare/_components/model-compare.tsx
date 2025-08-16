@@ -85,15 +85,13 @@ export function ModelCompare() {
       chat1.sendMessage(userMessage, {
         body: {
           modelId: model1State.selectedModel.modelId,
-          source: 'model-compare',
-          compareMode: true
+          source: 'chat'
         }
       }),
       chat2.sendMessage(userMessage, {
         body: {
           modelId: model2State.selectedModel.modelId,
-          source: 'model-compare',
-          compareMode: true
+          source: 'chat'
         }
       })
     ])
@@ -112,9 +110,9 @@ export function ModelCompare() {
     
     // Handle AI SDK v2 message format
     if ('parts' in lastAssistant && Array.isArray(lastAssistant.parts)) {
-      return (lastAssistant as any).parts
-        .filter((part: any) => part.type === 'text')
-        .map((part: any) => part.text || '')
+      return lastAssistant.parts
+        .filter((part) => part.type === 'text')
+        .map((part) => 'text' in part ? part.text || '' : '')
         .join('')
     }
     

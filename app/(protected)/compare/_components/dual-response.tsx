@@ -6,6 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Message } from "@/app/(protected)/chat/_components/message"
 import { IconPlayerStop, IconCopy, IconCheck, IconLoader2 } from "@tabler/icons-react"
 import type { SelectAiModel } from "@/types"
+import type { SelectMessage } from "@/types/schema-types"
 import { nanoid } from 'nanoid'
 
 interface ModelResponse {
@@ -102,12 +103,20 @@ export function DualResponse({
           {response.response && (
             <Message 
               message={{
-                id: `${modelKey}-response-${nanoid()}`,
-                role: 'assistant',
+                id: parseInt(nanoid(6), 36), // Generate numeric-like id
                 content: response.response,
+                role: 'assistant',
                 modelName: response.model?.name,
-                modelProvider: response.model?.provider
-              } as any}
+                modelProvider: response.model?.provider,
+                conversationId: 0,
+                userId: 0,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                tokenUsage: null,
+                reasoning_content: null,
+                modelId: null,
+                modelIdentifier: null
+              } as SelectMessage}
               messageId={`${modelKey}-response`}
             />
           )}

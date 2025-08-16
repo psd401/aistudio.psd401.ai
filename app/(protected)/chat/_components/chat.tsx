@@ -17,6 +17,7 @@ import { useConversationContext } from "./conversation-context"
 import { cn } from "@/lib/utils"
 import { motion, AnimatePresence } from "framer-motion"
 import { nanoid } from 'nanoid'
+import { useModelsWithPersistence } from "@/lib/hooks/use-models"
 
 interface Document {
   id: string
@@ -45,17 +46,10 @@ interface ChatProps {
 
 export function Chat({ conversationId: initialConversationId, initialMessages = [] }: ChatProps) {
   const [currentConversationId, setCurrentConversationId] = useState<number | undefined>(initialConversationId)
-  const [models, setModels] = useState<SelectAiModel[]>([])
-  const [selectedModel, setSelectedModelState] = useState<SelectAiModel | null>(null)
   
-  // Wrapper to persist model selection to localStorage
-  const setSelectedModel = useCallback((model: SelectAiModel | null) => {
-    setSelectedModelState(model)
-    if (model) {
-      localStorage.setItem('selectedModelId', model.modelId)
-      localStorage.setItem('selectedModelData', JSON.stringify(model))
-    }
-  }, [])
+  // Use shared model management hook
+  const { models, selectedModel, setSelectedModel } = useModelsWithPersistence('selectedModel', ['chat'])
+  
   const [documents, setDocuments] = useState<Document[]>([])
   const [showDocuments, setShowDocuments] = useState(false)
   const [pendingDocument, setPendingDocument] = useState<Document | null>(null)
@@ -295,77 +289,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       }
     })
   }, [input, selectedModel, sendMessage, toast, pendingDocument?.id])
-
-  // Load models on mount
-  useEffect(() => {
-    const abortController = new AbortController()
-    
-    async function loadModels() {
-      try {
-        const response = await fetch("/api/chat/models", {
-          signal: abortController.signal
-        })
-        
-        if (!response.ok) {
-          return
-        }
-        
-        const result = await response.json()
-        const modelsData = result.data || result
-        
-        if (!Array.isArray(modelsData) || modelsData.length === 0) {
-          return
-        }
-        
-        setModels(modelsData)
-        
-        // If no model is selected yet, try to restore from localStorage or select the first chat-capable model
-        if (!selectedModel) {
-          // First try to restore from localStorage
-          const savedModelId = localStorage.getItem('selectedModelId')
-          if (savedModelId) {
-            const savedModel = modelsData.find(model => model.modelId === savedModelId)
-            if (savedModel) {
-              setSelectedModel(savedModel)
-              return
-            }
-          }
-          
-          // If no saved model or it's not available, select the first chat-capable model
-          const chatCapableModel = modelsData.find(model => {
-            try {
-              const capabilities = typeof model.capabilities === 'string' 
-                ? JSON.parse(model.capabilities) 
-                : model.capabilities
-              return Array.isArray(capabilities) && capabilities.includes('chat')
-            } catch {
-              return false
-            }
-          })
-          
-          if (chatCapableModel) {
-            setSelectedModel(chatCapableModel)
-          }
-        }
-      } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') {
-          return
-        }
-        toast({
-          title: "Error",
-          description: "Failed to load models",
-          variant: "destructive"
-        })
-      }
-    }
-    
-    loadModels()
-    
-    return () => {
-      abortController.abort()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toast])
   
   // Update selected model when conversation changes
   useEffect(() => {
@@ -402,39 +325,10 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         
         if (conversationModel) {
           setSelectedModel(conversationModel)
-          return
         }
       }
     }
-    
-    // For new conversations or when no conversation model found, try localStorage
-    if (!initialConversationId || initialMessages.length === 0) {
-      const savedModelId = localStorage.getItem('selectedModelId')
-      if (savedModelId) {
-        const savedModel = models.find(model => model.modelId === savedModelId)
-        if (savedModel) {
-          setSelectedModel(savedModel)
-          return
-        }
-      }
-    }
-    
-    // If no saved model or conversation model, select first chat-capable model
-    const chatCapableModel = models.find(model => {
-      try {
-        const capabilities = typeof model.capabilities === 'string' 
-          ? JSON.parse(model.capabilities) 
-          : model.capabilities
-        return Array.isArray(capabilities) && capabilities.includes('chat')
-      } catch {
-        return false
-      }
-    })
-    
-    if (chatCapableModel && !selectedModel) {
-      setSelectedModel(chatCapableModel)
-    }
-  }, [models, initialConversationId, initialMessages, selectedModel, setSelectedModel])
+  }, [models, initialConversationId, initialMessages, setSelectedModel])
 
 
   // Auto-scroll to bottom when messages change
