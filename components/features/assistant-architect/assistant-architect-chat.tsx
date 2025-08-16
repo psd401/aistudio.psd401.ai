@@ -174,7 +174,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
         variant: "destructive"
       })
     }
-  } as any)
+  } as Parameters<typeof useChat>[0])
 
   // Update internal conversation ID when prop changes
   useEffect(() => {

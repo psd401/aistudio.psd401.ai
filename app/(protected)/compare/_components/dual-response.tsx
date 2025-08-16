@@ -3,18 +3,15 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { IconPlayerStop, IconCopy, IconCheck } from "@tabler/icons-react"
-import { cn } from "@/lib/utils"
+import { Message } from "@/app/(protected)/chat/_components/message"
+import { IconPlayerStop, IconCopy, IconCheck, IconLoader2 } from "@tabler/icons-react"
 import type { SelectAiModel } from "@/types"
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { nanoid } from 'nanoid'
 
 interface ModelResponse {
   model: SelectAiModel | null
   response: string
-  status: 'ready' | 'submitted' | 'streaming' | 'error'
+  status: 'ready' | 'streaming' | 'error'
   error?: string
 }
 
@@ -53,7 +50,7 @@ export function DualResponse({
             {response.model?.name || 'Select a model'}
           </h3>
           <div className="flex items-center gap-2">
-            {(response.status === 'submitted' || response.status === 'streaming') && (
+            {response.status === 'streaming' && (
               <Button
                 onClick={onStop}
                 size="sm"
@@ -93,90 +90,36 @@ export function DualResponse({
             </div>
           )}
           
-          {response.response && (
-            <div className="prose prose-sm dark:prose-invert max-w-none">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  code: ({ className, children, ...props }: any) => {
-                    const match = /language-(\w+)/.exec(className || '')
-                    return match ? (
-                      <SyntaxHighlighter
-                        style={oneDark}
-                        language={match[1]}
-                        PreTag="div"
-                        {...(props as Record<string, unknown>)}
-                      >
-                        {String(children).replace(/\n$/, '')}
-                      </SyntaxHighlighter>
-                    ) : (
-                      <code className={className} {...props}>
-                        {children}
-                      </code>
-                    )
-                  }
-                }}
-              >
-                {response.response}
-              </ReactMarkdown>
+          {response.status === 'streaming' && !response.response && (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <IconLoader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">
+                {response.model?.name || 'Model'} is thinking...
+              </span>
             </div>
           )}
           
-          {(response.status === 'submitted' || (response.status === 'streaming' && !response.response)) && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-              <span>{response.status === 'submitted' ? 'Thinking...' : 'Generating response...'}</span>
-            </div>
+          {response.response && (
+            <Message 
+              message={{
+                id: `${modelKey}-response-${nanoid()}`,
+                role: 'assistant',
+                content: response.response,
+                modelName: response.model?.name,
+                modelProvider: response.model?.provider
+              } as any}
+              messageId={`${modelKey}-response`}
+            />
           )}
         </ScrollArea>
       </div>
     )
   }
 
-  // Mobile view: tabs
-  const [activeTab, setActiveTab] = useState<'model1' | 'model2'>('model1')
-
   return (
-    <>
-      {/* Desktop view: side-by-side */}
-      <div className="hidden md:grid md:grid-cols-2 h-full divide-x">
-        {renderResponse(model1, 'model1', onStopModel1)}
-        {renderResponse(model2, 'model2', onStopModel2)}
-      </div>
-      
-      {/* Mobile view: tabs */}
-      <div className="flex flex-col h-full md:hidden">
-        <div className="flex border-b">
-          <button
-            onClick={() => setActiveTab('model1')}
-            className={cn(
-              "flex-1 px-4 py-2 text-sm font-medium transition-colors",
-              activeTab === 'model1'
-                ? "border-b-2 border-primary text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {model1.model?.name || 'Model 1'}
-          </button>
-          <button
-            onClick={() => setActiveTab('model2')}
-            className={cn(
-              "flex-1 px-4 py-2 text-sm font-medium transition-colors",
-              activeTab === 'model2'
-                ? "border-b-2 border-primary text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {model2.model?.name || 'Model 2'}
-          </button>
-        </div>
-        
-        <div className="flex-1 overflow-hidden">
-          {activeTab === 'model1' && renderResponse(model1, 'model1', onStopModel1)}
-          {activeTab === 'model2' && renderResponse(model2, 'model2', onStopModel2)}
-        </div>
-      </div>
-    </>
+    <div className="grid grid-cols-2 divide-x divide-gray-200 h-full">
+      {renderResponse(model1, 'model1', onStopModel1)}
+      {renderResponse(model2, 'model2', onStopModel2)}
+    </div>
   )
 }
