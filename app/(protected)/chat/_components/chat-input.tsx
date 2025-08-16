@@ -15,6 +15,8 @@ interface ChatInputProps {
   disabled?: boolean
   onAttachClick?: () => void
   showAttachButton?: boolean
+  /** Placeholder text for the input field */
+  placeholder?: string
   /** Accessibility label for the input field */
   ariaLabel?: string
   /** ID for the textarea element */
@@ -33,6 +35,7 @@ export function ChatInput({
   disabled,
   onAttachClick,
   showAttachButton = false,
+  placeholder = "Type your message...",
   ariaLabel = "Message input",
   inputId = "chat-message-input",
   sendButtonAriaLabel = "Send message",
@@ -76,7 +79,7 @@ export function ChatInput({
         value={input}
         onChange={handleInputChange}
         onKeyDown={onKeyDown}
-        placeholder="Message..."
+        placeholder={placeholder}
         spellCheck={false}
         className={`min-h-[48px] w-full resize-none bg-background py-3 border border-border rounded-xl shadow-sm focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-offset-0 focus-visible:border-primary ${showAttachButton ? 'pl-12 pr-14' : 'pl-4 pr-14'}`}
         disabled={disabled || isLoading}

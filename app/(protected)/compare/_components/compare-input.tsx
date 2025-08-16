@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { ChatInput } from "@/components/ui/chat-input"
+import { ChatInput } from "@/app/(protected)/chat/_components/chat-input"
 import { ModelSelector } from "@/components/features/model-selector"
 import { IconPlayerPlay, IconPlayerStop, IconRefresh } from "@tabler/icons-react"
 import type { SelectAiModel } from "@/types"

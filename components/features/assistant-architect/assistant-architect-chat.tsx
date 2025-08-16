@@ -5,8 +5,8 @@ import { useChat } from '@ai-sdk/react'
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/components/ui/use-toast"
-import { ChatInput } from "@/components/ui/chat-input"
-import { Message } from "@/components/ui/message"
+import { ChatInput } from "@/app/(protected)/chat/_components/chat-input"
+import { Message } from "@/app/(protected)/chat/_components/message"
 import { ExecutionResultDetails } from "@/types/assistant-architect-types"
 import { IconPlayerStop } from "@tabler/icons-react"
 import { Loader2, Info } from "lucide-react"
@@ -291,8 +291,10 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
               message={{ 
                 id: message.id, 
                 role: message.role === "user" ? "user" : "assistant", 
-                content: content
-              }} 
+                content: content,
+                parts: [{ type: 'text', text: content }]
+              } as any}
+              messageId={message.id}
             />
           );
         })}

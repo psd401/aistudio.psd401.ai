@@ -85,13 +85,13 @@ export function ModelCompare() {
       chat1.sendMessage(userMessage, {
         body: {
           modelId: model1State.selectedModel.modelId,
-          source: 'chat'
+          source: 'model-compare'
         }
       }),
       chat2.sendMessage(userMessage, {
         body: {
           modelId: model2State.selectedModel.modelId,
-          source: 'chat'
+          source: 'model-compare'
         }
       })
     ])
