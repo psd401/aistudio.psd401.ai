@@ -50,7 +50,7 @@ jest.mock('ai', () => ({
   createOpenAI: jest.fn().mockReturnValue(() => ({}))
 }))
 
-import { POST } from '@/app/api/chat/stream-final/route'
+import { POST } from '@/app/api/chat/route'
 import { getServerSession } from '@/lib/auth/server-session'
 import { executeSQL } from '@/lib/db/data-api-adapter'
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action'
