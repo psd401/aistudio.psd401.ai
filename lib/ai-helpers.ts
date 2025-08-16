@@ -4,21 +4,19 @@ import {
   generateObject,
   embed,
   embedMany,
+  tool,
   CoreMessage,
-  Tool as CoreTool,
   StreamTextResult,
+  InvalidToolInputError,
   NoSuchToolError,
-  InvalidArgumentError,
-  FinishReason
+  ToolCallRepairError,
+  LanguageModel
 } from 'ai'
-import { createAzure } from '@ai-sdk/azure'
-import { google } from '@ai-sdk/google'
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { createOpenAI } from '@ai-sdk/openai'
-// Removed fromNodeProviderChain - not needed when using default credential chain
 import { z } from 'zod'
 import logger from "@/lib/logger"
-import { ErrorFactories } from "@/lib/error-utils"
+import { createProviderModel } from '@/app/api/chat/lib/provider-factory'
 
 interface ModelConfig {
   provider: string
@@ -27,17 +25,7 @@ interface ModelConfig {
 
 export interface StreamingOptions {
   onToken?: (token: string) => void
-  onFinish?: (result: { 
-    text?: string; 
-    toolCalls?: unknown[]; 
-    toolResults?: unknown[]; 
-    finishReason?: FinishReason; 
-    usage?: { 
-      inputTokens?: number; 
-      outputTokens?: number;
-      totalTokens?: number 
-    } 
-  }) => void
+  onFinish?: (result: unknown) => void
   onError?: (error: Error) => void
 }
 
@@ -49,121 +37,24 @@ export interface ToolDefinition {
 }
 
 // Get the appropriate model client based on provider
-async function getModelClient(modelConfig: ModelConfig) {
-  const { Settings } = await import('@/lib/settings-manager');
+// Now uses the centralized provider factory for consistency
+async function getModelClient(modelConfig: ModelConfig): Promise<LanguageModel> {
+  logger.info('[ai-helpers] Getting model client via provider factory', {
+    provider: modelConfig.provider,
+    modelId: modelConfig.modelId
+  });
   
-  switch (modelConfig.provider) {
-    case 'amazon-bedrock': {
-      logger.info('[ai-helpers] Starting Bedrock initialization for model:', modelConfig.modelId);
-      
-      try {
-        const bedrockConfig = await Settings.getBedrock();
-        logger.info('[ai-helpers] Bedrock settings retrieved:', {
-          hasAccessKey: !!bedrockConfig.accessKeyId,
-          hasSecretKey: !!bedrockConfig.secretAccessKey,
-          region: bedrockConfig.region || 'us-east-1',
-          environment: process.env.AWS_EXECUTION_ENV || 'local'
-        });
-        
-        const bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
-          region: bedrockConfig.region || 'us-east-1'
-        };
-        
-        // In AWS Lambda, always use IAM role credentials (ignore stored credentials)
-        const isAwsLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
-        
-        if (bedrockConfig.accessKeyId && bedrockConfig.secretAccessKey && !isAwsLambda) {
-          // Only use stored credentials for local development
-          logger.info('[ai-helpers] Using explicit credentials from settings (local dev)');
-          bedrockOptions.accessKeyId = bedrockConfig.accessKeyId;
-          bedrockOptions.secretAccessKey = bedrockConfig.secretAccessKey;
-        } else {
-          // AWS environment or no stored credentials - let SDK handle credentials automatically
-          logger.info('[ai-helpers] Using default AWS credential chain', { isAwsLambda });
-          // Don't set any credentials - let the SDK use the default credential provider chain
-          // This will use IAM role credentials in Lambda, which work properly
-        }
-        
-        logger.info('[ai-helpers] Creating Bedrock client with options:', {
-          region: bedrockOptions.region,
-          hasAccessKeyId: !!bedrockOptions.accessKeyId,
-          hasSecretAccessKey: !!bedrockOptions.secretAccessKey,
-          hasSessionToken: !!bedrockOptions.sessionToken
-        });
-        
-        const bedrock = createAmazonBedrock(bedrockOptions);
-        const model = bedrock(modelConfig.modelId);
-        
-        logger.info('[ai-helpers] Bedrock model created successfully');
-        return model;
-      } catch (error) {
-        logger.error('[ai-helpers] BEDROCK INITIALIZATION FAILED:', {
-          modelId: modelConfig.modelId,
-          error: error instanceof Error ? {
-            name: error.name,
-            message: error.message,
-            stack: error.stack,
-            ...Object.getOwnPropertyNames(error).reduce((acc: Record<string, unknown>, key) => {
-              if (!['name', 'message', 'stack'].includes(key)) {
-                acc[key] = (error as unknown as Record<string, unknown>)[key];
-              }
-              return acc;
-            }, {} as Record<string, unknown>)
-          } : String(error),
-          environment: {
-            AWS_REGION: process.env.AWS_REGION,
-            AWS_EXECUTION_ENV: process.env.AWS_EXECUTION_ENV,
-            NODE_ENV: process.env.NODE_ENV
-          }
-        });
-        throw error;
-      }
-    }
-
-    case 'azure': {
-      const azureConfig = await Settings.getAzureOpenAI();
-      
-      if (!azureConfig.key || !azureConfig.resourceName) {
-        throw new Error('Azure OpenAI is not configured. Please set the required settings in the admin panel.')
-      }
-      
-      const azureClient = createAzure({
-        apiKey: azureConfig.key,
-        resourceName: azureConfig.resourceName
-      })
-
-      return azureClient(modelConfig.modelId)
-    }
-
-    case 'google': {
-      const googleApiKey = await Settings.getGoogleAI();
-      
-      if (!googleApiKey) {
-        throw new Error('Google API key is not configured. Please set GOOGLE_API_KEY in the admin panel.');
-      }
-      
-      // Manually set the environment variable that the Google AI SDK is looking for
-      process.env.GOOGLE_GENERATIVE_AI_API_KEY = googleApiKey;
-      
-      return google(modelConfig.modelId);
-    }
-
-    case 'openai': {
-      const openAIKey = await Settings.getOpenAI();
-      
-      if (!openAIKey) {
-        throw new Error('OpenAI API key is not configured. Please set OPENAI_API_KEY in the admin panel.');
-      }
-      
-      const openai = createOpenAI({
-        apiKey: openAIKey
-      });
-      
-      return openai(modelConfig.modelId);
-    }
-
-    default:
-      throw new Error(`Unsupported provider: ${modelConfig.provider}`)
+  try {
+    const model = await createProviderModel(modelConfig.provider, modelConfig.modelId);
+    logger.info('[ai-helpers] Model client created successfully');
+    return model;
+  } catch (error) {
+    logger.error('[ai-helpers] Failed to get model client:', {
+      provider: modelConfig.provider,
+      modelId: modelConfig.modelId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
   }
 }
 
@@ -171,7 +62,7 @@ async function getModelClient(modelConfig: ModelConfig) {
 export async function generateCompletion(
   modelConfig: ModelConfig,
   messages: CoreMessage[],
-  tools?: Record<string, CoreTool>
+  tools?: Record<string, unknown>
 ) {
   const model = await getModelClient(modelConfig);
   
@@ -179,31 +70,26 @@ export async function generateCompletion(
     const result = await generateText({
       model,
       messages,
-      tools
+      tools: tools as Parameters<typeof generateText>[0]['tools'],
+      maxRetries: tools ? 5 : undefined // Allow multi-step tool calling
     });
 
     if (!result.text) {
-      throw ErrorFactories.externalServiceError(
-        modelConfig.provider,
-        new Error('No content returned from model')
-      );
+      throw new Error(`No content returned from ${modelConfig.provider}`);
     }
 
     return result.text;
   } catch (error) {
     // Handle specific AI SDK errors
     if (error instanceof NoSuchToolError) {
-      const errorWithToolName = error as { toolName?: string };
-      logger.error('[generateCompletion] Tool not found:', errorWithToolName.toolName || 'unknown');
-      throw ErrorFactories.externalServiceError(
-        'AI Model',
-        new Error(`AI tried to use unknown tool: ${errorWithToolName.toolName || 'unknown'}`)
-      );
-    } else if (error instanceof InvalidArgumentError) {
-      logger.error('[generateCompletion] Invalid arguments:', error);
-      throw ErrorFactories.validationFailed(
-        [{ field: 'arguments', value: 'invalid', message: error.message }]
-      );
+      logger.error('[generateCompletion] Tool not found:', error.toolName);
+      throw new Error(`AI tried to use unknown tool: ${error.toolName}`);
+    } else if (error instanceof InvalidToolInputError) {
+      logger.error('[generateCompletion] Invalid tool arguments:', error);
+      throw new Error(`Invalid arguments for tool: ${error.message}`);
+    } else if (error instanceof Error && error.name === 'ToolExecutionError') {
+      logger.error('[generateCompletion] Tool execution failed:', error);
+      throw new Error(`Tool execution failed: ${error.message}`);
     }
     
     throw error;
@@ -215,8 +101,10 @@ export async function streamCompletion(
   modelConfig: ModelConfig,
   messages: CoreMessage[],
   options?: StreamingOptions,
-  tools?: Record<string, CoreTool>
-): Promise<StreamTextResult<Record<string, CoreTool>, unknown>> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tools?: any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<StreamTextResult<any, any>> {
   const model = await getModelClient(modelConfig);
   
   try {
@@ -224,9 +112,10 @@ export async function streamCompletion(
       model,
       messages,
       tools,
+      maxRetries: tools ? 5 : undefined,
       onChunk: ({ chunk }) => {
         if (chunk.type === 'text-delta' && options?.onToken) {
-          options.onToken(chunk.text);
+          options.onToken((chunk as { text?: string }).text || '');
         }
       },
       onFinish: options?.onFinish
@@ -250,28 +139,29 @@ export async function generateStructuredOutput<T>(
   const result = await generateObject({
     model,
     messages,
-    schema
-  } as Parameters<typeof generateObject>[0]);
+    schema,
+    output: 'object'
+    // Type casting needed for complex generic type
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
 
   return result.object as T;
 }
 
-/**
- * @deprecated This function is not compatible with AI SDK v5 and will be removed.
- * Use the new tool definition pattern from AI SDK v5 directly.
- * @throws {Error} Always throws an error to prevent usage
- */
-export function createTool(definition: ToolDefinition): CoreTool {
-  throw ErrorFactories.sysConfigurationError(
-    'createTool is deprecated in AI SDK v5. Use the new tool definition pattern directly.',
-    { toolName: definition.name }
-  );
+// Helper to create a tool from a definition
+export function createTool(definition: ToolDefinition): unknown {
+  return tool({
+    description: definition.description,
+    inputSchema: definition.inputSchema,
+    execute: definition.execute
+  });
 }
 
 // Export error types for consumers
 export {
+  InvalidToolInputError,
   NoSuchToolError,
-  InvalidArgumentError
+  ToolCallRepairError
 };
 
 // Embedding configuration interface
@@ -308,8 +198,15 @@ export async function getEmbeddingConfig(): Promise<EmbeddingConfig> {
 }
 
 // Get embedding model client
+// Note: Embedding models need special handling, so we keep some provider-specific logic here
+// But we reuse settings from the centralized settings-manager
 async function getEmbeddingModelClient(config: ModelConfig) {
   const { Settings } = await import('@/lib/settings-manager');
+  
+  logger.info('[ai-helpers] Getting embedding model client', {
+    provider: config.provider,
+    modelId: config.modelId
+  });
   
   switch (config.provider) {
     case 'openai': {
@@ -323,65 +220,39 @@ async function getEmbeddingModelClient(config: ModelConfig) {
         apiKey: openAIKey
       });
       
-      return openai.embedding(config.modelId);
+      // Type casting needed for AI SDK v5 compatibility
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return openai.embedding(config.modelId) as any;
     }
     
     case 'amazon-bedrock': {
-      logger.info('[ai-helpers] Starting Bedrock embedding initialization for model:', config.modelId);
-      
       try {
         const bedrockConfig = await Settings.getBedrock();
-        logger.info('[ai-helpers] Bedrock embedding settings retrieved:', {
-          hasAccessKey: !!bedrockConfig.accessKeyId,
-          hasSecretKey: !!bedrockConfig.secretAccessKey,
-          region: bedrockConfig.region || 'us-east-1',
-          environment: process.env.AWS_EXECUTION_ENV || 'local'
-        });
         
         const bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
           region: bedrockConfig.region || 'us-east-1'
         };
         
-        // In AWS Lambda, always use IAM role credentials (ignore stored credentials)
+        // In AWS Lambda, use IAM role credentials
         const isAwsLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
         
         if (bedrockConfig.accessKeyId && bedrockConfig.secretAccessKey && !isAwsLambda) {
           // Only use stored credentials for local development
-          logger.info('[ai-helpers] Using explicit credentials for embeddings (local dev)');
           bedrockOptions.accessKeyId = bedrockConfig.accessKeyId;
           bedrockOptions.secretAccessKey = bedrockConfig.secretAccessKey;
-        } else {
-          // AWS environment or no stored credentials - let SDK handle credentials automatically
-          logger.info('[ai-helpers] Using default AWS credential chain for embeddings', { isAwsLambda });
-          // Don't set any credentials - let the SDK use the default credential provider chain
-          // This will use IAM role credentials in Lambda, which work properly
         }
         
-        logger.info('[ai-helpers] Creating Bedrock embedding client');
         const bedrock = createAmazonBedrock(bedrockOptions);
         const embeddingModel = bedrock.embedding(config.modelId);
         
-        logger.info('[ai-helpers] Bedrock embedding model created successfully');
-        return embeddingModel;
+        logger.info('[ai-helpers] Embedding model created successfully');
+        // Type casting needed for AI SDK v5 compatibility
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return embeddingModel as any;
       } catch (error) {
-        logger.error('[ai-helpers] BEDROCK EMBEDDING INITIALIZATION FAILED:', {
+        logger.error('[ai-helpers] Failed to create embedding model:', {
           modelId: config.modelId,
-          error: error instanceof Error ? {
-            name: error.name,
-            message: error.message,
-            stack: error.stack,
-            ...Object.getOwnPropertyNames(error).reduce((acc: Record<string, unknown>, key) => {
-              if (!['name', 'message', 'stack'].includes(key)) {
-                acc[key] = (error as unknown as Record<string, unknown>)[key];
-              }
-              return acc;
-            }, {} as Record<string, unknown>)
-          } : String(error),
-          environment: {
-            AWS_REGION: process.env.AWS_REGION,
-            AWS_EXECUTION_ENV: process.env.AWS_EXECUTION_ENV,
-            NODE_ENV: process.env.NODE_ENV
-          }
+          error: error instanceof Error ? error.message : String(error)
         });
         throw error;
       }

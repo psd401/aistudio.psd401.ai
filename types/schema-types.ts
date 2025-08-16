@@ -128,6 +128,11 @@ export type SelectConversation = {
   context: any;
   createdAt: Date;
   updatedAt: Date;
+  // Model information from JOIN with ai_models table
+  modelName?: string | null;
+  modelProvider?: string | null;
+  modelIdentifier?: string | null;
+  modelDescription?: string | null;
 }
 
 export type InsertMessage = {
@@ -135,6 +140,9 @@ export type InsertMessage = {
   conversationId: number;
   role: string;
   content: string;
+  modelId?: number | null;
+  reasoningContent?: string | null;
+  tokenUsage?: any;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -144,6 +152,13 @@ export type SelectMessage = {
   conversationId: number;
   role: string;
   content: string;
+  modelId?: number | null;
+  reasoningContent?: string | null;
+  tokenUsage?: any;
   createdAt: Date;
   updatedAt: Date;
+  // Model information from JOIN with ai_models table  
+  modelName?: string | null;
+  modelProvider?: string | null;
+  modelIdentifier?: string | null;
 }

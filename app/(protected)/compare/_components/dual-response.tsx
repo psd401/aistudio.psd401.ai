@@ -3,18 +3,17 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { IconPlayerStop, IconCopy, IconCheck } from "@tabler/icons-react"
-import { cn } from "@/lib/utils"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Message } from "@/app/(protected)/chat/_components/message"
+import { IconPlayerStop, IconCopy, IconCheck, IconLoader2 } from "@tabler/icons-react"
 import type { SelectAiModel } from "@/types"
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import type { SelectMessage } from "@/types/schema-types"
+import { nanoid } from 'nanoid'
 
 interface ModelResponse {
   model: SelectAiModel | null
   response: string
-  isLoading: boolean
+  status: 'ready' | 'streaming' | 'error'
   error?: string
 }
 
@@ -44,7 +43,7 @@ export function DualResponse({
   }
 
   const renderResponse = (response: ModelResponse, modelKey: 'model1' | 'model2', onStop: () => void) => {
-    const hasContent = response.response || response.error || response.isLoading
+    const hasContent = response.response || response.error || response.status !== 'ready'
 
     return (
       <div className="flex flex-col h-full">
@@ -53,7 +52,7 @@ export function DualResponse({
             {response.model?.name || 'Select a model'}
           </h3>
           <div className="flex items-center gap-2">
-            {response.isLoading && (
+            {response.status === 'streaming' && (
               <Button
                 onClick={onStop}
                 size="sm"
@@ -93,89 +92,66 @@ export function DualResponse({
             </div>
           )}
           
-          {response.response && (
-            <div className="prose prose-sm dark:prose-invert max-w-none">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  code: ({ className, children, ...props }: any) => {
-                    const match = /language-(\w+)/.exec(className || '')
-                    return match ? (
-                      <SyntaxHighlighter
-                        style={oneDark}
-                        language={match[1]}
-                        PreTag="div"
-                        {...(props as Record<string, unknown>)}
-                      >
-                        {String(children).replace(/\n$/, '')}
-                      </SyntaxHighlighter>
-                    ) : (
-                      <code className={className} {...props}>
-                        {children}
-                      </code>
-                    )
-                  }
-                }}
-              >
-                {response.response}
-              </ReactMarkdown>
+          {response.status === 'streaming' && !response.response && (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <IconLoader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">
+                {response.model?.name || 'Model'} is thinking...
+              </span>
             </div>
           )}
           
-          {response.isLoading && !response.response && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-              <span>Generating response...</span>
-            </div>
+          {response.response && (
+            <Message 
+              message={{
+                id: parseInt(nanoid(6), 36), // Generate numeric-like id
+                content: response.response,
+                role: 'assistant',
+                modelName: response.model?.name,
+                modelProvider: response.model?.provider,
+                conversationId: 0,
+                userId: 0,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                tokenUsage: null,
+                reasoning_content: null,
+                modelId: null,
+                modelIdentifier: null
+              } as SelectMessage}
+              messageId={`${modelKey}-response`}
+            />
           )}
         </ScrollArea>
       </div>
     )
   }
 
-  // Mobile view: tabs
-  const [activeTab, setActiveTab] = useState<'model1' | 'model2'>('model1')
-
   return (
     <>
-      {/* Desktop view: side-by-side */}
-      <div className="hidden md:grid md:grid-cols-2 h-full divide-x">
-        {renderResponse(model1, 'model1', onStopModel1)}
-        {renderResponse(model2, 'model2', onStopModel2)}
+      {/* Mobile view - Tabs */}
+      <div className="md:hidden h-full">
+        <Tabs defaultValue="model1" className="h-full flex flex-col">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="model1">
+              {model1.model?.name || 'Model 1'}
+            </TabsTrigger>
+            <TabsTrigger value="model2">
+              {model2.model?.name || 'Model 2'}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="model1" className="flex-1 mt-0">
+            {renderResponse(model1, 'model1', onStopModel1)}
+          </TabsContent>
+          <TabsContent value="model2" className="flex-1 mt-0">
+            {renderResponse(model2, 'model2', onStopModel2)}
+          </TabsContent>
+        </Tabs>
       </div>
       
-      {/* Mobile view: tabs */}
-      <div className="flex flex-col h-full md:hidden">
-        <div className="flex border-b">
-          <button
-            onClick={() => setActiveTab('model1')}
-            className={cn(
-              "flex-1 px-4 py-2 text-sm font-medium transition-colors",
-              activeTab === 'model1'
-                ? "border-b-2 border-primary text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {model1.model?.name || 'Model 1'}
-          </button>
-          <button
-            onClick={() => setActiveTab('model2')}
-            className={cn(
-              "flex-1 px-4 py-2 text-sm font-medium transition-colors",
-              activeTab === 'model2'
-                ? "border-b-2 border-primary text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {model2.model?.name || 'Model 2'}
-          </button>
-        </div>
-        
-        <div className="flex-1 overflow-hidden">
-          {activeTab === 'model1' && renderResponse(model1, 'model1', onStopModel1)}
-          {activeTab === 'model2' && renderResponse(model2, 'model2', onStopModel2)}
-        </div>
+      {/* Desktop view - Side by side */}
+      <div className="hidden md:grid grid-cols-2 divide-x divide-gray-200 h-full">
+        {renderResponse(model1, 'model1', onStopModel1)}
+        {renderResponse(model2, 'model2', onStopModel2)}
       </div>
     </>
   )

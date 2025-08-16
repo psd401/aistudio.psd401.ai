@@ -1,395 +1,302 @@
-"use server"
+import { streamText, convertToModelMessages, UIMessage } from 'ai';
+import { getServerSession } from '@/lib/auth/server-session';
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
+import { createProviderModel } from './lib/provider-factory';
+import { buildSystemPrompt } from './lib/system-prompt-builder';
+import { 
+  handleConversation, 
+  saveAssistantMessage, 
+  getModelConfig,
+  getConversationContext 
+} from './lib/conversation-handler';
+import { loadExecutionContextData } from './lib/execution-context';
+import { getAssistantOwnerSub } from './lib/knowledge-context';
 
-import { NextRequest, NextResponse } from "next/server"
-import { generateCompletion } from "@/lib/ai-helpers"
-import { CoreMessage } from "ai"
-import { withErrorHandling, unauthorized, badRequest } from "@/lib/api-utils"
-import { createError } from "@/lib/error-utils"
-import { ErrorLevel } from "@/types/actions-types"
-import { getDocumentsByConversationId, getDocumentChunksByDocumentId, getDocumentById } from "@/lib/db/queries/documents"
-import { SelectDocument } from "@/types/db-types"
-import { createLogger, generateRequestId, startTimer } from "@/lib/logger"
-import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
-import { getServerSession } from "@/lib/auth/server-session"
-import { executeSQL } from "@/lib/db/data-api-adapter"
-export async function POST(req: NextRequest) {
+// Allow streaming responses up to 30 seconds
+export const maxDuration = 30;
+
+/**
+ * Main chat API route following AI SDK v5 patterns
+ * Clean, modular, and extensible design
+ */
+export async function POST(req: Request) {
   const requestId = generateRequestId();
-  const timer = startTimer("api.chat.post");
-  const log = createLogger({ requestId, route: "api.chat" });
+  const timer = startTimer('api.chat');
+  const log = createLogger({ requestId, route: 'api.chat' });
   
-  log.info("POST /api/chat - Processing chat request");
+  log.info('POST /api/chat - Processing chat request');
   
-  const session = await getServerSession()
-  if (!session) {
-    log.warn("Unauthorized chat request");
-    timer({ status: "error", reason: "unauthorized" });
-    return unauthorized('User not authenticated')
-  }
-  
-  log.debug("User authenticated", { userId: session.sub });
-
-  return withErrorHandling(async () => {
-    // Destructure conversationId from body
-    const { messages, modelId: textModelId, source, executionId, context, conversationId: existingConversationId, documentId } = await req.json()
+  try {
+    // 1. Parse and validate request
+    const body = await req.json();
     
-    log.debug("Chat request received", {
-      modelId: textModelId,
-      source,
-      messageCount: messages?.length,
-      hasContext: !!context,
+    // Debug: Log the entire request body to understand structure
+    log.info('Raw request body received', { 
+      body,
+      bodyKeys: Object.keys(body),
+      messages: body.messages?.length || 0,
+      modelId: body.modelId,
+      allFields: JSON.stringify(body).substring(0, 500)
+    });
+    
+    // Extract fields from the request body
+    // AI SDK v2 sends custom data at root level alongside messages
+    const messages: UIMessage[] = body.messages || [];
+    
+    // Custom data is sent at root level with messages in AI SDK v2
+    const modelId = body.modelId;
+    const existingConversationId = body.conversationId;
+    const documentId = body.documentId;
+    const source = body.source || 'chat';
+    const executionId = body.executionId;
+    
+    log.debug('Request parsed', {
+      messageCount: messages.length,
+      modelId,
+      hasConversationId: !!existingConversationId,
       hasDocumentId: !!documentId,
-      existingConversationId
+      source
     });
-
-    if (!textModelId) {
-      throw createError('Model ID is required', {
-        code: 'VALIDATION',
-        level: ErrorLevel.WARN,
-        details: { field: 'modelId' }
-      });
-    }
-    if (!messages || messages.length === 0) {
-      throw createError('Messages are required', {
-        code: 'VALIDATION',
-        level: ErrorLevel.WARN,
-        details: { field: 'messages' }
-      });
-    }
-
-    // Find the AI model record using the text modelId to get the provider
-    const modelQuery = `
-      SELECT id, name, provider, model_id
-      FROM ai_models
-      WHERE model_id = :modelId
-      LIMIT 1
-    `;
-    const modelParams = [
-      { name: 'modelId', value: { stringValue: textModelId } }
-    ];
-    const modelResult = await executeSQL<{ id: number; name: string; provider: string; modelId: string }>(modelQuery, modelParams);
     
-    if (!modelResult.length) {
-      throw createError(`AI Model with identifier '${textModelId}' not found`, {
-        code: 'NOT_FOUND',
-        level: ErrorLevel.ERROR,
-        details: { modelId: textModelId }
-      });
+    // 2. Authenticate user
+    const session = await getServerSession();
+    if (!session) {
+      log.warn('Unauthorized request - no session');
+      timer({ status: 'error', reason: 'unauthorized' });
+      return new Response('Unauthorized', { status: 401 });
     }
     
-    const aiModel = modelResult[0];
+    log.debug('User authenticated', { userId: session.sub });
     
-    // Ensure id is a number
-    if (!aiModel.id) {
-      throw createError('AI Model record missing id field', {
-        code: 'INVALID_DATA',
-        level: ErrorLevel.ERROR,
-        details: { model: aiModel }
-      });
+    // 3. Get current user
+    const currentUser = await getCurrentUserAction();
+    if (!currentUser.isSuccess) {
+      log.error('Failed to get current user');
+      return new Response('Unauthorized', { status: 401 });
     }
-
-    let conversationId: number | undefined;
-
-    // If an existing conversation ID is provided, use it
-    if (existingConversationId) {
-      const checkQuery = `
-        SELECT id FROM conversations
-        WHERE id = :conversationId
-      `;
-      const checkParams = [
-        { name: 'conversationId', value: { longValue: existingConversationId } }
-      ];
-      const conversations = await executeSQL<{ id: number }>(checkQuery, checkParams);
-
-      if (conversations.length > 0) {
-        conversationId = conversations[0].id
-        // Update the updated_at timestamp
-        const updateQuery = `
-          UPDATE conversations
-          SET updated_at = NOW()
-          WHERE id = :conversationId
-        `;
-        await executeSQL(updateQuery, checkParams);
-      }
+    
+    // 4. Get model configuration from database
+    const modelConfig = await getModelConfig(modelId);
+    if (!modelConfig) {
+      log.error('Model not found', { modelId });
+      return new Response(
+        JSON.stringify({ error: 'Selected model not found or not enabled for chat' }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } }
+      );
     }
-
-    // If no conversation ID is provided or found, create a new conversation
-    if (!conversationId) {
-      const currentUser = await getCurrentUserAction()
-      if (!currentUser.isSuccess) {
-        return new Response("Unauthorized", { status: 401 })
-      }
-
-      const insertQuery = `
-        INSERT INTO conversations (title, user_id, model_id, source, execution_id, context)
-        VALUES (:title, :userId, :modelId, :source, :executionId, :context::jsonb)
-        RETURNING id
-      `;
-      const insertParams = [
-        { name: 'title', value: { stringValue: messages[0].content.substring(0, 100) } },
-        { name: 'userId', value: { longValue: currentUser.data.user.id } },
-        { name: 'modelId', value: { longValue: aiModel.id } },
-        { name: 'source', value: { stringValue: source || "chat" } },
-        { name: 'executionId', value: executionId ? { longValue: executionId } : { isNull: true } },
-        { name: 'context', value: context ? { stringValue: JSON.stringify(context) } : { isNull: true } }
-      ];
-      const newConversation = await executeSQL<{ id: number }>(insertQuery, insertParams);
-      conversationId = newConversation[0].id
-    }
-
-    // Insert only the NEW user message
-    const userMessage = messages[messages.length - 1];
-    const insertMessageQuery = `
-      INSERT INTO messages (conversation_id, role, content)
-      VALUES (:conversationId, :role, :content)
-    `;
-    const insertMessageParams = [
-      { name: 'conversationId', value: { longValue: conversationId } },
-      { name: 'role', value: { stringValue: userMessage.role } },
-      { name: 'content', value: { stringValue: userMessage.content } }
-    ];
-    await executeSQL(insertMessageQuery, insertMessageParams);
-
-    // --- Fetch previous messages for AI context --- 
-    const messagesQuery = `
-      SELECT role, content
-      FROM messages
-      WHERE conversation_id = :conversationId
-      ORDER BY created_at ASC
-    `;
-    const messagesParams = [
-      { name: 'conversationId', value: { longValue: conversationId } }
-    ];
-    const previousMessages = await executeSQL<{ role: string; content: string }>(messagesQuery, messagesParams);
-
-    // --- Fetch documents and relevant content for AI context ---
-    let documentContext = "";
-    try {
-      let documents: SelectDocument[] = [];
-      
-      // If we have a conversationId, get documents linked to it
-      if (conversationId) {
-        documents = await getDocumentsByConversationId({ conversationId: conversationId });
-      }
-      
-      // If a documentId was provided, also fetch that specific document
-      // This ensures we include it even if linking hasn't completed yet
-      if (documentId) {
-        const singleDoc = await getDocumentById({ id: documentId });
-        if (singleDoc && !documents.find((d: SelectDocument) => d.id === documentId)) {
-          documents.push(singleDoc);
-          log.info(`Added document ${documentId} to context (total documents: ${documents.length})`);
-        }
-      }
-      
-      // Processing chat request
-      
-      if (documents.length > 0) {
-        log.info(`Found ${documents.length} documents for conversation ${conversationId}`);
-        // Get the user's latest message for context search
-        const latestUserMessage = userMessage.content;
-        
-        // Get document chunks for all documents
-        const documentChunksPromises = documents.map(doc => 
-          getDocumentChunksByDocumentId({ documentId: doc.id })
-        );
-        const documentChunksArrays = await Promise.all(documentChunksPromises);
-        let allDocumentChunks = documentChunksArrays.flat();
-        
-        // If no chunks found and we just uploaded a document, wait a bit and retry
-        if (allDocumentChunks.length === 0 && documentId) {
-          log.info("No chunks found immediately, waiting 500ms for chunks to be saved...");
-          await new Promise(resolve => setTimeout(resolve, 500));
+    
+    log.info('Model configured', {
+      provider: modelConfig.provider,
+      modelId: modelConfig.model_id,
+      dbId: modelConfig.id
+    });
+    
+    // 5. Load execution context if needed (for new conversations)
+    let fullContext: Record<string, unknown> | undefined;
+    let repositoryIds: number[] = [];
+    let assistantOwnerSub: string | undefined;
+    
+    if (!existingConversationId && executionId) {
+      const validExecutionId = validateExecutionId(executionId);
+      if (validExecutionId) {
+        log.debug('Loading execution context', { executionId: validExecutionId });
+        const execResult = await loadExecutionContextData(validExecutionId);
+        if (execResult) {
+          fullContext = execResult.completeData;
+          repositoryIds = execResult.completeData.repositoryIds || [];
           
-          const retryChunksPromises = documents.map(doc => 
-            getDocumentChunksByDocumentId({ documentId: doc.id })
-          );
-          const retryChunksArrays = await Promise.all(retryChunksPromises);
-          allDocumentChunks = retryChunksArrays.flat();
-        }
-        
-        log.info(`Found ${allDocumentChunks.length} total chunks`);
-
-        // Simple keyword matching to find relevant chunks
-        // In production, you'd use embedding-based semantic search
-        
-        // Check if user is asking about "this" or the document in general
-        const generalDocumentQueries = ['this', 'document', 'file', 'pdf', 'uploaded', 'attachment'];
-        const isGeneralDocumentQuery = generalDocumentQueries.some(term => 
-          latestUserMessage.toLowerCase().includes(term)
-        );
-        
-        let relevantChunks = [];
-        
-        if (isGeneralDocumentQuery || latestUserMessage.toLowerCase().includes('summar')) {
-          // If asking about the document in general, include all chunks
-          relevantChunks = allDocumentChunks.slice(0, 5); // Limit to first 5 chunks
-        } else {
-          // Otherwise, do keyword matching
-          relevantChunks = allDocumentChunks
-            .filter(chunk => {
-              const content = chunk.content.toLowerCase();
-              const message = latestUserMessage.toLowerCase();
-              // Look for common words (3+ characters) from the user message in the chunks
-              const keywords = message.split(/\s+/).filter((word: string) => word.length > 2);
-              return keywords.some((keyword: string) => content.includes(keyword));
-            })
-            .slice(0, 3); // Top 3 most relevant chunks
-        }
-
-        // If no chunks matched but we have documents, include at least the first chunk
-        if (relevantChunks.length === 0 && allDocumentChunks.length > 0) {
-          relevantChunks = allDocumentChunks.slice(0, 3);
-        }
-
-        if (relevantChunks.length > 0) {
-          const documentNames = documents.map(doc => doc.name).join(", ");
-          documentContext = `\n\nRelevant content from uploaded documents (${documentNames}):\n\n${
-            relevantChunks.map((chunk, index) => 
-              `[Document Excerpt ${index + 1}]:\n${chunk.content}`
-            ).join('\n\n')
-          }\n\nPlease use this document content to answer the user's questions when relevant.`;
-          log.info(`Including ${relevantChunks.length} relevant chunks in AI context`);
-        } else if (allDocumentChunks.length === 0 && documents.length > 0) {
-          // Document exists but no chunks were found
-          documentContext = `\n\nNote: A document was uploaded but its content could not be extracted or is still being processed. The document name is: ${documents.map(d => d.name).join(", ")}`;
-          log.warn(`Document exists but no chunks found for documents: ${documents.map(d => d.id).join(", ")}`);
-        } else {
-          log.info(`No relevant chunks found for message: "${latestUserMessage}"`);
+          // Get assistant owner sub if available
+          const execution = (fullContext as Record<string, unknown>)?.execution as { assistant_user_id?: number };
+          if (execution?.assistant_user_id) {
+            assistantOwnerSub = await getAssistantOwnerSub(
+              execution.assistant_user_id
+            );
+          }
+          
+          log.info('Execution context loaded', {
+            repositoryCount: repositoryIds.length,
+            hasAssistantOwner: !!assistantOwnerSub
+          });
         }
       }
-    } catch (docError) {
-      log.error("Error fetching document context", { 
-        error: docError instanceof Error ? docError.message : String(docError),
-        conversationId: conversationId,
-        documentId
-      });
-      // Continue without document context if there's an error
     }
-      
-    // Construct messages for AI
-    const baseSystemPrompt = source === "assistant_execution"
-      ? "You are a helpful AI assistant having a follow-up conversation about the results of an AI tool execution. Use the context provided to help answer questions, but stay focused on topics related to the execution results. If a question is completely unrelated to the execution results, politely redirect the user to start a new chat for unrelated topics."
-      : "You are a helpful AI assistant.";
     
-    const systemPrompt = baseSystemPrompt + documentContext;
-      
-    const aiMessages: CoreMessage[] = [
-      { role: 'system' as const, content: systemPrompt },
-      // Only include context if it's the first message (no previous messages)
-      ...(previousMessages.length === 1 && context ? [{ role: 'system' as const, content: `Context from execution: ${JSON.stringify(context)}` }] : []),
-      // Include previous messages and the new user message
-      ...previousMessages.map(msg => ({ 
-        role: msg.role === 'user' ? 'user' as const : 'assistant' as const, 
-        content: String(msg.content) 
-      }))
-    ];
-
-    // Call the AI model using the helper function
-    const aiResponseContent = await generateCompletion(
-      {
-        provider: aiModel.provider, // Use the provider from the fetched model
-        modelId: textModelId // Use the text model_id for the AI call
-      },
-      aiMessages
-    );
-
-    // Save the assistant's response
-    const saveAssistantQuery = `
-      INSERT INTO messages (conversation_id, role, content)
-      VALUES (:conversationId, :role, :content)
-    `;
-    const saveAssistantParams = [
-      { name: 'conversationId', value: { longValue: conversationId } },
-      { name: 'role', value: { stringValue: "assistant" } },
-      { name: 'content', value: { stringValue: aiResponseContent } }
-    ];
-    await executeSQL(saveAssistantQuery, saveAssistantParams);
-
-    log.info("Chat response generated successfully", { 
-      conversationId,
-      responseLength: aiResponseContent.length 
+    // 6. Handle conversation (create/update)
+    // Convert UIMessage to ChatMessage format    
+    const chatMessages = messages.map((msg: { role: string; parts?: unknown[]; content?: string }) => ({
+      role: msg.role as 'user' | 'assistant' | 'system',
+      parts: msg.parts?.map((p: unknown) => {
+        const part = p as { type?: string; text?: string };
+        return {
+          type: part.type || 'text',
+          text: part.text
+        };
+      }),
+      content: msg.content
+    }));
+    
+    const conversationId = await handleConversation({
+      messages: chatMessages,
+      modelId: modelConfig.id,
+      conversationId: existingConversationId,
+      userId: currentUser.data.user.id,
+      source,
+      executionId: validateExecutionId(executionId),
+      context: fullContext
     });
-    timer({ status: "success", conversationId });
     
-    // Return data that will be wrapped in the standard response format
-    return {
-      text: aiResponseContent,
-      conversationId: conversationId
-    };
-  });
+    log.info('Conversation handled', { conversationId });
+    
+    // 7. Get existing conversation context if needed
+    if (existingConversationId && !fullContext) {
+      const existingContext = await getConversationContext(existingConversationId);
+      if (existingContext) {
+        fullContext = existingContext;
+        
+        // Extract repository IDs and assistant owner sub from stored context
+        const contextWithIds = fullContext as { repositoryIds?: number[]; assistantOwnerSub?: string };
+        if (contextWithIds?.repositoryIds) {
+          repositoryIds = contextWithIds.repositoryIds;
+        }
+        if (contextWithIds?.assistantOwnerSub) {
+          assistantOwnerSub = contextWithIds.assistantOwnerSub;
+        }
+      }
+    }
+    
+    // 8. Build context-aware system prompt
+    const systemPrompt = await buildSystemPrompt({
+      source,
+      executionId: validateExecutionId(executionId),
+      conversationId,
+      documentId,
+      userMessage: (() => {
+        const lastMsg = messages[messages.length - 1] as { parts?: Array<{ type?: string; text?: string }>; content?: string };
+        // Try to get content from parts first (AI SDK v2)
+        if (lastMsg.parts && lastMsg.parts.length > 0) {
+          const textPart = lastMsg.parts.find(p => p.type === 'text');
+          if (textPart?.text) return textPart.text;
+        }
+        // Fallback to content field
+        return lastMsg.content || '';
+      })(),
+      session: { sub: session.sub },
+      existingContext: {
+        repositoryIds,
+        assistantOwnerSub
+      }
+    });
+    
+    log.debug('System prompt built', { 
+      promptLength: systemPrompt.length 
+    });
+    
+    // 9. Create provider-specific model
+    const model = await createProviderModel(
+      modelConfig.provider,
+      modelConfig.model_id
+    );
+    
+    log.info('Provider model created', {
+      provider: modelConfig.provider,
+      model: modelConfig.model_id
+    });
+    
+    // 10. Stream response using AI SDK v5 pattern
+    const result = streamText({
+      model,
+      system: systemPrompt,
+      messages: convertToModelMessages(messages),
+      onFinish: async ({ text, usage, finishReason }) => {
+        log.info('Stream finished', {
+          hasText: !!text,
+          textLength: text?.length || 0,
+          hasUsage: !!usage,
+          finishReason
+        });
+        
+        // TODO: Extract reasoning content when available in AI SDK
+        const reasoning = undefined;
+        
+        // Save assistant response to database
+        await saveAssistantMessage({
+          conversationId,
+          content: text,
+          role: 'assistant',
+          modelId: modelConfig.id,
+          usage,
+          finishReason,
+          reasoningContent: reasoning
+        });
+        
+        timer({ 
+          status: 'success',
+          conversationId,
+          tokensUsed: usage?.totalTokens
+        });
+      }
+    });
+    
+    // 11. Return proper streaming response
+    return result.toUIMessageStreamResponse({
+      headers: {
+        'X-Conversation-Id': conversationId.toString(),
+        'X-Request-Id': requestId
+      }
+    });
+    
+  } catch (error) {
+    log.error('Chat API error', { 
+      error: error instanceof Error ? {
+        message: error.message,
+        name: error.name,
+        stack: error.stack
+      } : String(error)
+    });
+    
+    timer({ status: 'error' });
+    
+    // Return detailed error response
+    return new Response(
+      JSON.stringify({
+        error: 'Failed to process chat request',
+        details: error instanceof Error ? error.message : 'Unknown error',
+        requestId
+      }),
+      {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Request-Id': requestId
+        }
+      }
+    );
+  }
 }
 
-export async function GET(req: NextRequest) {
-  const requestId = generateRequestId();
-  const timer = startTimer("api.chat.get");
-  const log = createLogger({ requestId, route: "api.chat" });
+/**
+ * Validates and parses execution ID
+ */
+function validateExecutionId(executionId: unknown): number | undefined {
+  if (!executionId) return undefined;
   
-  const { searchParams } = new URL(req.url)
-  const conversationId = searchParams.get('conversationId')
-  
-  log.info("GET /api/chat - Fetching messages", { conversationId });
-  
-  const session = await getServerSession()
-  if (!session) {
-    log.warn("Unauthorized access to chat messages");
-    timer({ status: "error", reason: "unauthorized" });
-    return unauthorized('User not authenticated')
+  // Reject invalid string values
+  if (executionId === 'streaming' || 
+      executionId === 'undefined' || 
+      executionId === 'null') {
+    return undefined;
   }
   
-  log.debug("User authenticated", { userId: session.sub });
+  // Parse to number
+  const parsed = typeof executionId === 'string' 
+    ? parseInt(executionId, 10) 
+    : typeof executionId === 'number' ? executionId : NaN;
   
-  const currentUser = await getCurrentUserAction()
-  if (!currentUser.isSuccess) {
-    log.warn("User not found");
-    timer({ status: "error", reason: "user_not_found" });
-    return unauthorized('User not found')
+  // Validate it's a positive number
+  if (!isNaN(parsed) && parsed > 0) {
+    return parsed;
   }
   
-  const userId = currentUser.data.user.id
-
-  if (!conversationId) {
-    log.warn("Missing conversationId parameter");
-    timer({ status: "error", reason: "missing_param" });
-    return badRequest('conversationId is required')
-  }
-
-  // Check that the conversation belongs to the user
-  const checkQuery = `
-    SELECT id, user_id
-    FROM conversations
-    WHERE id = :conversationId
-  `;
-  const checkParams = [
-    { name: 'conversationId', value: { longValue: parseInt(conversationId) } }
-  ];
-  const conversationResult = await executeSQL<{ id: number; userId: number }>(checkQuery, checkParams);
-  
-  if (!conversationResult.length || conversationResult[0].userId !== userId) {
-    log.warn("Conversation access denied", { conversationId, userId });
-    timer({ status: "error", reason: "access_denied" });
-    return NextResponse.json({ error: 'Conversation not found or access denied' }, { status: 403 })
-  }
-
-  // Fetch all messages for the conversation, ordered by creation time
-  const messagesQuery = `
-    SELECT id, role, content
-    FROM messages
-    WHERE conversation_id = :conversationId
-    ORDER BY created_at ASC
-  `;
-  const messagesParams = [
-    { name: 'conversationId', value: { longValue: parseInt(conversationId) } }
-  ];
-  const messages = await executeSQL<{ id: number; role: string; content: string }>(messagesQuery, messagesParams);
-
-  log.info("Messages retrieved successfully", { 
-    conversationId,
-    messageCount: messages.length 
-  });
-  timer({ status: "success" });
-
-  return NextResponse.json(
-    { messages },
-    { headers: { "X-Request-Id": requestId } }
-  )
-} 
+  return undefined;
+}

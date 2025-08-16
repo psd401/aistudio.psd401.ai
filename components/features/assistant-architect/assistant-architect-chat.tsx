@@ -1,12 +1,12 @@
 "use client"
 
-import { useState, useRef, useEffect, memo, useMemo } from "react"
+import { useState, useRef, useEffect, memo, useMemo, useCallback } from "react"
 import { useChat } from '@ai-sdk/react'
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/components/ui/use-toast"
-import { ChatInput } from "@/components/ui/chat-input"
-import { Message } from "@/components/ui/message"
+import { ChatInput } from "@/app/(protected)/chat/_components/chat-input"
+import { Message } from "@/app/(protected)/chat/_components/message"
 import { ExecutionResultDetails } from "@/types/assistant-architect-types"
 import { IconPlayerStop } from "@tabler/icons-react"
 import { Loader2, Info } from "lucide-react"
@@ -63,14 +63,13 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
   modelId 
 }: AssistantArchitectChatProps) {
   const [currentConversationId, setCurrentConversationId] = useState<number | null>(conversationId)
+  const [input, setInput] = useState('')  // Manage input locally for v2 patterns
   const scrollRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
   
   // Use the passed modelId or default to 3 (first model in most systems)
   const actualModelId = modelId || 3
   
-  // Track if we're currently streaming to prevent re-initialization
-  const [isStreaming, setIsStreaming] = useState(false)
   // Track when we just finished streaming to prevent history fetch race condition
   const [justFinishedStreaming, setJustFinishedStreaming] = useState(false)
 
@@ -147,89 +146,35 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
     };
   }, [actualModelId, isPreview, execution?.id, executionContext]);
 
-  // Use Vercel AI SDK's useChat hook
+  // Use Vercel AI SDK's useChat hook with v2 patterns - simplified like main chat
   const { 
     messages, 
-    input, 
-    handleInputChange, 
-    handleSubmit: handleChatSubmit, 
-    isLoading, 
+    sendMessage,
+    status,
     stop,
     setMessages
   } = useChat({
-    api: '/api/chat/stream-final',
-    body: stableBody,
-    initialMessages: [],
-    onResponse: (response) => {
-      setIsStreaming(true);
-      try {
-        // Get conversation ID from header if this is a new conversation
-        const conversationIdHeader = response.headers.get('X-Conversation-Id')
-        if (!currentConversationId && conversationIdHeader) {
-          const newConvId = parseInt(conversationIdHeader, 10)
-          if (Number.isInteger(newConvId) && newConvId > 0) {
-            setIsNewConversation(true);
-            conversationIdRef.current = newConvId;
-            setCurrentConversationId(newConvId)
-            onConversationCreated?.(newConvId)
-          }
+    onResponse: (response: Response) => {
+      // Get conversation ID from header if this is a new conversation
+      const conversationIdHeader = response.headers.get('X-Conversation-Id')
+      if (!currentConversationId && conversationIdHeader) {
+        const newConvId = parseInt(conversationIdHeader, 10)
+        if (!Number.isNaN(newConvId)) {
+          setIsNewConversation(true);
+          conversationIdRef.current = newConvId;
+          setCurrentConversationId(newConvId)
+          onConversationCreated?.(newConvId)
         }
-      } catch (error) {
-        console.error("Error processing response headers", error)
       }
     },
-    onError: (error) => {
-      setIsStreaming(false);
+    onError: (error: Error) => {
       toast({
         title: "Error",
         description: error.message || "Failed to send message",
         variant: "destructive"
       })
-    },
-    onFinish: () => {
-      setIsStreaming(false);
-      setJustFinishedStreaming(true);
-      // Clear the flag after a short delay
-      setTimeout(() => setJustFinishedStreaming(false), 1000);
-      // Scroll to bottom when message is complete
-      if (scrollRef.current) {
-        scrollRef.current.scrollTo({
-          top: scrollRef.current.scrollHeight,
-          behavior: "smooth"
-        })
-      }
-    },
-    // Override fetch to inject conversation ID dynamically
-    fetch: async (url, options) => {
-      try {
-        const body = JSON.parse(options?.body as string || '{}');
-        body.conversationId = conversationIdRef.current;
-        
-        // SAFEGUARD: Final validation of executionId before sending
-        if (body.executionId !== null && body.executionId !== undefined) {
-          const execId = body.executionId;
-          if (typeof execId === 'string' && (execId === 'streaming' || execId === 'undefined')) {
-            console.error('[assistant-chat] Blocking invalid executionId in request:', execId);
-            body.executionId = null;
-          } else if (typeof execId === 'number' && execId <= 0) {
-            console.error('[assistant-chat] Blocking invalid numeric executionId:', execId);
-            body.executionId = null;
-          }
-        }
-        
-        // Send chat request
-        
-        return fetch(url, {
-          ...options,
-          body: JSON.stringify(body)
-        });
-      } catch (error) {
-        console.error('[Chat] Error in fetch override:', error);
-        // Return the original fetch if parsing fails
-        return fetch(url, options);
-      }
     }
-  })
+  } as Parameters<typeof useChat>[0])
 
   // Update internal conversation ID when prop changes
   useEffect(() => {
@@ -240,14 +185,26 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
   // Track if we just created a new conversation to avoid fetching empty history
   const [isNewConversation, setIsNewConversation] = useState(false);
   
-  // Track message updates
+  // Auto-scroll when messages change and track streaming completion
   useEffect(() => {
-    // Messages updated
-  }, [messages, isLoading]);
+    // Scroll to bottom when messages change
+    if (scrollRef.current && messages.length > 0) {
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: "smooth"
+      })
+    }
+    
+    // If we were streaming and now we're not, mark that we just finished
+    if (status === 'ready' && messages.length > 0) {
+      setJustFinishedStreaming(true);
+      setTimeout(() => setJustFinishedStreaming(false), 1000);
+    }
+  }, [messages, status]);
 
   // Fetch conversation history when conversationId changes
   useEffect(() => {
-    if (!currentConversationId || isStreaming || justFinishedStreaming) return;
+    if (!currentConversationId || status === 'streaming' || justFinishedStreaming) return;
     
     // Skip fetching if we just created this conversation (it will be empty)
     if (isNewConversation) {
@@ -286,26 +243,62 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
       }
     };
     fetchConversationHistory();
-  }, [currentConversationId, isNewConversation, isStreaming, justFinishedStreaming, messages.length, setMessages]);
+  }, [currentConversationId, isNewConversation, status, justFinishedStreaming, messages.length, setMessages]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!input.trim() || isLoading || !actualModelId) return
+    if (!input.trim() || status === 'streaming' || !actualModelId) return
     
-    handleChatSubmit(e)
-  }
+    const messageText = input.trim()
+    setInput('') // Clear input immediately for better UX
+    
+    // Use sendMessage with v2 patterns - pass body with execution context
+    await sendMessage({
+      id: crypto.randomUUID(),
+      role: 'user' as const,
+      parts: [{ type: 'text' as const, text: messageText }]
+    }, {
+      body: {
+        modelId: actualModelId,
+        conversationId: conversationIdRef.current,
+        source: "assistant_execution",
+        executionId: stableBody.executionId,
+        context: executionContext
+      }
+    })
+  }, [input, status, actualModelId, sendMessage, stableBody.executionId, executionContext])
 
-  const MessageList = memo(function MessageList({ messages, isLoading }: { messages: Array<{ id: string; content: string; role: "user" | "assistant" | "system" | "function" | "data" | "tool" }>, isLoading: boolean }) {
+  const MessageList = memo(function MessageList({ messages, isStreaming }: { messages: Array<{ id: string; role: string; content?: string; parts?: Array<{ type: string; text?: string }> }>, isStreaming: boolean }) {
     return (
       <div className="space-y-4">
-        {messages.map((message) => (
-          <Message key={message.id} message={{ 
-            id: message.id, 
-            role: message.role === "user" ? "user" : "assistant", 
-            content: message.content 
-          }} />
-        ))}
-        {isLoading && (
+        {messages.map((message) => {
+          // Extract content from AI SDK v2 message format
+          let content = '';
+          if (message.content && typeof message.content === 'string') {
+            // Legacy format
+            content = message.content;
+          } else if (message.parts && Array.isArray(message.parts)) {
+            // AI SDK v2 format - extract text from parts
+            content = message.parts
+              .filter(part => part.type === 'text')
+              .map(part => part.text || '')
+              .join('');
+          }
+          
+          return (
+            <Message 
+              key={message.id} 
+              message={{ 
+                id: message.id, 
+                role: message.role === "user" ? "user" : "assistant", 
+                content: content,
+                parts: [{ type: 'text', text: content }]
+              }}
+              messageId={message.id}
+            />
+          );
+        })}
+        {isStreaming && (
           <div className="flex items-start space-x-2 text-muted-foreground">
             <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -320,7 +313,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
             </div>
           </div>
         )}
-        {messages.length === 0 && !isLoading && (
+        {messages.length === 0 && !isStreaming && (
           <p className="text-sm text-muted-foreground text-center">
             What else would you like to know?
           </p>
@@ -361,16 +354,16 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
       </div>
 
       <ScrollArea ref={scrollRef} className="flex-1 p-4">
-        <MessageList messages={messages} isLoading={isLoading} />
+        <MessageList messages={messages} isStreaming={status === 'streaming' || status === 'submitted'} />
       </ScrollArea>
 
       <div className="p-4 border-t">
         <div className="flex items-end gap-2">
           <ChatInput
             input={input}
-            handleInputChange={handleInputChange}
+            handleInputChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setInput(e.target.value)}
             handleSubmit={handleSubmit}
-            isLoading={isLoading}
+            isLoading={status === 'streaming' || status === 'submitted'}
             disabled={!actualModelId || (execution?.status !== 'completed' && !conversationId)}
             placeholder={
               (execution?.status !== 'completed' && !conversationId) ? "Waiting for execution to complete..." :
@@ -378,7 +371,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
               "Follow-up..."
             }
           />
-          {isLoading && (
+          {(status === 'streaming' || status === 'submitted') && (
             <Button
               variant="outline"
               size="icon"

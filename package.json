@@ -16,11 +16,11 @@
     "ts-node": "tsx"
   },
   "dependencies": {
-    "@ai-sdk/amazon-bedrock": "^3.0.0",
-    "@ai-sdk/azure": "^2.0.0",
-    "@ai-sdk/google": "^2.0.0",
-    "@ai-sdk/openai": "^2.0.0",
-    "@ai-sdk/react": "^1.0.0",
+    "@ai-sdk/amazon-bedrock": "^3.0.8",
+    "@ai-sdk/azure": "^2.0.14",
+    "@ai-sdk/google": "^2.0.6",
+    "@ai-sdk/openai": "^2.0.14",
+    "@ai-sdk/react": "^2.0.15",
     "@aws-amplify/adapter-nextjs": "^1.6.4",
     "@aws-amplify/ui-react": "^6.6.1",
     "@aws-sdk/client-cloudwatch-logs": "^3.705.0",

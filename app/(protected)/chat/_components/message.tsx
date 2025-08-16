@@ -1,84 +1,139 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import { IconUser, IconRobot, IconThumbUp, IconThumbDown, IconCopy, IconChevronDown, IconChevronUp } from "@tabler/icons-react"
+import { 
+  IconUser, 
+  IconThumbUp, 
+  IconThumbDown, 
+  IconCopy, 
+  IconBrain, 
+  IconChevronDown, 
+  IconChevronUp,
+  IconSparkles
+} from "@tabler/icons-react"
 import { useState } from "react"
+import type { UIMessage as MessageType } from "@ai-sdk/react"
+import type { SelectMessage } from "@/types/schema-types"
+
+// Define proper types for message parts
+type TextPart = { type: 'text'; text: string };
+type MessagePart = TextPart | { type: string; [key: string]: unknown };
 import ReactMarkdown from "react-markdown"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
-import { 
-  extractTextFromParts, 
-  extractReasoningFromParts, 
-  hasReasoning,
-  convertLegacyMessage,
-  ToolCallPart,
-  FilePart,
-  ImagePart
-} from "@/types/ai-sdk-v5-types"
-import Image from "next/image"
+import { motion } from "framer-motion"
 
 interface MessageProps {
-  message: unknown // Accept any message format - will be converted by convertLegacyMessage
-  /** Unique ID for the message for accessibility purposes */
+  message: MessageType | SelectMessage
   messageId?: string
 }
 
-// Simple avatar component (can be expanded later)
+// Type guard to check if message has model information
+function hasModelInfo(message: MessageType | SelectMessage): message is SelectMessage {
+  return 'modelName' in message && message.modelName !== undefined
+}
+
+// Simple avatar component with animations
 function Avatar({ role }: { role: "user" | "assistant" }) {
   return (
-    <div 
+    <motion.div 
+      initial={{ scale: 0, rotate: -180 }}
+      animate={{ scale: 1, rotate: 0 }}
+      transition={{ type: "spring", stiffness: 260, damping: 20 }}
       className={cn(
-        "flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full",
+        "flex h-10 w-10 shrink-0 select-none items-center justify-center rounded-xl shadow-lg",
         role === "assistant" 
-          ? "bg-primary/10 text-primary" 
-          : "bg-blue-500/20 text-blue-700" // Example user avatar style
+          ? "bg-gradient-to-br from-primary/80 to-accent/80 text-white" 
+          : "bg-gradient-to-br from-blue-500 to-purple-600 text-white"
       )}
       role="img"
       aria-label={role === "user" ? "User avatar" : "Assistant avatar"}
     >
       {role === "user" ? (
-        <IconUser className="h-5 w-5" aria-hidden="true" />
+        <IconUser className="h-6 w-6" aria-hidden="true" />
       ) : (
-        <IconRobot className="h-5 w-5" aria-hidden="true" />
+        <IconSparkles className="h-6 w-6" aria-hidden="true" />
       )}
-    </div>
+    </motion.div>
   )
 }
 
-export function Message({ message: rawMessage, messageId }: MessageProps) {
+export function Message({ message, messageId }: MessageProps) {
   const { toast } = useToast()
   const [showReasoning, setShowReasoning] = useState(false)
-  
-  // Convert message to v5 format if needed
-  const message = convertLegacyMessage(rawMessage)
   const isAssistant = message.role === "assistant"
   const uniqueId = messageId || `message-${message.id}`
   
-  // Extract content from parts
-  const textContent = extractTextFromParts(message.parts)
-  const reasoningContent = extractReasoningFromParts(message.parts)
-  const hasReasoningContent = hasReasoning(message)
+  // Get content - handle AI SDK v2 format (parts array) and legacy formats
+  let content = ''
+  
+  // AI SDK v2 format with parts array
+  if ('parts' in message && Array.isArray(message.parts)) {
+    const parts = message.parts as MessagePart[];
+    content = parts
+      .filter((part): part is TextPart => part.type === 'text')
+      .map(part => part.text)
+      .join('')
+  }
+  // Legacy format with content string
+  else if ('content' in message) {
+    const msg = message as SelectMessage;
+    if (msg.content) {
+      if (typeof msg.content === 'string') {
+        content = msg.content;
+      } else if (Array.isArray(msg.content)) {
+        const contentArray = msg.content as Array<string | { text?: string }>;
+        content = contentArray.map(c => 
+          typeof c === 'string' ? c : c.text || ''
+        ).join('');
+      }
+    }
+  }
+  
+  // Check for reasoning content and parse if needed
+  const reasoningContent = 'reasoningContent' in message ? 
+    (() => {
+      const raw = message.reasoningContent;
+      if (!raw) return null;
+      try {
+        // If it's a string that looks like JSON, parse and re-stringify for formatting
+        if (typeof raw === 'string' && (raw.startsWith('{') || raw.startsWith('['))) {
+          return JSON.stringify(JSON.parse(raw), null, 2);
+        }
+        return raw;
+      } catch {
+        return raw;
+      }
+    })() : null;
+  const hasReasoningData = !!reasoningContent
+  
+  // Get model display name
+  const modelDisplayName = hasModelInfo(message) && message.modelName
+    ? `${message.modelName}${message.modelProvider ? ` (${message.modelProvider})` : ''}`
+    : null
 
   const handleCopy = () => {
-    const contentToCopy = hasReasoningContent && showReasoning 
-      ? `Reasoning:\n${reasoningContent}\n\nResponse:\n${textContent}`
-      : textContent
+    const contentToCopy = hasReasoningData && showReasoning && reasoningContent
+      ? `Reasoning:\n${reasoningContent}\n\nResponse:\n${content}`
+      : content
     
     navigator.clipboard.writeText(contentToCopy)
       .then(() => toast({ title: "Copied to clipboard" }))
-      .catch(() => toast({ title: "Failed to copy", variant: "destructive" }));
-  };
+      .catch(() => toast({ title: "Failed to copy", variant: "destructive" }))
+  }
 
   const handleFeedback = (feedback: "like" | "dislike") => {
-    // TODO: Implement feedback submission
-    toast({ title: `Feedback: ${feedback} (not implemented)` });
-  };
+    toast({ title: `Feedback: ${feedback} (coming soon)` })
+  }
 
   return (
-    <div 
-      className={cn("group flex w-full items-start gap-3 relative mb-4", {
+    <motion.div 
+      initial={{ opacity: 0, x: isAssistant ? -20 : 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.3 }}
+      className={cn("group flex w-full items-start gap-4 relative", {
         "justify-end": !isAssistant,
       })}
       aria-labelledby={`${uniqueId}-author`}
@@ -88,31 +143,54 @@ export function Message({ message: rawMessage, messageId }: MessageProps) {
       {isAssistant && <Avatar role="assistant" />}
 
       {/* Message Bubble & Content */}
-      <div 
+      <motion.div 
+        whileHover={{ scale: 1.01 }}
+        transition={{ type: "spring", stiffness: 400, damping: 25 }}
         className={cn(
-          "flex flex-col w-fit rounded-lg shadow-sm", 
+          "flex flex-col w-fit rounded-2xl shadow-lg backdrop-blur-sm", 
           isAssistant
-            ? "bg-card border border-border/50 max-w-[85%]"
-            : "bg-primary text-primary-foreground max-w-[75%]"
+            ? "bg-gradient-to-br from-card/90 to-card/70 border border-border/30 max-w-[85%]"
+            : "bg-gradient-to-br from-primary to-primary/80 text-primary-foreground max-w-[75%]"
         )}
         aria-live={isAssistant ? "polite" : "off"}
       >
-        <div className="px-3 py-2">
-          <span 
-            id={`${uniqueId}-author`} 
-            className="text-xs font-semibold mb-1 block"
-          >
-            {isAssistant ? "Assistant" : "You"}
-          </span>
+        <div className="px-4 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <span 
+              id={`${uniqueId}-author`} 
+              className={cn(
+                "text-xs font-semibold uppercase tracking-wider",
+                isAssistant ? "text-muted-foreground" : "text-primary-foreground/80"
+              )}
+            >
+              {isAssistant ? "Assistant" : "You"}
+            </span>
+            {isAssistant && modelDisplayName && (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex items-center gap-1.5"
+              >
+                <IconBrain className="h-3 w-3 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">
+                  {modelDisplayName}
+                </span>
+              </motion.div>
+            )}
+          </div>
           
-          {/* Reasoning Section (for assistant messages with reasoning) */}
-          {isAssistant && hasReasoningContent && (
-            <div className="mb-3 border-l-2 border-muted pl-3">
+          {/* Reasoning Section */}
+          {isAssistant && hasReasoningData && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              className="mb-3 border-l-2 border-primary/30 pl-3"
+            >
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setShowReasoning(!showReasoning)}
-                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 {showReasoning ? (
                   <>
@@ -126,159 +204,150 @@ export function Message({ message: rawMessage, messageId }: MessageProps) {
                   </>
                 )}
               </Button>
-              {showReasoning && (
-                <div className="mt-2 text-sm text-muted-foreground italic">
-                  <ReactMarkdown>{reasoningContent}</ReactMarkdown>
-                </div>
+              {showReasoning && reasoningContent && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-2 text-sm text-muted-foreground italic bg-muted/30 rounded-lg p-3"
+                >
+                  <ReactMarkdown>
+                    {reasoningContent}
+                  </ReactMarkdown>
+                </motion.div>
               )}
-            </div>
+            </motion.div>
           )}
           
-          {/* Main content */}
-          <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0">
+          {/* Main Content */}
+          <div className={cn(
+            "prose prose-sm dark:prose-invert max-w-none",
+            !isAssistant && "prose-invert"
+          )}>
             <ReactMarkdown
               components={{
-              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-              // Use default pre/code handling from prose for consistency?
-              // Or keep custom highlighter if preferred.
-              code: ({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) => {
-                const match = /language-(\w+)/.exec(className || "")
-                const language = match ? match[1] : ""
-                const inline = !language
-  
-                if (inline) {
+                p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+                ul: ({ children }) => <ul className="mb-2 ml-4 list-disc">{children}</ul>,
+                ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal">{children}</ol>,
+                li: ({ children }) => <li className="mb-1">{children}</li>,
+                h1: ({ children }) => <h1 className="text-xl font-bold mb-2 mt-4">{children}</h1>,
+                h2: ({ children }) => <h2 className="text-lg font-semibold mb-2 mt-3">{children}</h2>,
+                h3: ({ children }) => <h3 className="text-base font-semibold mb-1 mt-2">{children}</h3>,
+                blockquote: ({ children }) => (
+                  <blockquote className="border-l-4 border-primary/30 pl-4 italic my-2">
+                    {children}
+                  </blockquote>
+                ),
+                code: ({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) => {
+                  const match = /language-(\w+)/.exec(className || "")
+                  const language = match ? match[1] : ""
+                  const inline = !language
+    
+                  if (inline) {
+                    return (
+                      <code
+                        className={cn(
+                          "rounded-md px-1.5 py-0.5 font-mono text-sm",
+                          isAssistant 
+                            ? "bg-muted text-foreground" 
+                            : "bg-primary-foreground/10 text-primary-foreground"
+                        )}
+                        {...props}
+                      >
+                        {children}
+                      </code>
+                    )
+                  }
+    
                   return (
-                    <code
-                      className="rounded bg-black/10 px-1 py-0.5 font-mono text-sm"
-                      {...props}
-                    >
-                      {children}
-                    </code>
+                    <div className="relative mb-4 mt-2 last:mb-0 rounded-lg overflow-hidden">
+                      <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
+                        <span 
+                          className="text-xs text-muted-foreground/80 bg-background/50 px-2 py-1 rounded"
+                          aria-label={`Code language: ${language}`}
+                        >
+                          {language}
+                        </span>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-6 w-6 hover:bg-background/50"
+                          onClick={() => {
+                            navigator.clipboard.writeText(String(children).replace(/\n$/, ""))
+                            toast({ title: "Code copied!" })
+                          }}
+                        >
+                          <IconCopy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                      <SyntaxHighlighter
+                        language={language}
+                        // @ts-expect-error - react-syntax-highlighter types are incorrect
+                        style={vscDarkPlus}
+                        PreTag="div"
+                        className="!my-0 !font-mono !text-sm"
+                        showLineNumbers={true}
+                        customStyle={{
+                          margin: 0,
+                          background: "hsl(var(--muted))",
+                          padding: "1rem",
+                          paddingTop: "2.5rem"
+                        }}
+                        aria-label={`Code snippet in ${language || "unknown"} language`}
+                        {...props}
+                      >
+                        {String(children).replace(/\n$/, "")}
+                      </SyntaxHighlighter>
+                    </div>
                   )
                 }
-  
-                return (
-                  <div className="relative mb-4 mt-2 last:mb-0">
-                    <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
-                      <span 
-                        className="text-xs text-muted-foreground/80"
-                        aria-label={`Code language: ${language}`}
-                      >
-                        {language}
-                      </span>
-                    </div>
-                    <SyntaxHighlighter
-                      language={language}
-                      // @ts-expect-error - react-syntax-highlighter types are incorrect
-                      style={vscDarkPlus}
-                      PreTag="div"
-                      className="!my-0 !bg-code-block !p-4 !font-mono !text-sm rounded-md overflow-x-auto"
-                      showLineNumbers={false} // Optional: disable line numbers
-                      customStyle={{
-                        margin: 0,
-                        background: "hsl(var(--code-block-bg))", // Use CSS var for theme consistency
-                        padding: "1rem",
-                        borderRadius: "0.375rem"
-                      }}
-                      aria-label={`Code snippet in ${language || "unknown"} language`}
-                      {...props}
-                    >
-                      {String(children).replace(/\n$/, "")}
-                    </SyntaxHighlighter>
-                  </div>
-                )
-              }
-            }}
-          >
-            {textContent || (message.parts.length === 0 ? "..." : "")}
+              }}
+            >
+              {content}
             </ReactMarkdown>
           </div>
-          
-          {/* Tool calls, files, and other part types rendering */}
-          {message.parts
-            .filter((part): part is ToolCallPart => part.type === 'tool-call')
-            .map((part, idx) => (
-              <div key={idx} className="mt-2 p-2 bg-muted/50 rounded text-xs">
-                🔧 Calling {part.toolName}...
-              </div>
-            ))}
-          
-          {message.parts
-            .filter((part): part is (FilePart | ImagePart) => part.type === 'file' || part.type === 'image')
-            .map((part, idx) => (
-              <div key={idx} className="mt-2">
-                {part.type === 'image' ? (
-                  <Image 
-                    src={(() => {
-                      const img = (part as ImagePart).image;
-                      // Only use string URLs for Next.js Image component
-                      if (typeof img === 'string') return img;
-                      // For other types, show a placeholder
-                      return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNTAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2NjYyIvPjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjI1MCIgeT0iMTUwIiBmaWxsPSIjOTk5IiBmb250LXNpemU9IjIwIj5JbWFnZTwvdGV4dD48L3N2Zz4=';
-                    })()} 
-                    alt="Uploaded image" 
-                    width={500}
-                    height={300}
-                    className="max-w-full rounded"
-                    style={{ width: 'auto', height: 'auto' }}
-                  />
-                ) : (
-                  <div className="p-2 bg-muted/50 rounded text-sm">
-                    📎 {(part as FilePart).filename || 'File attachment'}
-                  </div>
-                )}
-              </div>
-            ))}
         </div>
 
         {/* Action Buttons (Show on Hover, ONLY for Assistant) */}
         {isAssistant && (
-          <div 
-            className={cn(
-              "flex items-center justify-end gap-1 px-2 pt-0 pb-1 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground"
-            )}
+          <motion.div 
+            initial={{ opacity: 0 }}
+            whileHover={{ opacity: 1 }}
+            className="flex items-center justify-end gap-1 px-3 pb-2 text-muted-foreground"
             aria-label="Message actions"
           >
             <Button 
               variant="ghost" 
               size="icon" 
-              className="h-6 w-6 hover:bg-muted/50" 
+              className="h-7 w-7 hover:bg-muted/50 hover:text-green-600 transition-all" 
               onClick={() => handleFeedback('like')} 
               aria-label="Like response"
-              aria-describedby={`${uniqueId}-content`}
             >
-              <IconThumbUp className="h-4 w-4" aria-hidden="true" />
-              <span className="sr-only">Like this response</span>
+              <IconThumbUp className="h-4 w-4" />
             </Button>
             <Button 
               variant="ghost" 
               size="icon" 
-              className="h-6 w-6 hover:bg-muted/50" 
+              className="h-7 w-7 hover:bg-muted/50 hover:text-red-600 transition-all" 
               onClick={() => handleFeedback('dislike')} 
               aria-label="Dislike response"
-              aria-describedby={`${uniqueId}-content`}
             >
-              <IconThumbDown className="h-4 w-4" aria-hidden="true" />
-              <span className="sr-only">Dislike this response</span>
+              <IconThumbDown className="h-4 w-4" />
             </Button>
             <Button 
               variant="ghost" 
               size="icon" 
-              className="h-6 w-6 hover:bg-muted/50" 
+              className="h-7 w-7 hover:bg-muted/50 hover:text-blue-600 transition-all" 
               onClick={handleCopy} 
               aria-label="Copy message"
-              aria-describedby={`${uniqueId}-content`}
             >
-              <IconCopy className="h-4 w-4" aria-hidden="true" />
-              <span className="sr-only">Copy this message</span>
+              <IconCopy className="h-4 w-4" />
             </Button>
-            {/* Regenerate button placeholder */}
-          </div>
+          </motion.div>
         )}
-      </div>
+      </motion.div>
       
       {/* Avatar for User */}
       {!isAssistant && <Avatar role="user" />}
-    </div>
+    </motion.div>
   )
-} 
+}

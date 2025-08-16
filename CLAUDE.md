@@ -51,6 +51,27 @@ mcp__awslabs_postgres-mcp-server__run_query
 - Had to restore from snapshot and fix all SQL files
 - See `/docs/database-restoration/` for full incident details
 
+## ⚠️ CRITICAL DATABASE MIGRATION RULES - NEVER VIOLATE THESE ⚠️
+
+**Claude is too stupid to write complex SQL correctly, so MUST follow these strict rules:**
+
+1. **NEVER use DO blocks** - Write simple ALTER statements instead
+2. **NEVER use complex syntax** - One operation per statement  
+3. **NEVER add unnecessary comments** - Keep SQL clean and minimal
+4. **NEVER run manual SQL commands against production database** - Only write migration files
+5. **NEVER blame the migration system** - The problem is always Claude's bad code
+6. **ALWAYS write simple, standard SQL** - No fancy PostgreSQL-specific syntax
+7. **ALWAYS write one operation per line** - ALTER TABLE x ADD COLUMN y;
+8. **ALWAYS assume Claude is wrong** - The system works, Claude's code doesn't
+
+**When writing migrations:**
+- One ALTER statement per line with single semicolon
+- Simple CREATE INDEX statements only
+- Basic CREATE VIEW statements without complex CASE logic
+- No foreign key constraints in migrations (add them manually if needed)
+- No procedural blocks (DO $$, BEGIN/END, etc.)
+- No complex WHERE clauses in CREATE INDEX
+
 ## Build, Lint, Test Commands
 
 ```bash
@@ -86,7 +107,6 @@ npx cdk deploy --all    # Deploy all stacks
 
 ### Application Stack
 - **Framework**: Next.js 15+ with App Router
-- **AI SDK**: Vercel AI SDK v5.0+ with streaming, reasoning models, and enhanced tool support
 - **Authentication**: AWS Cognito + NextAuth v5 (JWT strategy)
 - **Database**: AWS Aurora Serverless v2 PostgreSQL via RDS Data API
 - **Hosting**: AWS Amplify with SSR compute (WEB_COMPUTE platform)
@@ -335,40 +355,6 @@ The codebase uses ESLint to automatically enforce logging standards:
 - `/app/api/**/*.ts` - API routes (strict logging required)
 - `/lib/**/*.ts` - Library code (must use logger)
 - `/components/**/*.tsx` - Client components (console.error allowed)
-
-## AI SDK v5 Implementation
-
-The application uses Vercel AI SDK v5.0+ with the following key features and patterns:
-
-### Key Changes from v4 to v5
-- **React Hooks**: Import from `@ai-sdk/react` instead of `ai/react`
-- **Message Format**: Uses UIMessage with parts array for multi-modal content
-- **Streaming**: Three-phase pattern with `*-start`, `*-delta`, `*-end` events
-- **Token Usage**: Properties renamed (`inputTokens`, `outputTokens`, `totalTokens`)
-- **Tool System**: Property names updated (`input` instead of `args`, `output` instead of `result`)
-
-### Supported Features
-- **Reasoning Models**: Support for o1, o3, DeepSeek R1 with reasoning extraction
-- **Enhanced Tools**: Dynamic tools, tool streaming, code interpreter support
-- **Multi-Modal**: File attachments, images, and structured content support
-- **Provider Support**: OpenAI, Azure, Google, Amazon Bedrock with unified interface
-
-### Implementation Patterns
-```typescript
-// Import from @ai-sdk/react for UI components
-import { useChat } from '@ai-sdk/react'
-
-// Tool definitions use inputSchema instead of parameters
-export interface ToolDefinition {
-  name: string
-  description: string
-  inputSchema: z.ZodType<unknown>
-  execute: (input: unknown) => Promise<unknown>
-}
-
-// Streaming responses use toTextStreamResponse
-return result.toTextStreamResponse({ headers })
-```
 
 ## Logging Standards
 

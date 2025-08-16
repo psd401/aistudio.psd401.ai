@@ -3,7 +3,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { AlertCircle } from 'lucide-react';
-import logger from '@/lib/logger';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -30,8 +29,9 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    // Log error to monitoring service
-    logger.error('ErrorBoundary caught error:', { 
+    // Log error to console (client-side only)
+    // For production, this would be sent to a monitoring service via API
+    console.error('ErrorBoundary caught error:', { 
       error: error.message,
       stack: error.stack,
       componentStack: errorInfo.componentStack 
