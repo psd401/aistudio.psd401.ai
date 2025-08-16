@@ -2,6 +2,7 @@
 
 import { useChat, type UseChatOptions, type UIMessage } from '@ai-sdk/react'
 import { useEffect, useRef, useState, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { Message } from "./message"
 import { ChatInput } from "./chat-input"
 import { ModelSelector } from "@/components/features/model-selector"
@@ -46,6 +47,7 @@ interface ChatProps {
 
 export function Chat({ conversationId: initialConversationId, initialMessages = [] }: ChatProps) {
   const [currentConversationId, setCurrentConversationId] = useState<number | undefined>(initialConversationId)
+  const router = useRouter()
   
   // Use shared model management hook
   const { models, selectedModel, setSelectedModel } = useModelsWithPersistence('selectedModel', ['chat'])
@@ -96,15 +98,73 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     onResponse: (response: Response) => {
       // Handle conversation ID from response headers
       const header = response.headers.get('X-Conversation-Id')
+      console.log('[Chat] onResponse triggered, X-Conversation-Id header:', header)
+      
       if (header) {
         const newId = parseInt(header, 10)
+        console.log('[Chat] Parsed conversation ID:', newId, 'Current ID:', currentConversationId)
+        
         if (!Number.isNaN(newId)) {
-          setCurrentConversationId(newId)
-          conversationIdRef.current = newId
+          // Always update the conversation ID from the server response
+          // This ensures we use the same conversation for all messages
+          if (currentConversationId !== newId) {
+            console.log('[Chat] Updating conversation ID from', currentConversationId, 'to', newId)
+            setCurrentConversationId(newId)
+            conversationIdRef.current = newId
+            
+            // Update URL to reflect the conversation ID
+            const newUrl = `/chat?conversation=${newId}`
+            console.log('[Chat] Updating URL to:', newUrl)
+            router.replace(newUrl, { scroll: false })
+          } else {
+            console.log('[Chat] Conversation ID unchanged:', newId)
+          }
         }
+      } else {
+        console.log('[Chat] No X-Conversation-Id header in response')
+      }
+    },
+    onFinish: () => {
+      console.log('[Chat] onFinish triggered')
+      // Refresh the conversation list in the sidebar
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('refresh-conversations'))
       }
     }
   } as UseChatOptions<UIMessage>)
+  
+  // Monitor messages for conversation ID updates
+  // This is a workaround for AI SDK v2 not calling onResponse for streaming
+  useEffect(() => {
+    if (messages.length > 0 && !currentConversationId) {
+      // Poll for conversation ID from the server after sending first message
+      const checkForConversationId = async () => {
+        try {
+          const response = await fetch('/api/conversations?latest=true')
+          if (response.ok) {
+            const data = await response.json()
+            const conversations = data.data || data
+            if (Array.isArray(conversations) && conversations.length > 0) {
+              const latestConv = conversations[0]
+              if (latestConv?.id && !currentConversationId) {
+                const convId = latestConv.id
+                console.log('[Chat] Retrieved conversation ID from API:', convId)
+                setCurrentConversationId(convId)
+                conversationIdRef.current = convId
+                router.replace(`/chat?conversation=${convId}`, { scroll: false })
+              }
+            }
+          }
+        } catch (error) {
+          console.error('[Chat] Error fetching conversation ID:', error)
+        }
+      }
+      
+      // Check after a short delay to allow server to process
+      const timer = setTimeout(checkForConversationId, 1000)
+      return () => clearTimeout(timer)
+    }
+  }, [messages.length, currentConversationId, router])
 
   // Initialize component state
   useEffect(() => {
@@ -272,6 +332,9 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     
     // AI SDK v2: sendMessage with message object and options
     const messageId = nanoid();
+    
+    console.log('[Chat] Sending message with conversation ID:', conversationIdRef.current)
+    console.log('[Chat] Selected model:', selectedModel.modelId)
     
     // Clear input immediately for better UX
     setInput('')
