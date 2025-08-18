@@ -470,26 +470,40 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
             setIsLoading(false)
             setIsPolling(false)
 
-            const jobError = job.error || (job.status === "failed" ? "Execution failed without a specific error message" : null);
+            // Try to extract error from job output first, then fall back to job.error
+            const outputData = safeJsonParse(job.output) as JobOutput | null;
+            const inputData = safeJsonParse(job.input);
+            
+            // Check for errors in the output data
+            let jobError = job.error;
+            if (!jobError && outputData && outputData.results && outputData.results.length > 0) {
+              const failedResult = outputData.results.find(r => r.status === 'failed');
+              if (failedResult && failedResult.error) {
+                jobError = failedResult.error;
+              }
+            }
+            
+            // Final fallback if still no error message
+            if (!jobError && job.status === "failed") {
+              jobError = "Execution failed without a specific error message";
+            }
+            
             if (jobError) {
               setError(jobError)
             }
-
-            const outputData = safeJsonParse(job.output) as JobOutput | null;
-            const inputData = safeJsonParse(job.input);
 
             if (outputData) {
               const promptResultsForState: ExtendedPromptResult[] = outputData.results.map((res: JobPromptResult) => ({
                 id: res.promptId + "_" + outputData.executionId,
                 executionId: outputData.executionId,
-                promptId: res.promptId,
+                promptId: typeof res.promptId === 'number' ? res.promptId : parseInt(res.promptId),
                 inputData: res.input,
-                outputData: res.output,
+                outputData: res.output || '',
                 status: res.status as "pending" | "completed" | "failed",
                 startedAt: new Date(res.startTime),
                 completedAt: res.endTime ? new Date(res.endTime) : null,
-                executionTimeMs: res.executionTimeMs,
-                errorMessage: res.status === 'failed' ? 'Prompt execution failed' : null,
+                executionTimeMs: res.executionTimeMs || 0,
+                errorMessage: res.error || (res.status === 'failed' ? 'Prompt execution failed' : null),
                 userFeedback: res.userFeedback
               }));
 
