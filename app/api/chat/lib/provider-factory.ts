@@ -16,7 +16,25 @@ const log = createLogger({ module: 'provider-factory' });
 export async function createProviderModel(provider: string, modelId: string): Promise<LanguageModel> {
   log.info(`Creating model for provider: ${provider}, modelId: ${modelId}`);
   
-  switch (provider) {
+  // Add validation
+  if (!provider) {
+    log.error('Provider is undefined or null');
+    throw ErrorFactories.validationFailed([
+      { field: 'provider', message: 'Provider is required but was undefined' }
+    ]);
+  }
+  
+  if (!modelId) {
+    log.error('ModelId is undefined or null');
+    throw ErrorFactories.validationFailed([
+      { field: 'modelId', message: 'ModelId is required but was undefined' }
+    ]);
+  }
+  
+  // Ensure provider is lowercase for comparison
+  const normalizedProvider = provider.toLowerCase();
+  
+  switch (normalizedProvider) {
     case 'openai':
       return await createOpenAIModel(modelId);
     case 'google':

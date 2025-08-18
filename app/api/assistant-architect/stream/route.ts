@@ -1,10 +1,11 @@
 import { getServerSession } from "@/lib/auth/server-session";
 import { executeSQL } from "@/lib/db/data-api-adapter";
-import { streamCompletion } from "@/lib/ai-helpers";
+import { streamText } from "ai";
 import { createLogger, generateRequestId, startTimer } from "@/lib/logger";
 import { ErrorFactories } from "@/lib/error-utils";
 import { rateLimit } from "@/lib/rate-limit";
 import { NextRequest } from 'next/server';
+import { createProviderModel } from "@/app/api/chat/lib/provider-factory";
 
 // Try static import again to see the actual error
 import { retrieveKnowledgeForPrompt, formatKnowledgeContext } from "@/lib/assistant-architect/knowledge-retrieval";
@@ -113,16 +114,16 @@ export async function POST(req: NextRequest) {
     // Map the raw database results to properly typed prompts
     // Handle both snake_case from DB and camelCase conversions
     const prompts = promptsRaw.map((row: Record<string, unknown>) => ({
-      id: row.id,
-      name: row.name,
-      content: row.content,
-      position: row.position,
+      id: row.id as number,
+      name: row.name as string,
+      content: row.content as string,
+      position: row.position as number,
       aiModelId: row.ai_model_id || row.aiModelId,
-      systemContext: row.system_context || row.systemContext,
-      repositoryIds: row.repository_ids || row.repositoryIds,
-      modelId: row.model_id || row.modelId,
-      provider: row.provider,
-      modelName: row.model_name || row.modelName
+      systemContext: (row.system_context || row.systemContext) as string | undefined,
+      repositoryIds: (row.repository_ids || row.repositoryIds) as string | number[] | null | undefined,
+      modelId: (row.model_id || row.modelId) as string,
+      provider: row.provider as string,
+      modelName: (row.model_name || row.modelName) as string
     }));
 
 
@@ -389,6 +390,15 @@ export async function POST(req: NextRequest) {
               ];
 
               
+              // Log the prompt object to debug field mapping
+              log.debug(`[STREAM] Prompt ${i + 1} model config:`, {
+                provider: prompt.provider,
+                modelId: prompt.modelId,
+                aiModelId: prompt.aiModelId,
+                modelName: prompt.modelName,
+                allFields: Object.keys(prompt)
+              });
+              
               // Check if model config is valid
               if (!prompt.provider || !prompt.modelId) {
                 log.error(`[STREAM] Invalid model config - Provider: ${prompt.provider}, Model ID: ${prompt.modelId}`);
@@ -405,13 +415,18 @@ export async function POST(req: NextRequest) {
                   })}\n\n`
                 ));
                 
-                const streamResult = await streamCompletion(
-                  {
-                    provider: prompt.provider,
-                    modelId: prompt.modelId
-                  },
-                  messages
-                );
+                // Create model using the same factory as chat route
+                // modelId from database is the actual model string like "gpt-5"
+                const model = await createProviderModel(prompt.provider, prompt.modelId);
+                
+                // Use streamText directly like the chat route does
+                const streamResult = streamText({
+                  model,
+                  messages: messages.map(m => ({
+                    role: m.role,
+                    content: String(m.content) // Ensure content is a string
+                  }))
+                });
                 
                 // Send first token event to indicate streaming has started
                 controller.enqueue(encoder.encode(
@@ -422,45 +437,18 @@ export async function POST(req: NextRequest) {
                   })}\n\n`
                 ));
                 
-                // Actually consume the stream
+                // Consume the stream exactly like the AI SDK expects
                 for await (const chunk of streamResult.textStream) {
-                  // Convert chunk to string safely - handle all edge cases
-                  let chunkStr = '';
+                  fullResponse += chunk;
                   
-                  try {
-                    if (chunk !== null && chunk !== undefined) {
-                      // The AI SDK should always return strings, but let's be defensive
-                      chunkStr = typeof chunk === 'string' ? chunk : String(chunk);
-                    } else {
-                      // Log if we get null/undefined chunks (shouldn't happen with AI SDK)
-                      log.warn('Received null/undefined chunk from stream', { 
-                        chunkValue: chunk,
-                        chunkType: typeof chunk 
-                      });
-                    }
-                  } catch (conversionError) {
-                    // If for any reason we can't convert to string, log and skip
-                    log.error('Failed to convert chunk to string', {
-                      error: conversionError,
-                      chunkType: typeof chunk,
-                      provider: prompt.provider,
-                      modelId: prompt.modelId
-                    });
-                    continue;
-                  }
-                  
-                  fullResponse += chunkStr;
-                  
-                  // Only send non-empty chunks to client
-                  if (chunkStr) {
-                    controller.enqueue(encoder.encode(
-                      `data: ${JSON.stringify({
-                        type: 'token',
-                        promptIndex: i,
-                        token: chunkStr
-                      })}\n\n`
-                    ));
-                  }
+                  // Send token to client
+                  controller.enqueue(encoder.encode(
+                    `data: ${JSON.stringify({
+                      type: 'token',
+                      promptIndex: i,
+                      token: chunk
+                    })}\n\n`
+                  ));
                 }
                 
 
