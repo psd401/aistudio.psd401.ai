@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { FileTextIcon, XIcon, UploadIcon, CheckCircleIcon, Loader2 } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
@@ -13,7 +13,6 @@ interface Document {
 }
 
 interface DocumentUploadProps {
-  conversationId?: number
   externalInputRef?: React.RefObject<HTMLInputElement | null>
   onUploadComplete: (documentInfo: Document) => void
   onFileSelected?: (documentInfo: Partial<Document>) => void
@@ -21,7 +20,6 @@ interface DocumentUploadProps {
 }
 
 export function DocumentUpload({ 
-  conversationId, 
   onUploadComplete, 
   onFileSelected,
   externalInputRef, 
@@ -65,7 +63,7 @@ export function DocumentUpload({
     }
   }
 
-  const validateAndSetFile = (file: File) => {
+  const validateAndSetFile = async (file: File) => {
     // Check file type
     const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
     const allowedTypes = ['pdf', 'docx', 'txt'];
@@ -91,7 +89,6 @@ export function DocumentUpload({
     }
     
     setSelectedFile(file)
-    hasAttemptedUpload.current = false;
     
     // Notify parent that a file was selected
     if (onFileSelected) {
@@ -101,11 +98,9 @@ export function DocumentUpload({
       });
     }
     
-    // Just set the file, upload triggered elsewhere or by button
-    setSelectedFile(file);
-    
-    // Reset attempt flag to allow useEffect to handle upload
-    hasAttemptedUpload.current = false;
+    // IMMEDIATELY upload the document - don't wait for conversation
+    // This ensures document is processed BEFORE the first message
+    await uploadDocument(file);
   }
 
   // Helper function for direct upload (files <= 1MB)
@@ -246,7 +241,7 @@ export function DocumentUpload({
         key,
         fileName: file.name,
         fileSize: file.size,
-        conversationId: conversationId || null
+        conversationId: null // Don't associate with conversation yet since we upload immediately
       })
     })
     
@@ -263,7 +258,7 @@ export function DocumentUpload({
     if (onUploadComplete) {
       onUploadComplete(document)
     }
-  }, [uploadToS3WithProgress, onUploadComplete, conversationId])
+  }, [uploadToS3WithProgress, onUploadComplete])
 
   const uploadDocument = useCallback(async (fileToUpload: File | null) => {
     if (!fileToUpload) {
@@ -314,13 +309,6 @@ export function DocumentUpload({
     }
   }, [fileInputRef, uploadDirectly, uploadViaPresignedUrl])
 
-  // Effect to auto-upload when conversation is created
-  useEffect(() => {
-    if (conversationId && selectedFile && !hasAttemptedUpload.current) {
-      hasAttemptedUpload.current = true;
-      uploadDocument(selectedFile);
-    }
-  }, [conversationId, selectedFile, uploadDocument])
 
   const cancelSelection = () => { // Renamed for clarity
     setSelectedFile(null)
@@ -443,16 +431,6 @@ export function DocumentUpload({
             </div>
           )}
           
-          {!isUploading && !uploadCompleted && pendingDocument?.id && !conversationId && (
-            <p className="text-xs text-center text-muted-foreground my-1">
-              Processed. Ready for chat.
-            </p>
-          )}
-          {!isUploading && !uploadCompleted && !pendingDocument?.id && !conversationId && (
-            <p className="text-xs text-center text-muted-foreground my-1">
-              The document will be uploaded when you start a conversation
-            </p>
-          )}
         </div>
       )}
     </div>

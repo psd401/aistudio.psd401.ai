@@ -98,17 +98,36 @@ async function getRelevantChunks(
   const chunkArrays = await Promise.all(chunkPromises);
   let allChunks = chunkArrays.flat();
   
-  // If no chunks found but we have documents, wait and retry once
+  // If no chunks found but we have documents, retry with exponential backoff
   // (chunks might still be processing)
   if (allChunks.length === 0 && documents.length > 0) {
-    log.debug('No chunks found, waiting for processing...');
-    await new Promise(resolve => setTimeout(resolve, 500));
+    log.debug('No chunks found, retrying with exponential backoff...');
     
-    const retryPromises = documents.map(doc => 
-      getDocumentChunksByDocumentId({ documentId: doc.id })
-    );
-    const retryArrays = await Promise.all(retryPromises);
-    allChunks = retryArrays.flat();
+    const maxRetries = 5;
+    let retryCount = 0;
+    
+    while (retryCount < maxRetries && allChunks.length === 0) {
+      // Exponential backoff: 100ms, 200ms, 400ms, 800ms, 1600ms
+      const delay = 100 * Math.pow(2, retryCount);
+      log.debug(`Retry ${retryCount + 1}/${maxRetries} after ${delay}ms`);
+      
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      const retryPromises = documents.map(doc => 
+        getDocumentChunksByDocumentId({ documentId: doc.id })
+      );
+      const retryArrays = await Promise.all(retryPromises);
+      allChunks = retryArrays.flat();
+      
+      retryCount++;
+    }
+    
+    if (allChunks.length === 0) {
+      log.warn('Document chunks still not available after retries', {
+        documentIds: documents.map(d => d.id),
+        retryCount
+      });
+    }
   }
   
   if (allChunks.length === 0) {
