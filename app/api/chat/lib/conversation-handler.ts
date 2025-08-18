@@ -18,6 +18,7 @@ export interface ConversationOptions {
   source?: string;
   executionId?: number;
   context?: Record<string, unknown>;
+  documentId?: string;
 }
 
 export interface SaveMessageOptions {
@@ -43,7 +44,8 @@ export async function handleConversation(
     userId, 
     source, 
     executionId,
-    context 
+    context,
+    documentId 
   } = options;
   
   let convId = conversationId;
@@ -82,6 +84,12 @@ export async function handleConversation(
     });
     
     log.info('New conversation created', { conversationId: convId });
+    
+    // Link the pending document to the new conversation if provided
+    if (documentId) {
+      await linkDocumentToConversation(documentId, convId, userId);
+      log.info('Document linked to new conversation', { documentId, conversationId: convId });
+    }
   }
   
   // Save user message
@@ -309,6 +317,42 @@ export async function getModelConfig(modelId: string | number) {
     provider: ensureRDSString(rawResult.provider),
     model_id: ensureRDSString(rawResult.model_id || rawResult.modelId)
   };
+}
+
+/**
+ * Links a document to a conversation
+ */
+async function linkDocumentToConversation(
+  documentId: string,
+  conversationId: number,
+  userId: number
+): Promise<void> {
+  try {
+    // Update the document to link it to the conversation
+    const query = `
+      UPDATE documents 
+      SET conversation_id = :conversationId 
+      WHERE id = :documentId 
+      AND user_id = :userId
+      AND conversation_id IS NULL
+    `;
+    
+    const parameters = [
+      { name: 'conversationId', value: { longValue: conversationId } },
+      { name: 'documentId', value: { stringValue: documentId } },
+      { name: 'userId', value: { longValue: userId } }
+    ];
+    
+    const result = await executeSQL(query, parameters);
+    log.debug('Document linked to conversation', { documentId, conversationId, result });
+  } catch (error) {
+    log.error('Failed to link document to conversation', { 
+      error,
+      documentId,
+      conversationId 
+    });
+    // Don't throw - this is not critical for the chat to continue
+  }
 }
 
 /**

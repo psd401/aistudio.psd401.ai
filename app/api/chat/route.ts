@@ -143,7 +143,8 @@ export async function POST(req: Request) {
       userId: currentUser.data.user.id,
       source,
       executionId: validateExecutionId(executionId),
-      context: fullContext
+      context: fullContext,
+      documentId
     });
     
     log.info('Conversation handled', { conversationId });

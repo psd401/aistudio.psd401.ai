@@ -55,6 +55,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   const [documents, setDocuments] = useState<Document[]>([])
   const [showDocuments, setShowDocuments] = useState(false)
   const [pendingDocument, setPendingDocument] = useState<Document | null>(null)
+  const [uploadedDocumentId, setUploadedDocumentId] = useState<string | null>(null)
   const [, setProcessingDocumentId] = useState<string | null>(null)
   const [input, setInput] = useState<string>('')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -258,6 +259,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     })
     
     setProcessingDocumentId(documentInfo.id)
+    // Keep the uploaded document ID for the first message
+    setUploadedDocumentId(documentInfo.id)
     setPendingDocument(null)
     setShowDocuments(true)
     
@@ -351,6 +354,11 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     // Clear input immediately for better UX
     setInput('')
     
+    // Clear the uploaded document ID after sending (it will be linked to the conversation)
+    if (uploadedDocumentId && !conversationIdRef.current) {
+      setUploadedDocumentId(null)
+    }
+    
     await sendMessage({
       id: messageId,
       role: 'user' as const,
@@ -359,11 +367,12 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       body: {
         modelId: selectedModel.modelId,  // Send the MODEL IDENTIFIER STRING
         conversationId: conversationIdRef.current,
-        documentId: pendingDocument?.id,
+        // Use uploadedDocumentId if we have a document that was uploaded but not yet linked
+        documentId: uploadedDocumentId || pendingDocument?.id,
         source: "chat"
       }
     })
-  }, [input, selectedModel, sendMessage, toast, pendingDocument?.id])
+  }, [input, selectedModel, sendMessage, toast, pendingDocument?.id, uploadedDocumentId])
   
   // Update selected model when conversation changes
   useEffect(() => {
@@ -590,7 +599,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
               <div className="flex-1 overflow-y-auto p-4">
                 <div className="flex flex-col gap-4">
                   <DocumentUpload 
-                    conversationId={currentConversationId} 
                     onUploadComplete={handleDocumentUpload}
                     onFileSelected={handleDocumentSelected}
                     externalInputRef={hiddenFileInputRef}
