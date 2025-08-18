@@ -90,7 +90,7 @@ test.describe('Code Rendering in Chat', () => {
     let renderCount = 0
     
     // Set up mutation observer to count renders
-    await page.evaluateOnNewDocument(() => {
+    await page.addInitScript(() => {
       let observer: MutationObserver
       window.addEventListener('load', () => {
         observer = new MutationObserver(() => {

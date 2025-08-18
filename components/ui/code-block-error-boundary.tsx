@@ -9,7 +9,6 @@ import { cn } from '@/lib/utils'
 interface CodeBlockErrorBoundaryState {
   hasError: boolean
   error: Error | null
-  errorCount: number
 }
 
 interface CodeBlockErrorBoundaryProps {
@@ -31,8 +30,7 @@ export class CodeBlockErrorBoundary extends React.Component<
     super(props)
     this.state = {
       hasError: false,
-      error: null,
-      errorCount: 0
+      error: null
     }
   }
 
@@ -65,11 +63,6 @@ export class CodeBlockErrorBoundary extends React.Component<
         code: this.props.code
       })
     }
-    
-    // Update error count
-    this.setState(prevState => ({
-      errorCount: prevState.errorCount + 1
-    }))
   }
 
   handleRetry = () => {
@@ -242,14 +235,20 @@ export function useCodeBlockErrorHandler() {
         message: error.message
       }
       
-      // Could send to an API endpoint for logging
-      fetch('/api/log-error', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(errorInfo)
-      }).catch(() => {
-        // Silently fail if logging fails
-      })
+      // TODO: Send errorInfo to monitoring service when API endpoint is available
+      // For now, we just prepare the error info but don't send it
+      // to avoid network failures
+      // Example future implementation:
+      // fetch('/api/log-error', {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify(errorInfo)
+      // }).catch(() => {
+      //   // Silently fail if logging fails
+      // })
+      
+      // Suppress unused variable warning - will be used when API is ready
+      void errorInfo
     }
   }, [])
   

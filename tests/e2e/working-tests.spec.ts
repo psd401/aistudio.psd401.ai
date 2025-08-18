@@ -58,7 +58,7 @@ describeOrSkip('Public Pages', () => {
     });
     
     // Verify the page has loaded properly (basic smoke test)
-    expect(hasReact !== undefined).toBeTruthy();
+    expect(hasReact).toBeTruthy();
   });
 
   test('should trigger sign in when clicking the button', async ({ page }) => {

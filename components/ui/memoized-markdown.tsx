@@ -166,23 +166,18 @@ export const MemoizedMarkdown = memo(
         }
       }
       
-      // If we're still in a code block at the end, buffer it
+      // If we're still in a code block at the end, show loading indicator
       if (inCodeBlock && codeBlockStartIndex >= 0) {
         // Remove the incomplete code block from processed content
         const beforeCodeBlock = processedLines.slice(0, codeBlockStartIndex).join('\n')
-        const incompleteBlock = processedLines.slice(codeBlockStartIndex).join('\n')
         
-        // Store in buffer and return content before the incomplete block
-        if (streamingBuffer) {
-          streamingBuffer.incompleteCodeFence = incompleteBlock
-          streamingBuffer.bufferedContent = beforeCodeBlock
-        }
-        
+        // Return content before the incomplete block with loading indicator
+        // Note: We don't mutate streamingBuffer here - that's an anti-pattern
         return beforeCodeBlock + '\n\n*[Loading code block...]*'
       }
       
       return processedLines.join('\n')
-    }, [content, streamingBuffer])
+    }, [content, streamingBuffer?.enabled])
     
     // Parse markdown into blocks
     const blocks = useMemo(() => {
@@ -211,12 +206,13 @@ export const MemoizedMarkdown = memo(
     )
   },
   (prevProps, nextProps) => {
-    // Only re-render if content or id changes
+    // Only re-render if content, id, or streaming state changes
     return (
       prevProps.content === nextProps.content &&
       prevProps.id === nextProps.id &&
       prevProps.components === nextProps.components &&
-      prevProps.className === nextProps.className
+      prevProps.className === nextProps.className &&
+      prevProps.streamingBuffer?.enabled === nextProps.streamingBuffer?.enabled
     )
   }
 )
