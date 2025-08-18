@@ -217,6 +217,52 @@ export function Message({ message, messageId, isStreaming = false }: MessageProp
                       content={reasoningContent}
                       id={`${uniqueId}-reasoning`}
                       streamingBuffer={isStreaming ? { enabled: true } : undefined}
+                      components={{
+                        p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+                        ul: ({ children }) => <ul className="mb-2 ml-4 list-disc">{children}</ul>,
+                        ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal">{children}</ol>,
+                        li: ({ children }) => <li className="mb-1">{children}</li>,
+                        code: ({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) => {
+                          const match = /language-(\w+)/.exec(className || "")
+                          const language = match ? match[1] : ""
+                          const inline = !language
+                          
+                          if (inline) {
+                            return (
+                              <code className="rounded-md px-1.5 py-0.5 font-mono text-sm bg-muted/30 text-muted-foreground">
+                                {children}
+                              </code>
+                            )
+                          }
+                          
+                          return (
+                            <div className="relative mb-2 mt-1 rounded-md overflow-hidden">
+                              <div className="absolute right-2 top-2 z-10">
+                                <span className="text-xs text-muted-foreground/60 bg-background/30 px-2 py-0.5 rounded">
+                                  {language}
+                                </span>
+                              </div>
+                              <SyntaxHighlighter
+                                language={language}
+                                // @ts-expect-error - react-syntax-highlighter types are incorrect
+                                style={vscDarkPlus}
+                                PreTag="div"
+                                className="!my-0 !font-mono !text-xs"
+                                customStyle={{
+                                  margin: 0,
+                                  background: "hsl(var(--muted)/0.5)",
+                                  padding: "0.75rem",
+                                  paddingTop: "2rem",
+                                  fontSize: "0.75rem"
+                                }}
+                                {...props}
+                              >
+                                {String(children).replace(/\n$/, "")}
+                              </SyntaxHighlighter>
+                            </div>
+                          )
+                        }
+                      }}
                     />
                   </CodeBlockErrorBoundary>
                 </motion.div>
