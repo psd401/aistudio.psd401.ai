@@ -6,10 +6,31 @@ import { ErrorFactories } from "@/lib/error-utils";
 import { rateLimit } from "@/lib/rate-limit";
 import { NextRequest } from 'next/server';
 import { createProviderModel } from "@/app/api/chat/lib/provider-factory";
+import { transformSnakeToCamel } from '@/lib/db/field-mapper';
+import type { SelectChainPrompt } from "@/types/db-types";
 
 // Try static import again to see the actual error
 import { retrieveKnowledgeForPrompt, formatKnowledgeContext } from "@/lib/assistant-architect/knowledge-retrieval";
 import { parseRepositoryIds } from "@/lib/utils/repository-utils";
+
+// Interface for the joined prompt + ai_model data
+interface ChainPromptWithModel {
+  id: number;
+  assistantArchitectId: number;
+  name: string;
+  content: string;
+  systemContext?: string | null;
+  position: number;
+  inputMapping?: unknown;
+  repositoryIds?: string | number[] | null;
+  createdAt: Date;
+  updatedAt: Date;
+  // Fields from the join with ai_models
+  aiModelId: number;    // This is cp.model_id (foreign key)
+  modelId: string;      // This is am.model_id (the actual model string like "gpt-5")
+  provider: string;     // Provider name (e.g., "openai")
+  modelName: string;    // Display name of the model
+}
 
 interface StreamRequest {
   toolId: number;
@@ -111,20 +132,13 @@ export async function POST(req: NextRequest) {
       });
     }
     
-    // Map the raw database results to properly typed prompts
-    // Handle both snake_case from DB and camelCase conversions
-    const prompts = promptsRaw.map((row: Record<string, unknown>) => ({
-      id: row.id as number,
-      name: row.name as string,
-      content: row.content as string,
-      position: row.position as number,
-      aiModelId: row.ai_model_id || row.aiModelId,
-      systemContext: (row.system_context || row.systemContext) as string | undefined,
-      repositoryIds: (row.repository_ids || row.repositoryIds) as string | number[] | null | undefined,
-      modelId: (row.model_id || row.modelId) as string,
-      provider: row.provider as string,
-      modelName: (row.model_name || row.modelName) as string
-    }));
+    // Use the standard field mapper to handle snake_case to camelCase conversion
+    const prompts = promptsRaw.map((row: Record<string, unknown>) => {
+      const transformed = transformSnakeToCamel<ChainPromptWithModel>(row);
+      // Parse repository IDs after transformation
+      transformed.repositoryIds = parseRepositoryIds(transformed.repositoryIds);
+      return transformed;
+    });
 
 
     if (!prompts.length) {

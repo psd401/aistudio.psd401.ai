@@ -1705,12 +1705,13 @@ export async function executeAssistantArchitectAction({
 
     const executionId = executionResult[0]?.id as number;
 
-    // Start the execution in the background
-    executeAssistantArchitectJob(jobResult.data.id.toString(), tool, inputs, executionId).catch(error => {
-      log.error(`[EXEC:${jobResult.data.id}] Background execution failed:`, error);
-    });
+    // DISABLED: Background execution to prevent race condition with streaming
+    // The streaming endpoint (/api/assistant-architect/stream) will handle execution
+    // executeAssistantArchitectJob(jobResult.data.id.toString(), tool, inputs, executionId).catch(error => {
+    //   log.error(`[EXEC:${jobResult.data.id}] Background execution failed:`, error);
+    // });
 
-    log.info("Assistant architect execution started", { jobId: jobResult.data.id, executionId })
+    log.info("Assistant architect execution created for streaming", { jobId: jobResult.data.id, executionId })
     timer({ status: "success", jobId: jobResult.data.id, executionId })
 
     return createSuccess({ jobId: jobResult.data.id, executionId }, "Execution started");
