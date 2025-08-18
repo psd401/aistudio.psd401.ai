@@ -505,11 +505,12 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
               
               {/* Messages list - following AI SDK documentation pattern */}
               <div className="space-y-4">
-                {messages.map((message) => (
+                {messages.map((message, index) => (
                   <Message 
                     key={message.id}
                     message={message} 
                     messageId={message.id}
+                    isStreaming={index === messages.length - 1 && status === 'streaming'}
                   />
                 ))}
                 

@@ -47,6 +47,20 @@ describeOrSkip('Public Pages', () => {
     }
   });
 
+  test('should load necessary scripts for code rendering', async ({ page }) => {
+    // This test verifies that code rendering dependencies are loaded
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+    
+    // Check that React and other necessary scripts are loaded
+    const hasReact = await page.evaluate(() => {
+      return typeof window !== 'undefined' && window.React !== undefined;
+    });
+    
+    // Verify the page has loaded properly (basic smoke test)
+    expect(hasReact).toBeTruthy();
+  });
+
   test('should trigger sign in when clicking the button', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');

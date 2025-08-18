@@ -18,16 +18,18 @@ import type { SelectMessage } from "@/types/schema-types"
 // Define proper types for message parts
 type TextPart = { type: 'text'; text: string };
 type MessagePart = TextPart | { type: string; [key: string]: unknown };
-import ReactMarkdown from "react-markdown"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { motion } from "framer-motion"
+import { MemoizedMarkdown } from "@/components/ui/memoized-markdown"
+import { CodeBlockErrorBoundary } from "@/components/ui/code-block-error-boundary"
 
 interface MessageProps {
   message: MessageType | SelectMessage
   messageId?: string
+  isStreaming?: boolean
 }
 
 // Type guard to check if message has model information
@@ -60,7 +62,7 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
   )
 }
 
-export function Message({ message, messageId }: MessageProps) {
+export function Message({ message, messageId, isStreaming = false }: MessageProps) {
   const { toast } = useToast()
   const [showReasoning, setShowReasoning] = useState(false)
   const isAssistant = message.role === "assistant"
@@ -210,9 +212,59 @@ export function Message({ message, messageId }: MessageProps) {
                   animate={{ opacity: 1, y: 0 }}
                   className="mt-2 text-sm text-muted-foreground italic bg-muted/30 rounded-lg p-3"
                 >
-                  <ReactMarkdown>
-                    {reasoningContent}
-                  </ReactMarkdown>
+                  <CodeBlockErrorBoundary>
+                    <MemoizedMarkdown
+                      content={reasoningContent}
+                      id={`${uniqueId}-reasoning`}
+                      streamingBuffer={isStreaming ? { enabled: true } : undefined}
+                      components={{
+                        p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+                        ul: ({ children }) => <ul className="mb-2 ml-4 list-disc">{children}</ul>,
+                        ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal">{children}</ol>,
+                        li: ({ children }) => <li className="mb-1">{children}</li>,
+                        code: ({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) => {
+                          const match = /language-(\w+)/.exec(className || "")
+                          const language = match ? match[1] : ""
+                          const inline = !language
+                          
+                          if (inline) {
+                            return (
+                              <code className="rounded-md px-1.5 py-0.5 font-mono text-sm bg-muted/30 text-muted-foreground">
+                                {children}
+                              </code>
+                            )
+                          }
+                          
+                          return (
+                            <div className="relative mb-2 mt-1 rounded-md overflow-hidden">
+                              <div className="absolute right-2 top-2 z-10">
+                                <span className="text-xs text-muted-foreground/60 bg-background/30 px-2 py-0.5 rounded">
+                                  {language}
+                                </span>
+                              </div>
+                              <SyntaxHighlighter
+                                language={language}
+                                // @ts-expect-error - react-syntax-highlighter types are incorrect
+                                style={vscDarkPlus}
+                                PreTag="div"
+                                className="!my-0 !font-mono !text-xs"
+                                customStyle={{
+                                  margin: 0,
+                                  background: "hsl(var(--muted)/0.5)",
+                                  padding: "0.75rem",
+                                  paddingTop: "2rem",
+                                  fontSize: "0.75rem"
+                                }}
+                                {...props}
+                              >
+                                {String(children).replace(/\n$/, "")}
+                              </SyntaxHighlighter>
+                            </div>
+                          )
+                        }
+                      }}
+                    />
+                  </CodeBlockErrorBoundary>
                 </motion.div>
               )}
             </motion.div>
@@ -223,87 +275,90 @@ export function Message({ message, messageId }: MessageProps) {
             "prose prose-sm dark:prose-invert max-w-none",
             !isAssistant && "prose-invert"
           )}>
-            <ReactMarkdown
-              components={{
-                p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
-                ul: ({ children }) => <ul className="mb-2 ml-4 list-disc">{children}</ul>,
-                ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal">{children}</ol>,
-                li: ({ children }) => <li className="mb-1">{children}</li>,
-                h1: ({ children }) => <h1 className="text-xl font-bold mb-2 mt-4">{children}</h1>,
-                h2: ({ children }) => <h2 className="text-lg font-semibold mb-2 mt-3">{children}</h2>,
-                h3: ({ children }) => <h3 className="text-base font-semibold mb-1 mt-2">{children}</h3>,
-                blockquote: ({ children }) => (
-                  <blockquote className="border-l-4 border-primary/30 pl-4 italic my-2">
-                    {children}
-                  </blockquote>
-                ),
-                code: ({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) => {
-                  const match = /language-(\w+)/.exec(className || "")
-                  const language = match ? match[1] : ""
-                  const inline = !language
-    
-                  if (inline) {
+            <CodeBlockErrorBoundary>
+              <MemoizedMarkdown
+                content={content}
+                id={uniqueId}
+                streamingBuffer={isStreaming ? { enabled: true } : undefined}
+                components={{
+                  p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+                  ul: ({ children }) => <ul className="mb-2 ml-4 list-disc">{children}</ul>,
+                  ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal">{children}</ol>,
+                  li: ({ children }) => <li className="mb-1">{children}</li>,
+                  h1: ({ children }) => <h1 className="text-xl font-bold mb-2 mt-4">{children}</h1>,
+                  h2: ({ children }) => <h2 className="text-lg font-semibold mb-2 mt-3">{children}</h2>,
+                  h3: ({ children }) => <h3 className="text-base font-semibold mb-1 mt-2">{children}</h3>,
+                  blockquote: ({ children }) => (
+                    <blockquote className="border-l-4 border-primary/30 pl-4 italic my-2">
+                      {children}
+                    </blockquote>
+                  ),
+                  code: ({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) => {
+                    const match = /language-(\w+)/.exec(className || "")
+                    const language = match ? match[1] : ""
+                    const inline = !language
+      
+                    if (inline) {
+                      return (
+                        <code
+                          className={cn(
+                            "rounded-md px-1.5 py-0.5 font-mono text-sm",
+                            isAssistant 
+                              ? "bg-muted text-foreground" 
+                              : "bg-primary-foreground/10 text-primary-foreground"
+                          )}
+                          {...props}
+                        >
+                          {children}
+                        </code>
+                      )
+                    }
+      
                     return (
-                      <code
-                        className={cn(
-                          "rounded-md px-1.5 py-0.5 font-mono text-sm",
-                          isAssistant 
-                            ? "bg-muted text-foreground" 
-                            : "bg-primary-foreground/10 text-primary-foreground"
-                        )}
-                        {...props}
-                      >
-                        {children}
-                      </code>
+                      <div className="relative mb-4 mt-2 last:mb-0 rounded-lg overflow-hidden">
+                        <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
+                          <span 
+                            className="text-xs text-muted-foreground/80 bg-background/50 px-2 py-1 rounded"
+                            aria-label={`Code language: ${language}`}
+                          >
+                            {language}
+                          </span>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 hover:bg-background/50"
+                            onClick={() => {
+                              navigator.clipboard.writeText(String(children).replace(/\n$/, ""))
+                              toast({ title: "Code copied!" })
+                            }}
+                          >
+                            <IconCopy className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        <SyntaxHighlighter
+                          language={language}
+                          // @ts-expect-error - react-syntax-highlighter types are incorrect
+                          style={vscDarkPlus}
+                          PreTag="div"
+                          className="!my-0 !font-mono !text-sm"
+                          showLineNumbers={true}
+                          customStyle={{
+                            margin: 0,
+                            background: "hsl(var(--muted))",
+                            padding: "1rem",
+                            paddingTop: "2.5rem"
+                          }}
+                          aria-label={`Code snippet in ${language || "unknown"} language`}
+                          {...props}
+                        >
+                          {String(children).replace(/\n$/, "")}
+                        </SyntaxHighlighter>
+                      </div>
                     )
                   }
-    
-                  return (
-                    <div className="relative mb-4 mt-2 last:mb-0 rounded-lg overflow-hidden">
-                      <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
-                        <span 
-                          className="text-xs text-muted-foreground/80 bg-background/50 px-2 py-1 rounded"
-                          aria-label={`Code language: ${language}`}
-                        >
-                          {language}
-                        </span>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6 hover:bg-background/50"
-                          onClick={() => {
-                            navigator.clipboard.writeText(String(children).replace(/\n$/, ""))
-                            toast({ title: "Code copied!" })
-                          }}
-                        >
-                          <IconCopy className="h-3 w-3" />
-                        </Button>
-                      </div>
-                      <SyntaxHighlighter
-                        language={language}
-                        // @ts-expect-error - react-syntax-highlighter types are incorrect
-                        style={vscDarkPlus}
-                        PreTag="div"
-                        className="!my-0 !font-mono !text-sm"
-                        showLineNumbers={true}
-                        customStyle={{
-                          margin: 0,
-                          background: "hsl(var(--muted))",
-                          padding: "1rem",
-                          paddingTop: "2.5rem"
-                        }}
-                        aria-label={`Code snippet in ${language || "unknown"} language`}
-                        {...props}
-                      >
-                        {String(children).replace(/\n$/, "")}
-                      </SyntaxHighlighter>
-                    </div>
-                  )
-                }
-              }}
-            >
-              {content}
-            </ReactMarkdown>
+                }}
+              />
+            </CodeBlockErrorBoundary>
           </div>
         </div>
 
