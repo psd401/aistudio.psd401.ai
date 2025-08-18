@@ -20,11 +20,14 @@ export async function GET() {
 
   try {
     const query = `
-      SELECT id, user_id, title, created_at, updated_at,
-             model_id, source, execution_id, context
-      FROM conversations
-      WHERE user_id = :userId
-      ORDER BY created_at DESC
+      SELECT c.id, c.user_id, c.title, c.created_at, c.updated_at,
+             c.model_id, c.source, c.execution_id, c.context,
+             am.name as model_name, am.provider as model_provider,
+             am.model_id as model_identifier, am.description as model_description
+      FROM conversations c
+      LEFT JOIN ai_models am ON c.model_id = am.id
+      WHERE c.user_id = :userId
+      ORDER BY c.created_at DESC
     `;
     const parameters = [
       { name: 'userId', value: { longValue: currentUser.data.user.id } }

@@ -38,7 +38,14 @@ export default authMiddleware((req) => {
   ) {
     response = NextResponse.next();
   }
-  // Redirect unauthenticated users to sign-in
+  // Handle API routes differently - return 401 instead of redirecting
+  else if (!isLoggedIn && nextUrl.pathname.startsWith("/api/")) {
+    response = NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
+  }
+  // Redirect unauthenticated users to sign-in for non-API routes
   else if (!isLoggedIn) {
     response = NextResponse.redirect(new URL(`/api/auth/signin?callbackUrl=${encodeURIComponent(nextUrl.pathname)}`, nextUrl));
   }

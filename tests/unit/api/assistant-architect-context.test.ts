@@ -45,7 +45,7 @@ jest.mock('openai', () => ({
 }))
 
 // Now import after mocks are set up
-import { POST } from '@/app/api/chat/stream-final/route'
+import { POST } from '@/app/api/chat/route'
 import { getServerSession } from '@/lib/auth/server-session'
 import { executeSQL } from '@/lib/db/data-api-adapter'
 

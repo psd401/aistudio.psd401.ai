@@ -1,11 +1,11 @@
 "use client"
 
-import { useRef, useEffect } from "react"
+import { useRef, useEffect, useCallback } from "react"
+import type { FormEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { IconSend } from "@tabler/icons-react"
 import { PaperclipIcon } from "lucide-react"
-import type { FormEvent } from "react"
 
 interface ChatInputProps {
   input: string
@@ -15,6 +15,8 @@ interface ChatInputProps {
   disabled?: boolean
   onAttachClick?: () => void
   showAttachButton?: boolean
+  /** Placeholder text for the input field */
+  placeholder?: string
   /** Accessibility label for the input field */
   ariaLabel?: string
   /** ID for the textarea element */
@@ -33,6 +35,7 @@ export function ChatInput({
   disabled,
   onAttachClick,
   showAttachButton = false,
+  placeholder = "Type your message...",
   ariaLabel = "Message input",
   inputId = "chat-message-input",
   sendButtonAriaLabel = "Send message",
@@ -48,27 +51,28 @@ export function ChatInput({
     }
   }, [input])
 
-  const onSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    if (!input.trim() || isLoading || disabled) return
-    handleSubmit(e)
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "48px"
+  const submitMessage = useCallback(() => {
+    if (input.trim() && !disabled && !isLoading) {
+      const syntheticEvent = {
+        preventDefault: () => {},
+        currentTarget: { reset: () => {} }
+      } as FormEvent<HTMLFormElement>
+      handleSubmit(syntheticEvent)
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "48px"
+      }
     }
-  }
+  }, [input, disabled, isLoading, handleSubmit])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !isLoading) {
       e.preventDefault()
-      const form = e.currentTarget.form
-      if (form && input.trim()) {
-        onSubmit(new SubmitEvent("submit", { bubbles: true, cancelable: true, submitter: form }) as unknown as FormEvent<HTMLFormElement>);
-      }
+      submitMessage()
     }
   }
 
   return (
-    <form onSubmit={onSubmit} className="relative w-full" aria-label="Chat message form">
+    <div className="relative w-full" aria-label="Chat message form">
       <Textarea
         ref={textareaRef}
         id={inputId}
@@ -78,7 +82,7 @@ export function ChatInput({
         value={input}
         onChange={handleInputChange}
         onKeyDown={onKeyDown}
-        placeholder="Message..."
+        placeholder={placeholder}
         spellCheck={false}
         className={`min-h-[48px] w-full resize-none bg-background py-3 border border-border rounded-xl shadow-sm focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-offset-0 focus-visible:border-primary ${showAttachButton ? 'pl-12 pr-14' : 'pl-4 pr-14'}`}
         disabled={disabled || isLoading}
@@ -105,17 +109,18 @@ export function ChatInput({
       )}
       
       <Button
-        type="submit"
+        type="button"
         size="icon"
         variant="default"
         disabled={input.trim().length === 0 || isLoading || disabled}
         className="absolute bottom-2.5 right-3 h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:bg-muted"
         aria-label={sendButtonAriaLabel}
         aria-disabled={input.trim().length === 0 || isLoading || disabled}
+        onClick={submitMessage}
       >
         <IconSend className="h-4 w-4" />
         <span className="sr-only">{sendButtonAriaLabel}</span>
       </Button>
-    </form>
+    </div>
   )
 } 

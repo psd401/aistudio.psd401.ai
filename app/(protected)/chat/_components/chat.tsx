@@ -1,20 +1,24 @@
 "use client"
 
-import { useChat } from 'ai/react'
-import { useEffect, useRef, useState } from "react"
+import { useChat, type UseChatOptions, type UIMessage } from '@ai-sdk/react'
+import { useEffect, useRef, useState, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { Message } from "./message"
 import { ChatInput } from "./chat-input"
 import { ModelSelector } from "@/components/features/model-selector"
 import { DocumentUpload } from "./document-upload"
 import { DocumentList } from "./document-list"
-import { AiThinkingIndicator } from "./ai-thinking-indicator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/components/ui/use-toast"
 import { Button } from "@/components/ui/button"
-import { IconPlayerStop } from "@tabler/icons-react"
-import { FileTextIcon } from "lucide-react"
+import { IconPlayerStop, IconSparkles, IconLoader2 } from "@tabler/icons-react"
+import { FileTextIcon, RefreshCwIcon } from "lucide-react"
 import type { SelectAiModel } from "@/types"
-import { RefreshCwIcon } from "lucide-react"
+import { useConversationContext } from "./conversation-context"
+import { cn } from "@/lib/utils"
+import { motion, AnimatePresence } from "framer-motion"
+import { nanoid } from 'nanoid'
+import { useModelsWithPersistence } from "@/lib/hooks/use-models"
 
 interface Document {
   id: string
@@ -32,52 +36,149 @@ interface ChatProps {
     id: string
     content: string
     role: "user" | "assistant"
+    modelId?: number | null
+    modelName?: string | null
+    modelProvider?: string | null
+    modelIdentifier?: string | null
+    reasoningContent?: string | null
+    tokenUsage?: Record<string, unknown>
   }>
 }
 
 export function Chat({ conversationId: initialConversationId, initialMessages = [] }: ChatProps) {
   const [currentConversationId, setCurrentConversationId] = useState<number | undefined>(initialConversationId)
-  const [models, setModels] = useState<SelectAiModel[]>([])
-  const [selectedModel, setSelectedModel] = useState<SelectAiModel | null>(null)
+  const router = useRouter()
+  
+  // Use shared model management hook
+  const { models, selectedModel, setSelectedModel } = useModelsWithPersistence('selectedModel', ['chat'])
+  
   const [documents, setDocuments] = useState<Document[]>([])
   const [showDocuments, setShowDocuments] = useState(false)
   const [pendingDocument, setPendingDocument] = useState<Document | null>(null)
-  const [processingDocumentId, setProcessingDocumentId] = useState<string | null>(null)
+  const [uploadedDocumentId, setUploadedDocumentId] = useState<string | null>(null)
+  const [, setProcessingDocumentId] = useState<string | null>(null)
+  const [input, setInput] = useState<string>('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
+  const { } = useConversationContext()
   const hiddenFileInputRef = useRef<HTMLInputElement>(null)
+  const conversationIdRef = useRef<number | undefined>(currentConversationId)
+  const selectedModelRef = useRef<SelectAiModel | null>(null)
+  const pendingDocumentRef = useRef<Document | null>(null)
   
-  // Use Vercel AI SDK's useChat hook
-  const { messages, input, handleInputChange, handleSubmit: handleChatSubmit, isLoading, stop, setMessages, setInput } = useChat({
-    api: '/api/chat/stream-final',
-    initialMessages,
-    body: {
-      modelId: selectedModel?.modelId,
-      conversationId: currentConversationId,
-      documentId: currentConversationId === undefined && processingDocumentId ? processingDocumentId : undefined
-    },
-    onResponse: (response) => {
-      // Get conversation ID from header
-      const headerConversationId = response.headers.get('X-Conversation-Id')
-      if (headerConversationId && !currentConversationId) {
-        const newId = parseInt(headerConversationId)
-        setCurrentConversationId(newId)
-        window.history.pushState({}, '', `/chat?conversation=${newId}`)
-        if (processingDocumentId) {
-          linkUnlinkedDocuments(newId).then(() => {
-            setProcessingDocumentId(null)
-          })
-        }
-      }
-    },
-    onError: (error) => {
+  // Update refs when values change
+  useEffect(() => {
+    conversationIdRef.current = currentConversationId
+  }, [currentConversationId])
+  
+  useEffect(() => {
+    selectedModelRef.current = selectedModel
+  }, [selectedModel])
+  
+  useEffect(() => {
+    pendingDocumentRef.current = pendingDocument
+  }, [pendingDocument])
+  
+  // AI SDK v2: Standard useChat configuration following documentation
+  const { 
+    messages, 
+    sendMessage,
+    status,
+    stop,
+    error,
+    regenerate,
+    setMessages
+  } = useChat({
+    onError: (error: Error) => {
       toast({
         title: "Error",
         description: error.message || "Failed to send message",
         variant: "destructive"
       })
+    },
+    onResponse: (response: Response) => {
+      // Handle conversation ID from response headers
+      const header = response.headers.get('X-Conversation-Id')
+      // Handle conversation ID from response headers
+      
+      if (header) {
+        const newId = parseInt(header, 10)
+        // Parsed conversation ID from header
+        
+        if (!Number.isNaN(newId)) {
+          // Always update the conversation ID from the server response
+          // This ensures we use the same conversation for all messages
+          if (currentConversationId !== newId) {
+            // Update conversation ID and URL
+            setCurrentConversationId(newId)
+            conversationIdRef.current = newId
+            
+            // Update URL to reflect the conversation ID
+            const newUrl = `/chat?conversation=${newId}`
+            // URL updated with conversation parameter
+            router.replace(newUrl, { scroll: false })
+          } else {
+            // Conversation ID already set correctly
+          }
+        }
+      } else {
+        // No conversation ID in response header
+      }
+    },
+    onFinish: () => {
+      // Message processing complete, refresh conversation list
+      // Refresh the conversation list in the sidebar
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('refresh-conversations'))
+      }
     }
-  })
+  } as UseChatOptions<UIMessage>)
+  
+  // Monitor messages for conversation ID updates
+  // This is a workaround for AI SDK v2 not calling onResponse for streaming
+  useEffect(() => {
+    if (messages.length > 0 && !currentConversationId) {
+      let retryCount = 0
+      const maxRetries = 5
+      const baseDelay = 1000 // Start with 1 second
+      
+      // Poll for conversation ID from the server after sending first message
+      const checkForConversationId = async () => {
+        try {
+          const response = await fetch('/api/conversations?latest=true')
+          if (response.ok) {
+            const data = await response.json()
+            const conversations = data.data || data
+            if (Array.isArray(conversations) && conversations.length > 0) {
+              const latestConv = conversations[0]
+              if (latestConv?.id && !currentConversationId) {
+                const convId = latestConv.id
+                // Successfully retrieved conversation ID from API
+                setCurrentConversationId(convId)
+                conversationIdRef.current = convId
+                router.replace(`/chat?conversation=${convId}`, { scroll: false })
+                return true // Success, stop retrying
+              }
+            }
+          }
+        } catch {
+          // Error fetching conversation ID - will retry
+        }
+        
+        // Retry with exponential backoff if not successful
+        if (retryCount < maxRetries) {
+          retryCount++
+          const delay = Math.min(baseDelay * Math.pow(2, retryCount - 1), 8000) // Cap at 8 seconds
+          setTimeout(checkForConversationId, delay)
+        }
+        return false
+      }
+      
+      // Initial check after a short delay to allow server to process
+      const timer = setTimeout(checkForConversationId, baseDelay)
+      return () => clearTimeout(timer)
+    }
+  }, [messages.length, currentConversationId, router])
 
   // Initialize component state
   useEffect(() => {
@@ -85,12 +186,24 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     
     setCurrentConversationId(initialConversationId)
     
-    if (initialConversationId) {
-      // Load existing conversation
-      setMessages(initialMessages)
+    if (initialConversationId && initialMessages.length > 0) {
+      // Only set messages if we have actual messages to display
+      const processedMessages = initialMessages.map((msg, index) => ({
+        id: msg.id && msg.id.trim() !== '' ? msg.id : `initial-${index}-${nanoid()}`,
+        role: msg.role as 'user' | 'assistant',
+        parts: [{ type: 'text' as const, text: msg.content }],
+        // Preserve model information for the model selector
+        ...(msg.modelId && { modelId: msg.modelId }),
+        ...(msg.modelName && { modelName: msg.modelName }),
+        ...(msg.modelProvider && { modelProvider: msg.modelProvider }),
+        ...(msg.modelIdentifier && { modelIdentifier: msg.modelIdentifier }),
+        ...(msg.reasoningContent && { reasoningContent: msg.reasoningContent }),
+        ...(msg.tokenUsage && { tokenUsage: msg.tokenUsage })
+      }))
+      setMessages(processedMessages)
       fetchDocuments(initialConversationId, abortController.signal)
     } else {
-      // New chat - ensure everything is cleared
+      // Clear everything for new chat
       setMessages([])
       setInput('')
       setDocuments([])
@@ -103,23 +216,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       abortController.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Intentionally empty - initialization effect that should only run once on mount
-
-  useEffect(() => {
-    if (pendingDocument && currentConversationId) {
-      toast({
-        title: "Uploading document",
-        description: `Uploading ${pendingDocument.name} to conversation`,
-        variant: "default"
-      })
-    }
-  }, [currentConversationId, pendingDocument, toast])
-
-  useEffect(() => {
-    if (documents.length > 0) {
-      setShowDocuments(true)
-    }
-  }, [documents])
+  }, [initialConversationId, initialMessages])
 
   const fetchDocuments = async (convId?: number, signal?: AbortSignal) => {
     const idToUse = convId || currentConversationId
@@ -137,17 +234,12 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       const data = await response.json()
       
       if (data.success && data.documents) {
-        if (data.documents.length > 0) {
-          setDocuments(data.documents)
-          setShowDocuments(true)
-        } else {
-          setDocuments([])
-        }
+        setDocuments(data.documents.length > 0 ? data.documents : [])
+        setShowDocuments(data.documents.length > 0)
       } else {
         setDocuments([])
       }
     } catch {
-      // console.error('[fetchDocuments] Error:', _error)
       setDocuments([])
     }
   }
@@ -167,6 +259,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     })
     
     setProcessingDocumentId(documentInfo.id)
+    // Keep the uploaded document ID for the first message
+    setUploadedDocumentId(documentInfo.id)
     setPendingDocument(null)
     setShowDocuments(true)
     
@@ -187,7 +281,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         
         fetchDocuments(currentConversationId)
       } catch {
-        // console.error("[handleDocumentUpload] Error linking document:", _error)
         toast({
           title: "Warning",
           description: "Document uploaded but not linked to conversation.",
@@ -207,38 +300,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     setPendingDocument(documentInfo as Document)
   }
 
-  const linkUnlinkedDocuments = async (conversationId: number) => {
-    const documentsToLink = documents.filter(doc => !doc.conversationId || doc.conversationId !== conversationId)
-    
-    if (processingDocumentId && !documentsToLink.find(doc => doc.id === processingDocumentId)) {
-      documentsToLink.push({ id: processingDocumentId, name: "Processing document" } as Document)
-    }
-    
-    if (documentsToLink.length === 0) return
-    
-    for (const doc of documentsToLink) {
-      try {
-        const response = await fetch('/api/documents/link', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            documentId: doc.id,
-            conversationId: conversationId
-          })
-        })
-        
-        if (!response.ok) {
-          // console.error(`Failed to link document ${doc.id}`)
-          continue
-        }
-      } catch {
-        // console.error(`Error linking document ${doc.id}:`, _error)
-      }
-    }
-    
-    const abortController = new AbortController()
-    fetchDocuments(conversationId, abortController.signal)
-  }
 
   const handleDocumentDelete = async (documentId: string) => {
     try {
@@ -252,7 +313,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       
       return true
     } catch (error) {
-      // console.error('[handleDocumentDelete] Error:', error)
       toast({
         title: "Error",
         description: "Failed to delete document",
@@ -262,8 +322,9 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
+    
     if (!input.trim()) {
       toast({
         title: "Error",
@@ -272,6 +333,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       })
       return
     }
+    
     if (!selectedModel) {
       toast({
         title: "Error",
@@ -281,69 +343,79 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       return
     }
 
-    handleChatSubmit(e)
-  }
-
-  useEffect(() => {
-    const abortController = new AbortController()
+    // Use sendMessage to send the message with a unique ID and dynamic body
+    // Pass the model identifier string (e.g., "gpt-5") not the database ID
     
-    async function loadModels() {
-      try {
-        const response = await fetch("/api/chat/models", {
-          signal: abortController.signal
-        })
+    // AI SDK v2: sendMessage with message object and options
+    const messageId = nanoid();
+    
+    // Send message with current conversation ID and selected model
+    
+    // Clear input immediately for better UX
+    setInput('')
+    
+    // Clear the uploaded document ID after sending (it will be linked to the conversation)
+    if (uploadedDocumentId && !conversationIdRef.current) {
+      setUploadedDocumentId(null)
+    }
+    
+    await sendMessage({
+      id: messageId,
+      role: 'user' as const,
+      parts: [{ type: 'text' as const, text: input }]
+    }, {
+      body: {
+        modelId: selectedModel.modelId,  // Send the MODEL IDENTIFIER STRING
+        conversationId: conversationIdRef.current,
+        // Use uploadedDocumentId if we have a document that was uploaded but not yet linked
+        documentId: uploadedDocumentId || pendingDocument?.id,
+        source: "chat"
+      }
+    })
+  }, [input, selectedModel, sendMessage, toast, pendingDocument?.id, uploadedDocumentId])
+  
+  // Update selected model when conversation changes
+  useEffect(() => {
+    if (models.length === 0) return
+    
+    // For existing conversations with messages, try to use the conversation's model
+    if (initialConversationId && initialMessages.length > 0) {
+      const lastAssistantMessage = [...initialMessages].reverse().find(msg => msg.role === 'assistant')
+      
+      if (lastAssistantMessage) {
+        let conversationModel = null
         
-        if (!response.ok) {
-          // console.error(`[loadModels] Error: ${response.status} ${response.statusText}`)
-          return
+        // First try to match by database ID
+        if (lastAssistantMessage.modelId) {
+          conversationModel = models.find(model => 
+            Number(model.id) === Number(lastAssistantMessage.modelId)
+          )
         }
         
-        const result = await response.json()
-        const modelsData = result.data || result
-        
-        if (!Array.isArray(modelsData) || modelsData.length === 0) {
-          return
+        // If not found by ID, try to match by model name or identifier
+        if (!conversationModel && lastAssistantMessage.modelName) {
+          conversationModel = models.find(model => 
+            model.name === lastAssistantMessage.modelName ||
+            model.modelId === lastAssistantMessage.modelIdentifier
+          )
         }
         
-        // Set all active models - let the ModelSelector handle filtering
-        setModels(modelsData)
-        
-        // Find first model with chat capability for default selection
-        const chatCapableModel = modelsData.find(model => {
-          try {
-            const capabilities = typeof model.capabilities === 'string' 
-              ? JSON.parse(model.capabilities) 
-              : model.capabilities
-            return Array.isArray(capabilities) && capabilities.includes('chat')
-          } catch {
-            return false
-          }
-        })
-        
-        if (chatCapableModel) {
-          setSelectedModel(chatCapableModel)
+        // If still not found, try matching by model identifier alone (for GPT-5 issue)
+        if (!conversationModel && lastAssistantMessage.modelIdentifier) {
+          conversationModel = models.find(model => 
+            model.modelId === lastAssistantMessage.modelIdentifier
+          )
         }
-      } catch (error) {
-        // Don't show toast if the request was aborted
-        if (error instanceof Error && error.name === 'AbortError') {
-          return
+        
+        if (conversationModel) {
+          setSelectedModel(conversationModel)
         }
-        // console.error('[loadModels] Error:', error)
-        toast({
-          title: "Error",
-          description: "Failed to load models",
-          variant: "destructive"
-        })
       }
     }
-    
-    loadModels()
-    
-    return () => {
-      abortController.abort()
-    }
-  }, [toast])
+  }, [models, initialConversationId, initialMessages, setSelectedModel])
 
+
+  // Auto-scroll to bottom when messages change
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
@@ -351,7 +423,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         behavior: "smooth"
       })
     }
-  }, [messages, isLoading])
+  }, [messages])
 
   const handleAttachClick = () => {
     if (!currentConversationId && messages.length === 0) {
@@ -367,9 +439,11 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     }
   }
 
+
   return (
-    <div className="flex flex-col h-full bg-white border border-border rounded-lg shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between p-3 border-b border-border">
+    <div className="flex flex-col h-full bg-gradient-to-br from-background via-background to-muted/20">
+      {/* Header - Fixed */}
+      <div className="flex-shrink-0 flex items-center justify-between p-4 bg-background/80 backdrop-blur-md border-b border-border/50">
         <ModelSelector
           models={models}
           value={selectedModel}
@@ -387,7 +461,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
             variant="outline"
             size="sm"
             onClick={forceDocumentRefresh}
-            className="flex items-center gap-1"
+            className="flex items-center gap-1 hover:bg-accent/50 transition-all"
             title="Force refresh documents"
           >
             <RefreshCwIcon className="h-3.5 w-3.5" />
@@ -398,12 +472,12 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
             variant="outline"
             size="sm"
             onClick={() => setShowDocuments(!showDocuments)}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 hover:bg-accent/50 transition-all"
           >
             <FileTextIcon className="h-4 w-4" />
-            {showDocuments ? "Hide Documents" : "Documents"}
+            {showDocuments ? "Hide" : "Documents"}
             {documents.length > 0 && (
-              <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-medium rounded-full bg-primary text-primary-foreground">
+              <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-medium rounded-full bg-primary text-primary-foreground animate-pulse">
                 {documents.length}
               </span>
             )}
@@ -411,78 +485,140 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        <ScrollArea ref={scrollRef} className="flex-1 p-4 bg-white">
-          <div role="list" aria-label="Chat messages">
-            {messages.map((message) => (
-              <Message 
-                key={message.id} 
-                message={message} 
-                messageId={`message-${message.id}`}
-              />
-            ))}
-            {isLoading && (
-              <AiThinkingIndicator 
-                processingDocument={documents.length > 0 || !!processingDocumentId}
-                modelName={selectedModel?.name}
-              />
-            )}
-          </div>
-        </ScrollArea>
-
-        {showDocuments && (
-          <div className="w-64 border-l border-border p-3 overflow-y-auto">
-            <div className="flex flex-col gap-4">
-              <DocumentUpload 
-                conversationId={currentConversationId} 
-                onUploadComplete={handleDocumentUpload}
-                onFileSelected={handleDocumentSelected}
-                externalInputRef={hiddenFileInputRef}
-                pendingDocument={pendingDocument}
-              />
+      {/* Main content area - Scrollable independently */}
+      <div className="flex flex-1 min-h-0">
+        {/* Messages Area - Independent scroll */}
+        <div className="flex-1 flex flex-col min-h-0">
+          <ScrollArea ref={scrollRef} className="flex-1 p-6">
+            <AnimatePresence>
+              {messages.length === 0 && (
+                <motion.div 
+                  key="empty-state"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="flex flex-col items-center justify-center h-full text-center space-y-4 min-h-[400px]"
+                >
+                  <div className="relative">
+                    <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-primary/20 to-accent/20 blur-3xl" />
+                    <IconSparkles className="h-16 w-16 text-primary relative" />
+                  </div>
+                  <h2 className="text-2xl font-semibold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+                    Start a new conversation
+                  </h2>
+                  <p className="text-muted-foreground max-w-sm">
+                    Choose a model and send your first message to begin
+                  </p>
+                </motion.div>
+              )}
               
-              <DocumentList 
-                conversationId={currentConversationId}
-                documents={documents}
-                onDeleteDocument={handleDocumentDelete}
-                onRefresh={() => {
-                  const abortController = new AbortController()
-                  fetchDocuments(currentConversationId, abortController.signal)
-                }}
-              />
-            </div>
-          </div>
-        )}
-      </div>
+              {/* Messages list - following AI SDK documentation pattern */}
+              <div className="space-y-4">
+                {messages.map((message, index) => (
+                  <Message 
+                    key={message.id}
+                    message={message} 
+                    messageId={message.id}
+                    isStreaming={index === messages.length - 1 && status === 'streaming'}
+                  />
+                ))}
+                
+                {/* Standard loading indicator based on status */}
+                {(status === 'submitted' || status === 'streaming') && (
+                  <div className="flex items-center gap-2 px-4 py-2 text-muted-foreground">
+                    <IconLoader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-sm">
+                      {selectedModel?.name || 'AI'} is {status === 'submitted' ? 'thinking...' : 'responding...'}
+                    </span>
+                  </div>
+                )}
+                
+                {/* Error display */}
+                {error && (
+                  <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive">
+                    <p className="text-sm font-medium">Error occurred</p>
+                    <p className="text-xs mt-1">{error.message}</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => regenerate()}
+                      className="mt-2"
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </AnimatePresence>
+          </ScrollArea>
 
-      <div className="p-4 border-t border-border bg-white">
-        <div className="flex items-end gap-2">
-          <ChatInput
-            input={input}
-            handleInputChange={handleInputChange}
-            handleSubmit={handleSubmit}
-            isLoading={isLoading}
-            disabled={!selectedModel}
-            onAttachClick={handleAttachClick}
-            showAttachButton={true}
-            ariaLabel="Type your message"
-            inputId="chat-input-field"
-            sendButtonAriaLabel="Send message"
-            attachButtonAriaLabel="Attach document"
-          />
-          {isLoading && (
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={stop}
-              aria-label="Stop generation"
-              aria-disabled={!isLoading}
-            >
-              <IconPlayerStop className="h-4 w-4" aria-hidden="true" />
-              <span className="sr-only">Stop message generation</span>
-            </Button>
-          )}
+          {/* Input Area - Fixed at bottom */}
+          <div className="flex-shrink-0 p-4 bg-background/80 backdrop-blur-md border-t border-border/50">
+            <form onSubmit={handleSubmit} className="flex items-end gap-2">
+              <ChatInput
+                input={input}
+                handleInputChange={(e) => setInput(e.target.value)}
+                handleSubmit={handleSubmit}
+                isLoading={status === 'submitted' || status === 'streaming'}
+                disabled={!selectedModel || status === 'submitted' || status === 'streaming'}
+                onAttachClick={handleAttachClick}
+                showAttachButton={true}
+                ariaLabel="Type your message"
+                inputId="chat-input-field"
+                sendButtonAriaLabel="Send message"
+                attachButtonAriaLabel="Attach document"
+              />
+              {(status === 'submitted' || status === 'streaming') && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={stop}
+                  className={cn(
+                    "hover:bg-destructive/10 hover:text-destructive transition-all",
+                    "border-destructive/20"
+                  )}
+                  aria-label="Stop generation"
+                >
+                  <IconPlayerStop className="h-4 w-4" />
+                </Button>
+              )}
+            </form>
+          </div>
         </div>
+
+        {/* Documents Panel - Independent scroll */}
+        <AnimatePresence>
+          {showDocuments && (
+            <motion.div
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: "16rem", opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              className="border-l border-border/50 bg-background/50 backdrop-blur-sm flex flex-col min-h-0"
+            >
+              <div className="flex-1 overflow-y-auto p-4">
+                <div className="flex flex-col gap-4">
+                  <DocumentUpload 
+                    onUploadComplete={handleDocumentUpload}
+                    onFileSelected={handleDocumentSelected}
+                    externalInputRef={hiddenFileInputRef}
+                    pendingDocument={pendingDocument}
+                  />
+                  
+                  <DocumentList 
+                    conversationId={currentConversationId}
+                    documents={documents}
+                    onDeleteDocument={handleDocumentDelete}
+                    onRefresh={() => {
+                      const abortController = new AbortController()
+                      fetchDocuments(currentConversationId, abortController.signal)
+                    }}
+                  />
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   )

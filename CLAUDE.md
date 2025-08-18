@@ -51,6 +51,27 @@ mcp__awslabs_postgres-mcp-server__run_query
 - Had to restore from snapshot and fix all SQL files
 - See `/docs/database-restoration/` for full incident details
 
+## ⚠️ CRITICAL DATABASE MIGRATION RULES - NEVER VIOLATE THESE ⚠️
+
+**Claude is too stupid to write complex SQL correctly, so MUST follow these strict rules:**
+
+1. **NEVER use DO blocks** - Write simple ALTER statements instead
+2. **NEVER use complex syntax** - One operation per statement  
+3. **NEVER add unnecessary comments** - Keep SQL clean and minimal
+4. **NEVER run manual SQL commands against production database** - Only write migration files
+5. **NEVER blame the migration system** - The problem is always Claude's bad code
+6. **ALWAYS write simple, standard SQL** - No fancy PostgreSQL-specific syntax
+7. **ALWAYS write one operation per line** - ALTER TABLE x ADD COLUMN y;
+8. **ALWAYS assume Claude is wrong** - The system works, Claude's code doesn't
+
+**When writing migrations:**
+- One ALTER statement per line with single semicolon
+- Simple CREATE INDEX statements only
+- Basic CREATE VIEW statements without complex CASE logic
+- No foreign key constraints in migrations (add them manually if needed)
+- No procedural blocks (DO $$, BEGIN/END, etc.)
+- No complex WHERE clauses in CREATE INDEX
+
 ## Build, Lint, Test Commands
 
 ```bash

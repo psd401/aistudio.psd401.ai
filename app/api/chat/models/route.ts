@@ -2,6 +2,8 @@ import { withErrorHandling, unauthorized } from '@/lib/api-utils';
 import { getServerSession } from '@/lib/auth/server-session';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
+import { transformSnakeToCamel } from '@/lib/db/field-mapper';
+import type { SelectAiModel } from '@/types/db-types';
 
 export async function GET() {
   const requestId = generateRequestId();
@@ -24,18 +26,24 @@ export async function GET() {
       SELECT id, name, provider, model_id, description, capabilities,
              max_tokens, active, chat_enabled, allowed_roles, created_at, updated_at
       FROM ai_models
-      WHERE active = :active
+      WHERE active = :active AND chat_enabled = :chatEnabled
       ORDER BY provider ASC, name ASC
     `;
     const parameters = [
-      { name: 'active', value: { booleanValue: true } }
+      { name: 'active', value: { booleanValue: true } },
+      { name: 'chatEnabled', value: { booleanValue: true } }
     ];
     
     const models = await executeSQL(query, parameters);
     
-    log.info("Chat models retrieved successfully", { count: models.length });
-    timer({ status: "success", count: models.length });
+    // Transform snake_case to camelCase for frontend compatibility
+    const transformedModels = models.map(model => 
+      transformSnakeToCamel<SelectAiModel>(model)
+    );
     
-    return models;
+    log.info("Chat models retrieved successfully", { count: transformedModels.length });
+    timer({ status: "success", count: transformedModels.length });
+    
+    return transformedModels;
   });
 } 

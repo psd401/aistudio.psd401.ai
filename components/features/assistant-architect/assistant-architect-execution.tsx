@@ -26,7 +26,7 @@ import { SelectJob, SelectToolInputField } from "@/types/db-types"
 import { ExecutionResultDetails, JobOutput, JobPromptResult } from "@/types/assistant-architect-types"
 import { Loader2, Bot, User, Terminal, AlertCircle, ChevronDown, ChevronRight, Copy, ThumbsUp, ThumbsDown, Sparkles, X } from "lucide-react"
 import ReactMarkdown from "react-markdown"
-import ErrorBoundary from "@/components/utilities/error-boundary"
+import { ErrorBoundary } from "@/components/error-boundary"
 import type { AssistantArchitectWithRelations } from "@/types/assistant-architect-types"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AssistantArchitectChat } from "./assistant-architect-chat"
@@ -882,7 +882,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
             )}
           </div>
 
-          <ErrorBoundary fallbackMessage="Failed to render execution results.">
+          <ErrorBoundary>
             <div className="space-y-6">
               {isLoading && !results && (
                 <div className="flex items-center justify-center p-8">
