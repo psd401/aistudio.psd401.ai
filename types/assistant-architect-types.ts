@@ -119,13 +119,14 @@ export interface ChainPrompt {
  * Result of a single prompt execution within a job
  */
 export interface JobPromptResult {
-  promptId: string
+  promptId: string | number
   status: string
   input: any
-  output: string
+  output?: string
+  error?: string
   startTime: string
   endTime?: string
-  executionTimeMs: number
+  executionTimeMs?: number
   userFeedback?: 'like' | 'dislike'
 }
 

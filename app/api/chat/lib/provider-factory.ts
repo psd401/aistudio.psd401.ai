@@ -44,11 +44,22 @@ async function createOpenAIModel(modelId: string): Promise<LanguageModel> {
       throw ErrorFactories.sysConfigurationError('OpenAI API key not configured');
     }
     
+    // Ensure apiKey is a string (not null or undefined)
+    if (typeof apiKey !== 'string' || apiKey.trim() === '') {
+      log.error('Invalid OpenAI API key format', { keyType: typeof apiKey });
+      throw ErrorFactories.sysConfigurationError('OpenAI API key is invalid or empty');
+    }
+    
     log.debug(`Creating OpenAI model: ${modelId}`);
     const openai = createOpenAI({ apiKey });
     return openai(modelId);
   } catch (error) {
-    log.error('Failed to create OpenAI model', { modelId, error });
+    log.error('Failed to create OpenAI model', { 
+      modelId, 
+      error,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorStack: error instanceof Error ? error.stack : undefined
+    });
     throw error;
   }
 }

@@ -101,18 +101,29 @@ export async function POST(req: NextRequest) {
     const promptsRaw = await executeSQL(promptsQuery, [
       { name: 'toolId', value: { longValue: toolId } }
     ]);
-    const prompts = promptsRaw as Array<{
-      id: number;
-      name: string;
-      content: string;
-      position: number;
-      aiModelId: number;
-      systemContext: string | null;
-      repositoryIds: number[] | string | null;
-      modelId: string;
-      provider: string;
-      modelName: string;
-    }>;
+    
+    // Log the raw result structure for debugging
+    if (promptsRaw.length > 0) {
+      log.debug('Sample prompt raw data structure:', { 
+        sampleKeys: Object.keys(promptsRaw[0]),
+        firstPrompt: promptsRaw[0]
+      });
+    }
+    
+    // Map the raw database results to properly typed prompts
+    // Handle both snake_case from DB and camelCase conversions
+    const prompts = promptsRaw.map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      content: row.content,
+      position: row.position,
+      aiModelId: row.ai_model_id || row.aiModelId,
+      systemContext: row.system_context || row.systemContext,
+      repositoryIds: row.repository_ids || row.repositoryIds,
+      modelId: row.model_id || row.modelId,
+      provider: row.provider,
+      modelName: row.model_name || row.modelName
+    }));
 
 
     if (!prompts.length) {

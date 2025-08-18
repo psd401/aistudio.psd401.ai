@@ -44,7 +44,8 @@ const MIGRATION_FILES = [
   '020-add-user-role-version.sql',
   '023-navigation-multi-roles.sql',
   '024-model-role-restrictions.sql',
-  '026-add-model-compare-source.sql'
+  '026-add-model-compare-source.sql',
+  '027-messages-model-tracking.sql'
   // ADD NEW MIGRATIONS HERE - they will run once and be tracked
 ];
 
