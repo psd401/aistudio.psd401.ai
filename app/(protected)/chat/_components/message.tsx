@@ -18,7 +18,6 @@ import type { SelectMessage } from "@/types/schema-types"
 // Define proper types for message parts
 type TextPart = { type: 'text'; text: string };
 type MessagePart = TextPart | { type: string; [key: string]: unknown };
-import ReactMarkdown from "react-markdown"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { Button } from "@/components/ui/button"
@@ -213,9 +212,13 @@ export function Message({ message, messageId, isStreaming = false }: MessageProp
                   animate={{ opacity: 1, y: 0 }}
                   className="mt-2 text-sm text-muted-foreground italic bg-muted/30 rounded-lg p-3"
                 >
-                  <ReactMarkdown>
-                    {reasoningContent}
-                  </ReactMarkdown>
+                  <CodeBlockErrorBoundary>
+                    <MemoizedMarkdown
+                      content={reasoningContent}
+                      id={`${uniqueId}-reasoning`}
+                      streamingBuffer={isStreaming ? { enabled: true } : undefined}
+                    />
+                  </CodeBlockErrorBoundary>
                 </motion.div>
               )}
             </motion.div>
