@@ -119,6 +119,7 @@ export function DualResponse({
                 modelIdentifier: null
               } as SelectMessage}
               messageId={`${modelKey}-response`}
+              isStreaming={response.status === 'streaming'}
             />
           )}
         </ScrollArea>

@@ -28,6 +28,7 @@ import { motion } from "framer-motion"
 interface MessageProps {
   message: MessageType | SelectMessage
   messageId?: string
+  isStreaming?: boolean
 }
 
 // Type guard to check if message has model information
@@ -60,7 +61,7 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
   )
 }
 
-export function Message({ message, messageId }: MessageProps) {
+export function Message({ message, messageId, isStreaming = false }: MessageProps) {
   const { toast } = useToast()
   const [showReasoning, setShowReasoning] = useState(false)
   const isAssistant = message.role === "assistant"
