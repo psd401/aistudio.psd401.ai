@@ -25,11 +25,9 @@ export async function getSetting(key: string): Promise<string | null> {
     // Try to get from database
     const dbValue = await getSettingValueAction(key)
     
-    // Cache the result
-    settingsCache.set(key, { value: dbValue, timestamp: Date.now() })
-    
     if (dbValue !== null) {
-      // Database value found
+      // Database value found - cache it and return
+      settingsCache.set(key, { value: dbValue, timestamp: Date.now() })
       return dbValue
     }
   } catch (error) {
@@ -43,10 +41,16 @@ export async function getSetting(key: string): Promise<string | null> {
   if (isAwsLambda && isBedrockCredential) {
     // In Lambda, ignore Bedrock credential env vars to use IAM role
     logger.info(`[SettingsManager] Ignoring env var ${key} in Lambda environment`)
+    // Cache the null for Lambda to avoid repeated DB queries
+    settingsCache.set(key, { value: null, timestamp: Date.now() })
     return null
   }
   
   const envValue = process.env[key] || null
+  
+  // Only cache the final result to avoid blocking env var fallback
+  settingsCache.set(key, { value: envValue, timestamp: Date.now() })
+  
   if (envValue) {
     // Falling back to env var
   } else {
