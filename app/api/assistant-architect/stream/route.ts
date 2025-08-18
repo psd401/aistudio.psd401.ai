@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
     
     // Map the raw database results to properly typed prompts
     // Handle both snake_case from DB and camelCase conversions
-    const prompts = promptsRaw.map((row: any) => ({
+    const prompts = promptsRaw.map((row: Record<string, unknown>) => ({
       id: row.id,
       name: row.name,
       content: row.content,
@@ -424,17 +424,43 @@ export async function POST(req: NextRequest) {
                 
                 // Actually consume the stream
                 for await (const chunk of streamResult.textStream) {
-                  fullResponse += chunk;
+                  // Convert chunk to string safely - handle all edge cases
+                  let chunkStr = '';
                   
+                  try {
+                    if (chunk !== null && chunk !== undefined) {
+                      // The AI SDK should always return strings, but let's be defensive
+                      chunkStr = typeof chunk === 'string' ? chunk : String(chunk);
+                    } else {
+                      // Log if we get null/undefined chunks (shouldn't happen with AI SDK)
+                      log.warn('Received null/undefined chunk from stream', { 
+                        chunkValue: chunk,
+                        chunkType: typeof chunk 
+                      });
+                    }
+                  } catch (conversionError) {
+                    // If for any reason we can't convert to string, log and skip
+                    log.error('Failed to convert chunk to string', {
+                      error: conversionError,
+                      chunkType: typeof chunk,
+                      provider: prompt.provider,
+                      modelId: prompt.modelId
+                    });
+                    continue;
+                  }
                   
-                  // Send token to client
-                  controller.enqueue(encoder.encode(
-                    `data: ${JSON.stringify({
-                      type: 'token',
-                      promptIndex: i,
-                      token: chunk
-                    })}\n\n`
-                  ));
+                  fullResponse += chunkStr;
+                  
+                  // Only send non-empty chunks to client
+                  if (chunkStr) {
+                    controller.enqueue(encoder.encode(
+                      `data: ${JSON.stringify({
+                        type: 'token',
+                        promptIndex: i,
+                        token: chunkStr
+                      })}\n\n`
+                    ));
+                  }
                 }
                 
 
