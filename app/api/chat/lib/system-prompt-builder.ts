@@ -69,9 +69,18 @@ export async function buildSystemPrompt(options: SystemPromptOptions): Promise<s
       }
     }
     
-    // Add knowledge context for assistant execution follow-ups
-    if (options.source === 'assistant_execution' && options.existingContext?.repositoryIds) {
-      log.debug('Adding knowledge context for assistant execution');
+    // Add knowledge context for assistant executions (both initial and follow-ups)
+    // This ensures the AI has access to repository knowledge during the initial execution
+    if (options.source === 'assistant_execution' && options.existingContext?.repositoryIds && options.existingContext.repositoryIds.length > 0) {
+      log.info('Checking knowledge context for assistant execution', {
+        source: options.source,
+        repositoryCount: options.existingContext.repositoryIds.length,
+        repositoryIds: options.existingContext.repositoryIds,
+        isInitialExecution: !!options.executionId && !options.conversationId,
+        userMessage: options.userMessage.substring(0, 100),
+        hasAssistantOwnerSub: !!options.existingContext.assistantOwnerSub
+      });
+      
       const knowledgeContext = await getKnowledgeContext({
         userMessage: options.userMessage,
         repositoryIds: options.existingContext.repositoryIds,
@@ -81,10 +90,29 @@ export async function buildSystemPrompt(options: SystemPromptOptions): Promise<s
       
       if (knowledgeContext) {
         systemPrompt += knowledgeContext;
-        log.debug('Knowledge context added', { 
-          contextLength: knowledgeContext.length 
+        log.info('Knowledge context added to system prompt', { 
+          contextLength: knowledgeContext.length,
+          isInitialExecution: !!options.executionId && !options.conversationId,
+          totalPromptLength: systemPrompt.length
+        });
+      } else {
+        log.warn('No knowledge context was returned', {
+          repositoryIds: options.existingContext.repositoryIds,
+          userMessage: options.userMessage.substring(0, 100)
         });
       }
+    } else {
+      log.info('Knowledge context not added', {
+        source: options.source,
+        hasRepositoryIds: !!options.existingContext?.repositoryIds,
+        repositoryCount: options.existingContext?.repositoryIds?.length || 0,
+        conditions: {
+          isAssistantExecution: options.source === 'assistant_execution',
+          hasContext: !!options.existingContext,
+          hasRepoIds: !!options.existingContext?.repositoryIds,
+          hasRepoIdsLength: (options.existingContext?.repositoryIds?.length || 0) > 0
+        }
+      });
     }
     
     log.debug('System prompt built successfully', { 
