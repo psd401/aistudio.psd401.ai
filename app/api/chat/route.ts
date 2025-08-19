@@ -10,7 +10,7 @@ import {
   getModelConfig,
   getConversationContext 
 } from './lib/conversation-handler';
-import { loadExecutionContextData } from './lib/execution-context';
+import { loadExecutionContextData, buildInitialPromptForStreaming } from './lib/execution-context';
 import { getAssistantOwnerSub } from './lib/knowledge-context';
 
 // Allow streaming responses up to 30 seconds
@@ -116,7 +116,9 @@ export async function POST(req: Request) {
           
           log.info('Execution context loaded', {
             repositoryCount: repositoryIds.length,
-            hasAssistantOwner: !!assistantOwnerSub
+            repositoryIds,
+            hasAssistantOwner: !!assistantOwnerSub,
+            assistantOwnerSub
           });
         }
       }
@@ -166,14 +168,60 @@ export async function POST(req: Request) {
       }
     }
     
-    // 8. Build context-aware system prompt
+    // 8. Process messages for initial assistant executions
+    // For initial executions, replace the raw JSON with the actual prompt
+    let processedMessages = messages;
+    let originalUserQuestion: string | undefined;
+    if (source === 'assistant_execution' && executionId && !existingConversationId) {
+      const validExecutionId = validateExecutionId(executionId);
+      if (validExecutionId) {
+        const promptData = await buildInitialPromptForStreaming(validExecutionId);
+        if (promptData) {
+          // Replace the last message (which contains raw JSON) with the processed prompt
+          processedMessages = messages.slice(0, -1).concat([{
+            ...messages[messages.length - 1],
+            parts: [{ type: 'text', text: promptData.processedPrompt }]
+          }] as UIMessage[]);
+          
+          // Extract the original user question from the inputs
+          // Look for common field names that might contain the user's question
+          const possibleFields = ['question', 'query', 'prompt', 'input', 'message', 'text'];
+          for (const field of possibleFields) {
+            if (promptData.originalInputs[field]) {
+              originalUserQuestion = String(promptData.originalInputs[field]);
+              break;
+            }
+          }
+          // If no specific field found, use the first string value
+          if (!originalUserQuestion) {
+            const firstStringValue = Object.values(promptData.originalInputs).find(v => typeof v === 'string');
+            if (firstStringValue) {
+              originalUserQuestion = String(firstStringValue);
+            }
+          }
+          
+          log.info('Replaced raw JSON with processed prompt for initial execution', {
+            executionId: validExecutionId,
+            promptLength: promptData.processedPrompt.length,
+            originalQuestion: originalUserQuestion
+          });
+        }
+      }
+    }
+    
+    // 9. Build context-aware system prompt
     const systemPrompt = await buildSystemPrompt({
       source,
       executionId: validateExecutionId(executionId),
       conversationId,
       documentId,
       userMessage: (() => {
-        const lastMsg = messages[messages.length - 1] as { parts?: Array<{ type?: string; text?: string }>; content?: string };
+        // For initial assistant executions, use the original user question for knowledge retrieval
+        if (originalUserQuestion && source === 'assistant_execution' && !existingConversationId) {
+          return originalUserQuestion;
+        }
+        // Otherwise, use the message content as usual
+        const lastMsg = processedMessages[processedMessages.length - 1] as { parts?: Array<{ type?: string; text?: string }>; content?: string };
         // Try to get content from parts first (AI SDK v2)
         if (lastMsg.parts && lastMsg.parts.length > 0) {
           const textPart = lastMsg.parts.find(p => p.type === 'text');
@@ -208,7 +256,7 @@ export async function POST(req: Request) {
     const result = streamText({
       model,
       system: systemPrompt,
-      messages: convertToModelMessages(messages),
+      messages: convertToModelMessages(processedMessages),
       onFinish: async ({ text, usage, finishReason }) => {
         log.info('Stream finished', {
           hasText: !!text,

@@ -26,19 +26,29 @@ export async function getKnowledgeContext(
     assistantOwnerSub 
   } = options;
   
-  log.debug('Getting knowledge context', {
+  log.info('Getting knowledge context', {
     repositoryCount: repositoryIds.length,
+    repositoryIds,
     hasAssistantOwner: !!assistantOwnerSub,
-    messageLength: userMessage.length
+    messageLength: userMessage.length,
+    userMessage: userMessage.substring(0, 100), // Log first 100 chars
+    userSub: userSub.substring(0, 8) // Log partial sub for privacy
   });
   
   if (!repositoryIds || repositoryIds.length === 0) {
-    log.debug('No repository IDs provided');
+    log.warn('No repository IDs provided for knowledge retrieval');
     return '';
   }
   
   try {
     // Retrieve relevant knowledge chunks
+    log.info('Calling retrieveKnowledgeForPrompt', {
+      userMessage: userMessage.substring(0, 100),
+      repositoryIds,
+      searchType: 'hybrid',
+      similarityThreshold: 0.4 // Lowered from 0.6
+    });
+    
     const knowledgeChunks = await retrieveKnowledgeForPrompt(
       userMessage,
       repositoryIds,
@@ -49,12 +59,16 @@ export async function getKnowledgeContext(
         maxTokens: 4000,
         searchType: 'hybrid',
         vectorWeight: 0.8,
-        similarityThreshold: 0.6 // Lower threshold for follow-up questions
+        similarityThreshold: 0.4 // Lowered from 0.6 for better recall
       }
     );
     
     if (knowledgeChunks.length === 0) {
-      log.debug('No relevant knowledge chunks found');
+      log.warn('No relevant knowledge chunks found', {
+        userMessage: userMessage.substring(0, 100),
+        repositoryIds,
+        threshold: 0.4
+      });
       return '';
     }
     
@@ -63,7 +77,12 @@ export async function getKnowledgeContext(
     
     log.info('Knowledge context retrieved successfully', {
       chunkCount: knowledgeChunks.length,
-      contextLength: context.length
+      contextLength: context.length,
+      topChunkSimilarity: knowledgeChunks[0]?.similarity,
+      chunkPreviews: knowledgeChunks.slice(0, 3).map(c => ({
+        similarity: c.similarity,
+        contentPreview: c.content.substring(0, 50)
+      }))
     });
     
     return context;

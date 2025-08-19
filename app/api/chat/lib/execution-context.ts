@@ -310,3 +310,73 @@ IMPORTANT: You have access to ALL the information above, including:
 
 Use ALL of this information to answer questions accurately. When asked about specific knowledge (like "10 elements" or any other content), refer to the Assistant Knowledge Base section above.`;
 }
+
+/**
+ * Decode HTML entities and remove escapes for variable placeholders
+ */
+function decodePromptVariables(content: string): string {
+  // Replace HTML entity for $ with $
+  let decoded = content.replace(/&#x24;|&\#36;/g, '$');
+  // Remove backslash escapes before $
+  decoded = decoded.replace(/\\\$/g, '$');
+  // Remove backslash escapes before {
+  decoded = decoded.replace(/\\\{/g, '{');
+  // Remove backslash escapes before }
+  decoded = decoded.replace(/\\\}/g, '}');
+  // Remove backslash escapes before _
+  decoded = decoded.replace(/\\_/g, '_');
+  // Handle &dollar; entity
+  decoded = decoded.replace(/&dollar;/g, '$');
+  return decoded;
+}
+
+/**
+ * Build the initial prompt message for streaming executions
+ * This processes the first chain prompt and replaces variables with user inputs
+ * Returns both the processed prompt and the original user inputs
+ */
+export async function buildInitialPromptForStreaming(
+  executionId: number
+): Promise<{ processedPrompt: string; originalInputs: Record<string, unknown> } | null> {
+  try {
+    // Load execution data
+    const [executionData, chainPrompts] = await Promise.all([
+      loadExecutionDetails(executionId),
+      loadChainPrompts(executionId)
+    ]);
+    
+    if (executionData.length === 0 || chainPrompts.length === 0) {
+      log.warn('No execution or prompts found for streaming', { executionId });
+      return null;
+    }
+    
+    const execution = executionData[0];
+    const firstPrompt = chainPrompts[0]; // Get the first prompt in the chain
+    
+    // Parse input data
+    const inputData = typeof execution.input_data === 'string' 
+      ? JSON.parse(execution.input_data) 
+      : execution.input_data;
+    
+    // Process the prompt content and replace variables
+    let promptContent = decodePromptVariables(String(firstPrompt.content || ''));
+    
+    // Replace variables with actual values from user inputs
+    promptContent = promptContent.replace(/\${([\w-]+)}/g, (_match: string, key: string) => {
+      const value = inputData[key];
+      return value !== undefined ? String(value) : `[Missing value for ${key}]`;
+    });
+    
+    return {
+      processedPrompt: promptContent.trim() || "Please provide input for this prompt.",
+      originalInputs: inputData
+    };
+    
+  } catch (error) {
+    log.error('Error building initial prompt for streaming', { 
+      executionId, 
+      error 
+    });
+    return null;
+  }
+}
