@@ -1,8 +1,5 @@
 "use client"
 
-// Constants
-const STREAM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes timeout for streaming
-
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
@@ -34,6 +31,7 @@ import { ChatErrorBoundary } from "./chat-error-boundary"
 import Image from "next/image"
 import PdfUploadButton from "@/components/ui/pdf-upload-button"
 import { updatePromptResultAction } from "@/actions/db/assistant-architect-actions"
+import { useCompletion } from '@ai-sdk/react'
 
 interface AssistantArchitectExecutionProps {
   tool: AssistantArchitectWithRelations
@@ -79,6 +77,9 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   const [expandedPrompts, setExpandedPrompts] = useState<Record<string, boolean>>({})
   const [expandedInputs, setExpandedInputs] = useState<Record<string, boolean>>({})
   const [conversationId, setConversationId] = useState<number | null>(null)
+  const [currentPromptIndex, setCurrentPromptIndex] = useState<number>(-1)
+  const [executionId, setExecutionId] = useState<number | null>(null)
+  const [formValues, setFormValues] = useState<Record<string, unknown>>({})
 
   // Define base types for fields first
   const stringSchema = z.string();
@@ -117,172 +118,112 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     }, {})
   })
 
-  const [abortController, setAbortController] = useState<AbortController | null>(null)
-  const [streamingPromptIndex, setStreamingPromptIndex] = useState<number>(-1)
-  const [promptTexts, setPromptTexts] = useState<Record<string, string>>({})
 
-
-  const handleStreamEvent = useCallback((event: { type: string; totalPrompts?: number; promptIndex?: number; promptId?: number; modelName?: string; token?: string; result?: string; error?: string; executionId?: number; message?: string }, inputs: Record<string, unknown>) => {
-    switch (event.type) {
-      case 'metadata':
-        // Initialize results structure
-        const tempId = jobId || 'streaming'
-        const initialResults: ExtendedExecutionResultDetails = {
-          id: tempId,
-          toolId: tool?.id || 0,
-          userId: 'current',
-          status: 'running',
-          inputData: inputs,
-          startedAt: new Date(),
-          completedAt: null,
-          errorMessage: null,
-          assistantArchitectId: tool?.id,
-          promptResults: Array.from({ length: event.totalPrompts || 0 }, (_, i) => ({
-            id: `prompt_${i}_temp`,
-            executionId: tempId,
-            promptId: `prompt_${i}`, // Use string ID temporarily, will be updated by prompt_start
-            inputData: {} as Record<string, unknown>,
-            outputData: '',
-            status: 'pending' as const,
-            startedAt: new Date(),
-            completedAt: null,
-            executionTimeMs: null,
-            errorMessage: null
-          }))
+  // Use AI SDK's useCompletion hook for each prompt
+  const { 
+    completion,
+    complete,
+    stop,
+    isLoading: isStreaming,
+    setCompletion
+  } = useCompletion({
+    api: '/api/assistant-architect/stream',
+    onFinish: () => {
+      // Update the current prompt result with the completion
+      if (currentPromptIndex >= 0 && results) {
+        setResults(prev => {
+          if (!prev) return null
+          const updated = { ...prev }
+          if (updated.promptResults[currentPromptIndex]) {
+            updated.promptResults[currentPromptIndex] = {
+              ...updated.promptResults[currentPromptIndex],
+              status: 'completed' as const,
+              outputData: completion,
+              completedAt: new Date(),
+              executionTimeMs: Date.now() - updated.promptResults[currentPromptIndex].startedAt.getTime()
+            }
+          }
+          return updated
+        })
+        
+        // Process next prompt if there are more
+        const nextIndex = currentPromptIndex + 1
+        if (nextIndex < tool.prompts.length) {
+          setCurrentPromptIndex(nextIndex)
+          processNextPrompt(nextIndex)
+        } else {
+          // All prompts completed
+          setIsLoading(false)
+          setCurrentPromptIndex(-1)
+          toast({
+            title: "Execution Completed",
+            description: "All prompts have been executed successfully"
+          })
         }
-        setResults(initialResults)
-        break
-
-      case 'prompt_start':
-        setStreamingPromptIndex(event.promptIndex || 0)
-        // Initialize with a waiting message
-        setPromptTexts(prev => ({
-          ...prev,
-          [event.promptIndex || 0]: 'Waiting for AI response...'
-        }))
+      }
+    },
+    onError: (error) => {
+      // Update the current prompt result with error
+      if (currentPromptIndex >= 0 && results) {
         setResults(prev => {
           if (!prev) return null
           const updated = { ...prev }
-          const index = event.promptIndex || 0
-          updated.promptResults[index] = {
-            ...updated.promptResults[index],
-            promptId: event.promptId ? String(event.promptId) : updated.promptResults[index].promptId,
-            status: 'running' as const,
-            startedAt: new Date()
+          if (updated.promptResults[currentPromptIndex]) {
+            updated.promptResults[currentPromptIndex] = {
+              ...updated.promptResults[currentPromptIndex],
+              status: 'failed' as const,
+              errorMessage: error.message,
+              completedAt: new Date()
+            }
           }
           return updated
         })
-        // Auto-expand the currently streaming prompt
-        const promptId = `prompt_${event.promptIndex || 0}_temp`
-        setExpandedPrompts(prev => ({ ...prev, [promptId]: true }))
-        break
-
-      case 'token':
-        setPromptTexts(prev => {
-          const index = event.promptIndex || 0
-          // If this is the first token, clear the waiting message
-          const currentText = prev[index] || ''
-          const isWaitingMessage = currentText === 'Waiting for AI response...'
-          
-          const updated = {
-            ...prev,
-            [index]: isWaitingMessage ? (event.token || '') : currentText + (event.token || '')
-          }
-          return updated
-        })
-        break
-
-      case 'prompt_complete':
-        // Clear the streaming text for this prompt
-        setPromptTexts(prev => {
-          const index = event.promptIndex || 0
-          const updated = { ...prev }
-          delete updated[index]
-          return updated
-        })
-        // Update results with the final output
-        setResults(prev => {
-          if (!prev) return null
-          const updated = { ...prev }
-          const index = event.promptIndex || 0
-          updated.promptResults[index] = {
-            ...updated.promptResults[index],
-            status: 'completed' as const,
-            completedAt: new Date(),
-            outputData: event.result || '',
-            executionTimeMs: Date.now() - updated.promptResults[index].startedAt.getTime()
-          }
-          return updated
-        })
-        break
-
-      case 'prompt_error':
-        setResults(prev => {
-          if (!prev) return null
-          const updated = { ...prev }
-          const index = event.promptIndex || 0
-          updated.promptResults[index] = {
-            ...updated.promptResults[index],
-            status: 'failed' as const,
-            completedAt: new Date(),
-            errorMessage: event.error || null
-          }
-          return updated
-        })
-        break
-
-      case 'complete':
-        setIsLoading(false)
-        setStreamingPromptIndex(-1)
-        setPromptTexts({}) // Clear all streaming texts
-        setResults(prev => {
-          if (!prev) return null
-          return {
-            ...prev,
-            id: event.executionId || prev.id, // Use the actual execution ID from the event
-            status: 'completed',
-            completedAt: new Date()
-          }
-        })
-        toast({
-          title: "Execution Completed",
-          description: "All prompts have been executed successfully"
-        })
-        break
-
-      case 'status':
-        // Update the prompt text with status message
-        if (event.promptIndex !== undefined) {
-          const index = event.promptIndex
-          setPromptTexts(prev => ({
-            ...prev,
-            [index]: event.message || 'Processing...'
-          }))
-        }
-        break
-
-      case 'error':
-        setIsLoading(false)
-        setStreamingPromptIndex(-1)
-        setPromptTexts({}) // Clear all streaming texts
-        setError(event.error || 'Unknown error')
-        setResults(prev => {
-          if (!prev) return null
-          return {
-            ...prev,
-            status: 'failed',
-            completedAt: new Date(),
-            errorMessage: event.error || null
-          }
-        })
-        toast({
-          title: "Execution Error",
-          description: event.error,
-          variant: "destructive"
-        })
-        break
+      }
+      
+      setIsLoading(false)
+      setError(error.message)
+      toast({
+        title: "Execution Error",
+        description: error.message,
+        variant: "destructive"
+      })
     }
-  }, [jobId, tool?.id, toast])
+  })
+
+  const processNextPrompt = useCallback(async (promptIndex: number) => {
+    if (!executionId || !formValues) return
+    
+    // Clear previous completion
+    setCompletion('')
+    
+    // Update prompt status to running
+    setResults(prev => {
+      if (!prev) return null
+      const updated = { ...prev }
+      if (updated.promptResults[promptIndex]) {
+        updated.promptResults[promptIndex] = {
+          ...updated.promptResults[promptIndex],
+          status: 'running' as const,
+          startedAt: new Date()
+        }
+      }
+      return updated
+    })
+    
+    // Auto-expand the currently streaming prompt
+    const promptId = `prompt_${promptIndex}_temp`
+    setExpandedPrompts(prev => ({ ...prev, [promptId]: true }))
+    
+    // Stream this prompt using the AI SDK
+    await complete('', {
+      body: {
+        toolId: tool.id,
+        executionId,
+        inputs: formValues,
+        promptIndex
+      }
+    })
+  }, [executionId, formValues, tool.id, complete, setCompletion])
 
   const onSubmit = useCallback(async (values: z.infer<typeof formSchema>) => {
     // Only clear results if we're not already processing
@@ -319,91 +260,41 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         // Check if we have executionId for streaming support
         const supportsStreaming = !!result.data?.executionId
         
-        if (supportsStreaming) {
-          // Start streaming
-          const controller = new AbortController()
-          setAbortController(controller)
-          setPromptTexts({})
+        if (supportsStreaming && result.data?.executionId) {
+          // Store execution context
+          setExecutionId(result.data.executionId)
+          setFormValues(values)
           
-          try {
-            const response = await fetch('/api/assistant-architect/stream', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                toolId: tool.id,
-                executionId: result.data.executionId,
-                inputs: values
-              }),
-              signal: controller.signal
-            })
-
-            if (!response.ok) {
-              throw new Error(`Streaming failed: ${response.statusText}`)
-            }
-
-            const reader = response.body?.getReader()
-            const decoder = new TextDecoder()
-
-            if (!reader) {
-              throw new Error('No reader available')
-            }
-
-            // Don't store reader - it causes issues
-
-            // Set up timeout
-            const timeoutId = setTimeout(() => {
-              controller.abort()
-              toast({
-                title: "Stream Timeout",
-                description: "The streaming operation took too long and was cancelled.",
-                variant: "destructive"
-              })
-            }, STREAM_TIMEOUT_MS)
-
-            try {
-              // Process the stream
-              let buffer = ''
-              while (true) {
-                const { done, value } = await reader.read()
-                if (done) break
-
-                buffer += decoder.decode(value, { stream: true })
-                const lines = buffer.split('\n')
-                buffer = lines.pop() || ''
-
-                for (const line of lines) {
-                  if (line.startsWith('data: ')) {
-                    try {
-                      const data = JSON.parse(line.slice(6))
-                      handleStreamEvent(data, values)
-                    } catch {
-                      // Log parse errors for debugging but don't break the stream
-                      if (process.env.NODE_ENV === 'development') {
-                      }
-                    }
-                  }
-                }
-              }
-            } finally {
-              // Clear timeout on completion or error
-              clearTimeout(timeoutId)
-            }
-            
-            // Clean up reader after successful streaming
-            reader.releaseLock()
-          } catch (streamError) {
-            if (streamError instanceof Error && streamError.name === 'AbortError') {
-              // Stream aborted
-              return
-            }
-            // Fall back to polling for this execution
-            setIsPolling(true)
-          } finally {
-            // Clean up resources
-            setAbortController(null)
+          // Initialize results structure
+          const initialResults: ExtendedExecutionResultDetails = {
+            id: result.data.executionId,
+            toolId: tool.id,
+            userId: 'current',
+            status: 'running',
+            inputData: values,
+            startedAt: new Date(),
+            completedAt: null,
+            errorMessage: null,
+            assistantArchitectId: tool.id,
+            promptResults: tool.prompts.map((prompt, i) => ({
+              id: `prompt_${i}_temp`,
+              executionId: String(result.data.executionId),
+              promptId: prompt.id,
+              inputData: values,
+              outputData: '',
+              status: 'pending' as const,
+              startedAt: new Date(),
+              completedAt: null,
+              executionTimeMs: null,
+              errorMessage: null
+            }))
           }
+          setResults(initialResults)
+          
+          // Start streaming the first prompt
+          setCurrentPromptIndex(0)
+          processNextPrompt(0)
+          
         } else {
           // Use polling for older executions without executionId
           setIsPolling(true)
@@ -430,7 +321,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
       })
       setIsLoading(false)
     }
-  }, [isLoading, isPolling, setIsLoading, setResults, setError, tool.id, toast, results, setConversationId, handleStreamEvent])
+  }, [isLoading, isPolling, tool.id, results, toast, processNextPrompt, tool.prompts])
 
   // Update the form values type
   const safeJsonParse = useCallback((jsonString: string | null | undefined): Record<string, unknown> | null => {
@@ -857,16 +748,14 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                   <><Sparkles className="mr-2 h-4 w-4" /> Generate</>
                   )}
                 </Button>
-                {isLoading && abortController && (
+                {isLoading && isStreaming && (
                   <Button 
                     type="button" 
                     variant="outline" 
                     onClick={() => {
-                      abortController.abort()
-                      setAbortController(null)
+                      stop()
                       setIsLoading(false)
-                      setStreamingPromptIndex(-1)
-                      setPromptTexts({})
+                      setCurrentPromptIndex(-1)
                       toast({ 
                         title: "Execution Cancelled", 
                         description: "The execution has been stopped" 
@@ -916,7 +805,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                           <span className="font-semibold text-foreground">Prompt {index + 1} - {tool.prompts?.find(p => p.id === promptResult.promptId)?.name || 'Unnamed'}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          {streamingPromptIndex === index && (
+                          {currentPromptIndex === index && isStreaming && (
                             <div className="flex items-center gap-2">
                               <div className="flex space-x-1">
                                 <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
@@ -992,7 +881,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                             </div>
                           )}
 
-                          {(promptResult.outputData || promptTexts[index] || (streamingPromptIndex === index)) && (
+                          {(promptResult.outputData || (currentPromptIndex === index && completion)) && (
                             <div className="mt-3 border border-border/50 rounded-md overflow-hidden">
                               <div className="px-3 py-2 bg-muted/40 flex items-center justify-between">
                                 <div className="flex items-center text-xs font-medium text-foreground">
@@ -1098,7 +987,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                       h3: (props) => <h4 {...props} />,
                                     }}
                                   >
-                                    {promptTexts[index] || promptResult.outputData || ""}
+                                    {currentPromptIndex === index && completion ? completion : promptResult.outputData || ""}
                                     </ReactMarkdown>
                                   </div>
                                 </div>
@@ -1109,7 +998,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                     className="h-7 w-7"
                                     title="Copy output"
                                     onClick={() => copyToClipboard(
-                                      promptTexts[index] || promptResult.outputData || ""
+                                      currentPromptIndex === index && completion ? completion : promptResult.outputData || ""
                                     )}
                                   >
                                     <Copy className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground transition-colors" />
