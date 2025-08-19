@@ -7,11 +7,13 @@ import { rateLimit } from "@/lib/rate-limit";
 import { NextRequest } from 'next/server';
 import { createProviderModel } from "@/app/api/chat/lib/provider-factory";
 import { transformSnakeToCamel } from '@/lib/db/field-mapper';
-import type { SelectChainPrompt } from "@/types/db-types";
 
 // Try static import again to see the actual error
 import { retrieveKnowledgeForPrompt, formatKnowledgeContext } from "@/lib/assistant-architect/knowledge-retrieval";
 import { parseRepositoryIds } from "@/lib/utils/repository-utils";
+
+// Allow streaming responses up to 30 seconds
+export const maxDuration = 30;
 
 // Interface for the joined prompt + ai_model data
 interface ChainPromptWithModel {
@@ -195,10 +197,21 @@ export async function POST(req: NextRequest) {
       return new Response('Execution is in an invalid state', { status: 400, headers: { 'X-Request-Id': requestId } });
     }
 
-    // Create a ReadableStream for the response
+    // Create a ReadableStream with heartbeat for SSE
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
+        // Set up heartbeat interval to prevent timeouts
+        const heartbeatInterval = setInterval(() => {
+          try {
+            // Send SSE comment as heartbeat (doesn't affect client parsing)
+            controller.enqueue(encoder.encode(': heartbeat\n\n'));
+          } catch (e) {
+            // Stream might be closed, clear interval
+            clearInterval(heartbeatInterval);
+          }
+        }, 10000); // Send heartbeat every 10 seconds
+        
         try {
           // Send initial metadata
           controller.enqueue(encoder.encode(
@@ -299,7 +312,7 @@ export async function POST(req: NextRequest) {
                     type: 'warning',
                     message: `Warning: Could not parse knowledge repository settings for prompt "${prompt.name}". Continuing without external knowledge.`,
                     promptIndex: i
-                  })}\n\n`
+                  })}\\n\\n`
                 ));
               }
               
@@ -310,7 +323,7 @@ export async function POST(req: NextRequest) {
                       type: 'status',
                       message: 'Retrieving knowledge from repositories...',
                       promptIndex: i
-                    })}\n\n`
+                    })}\\n\\n`
                   ));
 
                   // Get assistant owner's cognito_sub
@@ -388,7 +401,7 @@ export async function POST(req: NextRequest) {
                     type: 'warning',
                     message: `Warning: Combined context is large (≈${approximateTokens} tokens). Model limit is ${modelLimit} tokens.`,
                     promptIndex: i
-                  })}\n\n`
+                  })}\\n\\n`
                 ));
               }
 
@@ -426,7 +439,7 @@ export async function POST(req: NextRequest) {
                     type: 'status',
                     message: 'Initializing AI model...',
                     promptIndex: i
-                  })}\n\n`
+                  })}\\n\\n`
                 ));
                 
                 // Create model using the same factory as chat route
@@ -448,7 +461,7 @@ export async function POST(req: NextRequest) {
                     type: 'status',
                     message: 'AI is responding...',
                     promptIndex: i
-                  })}\n\n`
+                  })}\\n\\n`
                 ));
                 
                 // Consume the stream exactly like the AI SDK expects
@@ -551,7 +564,8 @@ export async function POST(req: NextRequest) {
             })}\n\n`
           ));
 
-          // Close the stream
+          // Clear heartbeat and close stream
+          clearInterval(heartbeatInterval);
           controller.close();
 
         } catch (error) {
@@ -580,6 +594,8 @@ export async function POST(req: NextRequest) {
             })}\n\n`
           ));
           
+          // Clear heartbeat and close stream
+          clearInterval(heartbeatInterval);
           controller.close();
         }
       }
