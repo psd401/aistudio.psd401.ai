@@ -37,11 +37,15 @@ import { executeSQL, checkUserRoleByCognitoSub, hasToolAccess, type FormattedRow
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action";
 import { RDSDataClient, BeginTransactionCommand, ExecuteStatementCommand, CommitTransactionCommand, RollbackTransactionCommand, SqlParameter } from "@aws-sdk/client-rds-data";
 
+// Type for raw database result rows
+type RawDbRow = Record<string, string | number | boolean | null | Uint8Array | { arrayValue?: { stringValues?: string[] } }>;
+
 // Use inline type for architect with relations
 type ArchitectWithRelations = SelectAssistantArchitect & {
   inputFields?: SelectToolInputField[];
   prompts?: SelectChainPrompt[];
 }
+
 
 // Helper function to get current user ID
 async function getCurrentUserId(): Promise<number | null> {
@@ -106,7 +110,7 @@ export async function createAssistantArchitectAction(
       userId: currentUser.data.user.id
     })
     
-    const [architectRaw] = await executeSQL<any>(`
+    const [architectRaw] = await executeSQL<RawDbRow>(`
       INSERT INTO assistant_architects (name, description, status, image_path, user_id, created_at, updated_at)
       VALUES (:name, :description, :status::tool_status, :imagePath, :userId, NOW(), NOW())
       RETURNING id, name, description, status, image_path, user_id, created_at, updated_at
@@ -155,7 +159,7 @@ export async function getAssistantArchitectsAction(): Promise<
   try {
     log.info("Action started: Getting assistant architects")
     
-    const architectsRaw = await executeSQL<any>(`
+    const architectsRaw = await executeSQL<RawDbRow>(`
       SELECT a.id, a.name, a.description, a.status, a.image_path, a.user_id, a.created_at, a.updated_at,
              u.first_name AS creator_first_name, u.last_name AS creator_last_name, u.email AS creator_email,
              u.cognito_sub
@@ -164,24 +168,24 @@ export async function getAssistantArchitectsAction(): Promise<
     `);
 
     const architectsWithRelations = await Promise.all(
-      architectsRaw.map(async (architect: any) => {
+      architectsRaw.map(async (architect: RawDbRow) => {
         const [inputFieldsRaw, promptsRaw] = await Promise.all([
-          executeSQL<any>(`
+          executeSQL<RawDbRow>(`
             SELECT id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at
             FROM tool_input_fields
             WHERE assistant_architect_id = :toolId
             ORDER BY position ASC
-          `, [{ name: 'toolId', value: { longValue: architect.id } }]),
-          executeSQL<any>(`
+          `, [{ name: 'toolId', value: { longValue: Number(architect.id) } }]),
+          executeSQL<RawDbRow>(`
             SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, created_at, updated_at
             FROM chain_prompts
             WHERE assistant_architect_id = :toolId
             ORDER BY position ASC
-          `, [{ name: 'toolId', value: { longValue: architect.id } }])
+          `, [{ name: 'toolId', value: { longValue: Number(architect.id) } }])
         ]);
 
-        const inputFields = inputFieldsRaw.map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
-        const prompts = promptsRaw.map((prompt: any) => {
+        const inputFields = inputFieldsRaw.map((field) => transformSnakeToCamel<SelectToolInputField>(field));
+        const prompts = promptsRaw.map((prompt) => {
           const transformed = transformSnakeToCamel<SelectChainPrompt>(prompt);
           // Parse repository_ids using utility function
           transformed.repositoryIds = parseRepositoryIds(transformed.repositoryIds);
@@ -195,12 +199,12 @@ export async function getAssistantArchitectsAction(): Promise<
           prompts,
           creator: architect.creator_first_name && architect.creator_last_name && architect.creator_email
             ? {
-                firstName: architect.creator_first_name,
-                lastName: architect.creator_last_name,
-                email: architect.creator_email
+                firstName: String(architect.creator_first_name),
+                lastName: String(architect.creator_last_name),
+                email: String(architect.creator_email)
               }
             : null,
-          cognito_sub: architect.cognito_sub
+          cognito_sub: String(architect.cognito_sub)
         };
       })
     );
@@ -244,7 +248,7 @@ export async function getAssistantArchitectByIdAction(
       });
     }
 
-    const architectResult = await executeSQL<any>(`
+    const architectResult = await executeSQL<RawDbRow>(`
       SELECT id, name, description, status, image_path, user_id, created_at, updated_at
       FROM assistant_architects
       WHERE id = :id
@@ -262,13 +266,13 @@ export async function getAssistantArchitectByIdAction(
     
     // Get input fields and prompts using data API
     const [inputFieldsRaw, promptsRaw] = await Promise.all([
-      executeSQL<any>(`
+      executeSQL<RawDbRow>(`
         SELECT id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at
         FROM tool_input_fields
         WHERE assistant_architect_id = :toolId
         ORDER BY position ASC
       `, [{ name: 'toolId', value: { longValue: idInt } }]),
-      executeSQL<any>(`
+      executeSQL<RawDbRow>(`
         SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, created_at, updated_at
         FROM chain_prompts
         WHERE assistant_architect_id = :toolId
@@ -277,8 +281,8 @@ export async function getAssistantArchitectByIdAction(
     ]);
 
     // Transform snake_case to camelCase for frontend compatibility
-    const transformedInputFields = (inputFieldsRaw || []).map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
-    const transformedPrompts = (promptsRaw || []).map((prompt: any) => {
+    const transformedInputFields = (inputFieldsRaw || []).map((field) => transformSnakeToCamel<SelectToolInputField>(field));
+    const transformedPrompts = (promptsRaw || []).map((prompt) => {
       const transformed = transformSnakeToCamel<SelectChainPrompt>(prompt);
       // Parse repository_ids using utility function
       transformed.repositoryIds = parseRepositoryIds(transformed.repositoryIds);
@@ -324,7 +328,7 @@ export async function getPendingAssistantArchitectsAction(): Promise<
     }
 
     // Get pending tools using data API
-    const pendingTools = await executeSQL<any>(`
+    const pendingTools = await executeSQL<RawDbRow>(`
       SELECT id, name, description, status, image_path, user_id, created_at, updated_at
       FROM assistant_architects
       WHERE status = 'pending_approval'
@@ -333,25 +337,25 @@ export async function getPendingAssistantArchitectsAction(): Promise<
 
     // For each tool, get its input fields and prompts
     const toolsWithRelations = await Promise.all(
-      pendingTools.map(async (tool: any) => {
+      pendingTools.map(async (tool: RawDbRow) => {
         const [inputFieldsRaw, promptsRaw] = await Promise.all([
-          executeSQL<any>(`
+          executeSQL<RawDbRow>(`
             SELECT id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at
             FROM tool_input_fields
             WHERE assistant_architect_id = :toolId
             ORDER BY position ASC
-          `, [{ name: 'toolId', value: { longValue: tool.id } }]),
-          executeSQL<any>(`
+          `, [{ name: 'toolId', value: { longValue: Number(tool.id) } }]),
+          executeSQL<RawDbRow>(`
             SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, created_at, updated_at
             FROM chain_prompts
             WHERE assistant_architect_id = :toolId
             ORDER BY position ASC
-          `, [{ name: 'toolId', value: { longValue: tool.id } }])
+          `, [{ name: 'toolId', value: { longValue: Number(tool.id) } }])
         ]);
 
         const transformedTool = transformSnakeToCamel<SelectAssistantArchitect>(tool);
-        const inputFields = inputFieldsRaw.map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
-        const prompts = promptsRaw.map((prompt: any) => {
+        const inputFields = inputFieldsRaw.map((field) => transformSnakeToCamel<SelectToolInputField>(field));
+        const prompts = promptsRaw.map((prompt) => {
           const transformed = transformSnakeToCamel<SelectChainPrompt>(prompt);
           // Parse repository_ids using utility function
           transformed.repositoryIds = parseRepositoryIds(transformed.repositoryIds);
@@ -403,7 +407,7 @@ export async function updateAssistantArchitectAction(
     log.debug("User authenticated", { userId: session.sub })
     
     // Get the current tool using data API
-    const currentToolResult = await executeSQL<any>(`
+    const currentToolResult = await executeSQL<RawDbRow>(`
       SELECT id, name, description, status, image_path, user_id, created_at, updated_at
       FROM assistant_architects
       WHERE id = :id
@@ -452,7 +456,7 @@ export async function updateAssistantArchitectAction(
           updateFields.push(`${snakeKey} = :param${paramIndex}`);
         }
         
-        let paramValue: any;
+        let paramValue: SqlParameter['value'];
         if (value === null) {
           paramValue = { isNull: true };
         } else if (key === 'userId' && typeof value === 'number') {
@@ -616,7 +620,7 @@ export async function deleteInputFieldAction(
     log.debug("User authenticated", { userId: session.sub })
 
     // Get the field to find its tool using data API
-    const fieldResult = await executeSQL<any>(`
+    const fieldResult = await executeSQL<RawDbRow>(`
       SELECT id, assistant_architect_id
       FROM tool_input_fields
       WHERE id = :fieldId
@@ -629,11 +633,11 @@ export async function deleteInputFieldAction(
     const field = fieldResult[0];
 
     // Check if user is the creator of the tool
-    const toolResult = await executeSQL<any>(`
+    const toolResult = await executeSQL<RawDbRow>(`
       SELECT user_id
       FROM assistant_architects
       WHERE id = :toolId
-    `, [{ name: 'toolId', value: { longValue: (field as any).assistant_architect_id || field.assistantArchitectId } }]);
+    `, [{ name: 'toolId', value: { longValue: Number((field as SelectToolInputField & { assistant_architect_id?: number }).assistant_architect_id || field.assistantArchitectId) } }]);
 
     if (!toolResult || toolResult.length === 0) {
       return { isSuccess: false, message: "Tool not found" }
@@ -705,11 +709,11 @@ export async function updateInputFieldAction(
     const field = fieldResult[0];
 
     // Get the tool to check permissions
-    const toolResult = await executeSQL<any>(`
+    const toolResult = await executeSQL<RawDbRow>(`
       SELECT user_id
       FROM assistant_architects
       WHERE id = :toolId
-    `, [{ name: 'toolId', value: { longValue: (field as any).assistant_architect_id || field.assistantArchitectId } }]);
+    `, [{ name: 'toolId', value: { longValue: Number((field as SelectToolInputField & { assistant_architect_id?: number }).assistant_architect_id || field.assistantArchitectId) } }]);
 
     if (!toolResult || toolResult.length === 0) {
       return { isSuccess: false, message: "Tool not found" }
@@ -781,7 +785,7 @@ export async function updateInputFieldAction(
       return { isSuccess: false, message: "No fields to update" }
     }
 
-    const updatedFieldResult = await executeSQL<any>(`
+    const updatedFieldResult = await executeSQL<RawDbRow>(`
       UPDATE tool_input_fields 
       SET ${updateFields.join(', ')}, updated_at = NOW()
       WHERE id = :id
@@ -823,7 +827,7 @@ export async function reorderInputFieldsAction(
     log.debug("User authenticated", { userId: session.sub })
 
     // Get the tool to check permissions
-    const toolResult = await executeSQL<any>(`
+    const toolResult = await executeSQL<RawDbRow>(`
       SELECT user_id
       FROM assistant_architects
       WHERE id = :toolId
@@ -848,7 +852,7 @@ export async function reorderInputFieldsAction(
     // Update each field's position
     const updatedFields = await Promise.all(
       fieldOrders.map(async ({ id, position }) => {
-        const result = await executeSQL<any>(`
+        const result = await executeSQL<RawDbRow>(`
           UPDATE tool_input_fields
           SET position = :position, updated_at = NOW()
           WHERE id = :id
@@ -958,7 +962,7 @@ export async function updatePromptAction(
     log.debug("User authenticated", { userId: session.sub })
 
     // Find the prompt using data API
-    const promptResult = await executeSQL<any>(`
+    const promptResult = await executeSQL<RawDbRow>(`
       SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, parallel_group, timeout_seconds, repository_ids, created_at, updated_at
       FROM chain_prompts
       WHERE id = :id
@@ -983,7 +987,7 @@ export async function updatePromptAction(
       SELECT user_id
       FROM assistant_architects
       WHERE id = :toolId
-    `, [{ name: 'toolId', value: { longValue: assistantArchitectId } }]);
+    `, [{ name: 'toolId', value: { longValue: Number(assistantArchitectId) } }]);
 
     if (!toolResult || toolResult.length === 0) {
       return { isSuccess: false, message: "Tool not found" }
@@ -1086,7 +1090,7 @@ export async function updatePromptAction(
 
     const sql = `UPDATE chain_prompts SET ${updateFields.join(', ')}, updated_at = NOW() WHERE id = :id RETURNING id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, parallel_group, timeout_seconds, repository_ids, created_at, updated_at`;
     
-    const updatedPromptResult = await executeSQL<any>(sql, parameters);
+    const updatedPromptResult = await executeSQL(sql, parameters);
 
     log.info("Prompt updated successfully", { id })
     timer({ status: "success", id })
@@ -1203,7 +1207,7 @@ export async function updatePromptPositionAction(
     }
 
     // Find the prompt
-    const promptResult = await executeSQL<any>(
+    const promptResult = await executeSQL(
       `SELECT assistant_architect_id FROM chain_prompts WHERE id = :id`,
       [{ name: 'id', value: { longValue: parseInt(id, 10) } }]
     )
@@ -1212,20 +1216,20 @@ export async function updatePromptPositionAction(
       return { isSuccess: false, message: "Prompt not found" }
     }
 
-    const prompt = promptResult[0] as any;
+    const prompt = promptResult[0] as RawDbRow;
     const toolId = prompt.assistant_architect_id;
 
     // Get the tool to check permissions
-    const toolResult = await executeSQL<any>(
+    const toolResult = await executeSQL(
       `SELECT user_id FROM assistant_architects WHERE id = :id`,
-      [{ name: 'id', value: { longValue: toolId } }]
+      [{ name: 'id', value: { longValue: Number(toolId) } }]
     )
 
     if (!toolResult || toolResult.length === 0) {
       return { isSuccess: false, message: "Tool not found" }
     }
 
-    const tool = toolResult[0] as any;
+    const tool = toolResult[0] as RawDbRow;
     const toolUserId = tool.user_id;
 
     // Only tool creator or admin can update prompt positions
@@ -1299,7 +1303,7 @@ export async function createToolExecutionAction(
       ]
     )
     
-    const executionId = (executionResult as any)[0].id as number
+    const executionId = Number(executionResult?.id)
 
     log.info("Tool execution created successfully", { executionId })
     timer({ status: "success", executionId })
@@ -1341,7 +1345,7 @@ export async function updatePromptResultAction(
       return { isSuccess: false, message: "User not found" }
     }
 
-    const updates: { name: string; value: any }[] = []
+    const updates: { name: string; value: SqlParameter['value'] }[] = []
     const setClauses: string[] = []
 
     if (result.result !== undefined) {
@@ -1418,7 +1422,7 @@ export async function approveAssistantArchitectAction(
     }
 
     // Update the tool status to approved
-    const updatedToolResult = await executeSQL<any>(`
+    const updatedToolResult = await executeSQL<RawDbRow>(`
       UPDATE assistant_architects
       SET status = 'approved'::tool_status, updated_at = NOW()
       WHERE id = :id
@@ -1705,15 +1709,40 @@ export async function executeAssistantArchitectAction({
 
     const executionId = executionResult[0]?.id as number;
 
-    // Start the execution in the background
-    executeAssistantArchitectJob(jobResult.data.id.toString(), tool, inputs, executionId).catch(error => {
-      log.error(`[EXEC:${jobResult.data.id}] Background execution failed:`, error);
-    });
+    // Get the model identifier for the first prompt directly from database
+    let modelIdentifier: string | undefined;
+    const modelQueryRaw = await executeSQL(
+      `SELECT am.model_id 
+       FROM chain_prompts cp
+       JOIN ai_models am ON cp.model_id = am.id
+       WHERE cp.assistant_architect_id = :toolId
+       ORDER BY cp.position ASC
+       LIMIT 1`,
+      [{ name: 'toolId', value: { longValue: parseInt(String(toolId), 10) } }]
+    );
+    if (modelQueryRaw.length > 0) {
+      // Transform snake_case to camelCase
+      const transformed = transformSnakeToCamel<{ modelId: string }>(modelQueryRaw[0]);
+      modelIdentifier = transformed.modelId;
+      log.info("Found model for tool", { 
+        toolId, 
+        modelIdentifier
+      });
+    } else {
+      log.warn("No model found for tool", { toolId });
+    }
 
-    log.info("Assistant architect execution started", { jobId: jobResult.data.id, executionId })
+    // Background execution is disabled - streaming is handled via /api/chat with executionId
+    // The frontend uses useChat hook which streams through the main chat endpoint
+
+    log.info("Assistant architect execution created for streaming", { jobId: jobResult.data.id, executionId, modelIdentifier })
     timer({ status: "success", jobId: jobResult.data.id, executionId })
 
-    return createSuccess({ jobId: jobResult.data.id, executionId }, "Execution started");
+    return createSuccess({ 
+      jobId: jobResult.data.id, 
+      executionId, 
+      modelId: modelIdentifier || undefined 
+    }, "Execution started");
   } catch (error) {
     timer({ status: "error" })
     return handleError(error, "Failed to execute assistant architect", {
@@ -1753,7 +1782,7 @@ async function executeAssistantArchitectJob(
     // Get the job to find the user ID
     const jobResult = await getJobAction(jobId);
     if (!jobResult.isSuccess || !jobResult.data) {
-      throw new Error("Failed to get job data");
+      throw ErrorFactories.dbRecordNotFound("jobs", jobId);
     }
     
     // If we already have an executionId, update it. Otherwise create a new one.
@@ -1795,7 +1824,7 @@ async function executeAssistantArchitectJob(
       }));
       
       if (!executionResult.records || executionResult.records.length === 0) {
-        throw new Error("Failed to create execution record");
+        throw ErrorFactories.dbQueryFailed("INSERT INTO tool_executions", new Error("No execution ID returned"));
       }
       executionId = executionResult.records[0][0].longValue as number;
     }
@@ -1848,14 +1877,14 @@ async function executeAssistantArchitectJob(
         }));
         
         if (!insertPromptResultResult.records || insertPromptResultResult.records.length === 0) {
-          throw new Error("Failed to create prompt result record");
+          throw ErrorFactories.dbQueryFailed("INSERT INTO prompt_results", new Error("No prompt result ID returned"));
         }
-        newPromptResultId = (insertPromptResultResult.records[0][0] as any).longValue as number;
+        newPromptResultId = Number((insertPromptResultResult.records?.[0]?.[0] as { longValue?: number })?.longValue);
         
-        if (!prompt.modelId) throw new Error("No model ID specified for prompt");
+        if (!prompt.modelId) throw ErrorFactories.validationFailed([{ field: "modelId", message: "No model ID specified for prompt" }]);
         const modelId = typeof prompt.modelId === 'string' ? parseInt(prompt.modelId, 10) : prompt.modelId;
-        const modelRecord = (await executeSQL<any>('SELECT model_id, provider FROM ai_models WHERE id = :id', [{name: 'id', value: {longValue: modelId}}]))[0] as any;
-        if (!modelRecord) throw new Error("Model not found");
+        const modelRecord = (await executeSQL<RawDbRow>('SELECT model_id, provider FROM ai_models WHERE id = :id', [{name: 'id', value: {longValue: modelId}}]))[0];
+        if (!modelRecord) throw ErrorFactories.dbRecordNotFound("ai_models", String(modelId));
 
         const messages: CoreMessage[] = [
           {
@@ -1871,7 +1900,7 @@ async function executeAssistantArchitectJob(
           }
         ];
 
-        const output = await generateCompletion({ provider: modelRecord.provider, modelId: modelRecord.model_id }, messages);
+        const output = await generateCompletion({ provider: String(modelRecord.provider), modelId: String(modelRecord.model_id) }, messages);
 
         await rdsDataClient.send(new ExecuteStatementCommand({ ...dataApiConfig,
             sql: `UPDATE prompt_results SET status = 'completed'::execution_status, output_data = :output, completed_at = :completedAt::timestamp, execution_time_ms = :execTime WHERE id = :id`,
@@ -1969,7 +1998,7 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
     }
     
     // Fetch approved architects that the user has access to
-    const approvedArchitects = await executeSQL<any>(`
+    const approvedArchitects = await executeSQL<RawDbRow>(`
       SELECT id, name, description, status, image_path, user_id, created_at, updated_at
       FROM assistant_architects
       WHERE status = 'approved' AND id = ANY(:architectIds)
@@ -1982,13 +2011,13 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
     
     // Fetch related fields and prompts for all approved architects
     const [allInputFieldsRaw, allPromptsRaw] = await Promise.all([
-      executeSQL<any>(`
+      executeSQL<RawDbRow>(`
         SELECT id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at
         FROM tool_input_fields
         WHERE assistant_architect_id = ANY(:architectIds)
         ORDER BY position ASC
       `, [{ name: 'architectIds', value: { stringValue: `{${architectIds.join(',')}}` } }]),
-      executeSQL<any>(`
+      executeSQL<RawDbRow>(`
         SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, parallel_group, timeout_seconds, created_at, updated_at
         FROM chain_prompts
         WHERE assistant_architect_id = ANY(:architectIds)
@@ -1997,16 +2026,16 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
     ]);
 
     // Map relations back and transform to camelCase
-    const results: ArchitectWithRelations[] = approvedArchitects.map((architect: FormattedRow) => {
+    const results: ArchitectWithRelations[] = approvedArchitects.map((architect) => {
       const transformedArchitect = transformSnakeToCamel<SelectAssistantArchitect>(architect);
       
       const inputFieldsForArchitect = allInputFieldsRaw
-        .filter((f: any) => f.assistant_architect_id === architect.id)
-        .map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
+        .filter((f) => Number(f.assistant_architect_id) === Number(architect.id))
+        .map((field) => transformSnakeToCamel<SelectToolInputField>(field));
       
       const promptsForArchitect = allPromptsRaw
-        .filter((p: any) => p.assistant_architect_id === architect.id)
-        .map((prompt: any) => transformSnakeToCamel<SelectChainPrompt>(prompt));
+        .filter((p) => Number(p.assistant_architect_id) === Number(architect.id))
+        .map((prompt) => transformSnakeToCamel<SelectChainPrompt>(prompt));
       
       return {
         ...transformedArchitect,
@@ -2048,7 +2077,7 @@ export async function submitAssistantArchitectForApprovalAction(
     
     log.debug("User authenticated", { userId: session.sub })
 
-    const toolResult = await executeSQL<any>(`
+    const toolResult = await executeSQL<RawDbRow>(`
       SELECT id, name, description, user_id, status
       FROM assistant_architects
       WHERE id = :id
@@ -2147,7 +2176,7 @@ export async function getExecutionResultsAction(
     const execution = transformSnakeToCamel<SelectToolExecution>(executionResult[0]);
 
     // Get prompt results for this execution
-    const promptResultsRaw = await executeSQL<any>(`
+    const promptResultsRaw = await executeSQL<RawDbRow>(`
       SELECT id, execution_id, prompt_id, input_data, output_data, status, error_message, started_at, completed_at, execution_time_ms
       FROM prompt_results
       WHERE execution_id = :executionId
@@ -2156,7 +2185,7 @@ export async function getExecutionResultsAction(
     
     // Transform to match SelectPromptResult type - note: the DB schema has evolved
     // but the type definition hasn't been updated to match
-    const promptResultsData = promptResultsRaw.map((result: any) => {
+    const promptResultsData = promptResultsRaw.map((result: RawDbRow) => {
       const transformedResult = transformSnakeToCamel<SelectPromptResult>(result);
       // Add additional fields from actual DB that aren't in the type definition
       return {
@@ -2172,7 +2201,7 @@ export async function getExecutionResultsAction(
         completedAt: result.completed_at,
         executionTimeMs: result.execution_time_ms
       } as SelectPromptResult & {
-        inputData?: any;
+        inputData?: Record<string, unknown>;
         outputData?: string;
         status?: string;
         errorMessage?: string;
@@ -2241,14 +2270,14 @@ export async function getToolsAction(): Promise<ActionState<SelectTool[]>> {
   
   try {
     log.info("Action started: Getting tools")
-    const toolsRaw = await executeSQL<any>(`
+    const toolsRaw = await executeSQL<RawDbRow>(`
       SELECT id, identifier, name, description, assistant_architect_id, is_active, created_at, updated_at
       FROM tools
       WHERE is_active = true
       ORDER BY name ASC
     `);
     
-    const tools = toolsRaw.map((tool: any) => {
+    const tools = toolsRaw.map((tool: RawDbRow) => {
       const transformed = transformSnakeToCamel<SelectTool>(tool);
       // Map assistant_architect_id to promptChainToolId for backward compatibility
       return {
@@ -2279,13 +2308,13 @@ export async function getAiModelsAction(): Promise<ActionState<SelectAiModel[]>>
   
   try {
     log.info("Action started: Getting AI models")
-    const aiModelsRaw = await executeSQL<any>(`
+    const aiModelsRaw = await executeSQL<RawDbRow>(`
       SELECT id, name, provider, model_id, description, capabilities, max_tokens, active, chat_enabled, created_at, updated_at
       FROM ai_models
       ORDER BY name ASC
     `);
     
-    const aiModels = aiModelsRaw.map((model: any) => transformSnakeToCamel<SelectAiModel>(model));
+    const aiModels = aiModelsRaw.map((model: RawDbRow) => transformSnakeToCamel<SelectAiModel>(model));
     
     log.info("AI models retrieved successfully", { count: aiModels.length })
     timer({ status: "success", count: aiModels.length })
@@ -2323,7 +2352,7 @@ export async function setPromptPositionsAction(
     }
 
     // Verify permissions
-    const toolResult = await executeSQL<any>(
+    const toolResult = await executeSQL(
       `SELECT user_id FROM assistant_architects WHERE id = :id`,
       [{ name: 'id', value: { longValue: parseInt(toolId, 10) } }]
     )
@@ -2332,7 +2361,7 @@ export async function setPromptPositionsAction(
       return { isSuccess: false, message: "Tool not found" }
     }
 
-    const tool = toolResult[0] as any;
+    const tool = toolResult[0] as RawDbRow;
     const toolUserId = tool.user_id;
 
     const isAdmin = await checkUserRoleByCognitoSub(session.sub, "administrator");
@@ -2392,12 +2421,12 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
     }
 
     // Get all approved tools
-    const toolsResultRaw = await executeSQL<any>(
+    const toolsResultRaw = await executeSQL(
       `SELECT id, name, description, status, image_path, user_id, created_at, updated_at FROM assistant_architects WHERE status = :status`,
       [{ name: 'status', value: { stringValue: 'approved' } }]
     )
     
-    const toolsResult = toolsResultRaw.map((raw: any) => transformSnakeToCamel<SelectAssistantArchitect>(raw))
+    const toolsResult = toolsResultRaw.map((raw) => transformSnakeToCamel<SelectAssistantArchitect>(raw))
 
     if (!toolsResult || toolsResult.length === 0) {
       return {
@@ -2414,11 +2443,11 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
         
         // Run input fields and prompts queries in parallel
         const [inputFieldsResultRaw, promptsResultRaw] = await Promise.all([
-          executeSQL<any>(
+          executeSQL(
             `SELECT id, assistant_architect_id, name, label, field_type, position, options, created_at, updated_at FROM tool_input_fields WHERE assistant_architect_id = :toolId ORDER BY position ASC`,
             [{ name: 'toolId', value: { longValue: parseInt(toolId, 10) } }]
           ),
-          executeSQL<any>(
+          executeSQL(
             `SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, parallel_group, timeout_seconds, created_at, updated_at FROM chain_prompts WHERE assistant_architect_id = :toolId ORDER BY position ASC`,
             [{ name: 'toolId', value: { longValue: parseInt(toolId, 10) } }]
           )
@@ -2431,10 +2460,10 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
         const tool = transformSnakeToCamel<SelectAssistantArchitect>(toolRecord);
 
         // Map input fields
-        const inputFields = inputFieldsResult.map((record: any) => transformSnakeToCamel<SelectToolInputField>(record));
+        const inputFields = inputFieldsResult.map((record) => transformSnakeToCamel<SelectToolInputField>(record));
 
         // Map prompts
-        const prompts = promptsResult.map((record: any) => transformSnakeToCamel<SelectChainPrompt>(record))
+        const prompts = promptsResult.map((record) => transformSnakeToCamel<SelectChainPrompt>(record))
 
         return {
           ...tool,
@@ -2475,7 +2504,7 @@ export async function getAllAssistantArchitectsForAdminAction(): Promise<ActionS
       return { isSuccess: false, message: "Only administrators can view all assistants" }
     }
     // Get all assistants
-    const allAssistants = await executeSQL<any>(`
+    const allAssistants = await executeSQL<RawDbRow>(`
       SELECT id, name, description, status, image_path, user_id, created_at, updated_at
       FROM assistant_architects
       ORDER BY created_at DESC
@@ -2483,25 +2512,25 @@ export async function getAllAssistantArchitectsForAdminAction(): Promise<ActionS
     
     // Get related data for each assistant
     const assistantsWithRelations = await Promise.all(
-      allAssistants.map(async (tool) => {
+      allAssistants.map(async (tool: RawDbRow) => {
         const [inputFieldsRaw, promptsRaw] = await Promise.all([
-          executeSQL<any>(`
+          executeSQL<RawDbRow>(`
             SELECT * FROM tool_input_fields 
             WHERE assistant_architect_id = :toolId 
             ORDER BY position ASC
-          `, [{ name: 'toolId', value: { longValue: tool.id } }]),
-          executeSQL<any>(`
+          `, [{ name: 'toolId', value: { longValue: Number(tool.id) } }]),
+          executeSQL<RawDbRow>(`
             SELECT * FROM chain_prompts 
             WHERE assistant_architect_id = :toolId 
             ORDER BY position ASC
-          `, [{ name: 'toolId', value: { longValue: tool.id } }])
+          `, [{ name: 'toolId', value: { longValue: Number(tool.id) } }])
         ]);
         
         // Transform input fields to camelCase
-        const inputFields = inputFieldsRaw.map((field: any) => transformSnakeToCamel<SelectToolInputField>(field));
+        const inputFields = inputFieldsRaw.map((field) => transformSnakeToCamel<SelectToolInputField>(field));
         
         // Transform prompts to camelCase
-        const prompts = promptsRaw.map((prompt: any) => transformSnakeToCamel<SelectChainPrompt>(prompt));
+        const prompts = promptsRaw.map((prompt) => transformSnakeToCamel<SelectChainPrompt>(prompt));
         
         const transformedTool = transformSnakeToCamel<SelectAssistantArchitect>(tool);
         
