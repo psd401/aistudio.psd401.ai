@@ -1705,16 +1705,43 @@ export async function executeAssistantArchitectAction({
 
     const executionId = executionResult[0]?.id as number;
 
+    // Get the model identifier for the first prompt directly from database
+    let modelIdentifier: string | undefined;
+    const modelQueryRaw = await executeSQL(
+      `SELECT am.model_id 
+       FROM chain_prompts cp
+       JOIN ai_models am ON cp.model_id = am.id
+       WHERE cp.assistant_architect_id = :toolId
+       ORDER BY cp.position ASC
+       LIMIT 1`,
+      [{ name: 'toolId', value: { longValue: parseInt(String(toolId), 10) } }]
+    );
+    if (modelQueryRaw.length > 0) {
+      // Transform snake_case to camelCase
+      const transformed = transformSnakeToCamel<{ modelId: string }>(modelQueryRaw[0]);
+      modelIdentifier = transformed.modelId;
+      log.info("Found model for tool", { 
+        toolId, 
+        modelIdentifier
+      });
+    } else {
+      log.warn("No model found for tool", { toolId });
+    }
+
     // DISABLED: Background execution to prevent race condition with streaming
     // The streaming endpoint (/api/assistant-architect/stream) will handle execution
     // executeAssistantArchitectJob(jobResult.data.id.toString(), tool, inputs, executionId).catch(error => {
     //   log.error(`[EXEC:${jobResult.data.id}] Background execution failed:`, error);
     // });
 
-    log.info("Assistant architect execution created for streaming", { jobId: jobResult.data.id, executionId })
+    log.info("Assistant architect execution created for streaming", { jobId: jobResult.data.id, executionId, modelIdentifier })
     timer({ status: "success", jobId: jobResult.data.id, executionId })
 
-    return createSuccess({ jobId: jobResult.data.id, executionId }, "Execution started");
+    return createSuccess({ 
+      jobId: jobResult.data.id, 
+      executionId, 
+      modelId: modelIdentifier || undefined 
+    }, "Execution started");
   } catch (error) {
     timer({ status: "error" })
     return handleError(error, "Failed to execute assistant architect", {

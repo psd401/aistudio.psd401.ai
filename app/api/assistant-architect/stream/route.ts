@@ -35,10 +35,10 @@ interface ChainPromptWithModel {
 }
 
 interface StreamRequest {
+  prompt: string; // For useCompletion compatibility
   toolId: number;
   executionId: number;
   inputs: Record<string, unknown>;
-  promptIndex?: number; // For single prompt streaming
 }
 
 // Add a function to decode HTML entities and remove escapes for variable placeholders
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
   log.debug('Session authenticated', { sub: session.sub });
 
   try {
-    const { toolId, executionId, inputs, promptIndex = 0 }: StreamRequest = await req.json();
+    const { toolId, executionId, inputs }: StreamRequest = await req.json();
 
     // Get tool configuration and prompts
     // Allow both approved tools and draft tools that belong to the current user
@@ -127,14 +127,6 @@ export async function POST(req: NextRequest) {
       { name: 'toolId', value: { longValue: toolId } }
     ]);
     
-    // Log the raw result structure for debugging
-    if (promptsRaw.length > 0) {
-      log.debug('Sample prompt raw data structure:', { 
-        sampleKeys: Object.keys(promptsRaw[0]),
-        firstPrompt: promptsRaw[0]
-      });
-    }
-    
     // Use the standard field mapper to handle snake_case to camelCase conversion
     const prompts = promptsRaw.map((row: Record<string, unknown>) => {
       const transformed = transformSnakeToCamel<ChainPromptWithModel>(row);
@@ -149,229 +141,137 @@ export async function POST(req: NextRequest) {
       return new Response('No prompts configured for this tool', { status: 400, headers: { 'X-Request-Id': requestId } });
     }
 
-    // Get the current prompt to stream
-    const prompt = prompts[promptIndex];
-    if (!prompt) {
-      log.warn("Prompt not found", { promptIndex });
-      timer({ status: "error", reason: "prompt_not_found" });
-      return new Response('Prompt not found', { status: 404, headers: { 'X-Request-Id': requestId } });
-    }
+    // Mark execution as running
+    await executeSQL(
+      `UPDATE tool_executions 
+       SET status = 'running'::execution_status,
+           started_at = COALESCE(started_at, NOW())
+       WHERE id = :executionId`,
+      [
+        { name: 'executionId', value: { longValue: executionId } }
+      ]
+    );
 
-    // Get tool executions record and check if it's already being processed
-    const executionQuery = `
-      SELECT id, status FROM tool_executions 
-      WHERE id = :executionId
-    `;
-    const executionResultRaw = await executeSQL(executionQuery, [
-      { name: 'executionId', value: { longValue: executionId } }
-    ]);
-    const executionResult = executionResultRaw as Array<{ id: number; status: string }>;
+    // Process all prompts and combine into a single streaming response
+    let allMessages = "";
+    const promptResults: Array<{ promptId: number; result: string }> = [];
 
-    if (!executionResult.length) {
-      log.warn("Execution not found", { executionId });
-      timer({ status: "error", reason: "execution_not_found" });
-      return new Response('Execution not found', { status: 404, headers: { 'X-Request-Id': requestId } });
-    }
-
-    // Check if execution is already completed or failed
-    if (executionResult[0].status === 'completed' || executionResult[0].status === 'failed') {
-      log.warn("Execution already processed", { executionId, status: executionResult[0].status });
-      timer({ status: "error", reason: "already_processed" });
-      return new Response('Execution has already been processed', { status: 409, headers: { 'X-Request-Id': requestId } });
-    }
-
-    // If execution is pending, we need to mark it as running
-    // This handles the case where streaming starts before the background job updates the status
-    if (executionResult[0].status === 'pending') {
-      try {
-        await executeSQL(
-          `UPDATE tool_executions 
-           SET status = 'running'::execution_status,
-               started_at = COALESCE(started_at, NOW())
-           WHERE id = :executionId AND status = 'pending'::execution_status`,
-          [
-            { name: 'executionId', value: { longValue: executionId } }
-          ]
-        );
-      } catch (error) {
-        log.error('Failed to mark execution as running', error);
-        // If we can't update the status, it might have been updated by another process
-        // Continue anyway
+    // If we have just one prompt, stream it directly like /chat does
+    if (prompts.length === 1) {
+      const prompt = prompts[0];
+      
+      // Process prompt template with inputs
+      let processedPrompt = prompt.content;
+      
+      if (!processedPrompt) {
+        throw ErrorFactories.validationFailed([{ field: 'prompt', message: 'Prompt content is empty' }]);
       }
-    }
-
-    // Process prompt template with inputs
-    let processedPrompt = prompt.content;
-    
-    if (!processedPrompt) {
-      log.error(`[STREAM] Prompt content is empty for prompt ${promptIndex + 1}`);
-      throw ErrorFactories.missingRequiredField('prompt');
-    }
-    
-    // Decode HTML entities and escapes
-    processedPrompt = decodePromptVariables(processedPrompt);
-    
-    // Replace placeholders with actual values using ${key} format
-    processedPrompt = processedPrompt.replace(/\${([\w-]+)}/g, (_match: string, key: string) => {
-      const value = inputs[key];
-      return value !== undefined ? String(value) : `[Missing value for ${key}]`;
-    });
-
-    // If this is not the first prompt, include previous results
-    if (promptIndex > 0) {
-      const previousResultsQuery = `
-        SELECT pr.output_data as result 
-        FROM prompt_results pr
-        WHERE pr.execution_id = :executionId
-        ORDER BY pr.started_at ASC
-        LIMIT :limit
-      `;
-      const previousResultsRaw = await executeSQL(previousResultsQuery, [
-        { name: 'executionId', value: { longValue: executionId } },
-        { name: 'limit', value: { longValue: promptIndex } }
-      ]);
-      const previousResults = previousResultsRaw as Array<{ result: string }>;
-
-      previousResults.forEach((result, index) => {
-        const resultPlaceholder = `{{result_${index + 1}}}`;
-        processedPrompt = processedPrompt.replace(
-          new RegExp(resultPlaceholder, 'g'),
-          result.result
-        );
+      
+      // Decode HTML entities and escapes
+      processedPrompt = decodePromptVariables(processedPrompt);
+      
+      // Replace placeholders with actual values using ${key} format
+      processedPrompt = processedPrompt.replace(/\${([\w-]+)}/g, (_match: string, key: string) => {
+        const value = inputs[key];
+        return value !== undefined ? String(value) : `[Missing value for ${key}]`;
       });
-    }
 
-    // Create prompt result record
-    const insertPromptResultQuery = `
-      INSERT INTO prompt_results (
-        execution_id, prompt_id, input_data, output_data, status, started_at
-      ) VALUES (
-        :executionId, :promptId, :inputData::jsonb, '', 'running'::execution_status, NOW()
-      ) RETURNING id
-    `;
-    const promptResultInsertRaw = await executeSQL(insertPromptResultQuery, [
-      { name: 'executionId', value: { longValue: executionId } },
-      { name: 'promptId', value: { longValue: prompt.id } },
-      { name: 'inputData', value: { stringValue: JSON.stringify({ prompt: processedPrompt }) } }
-    ]);
-    const promptResultInsert = promptResultInsertRaw as Array<{ id: number }>;
-    const promptResultId = promptResultInsert[0].id;
+      // Create prompt result record
+      const insertPromptResultQuery = `
+        INSERT INTO prompt_results (
+          execution_id, prompt_id, input_data, output_data, status, started_at
+        ) VALUES (
+          :executionId, :promptId, :inputData::jsonb, '', 'running'::execution_status, NOW()
+        ) RETURNING id
+      `;
+      const promptResultInsertRaw = await executeSQL(insertPromptResultQuery, [
+        { name: 'executionId', value: { longValue: executionId } },
+        { name: 'promptId', value: { longValue: prompt.id } },
+        { name: 'inputData', value: { stringValue: JSON.stringify({ prompt: processedPrompt }) } }
+      ]);
+      const promptResultInsert = promptResultInsertRaw as Array<{ id: number }>;
+      const promptResultId = promptResultInsert[0].id;
 
-    // Retrieve knowledge from repositories if configured
-    let knowledgeContext = '';
-    
-    // Parse repository IDs using utility function
-    const repositoryIds = parseRepositoryIds(prompt.repositoryIds);
-    
-    if (repositoryIds && repositoryIds.length > 0) {
-      try {
-        // Get assistant owner's cognito_sub
-        let assistantOwnerSub: string | undefined;
-        if (tool.userId) {
-          const assistantOwnerQuery = `
-            SELECT u.cognito_sub 
-            FROM users u 
-            WHERE u.id = :userId
-          `;
-          const ownerResult = await executeSQL<{ cognito_sub: string }>(assistantOwnerQuery, [
-            { name: 'userId', value: { longValue: tool.userId } }
-          ]);
-          assistantOwnerSub = ownerResult[0]?.cognito_sub;
-        }
-
-        const knowledgeChunks = await retrieveKnowledgeForPrompt(
-          processedPrompt,
-          repositoryIds,
-          session.sub,
-          assistantOwnerSub,
-          {
-            maxChunks: 10,
-            maxTokens: 4000,
-            searchType: 'hybrid',
-            vectorWeight: 0.8
+      // Retrieve knowledge if configured
+      let knowledgeContext = '';
+      const repositoryIds = parseRepositoryIds(prompt.repositoryIds);
+      
+      if (repositoryIds && repositoryIds.length > 0) {
+        try {
+          // Get assistant owner's cognito_sub
+          let assistantOwnerSub: string | undefined;
+          if (tool.userId) {
+            const assistantOwnerQuery = `
+              SELECT u.cognito_sub 
+              FROM users u 
+              WHERE u.id = :userId
+            `;
+            const ownerResult = await executeSQL<{ cognito_sub: string }>(assistantOwnerQuery, [
+              { name: 'userId', value: { longValue: tool.userId } }
+            ]);
+            assistantOwnerSub = ownerResult[0]?.cognito_sub;
           }
-        );
 
-        if (knowledgeChunks.length > 0) {
-          knowledgeContext = formatKnowledgeContext(knowledgeChunks);
-          log.info(`Retrieved ${knowledgeChunks.length} knowledge chunks for prompt ${prompt.id}`);
+          const knowledgeChunks = await retrieveKnowledgeForPrompt(
+            processedPrompt,
+            repositoryIds,
+            session.sub,
+            assistantOwnerSub,
+            {
+              maxChunks: 10,
+              maxTokens: 4000,
+              searchType: 'hybrid',
+              vectorWeight: 0.8
+            }
+          );
+
+          if (knowledgeChunks.length > 0) {
+            knowledgeContext = formatKnowledgeContext(knowledgeChunks);
+            log.info(`Retrieved ${knowledgeChunks.length} knowledge chunks for prompt ${prompt.id}`);
+          }
+        } catch (knowledgeError) {
+          log.error('Error retrieving knowledge:', knowledgeError);
         }
-      } catch (knowledgeError) {
-        log.error('Error retrieving knowledge:', knowledgeError);
-        // Continue without knowledge - don't fail the entire prompt
       }
-    }
 
-    // Construct system context with both original context and retrieved knowledge
-    let combinedSystemContext = '';
-    if (prompt.systemContext && knowledgeContext) {
-      combinedSystemContext = `${prompt.systemContext}\n\n${knowledgeContext}`;
-    } else if (prompt.systemContext) {
-      combinedSystemContext = prompt.systemContext;
-    } else if (knowledgeContext) {
-      combinedSystemContext = knowledgeContext;
-    }
-
-    const messages = [
-      ...(combinedSystemContext ? [{ 
-        role: 'system' as const, 
-        content: combinedSystemContext 
-      }] : []),
-      { 
-        role: 'user' as const, 
-        content: processedPrompt 
+      // Construct system context
+      let combinedSystemContext = '';
+      if (prompt.systemContext && knowledgeContext) {
+        combinedSystemContext = `${prompt.systemContext}\n\n${knowledgeContext}`;
+      } else if (prompt.systemContext) {
+        combinedSystemContext = prompt.systemContext;
+      } else if (knowledgeContext) {
+        combinedSystemContext = knowledgeContext;
       }
-    ];
 
-    // Log the prompt object to debug field mapping
-    log.debug(`[STREAM] Prompt ${promptIndex + 1} model config:`, {
-      provider: prompt.provider,
-      modelId: prompt.modelId,
-      aiModelId: prompt.aiModelId,
-      modelName: prompt.modelName,
-      allFields: Object.keys(prompt)
-    });
-    
-    // Check if model config is valid
-    if (!prompt.provider || !prompt.modelId) {
-      log.error(`[STREAM] Invalid model config - Provider: ${prompt.provider}, Model ID: ${prompt.modelId}`);
-      throw ErrorFactories.validationFailed([{ field: 'model', message: 'Invalid model configuration' }]);
-    }
-    
-    // Create model using the same factory as chat route
-    // modelId from database is the actual model string like "gpt-5"
-    const model = await createProviderModel(prompt.provider, prompt.modelId);
-    
-    // Stream directly using AI SDK's streamText - exactly like /chat does
-    const result = streamText({
-      model,
-      messages: messages.map(m => ({
-        role: m.role,
-        content: String(m.content)
-      })),
-      onFinish: async ({ text, usage, finishReason }) => {
-        log.info('Stream finished', {
-          hasText: !!text,
-          textLength: text?.length || 0,
-          hasUsage: !!usage,
-          finishReason
-        });
-        
-        // Update prompt result with full response
-        await executeSQL(
-          `UPDATE prompt_results 
-           SET output_data = :result, 
-               status = 'completed'::execution_status, 
-               completed_at = NOW() 
-           WHERE id = :id`,
-          [
-            { name: 'result', value: { stringValue: text } },
-            { name: 'id', value: { longValue: promptResultId } }
-          ]
-        );
+      // Create model and stream EXACTLY like /chat does
+      const model = await createProviderModel(prompt.provider, prompt.modelId);
+      
+      // Stream response using AI SDK exactly like /chat
+      const result = streamText({
+        model,
+        system: combinedSystemContext,
+        messages: [
+          { 
+            role: 'user' as const, 
+            content: processedPrompt 
+          }
+        ],
+        onFinish: async ({ text }) => {
+          // Update prompt result with full response
+          await executeSQL(
+            `UPDATE prompt_results 
+             SET output_data = :result, 
+                 status = 'completed'::execution_status, 
+                 completed_at = NOW() 
+             WHERE id = :id`,
+            [
+              { name: 'result', value: { stringValue: text } },
+              { name: 'id', value: { longValue: promptResultId } }
+            ]
+          );
 
-        // If this is the last prompt, mark execution as completed
-        if (promptIndex === prompts.length - 1) {
+          // Mark execution as completed
           await executeSQL(
             `UPDATE tool_executions 
              SET status = 'completed'::execution_status, 
@@ -381,32 +281,214 @@ export async function POST(req: NextRequest) {
               { name: 'executionId', value: { longValue: executionId } }
             ]
           );
+          
+          timer({ status: 'success' });
+        }
+      });
+
+      // Return EXACTLY like /chat does with toUIMessageStreamResponse
+      return result.toUIMessageStreamResponse({
+        headers: {
+          'X-Execution-Id': executionId.toString(),
+          'X-Request-Id': requestId
+        }
+      });
+      
+    } else {
+      // Multiple prompts - process sequentially
+      // For now, process all and return combined result
+      for (let i = 0; i < prompts.length; i++) {
+        const prompt = prompts[i];
+        
+        // Process prompt template with inputs
+        let processedPrompt = prompt.content;
+        
+        if (!processedPrompt) {
+          log.error(`[STREAM] Prompt content is empty for prompt ${i + 1}`);
+          continue;
         }
         
-        timer({ 
-          status: 'success',
-          executionId,
-          promptIndex,
-          tokensUsed: usage?.totalTokens
+        // Decode HTML entities and escapes
+        processedPrompt = decodePromptVariables(processedPrompt);
+        
+        // Replace placeholders with actual values using ${key} format
+        processedPrompt = processedPrompt.replace(/\${([\w-]+)}/g, (_match: string, key: string) => {
+          const value = inputs[key];
+          return value !== undefined ? String(value) : `[Missing value for ${key}]`;
         });
+
+        // If this is not the first prompt, include previous results
+        if (i > 0) {
+          promptResults.forEach((prevResult, index) => {
+            const resultPlaceholder = `{{result_${index + 1}}}`;
+            processedPrompt = processedPrompt.replace(
+              new RegExp(resultPlaceholder, 'g'),
+              prevResult.result
+            );
+          });
+        }
+
+        // Create prompt result record
+        const insertPromptResultQuery = `
+          INSERT INTO prompt_results (
+            execution_id, prompt_id, input_data, output_data, status, started_at
+          ) VALUES (
+            :executionId, :promptId, :inputData::jsonb, '', 'running'::execution_status, NOW()
+          ) RETURNING id
+        `;
+        const promptResultInsertRaw = await executeSQL(insertPromptResultQuery, [
+          { name: 'executionId', value: { longValue: executionId } },
+          { name: 'promptId', value: { longValue: prompt.id } },
+          { name: 'inputData', value: { stringValue: JSON.stringify({ prompt: processedPrompt }) } }
+        ]);
+        const promptResultInsert = promptResultInsertRaw as Array<{ id: number }>;
+        const promptResultId = promptResultInsert[0].id;
+
+        // Retrieve knowledge if configured
+        let knowledgeContext = '';
+        const repositoryIds = parseRepositoryIds(prompt.repositoryIds);
+        
+        if (repositoryIds && repositoryIds.length > 0) {
+          try {
+            // Get assistant owner's cognito_sub
+            let assistantOwnerSub: string | undefined;
+            if (tool.userId) {
+              const assistantOwnerQuery = `
+                SELECT u.cognito_sub 
+                FROM users u 
+                WHERE u.id = :userId
+              `;
+              const ownerResult = await executeSQL<{ cognito_sub: string }>(assistantOwnerQuery, [
+                { name: 'userId', value: { longValue: tool.userId } }
+              ]);
+              assistantOwnerSub = ownerResult[0]?.cognito_sub;
+            }
+
+            const knowledgeChunks = await retrieveKnowledgeForPrompt(
+              processedPrompt,
+              repositoryIds,
+              session.sub,
+              assistantOwnerSub,
+              {
+                maxChunks: 10,
+                maxTokens: 4000,
+                searchType: 'hybrid',
+                vectorWeight: 0.8
+              }
+            );
+
+            if (knowledgeChunks.length > 0) {
+              knowledgeContext = formatKnowledgeContext(knowledgeChunks);
+              log.info(`Retrieved ${knowledgeChunks.length} knowledge chunks for prompt ${prompt.id}`);
+            }
+          } catch (knowledgeError) {
+            log.error('Error retrieving knowledge:', knowledgeError);
+          }
+        }
+
+        // Construct system context
+        let combinedSystemContext = '';
+        if (prompt.systemContext && knowledgeContext) {
+          combinedSystemContext = `${prompt.systemContext}\n\n${knowledgeContext}`;
+        } else if (prompt.systemContext) {
+          combinedSystemContext = prompt.systemContext;
+        } else if (knowledgeContext) {
+          combinedSystemContext = knowledgeContext;
+        }
+
+        // Create model and stream for this prompt
+        const model = await createProviderModel(prompt.provider, prompt.modelId);
+        
+        const messages = [
+          ...(combinedSystemContext ? [{ 
+            role: 'system' as const, 
+            content: combinedSystemContext 
+          }] : []),
+          { 
+            role: 'user' as const, 
+            content: processedPrompt 
+          }
+        ];
+
+        // Add prompt header if multiple prompts
+        if (prompts.length > 1) {
+          allMessages += `## ${prompt.name || `Prompt ${i + 1}`}\n\n`;
+        }
+
+        // Stream this prompt and collect the result
+        const streamResult = streamText({
+          model,
+          messages: messages.map(m => ({
+            role: m.role,
+            content: String(m.content)
+          }))
+        });
+
+        // Collect the full response for this prompt
+        let promptResponse = '';
+        for await (const chunk of streamResult.textStream) {
+          promptResponse += chunk;
+        }
+        
+        allMessages += promptResponse;
+        if (i < prompts.length - 1) {
+          allMessages += "\n\n---\n\n";
+        }
+
+        // Update prompt result with full response
+        await executeSQL(
+          `UPDATE prompt_results 
+           SET output_data = :result, 
+               status = 'completed'::execution_status, 
+               completed_at = NOW() 
+           WHERE id = :id`,
+          [
+            { name: 'result', value: { stringValue: promptResponse } },
+            { name: 'id', value: { longValue: promptResultId } }
+          ]
+        );
+
+        // Store result for next prompt
+        promptResults.push({ promptId: prompt.id, result: promptResponse });
       }
-    });
-    
-    // Return the exact same type of response as /chat - this is what works on AWS!
-    return result.toUIMessageStreamResponse({
-      headers: {
-        'X-Execution-Id': executionId.toString(),
-        'X-Prompt-Index': promptIndex.toString(),
-        'X-Request-Id': requestId
-      }
-    });
+
+      // Mark execution as completed
+      await executeSQL(
+        `UPDATE tool_executions 
+         SET status = 'completed'::execution_status, 
+             completed_at = NOW()
+         WHERE id = :executionId`,
+        [
+          { name: 'executionId', value: { longValue: executionId } }
+        ]
+      );
+
+      // For multiple prompts, return the combined text as a stream
+      // Use streamText with the combined result
+      const model = await createProviderModel(prompts[0].provider, prompts[0].modelId);
+      const result = streamText({
+        model,
+        messages: [
+          { 
+            role: 'assistant' as const, 
+            content: allMessages 
+          }
+        ]
+      });
+
+      return result.toUIMessageStreamResponse({
+        headers: {
+          'X-Execution-Id': executionId.toString(),
+          'X-Request-Id': requestId
+        }
+      });
+    }
 
   } catch (error) {
     log.error('API error:', error);
-    log.error('[STREAM] Full error:', error);
     timer({ status: "error" });
     
-    // Mark execution as failed if we have an executionId
+    // Mark execution as failed
     if (req.body) {
       try {
         const body = await req.clone().json();

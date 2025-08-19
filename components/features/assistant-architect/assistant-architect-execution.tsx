@@ -21,8 +21,8 @@ import { executeAssistantArchitectAction } from "@/actions/db/assistant-architec
 import { getJobAction } from "@/actions/db/jobs-actions"
 import { SelectJob, SelectToolInputField } from "@/types/db-types"
 import { ExecutionResultDetails, JobOutput, JobPromptResult } from "@/types/assistant-architect-types"
-import { Loader2, Bot, User, Terminal, AlertCircle, ChevronDown, ChevronRight, Copy, ThumbsUp, ThumbsDown, Sparkles, X } from "lucide-react"
-import ReactMarkdown from "react-markdown"
+import { Loader2, Bot, Terminal, AlertCircle, ChevronDown, ChevronRight, Copy, ThumbsUp, ThumbsDown, Sparkles, X } from "lucide-react"
+import { MemoizedMarkdown } from "@/components/ui/memoized-markdown"
 import { ErrorBoundary } from "@/components/error-boundary"
 import type { AssistantArchitectWithRelations } from "@/types/assistant-architect-types"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -31,7 +31,10 @@ import { ChatErrorBoundary } from "./chat-error-boundary"
 import Image from "next/image"
 import PdfUploadButton from "@/components/ui/pdf-upload-button"
 import { updatePromptResultAction } from "@/actions/db/assistant-architect-actions"
-import { useCompletion } from '@ai-sdk/react'
+import { useChat } from '@ai-sdk/react'
+import { nanoid } from 'nanoid'
+
+const generateRequestId = () => nanoid()
 
 interface AssistantArchitectExecutionProps {
   tool: AssistantArchitectWithRelations
@@ -69,17 +72,13 @@ interface ExtendedExecutionResultDetails {
 
 export const AssistantArchitectExecution = memo(function AssistantArchitectExecution({ tool, isPreview = false }: AssistantArchitectExecutionProps) {
   const { toast } = useToast()
-  const [isLoading, setIsLoading] = useState(false)
   const [isPolling, setIsPolling] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [results, setResults] = useState<ExtendedExecutionResultDetails | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [expandedPrompts, setExpandedPrompts] = useState<Record<string, boolean>>({})
-  const [expandedInputs, setExpandedInputs] = useState<Record<string, boolean>>({})
   const [conversationId, setConversationId] = useState<number | null>(null)
-  const [currentPromptIndex, setCurrentPromptIndex] = useState<number>(-1)
   const [executionId, setExecutionId] = useState<number | null>(null)
-  const [formValues, setFormValues] = useState<Record<string, unknown>>({})
 
   // Define base types for fields first
   const stringSchema = z.string();
@@ -118,69 +117,35 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     }, {})
   })
 
-
-  // Use AI SDK's useCompletion hook for each prompt
+  // Use AI SDK's useChat hook - exactly like /chat and model-compare do
   const { 
-    completion,
-    complete,
+    messages,
+    sendMessage,
+    status,
     stop,
-    isLoading: isStreaming,
-    setCompletion
-  } = useCompletion({
-    api: '/api/assistant-architect/stream',
+    setMessages
+  } = useChat({
     onFinish: () => {
-      // Update the current prompt result with the completion
-      if (currentPromptIndex >= 0 && results) {
+      // Update results when streaming is complete
+      if (executionId) {
         setResults(prev => {
           if (!prev) return null
-          const updated = { ...prev }
-          if (updated.promptResults[currentPromptIndex]) {
-            updated.promptResults[currentPromptIndex] = {
-              ...updated.promptResults[currentPromptIndex],
-              status: 'completed' as const,
-              outputData: completion,
-              completedAt: new Date(),
-              executionTimeMs: Date.now() - updated.promptResults[currentPromptIndex].startedAt.getTime()
-            }
+          return {
+            ...prev,
+            status: 'completed',
+            completedAt: new Date(),
+            // For streaming display, we don't need promptResults since we're using messages directly
+            promptResults: []
           }
-          return updated
-        })
-        
-        // Process next prompt if there are more
-        const nextIndex = currentPromptIndex + 1
-        if (nextIndex < tool.prompts.length) {
-          setCurrentPromptIndex(nextIndex)
-          processNextPrompt(nextIndex)
-        } else {
-          // All prompts completed
-          setIsLoading(false)
-          setCurrentPromptIndex(-1)
-          toast({
-            title: "Execution Completed",
-            description: "All prompts have been executed successfully"
-          })
-        }
-      }
-    },
-    onError: (error) => {
-      // Update the current prompt result with error
-      if (currentPromptIndex >= 0 && results) {
-        setResults(prev => {
-          if (!prev) return null
-          const updated = { ...prev }
-          if (updated.promptResults[currentPromptIndex]) {
-            updated.promptResults[currentPromptIndex] = {
-              ...updated.promptResults[currentPromptIndex],
-              status: 'failed' as const,
-              errorMessage: error.message,
-              completedAt: new Date()
-            }
-          }
-          return updated
         })
       }
       
-      setIsLoading(false)
+      toast({
+        title: "Execution Completed",
+        description: "Assistant response completed successfully"
+      })
+    },
+    onError: (error) => {
       setError(error.message)
       toast({
         title: "Execution Error",
@@ -190,47 +155,11 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     }
   })
 
-  const processNextPrompt = useCallback(async (promptIndex: number) => {
-    if (!executionId || !formValues) return
-    
-    // Clear previous completion
-    setCompletion('')
-    
-    // Update prompt status to running
-    setResults(prev => {
-      if (!prev) return null
-      const updated = { ...prev }
-      if (updated.promptResults[promptIndex]) {
-        updated.promptResults[promptIndex] = {
-          ...updated.promptResults[promptIndex],
-          status: 'running' as const,
-          startedAt: new Date()
-        }
-      }
-      return updated
-    })
-    
-    // Auto-expand the currently streaming prompt
-    const promptId = `prompt_${promptIndex}_temp`
-    setExpandedPrompts(prev => ({ ...prev, [promptId]: true }))
-    
-    // Stream this prompt using the AI SDK
-    await complete('', {
-      body: {
-        toolId: tool.id,
-        executionId,
-        inputs: formValues,
-        promptIndex
-      }
-    })
-  }, [executionId, formValues, tool.id, complete, setCompletion])
-
   const onSubmit = useCallback(async (values: z.infer<typeof formSchema>) => {
     // Only clear results if we're not already processing
-    if (!isLoading && !isPolling) {
+    if (status !== 'streaming' && status !== 'submitted' && !isPolling) {
       // Don't clear results if we already have completed results - user might be using chat
       if (!results || results.status !== 'completed') {
-        setIsLoading(true)
         setResults(null)
         setError(null)
       } else {
@@ -239,7 +168,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         if (!confirmRerun) {
           return;
         }
-        setIsLoading(true)
         setResults(null)
         setError(null)
         setConversationId(null) // Reset conversation when re-running
@@ -263,9 +191,8 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         if (supportsStreaming && result.data?.executionId) {
           // Store execution context
           setExecutionId(result.data.executionId)
-          setFormValues(values)
           
-          // Initialize results structure
+          // Initialize results structure for streaming
           const initialResults: ExtendedExecutionResultDetails = {
             id: result.data.executionId,
             toolId: tool.id,
@@ -276,24 +203,33 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
             completedAt: null,
             errorMessage: null,
             assistantArchitectId: tool.id,
-            promptResults: tool.prompts.map((prompt, i) => ({
-              id: `prompt_${i}_temp`,
-              executionId: String(result.data.executionId),
-              promptId: prompt.id,
-              inputData: values,
-              outputData: '',
-              status: 'pending' as const,
-              startedAt: new Date(),
-              completedAt: null,
-              executionTimeMs: null,
-              errorMessage: null
-            }))
+            promptResults: [] // Will be populated by streaming
           }
           setResults(initialResults)
           
-          // Start streaming the first prompt
-          setCurrentPromptIndex(0)
-          processNextPrompt(0)
+          // Clear previous messages
+          setMessages([])
+          
+          // Use the model ID returned from the action
+          const modelIdentifier = (result.data as { modelId?: string })?.modelId;
+          
+          if (!modelIdentifier) {
+            setError('No model configured for this tool');
+            return;
+          }
+          
+          // Start streaming using AI SDK's useChat - exactly like /chat does
+          await sendMessage({
+            id: generateRequestId(),
+            role: 'user' as const,
+            parts: [{ type: 'text' as const, text: JSON.stringify(values) }]
+          }, {
+            body: {
+              modelId: modelIdentifier,
+              executionId: result.data.executionId,
+              source: 'assistant_execution'
+            }
+          })
           
         } else {
           // Use polling for older executions without executionId
@@ -309,7 +245,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
           description: errorMessage,
           variant: "destructive"
         })
-        setIsLoading(false)
       }
     } catch (submitError) {
       const errorMessage = submitError instanceof Error ? submitError.message : "Failed to start execution"
@@ -319,11 +254,10 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         description: errorMessage,
         variant: "destructive"
       })
-      setIsLoading(false)
     }
-  }, [isLoading, isPolling, tool.id, results, toast, processNextPrompt, tool.prompts])
+  }, [status, isPolling, tool.id, results, toast, sendMessage, setMessages])
 
-  // Update the form values type
+  // Helper to parse JSON safely for legacy polling
   const safeJsonParse = useCallback((jsonString: string | null | undefined): Record<string, unknown> | null => {
     if (!jsonString) return null;
     try {
@@ -336,10 +270,12 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     }
   }, [])
 
+  // Legacy polling for old executions without streaming support
   useEffect(() => {
+    if (!isPolling) return // Exit early if not polling
+    
     const abortController = new AbortController()
     let intervalId: NodeJS.Timeout | null = null
-    let timeoutId: NodeJS.Timeout | null = null
     let retryCount = 0
     const MAX_RETRIES = 120
     const BACKOFF_THRESHOLD = 20
@@ -358,7 +294,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
           const job = result.data as SelectJob
 
           if (job.status === "completed" || job.status === "failed") {
-            setIsLoading(false)
             setIsPolling(false)
 
             // Try to extract error from job output first, then fall back to job.error
@@ -399,19 +334,13 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
               }));
 
               // Initialize expandedPrompts with all collapsed except the last one
-              // and expandedInputs with all collapsed
               if (promptResultsForState.length > 0) {
                 const lastPromptId = promptResultsForState[promptResultsForState.length - 1].id;
                 const newExpandedPrompts = promptResultsForState.reduce((acc, prompt) => {
                   acc[prompt.id] = prompt.id === lastPromptId;
                   return acc;
                 }, {} as Record<string, boolean>);
-                const newExpandedInputs = promptResultsForState.reduce((acc, prompt) => {
-                  acc[prompt.id] = false;
-                  return acc;
-                }, {} as Record<string, boolean>);
                 setExpandedPrompts(newExpandedPrompts);
-                setExpandedInputs(newExpandedInputs);
               }
 
               setResults({
@@ -459,7 +388,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
       }
 
       if (retryCount >= MAX_RETRIES) {
-        setIsLoading(false)
         setIsPolling(false)
         const timeoutError = "The execution took too long to complete"
         setError(timeoutError)
@@ -512,15 +440,10 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     }
 
     return () => {
-      // Comprehensive cleanup
+      // Cleanup polling on unmount
       abortController.abort() // Cancel any pending operations
       if (intervalId) {
         clearInterval(intervalId)
-        intervalId = null
-      }
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
       }
     }
   }, [isPolling, jobId, tool.id, toast, form, results, safeJsonParse])
@@ -532,12 +455,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     }))
   }, [])
 
-  const toggleInputExpand = useCallback((promptResultId: string) => {
-    setExpandedInputs(prev => ({
-      ...prev,
-      [promptResultId]: !prev[promptResultId]
-    }))
-  }, [])
 
   const copyToClipboard = useCallback(async (text: string | null | undefined) => {
     if (!text) {
@@ -622,36 +539,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     </Alert>
   ));
 
-  // 1. Add a utility to reconstruct the processed prompt
-  function getPromptTemplateAndContext(promptId: string | number) {
-    const promptIdStr = String(promptId)
-    const prompt = tool?.prompts?.find(p => String(p.id) === promptIdStr)
-    return prompt ? { template: prompt.content, context: prompt.systemContext } : { template: '', context: '' }
-  }
-
-  // Add a function to decode HTML entities and remove escapes for variable placeholders
-  function decodePromptVariables(content: string): string {
-    // Replace HTML entity for $ with $
-    let decoded = content.replace(/&#x24;|&\#36;/g, '$');
-    // Remove backslash escapes before $
-    decoded = decoded.replace(/\\\$/g, '$');
-    // Remove backslash escapes before {
-    decoded = decoded.replace(/\\\{/g, '{');
-    // Remove backslash escapes before }
-    decoded = decoded.replace(/\\\}/g, '}');
-    // Remove backslash escapes before _
-    decoded = decoded.replace(/\\_/g, '_');
-    return decoded;
-  }
-
-  function substitutePromptVariables(template: string, inputData: Record<string, unknown>) {
-    const decodedTemplate = decodePromptVariables(template);
-    return decodedTemplate.replace(/\${(\w+)}/g, (_match, key) => {
-      const value = inputData[key]
-      return value !== undefined ? String(value) : `[Missing value for ${key}]`
-    })
-  }
-
   // Add display names to memoized components
   ToolHeader.displayName = "ToolHeader"
   ErrorAlert.displayName = "ErrorAlert"
@@ -723,7 +610,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                           <PdfUploadButton
                             label="Upload PDF"
                             onMarkdown={doc => formField.onChange(doc)}
-                            disabled={isLoading}
+                            disabled={status === 'streaming' || status === 'submitted'}
                             className="w-full"
                           />
                         ) : (
@@ -741,21 +628,19 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                 />
               ))}
               <div className="flex gap-2">
-                <Button type="submit" disabled={isLoading}>
-                  {isLoading ? (
+                <Button type="submit" disabled={status === 'streaming' || status === 'submitted' || isPolling}>
+                  {(status === 'streaming' || status === 'submitted' || isPolling) ? (
                   <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Running...</>
                   ) : (
                   <><Sparkles className="mr-2 h-4 w-4" /> Generate</>
                   )}
                 </Button>
-                {isLoading && isStreaming && (
+                {(status === 'streaming' || status === 'submitted') && (
                   <Button 
                     type="button" 
                     variant="outline" 
                     onClick={() => {
                       stop()
-                      setIsLoading(false)
-                      setCurrentPromptIndex(-1)
                       toast({ 
                         title: "Execution Cancelled", 
                         description: "The execution has been stopped" 
@@ -770,29 +655,115 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         </Form>
       </div>
 
-      {(isLoading || results) && (
+      {(status === 'streaming' || status === 'submitted' || results || messages.length > 0) && (
         <div className="border rounded-lg p-4 space-y-4 max-w-full">
           <div className="flex items-center justify-between">
-            {results && (
-              <div className={`text-sm font-medium ${results.status === 'completed' ? 'text-green-600' : results.status === 'failed' ? 'text-red-600' : 'text-muted-foreground'}`}>
-                Status: {results.status}
-              </div>
-            )}
-            {isLoading && !results && (
-              <div className="text-sm text-muted-foreground">
-                Waiting for results...
+            <div className={`text-sm font-medium ${
+              status === 'streaming' || status === 'submitted' ? 'text-blue-600' : 
+              results?.status === 'completed' || messages.some(m => m.role === 'assistant') ? 'text-green-600' : 
+              results?.status === 'failed' || error ? 'text-red-600' : 
+              'text-muted-foreground'
+            }`}>
+              Status: {
+                status === 'streaming' ? 'Streaming response...' :
+                status === 'submitted' ? 'Processing...' :
+                results?.status === 'completed' || messages.some(m => m.role === 'assistant') ? 'Completed' :
+                results?.status === 'failed' ? 'Failed' :
+                error ? 'Error' :
+                'Ready'
+              }
+            </div>
+            {(status === 'streaming' || status === 'submitted') && (
+              <div className="text-sm text-muted-foreground flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
               </div>
             )}
           </div>
 
           <ErrorBoundary>
             <div className="space-y-6">
-              {isLoading && !results && (
-                <div className="flex items-center justify-center p-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              {/* Show streaming messages directly from useChat */}
+              {(status === 'streaming' || status === 'submitted' || messages.length > 0) && (
+                <div className="space-y-3 p-4 border rounded-md bg-card shadow-sm">
+                  <div className="flex items-center justify-between text-sm font-medium mb-2">
+                    <div className="flex items-center text-muted-foreground">
+                      <Terminal className="h-4 w-4 mr-2" />
+                      <span className="font-semibold text-foreground">AI Response</span>
+                    </div>
+                    {(status === 'streaming' || status === 'submitted') && (
+                      <div className="flex items-center gap-2">
+                        <div className="flex space-x-1">
+                          <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
+                          <div className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: '75ms' }} />
+                          <div className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                        </div>
+                        <span className="text-xs text-muted-foreground">Streaming...</span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="mt-3 border border-border/50 rounded-md overflow-hidden">
+                    <div className="px-3 py-2 bg-muted/40 flex items-center justify-between">
+                      <div className="flex items-center text-xs font-medium text-foreground">
+                        <Bot className="h-3.5 w-3.5 mr-1.5 flex-shrink-0 text-green-500"/>
+                        Output
+                      </div>
+                    </div>
+                    <div className="p-4 bg-background">
+                      <div className="prose prose-sm dark:prose-invert max-w-none">
+                        <div className="markdown-output">
+                          <MemoizedMarkdown 
+                            id={`streaming-${executionId || 'unknown'}`}
+                            content={(() => {
+                            const assistantMsg = messages.find(m => m.role === 'assistant');
+                            if (!assistantMsg) return "Waiting for response...";
+                            // Handle AI SDK v2 message format
+                            if ('parts' in assistantMsg && Array.isArray(assistantMsg.parts)) {
+                              return assistantMsg.parts
+                                .filter(part => part.type === 'text')
+                                .map(part => part.text || '')
+                                .join('');
+                            }
+                            // Fallback to content if available
+                            return (assistantMsg as { content?: string }).content || "Waiting for response...";
+                          })()} />
+                        </div>
+                      </div>
+                      {messages.find(m => m.role === 'assistant') && (
+                        <div className="flex items-center gap-2 justify-end mt-4">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title="Copy output"
+                            onClick={() => {
+                              const assistantMsg = messages.find(m => m.role === 'assistant');
+                              let content = "";
+                              if (assistantMsg) {
+                                if ('parts' in assistantMsg && Array.isArray(assistantMsg.parts)) {
+                                  content = assistantMsg.parts
+                                    .filter(part => part.type === 'text')
+                                    .map(part => part.text || '')
+                                    .join('');
+                                } else {
+                                  content = (assistantMsg as { content?: string }).content || "";
+                                }
+                              }
+                              copyToClipboard(content);
+                            }}
+                          >
+                            <Copy className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground transition-colors" />
+                            <span className="sr-only">Copy output</span>
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
-              {results?.promptResults && results.promptResults.length > 0 ? (
+              
+              {/* Show final results when available from polling */}
+              {results?.promptResults && results.promptResults.length > 0 && status !== 'streaming' && status !== 'submitted' && (
                 <div className="space-y-6">
                   {results.promptResults.map((promptResult: ExtendedPromptResult, index: number) => (
                     <div key={promptResult.id} className="space-y-3 p-4 border rounded-md bg-card shadow-sm">
@@ -802,19 +773,9 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                       >
                         <div className="flex items-center text-muted-foreground">
                           <Terminal className="h-4 w-4 mr-2" />
-                          <span className="font-semibold text-foreground">Prompt {index + 1} - {tool.prompts?.find(p => p.id === promptResult.promptId)?.name || 'Unnamed'}</span>
+                          <span className="font-semibold text-foreground">Prompt {index + 1} - {tool.prompts?.find(p => p.id === promptResult.promptId)?.name || 'Results'}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          {currentPromptIndex === index && isStreaming && (
-                            <div className="flex items-center gap-2">
-                              <div className="flex space-x-1">
-                                <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
-                                <div className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: '75ms' }} />
-                                <div className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
-                              </div>
-                              <span className="text-xs text-muted-foreground">Streaming...</span>
-                            </div>
-                          )}
                           <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
                             promptResult.status === "completed" ? "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300"
                             : promptResult.status === "failed" ? "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300"
@@ -832,222 +793,75 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                         </div>
                       </button>
 
-                      {expandedPrompts[String(promptResult.id)] && (
-                        <>
-                          {promptResult.inputData && (
-                            <div className="border border-border/50 rounded-md overflow-hidden">
-                              <button
-                                onClick={() => toggleInputExpand(String(promptResult.id))}
-                                className="w-full px-3 py-2 bg-muted/40 hover:bg-muted/60 transition-colors flex items-center justify-between text-xs font-medium text-foreground"
+                      {expandedPrompts[String(promptResult.id)] && promptResult.outputData && (
+                        <div className="mt-3 border border-border/50 rounded-md overflow-hidden">
+                          <div className="px-3 py-2 bg-muted/40 flex items-center justify-between">
+                            <div className="flex items-center text-xs font-medium text-foreground">
+                              <Bot className="h-3.5 w-3.5 mr-1.5 flex-shrink-0 text-green-500"/>
+                              Output
+                            </div>
+                          </div>
+                          <div className="p-4 bg-background">
+                            <div className="prose prose-sm dark:prose-invert max-w-none">
+                              <div className="markdown-output">
+                                <MemoizedMarkdown 
+                                  id={`result-${promptResult.id}`}
+                                  content={promptResult.outputData || ""} />
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 justify-end mt-4">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                title="Copy output"
+                                onClick={() => copyToClipboard(promptResult.outputData || "")}
                               >
-                                <div className="flex items-center">
-                                  <User className="h-3 w-3 mr-1.5 flex-shrink-0 text-blue-500"/>
-                                  Input Data Used
-                                </div>
-                                {expandedInputs[String(promptResult.id)] ? (
-                                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                                ) : (
-                                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                                )}
-                              </button>
-                              {expandedInputs[String(promptResult.id)] && (
-                                <div className="p-3 bg-muted/20 space-y-4">
-                                  <div>
-                                    <div className="font-semibold text-xs mb-1">Input Data</div>
-                                    <pre className="text-xs whitespace-pre-wrap break-all font-mono text-muted-foreground">
-                                      {JSON.stringify(promptResult.inputData, null, 2)}
-                                    </pre>
-                                  </div>
-                                  <div>
-                                    <div className="font-semibold text-xs mb-1">Processed Prompt</div>
-                                    <pre className="text-xs whitespace-pre-wrap break-all font-mono text-muted-foreground">
-                                      {(() => {
-                                        const { template } = getPromptTemplateAndContext(promptResult.promptId)
-                                        return substitutePromptVariables(template, promptResult.inputData || {})
-                                      })()}
-                                    </pre>
-                                  </div>
-                                  <div>
-                                    <div className="font-semibold text-xs mb-1">System Context</div>
-                                    <pre className="text-xs whitespace-pre-wrap break-all font-mono text-muted-foreground">
-                                      {(() => {
-                                        const { context } = getPromptTemplateAndContext(promptResult.promptId)
-                                        return context || ''
-                                      })()}
-                                    </pre>
-                                  </div>
-                                </div>
-                              )}
+                                <Copy className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground transition-colors" />
+                                <span className="sr-only">Copy output</span>
+                              </Button>
+                              <Button
+                                variant={promptResult.userFeedback === 'like' ? 'success' : 'ghost'}
+                                size="icon"
+                                className="h-7 w-7"
+                                title="Like output"
+                                onClick={async () => await handleFeedback(promptResult, 'like')}
+                              >
+                                <ThumbsUp className={`h-3.5 w-3.5 ${promptResult.userFeedback === 'like' ? 'text-green-500' : 'text-muted-foreground'} transition-colors`} />
+                                <span className="sr-only">Like output</span>
+                              </Button>
+                              <Button
+                                variant={promptResult.userFeedback === 'dislike' ? 'error' : 'ghost'}
+                                size="icon"
+                                className="h-7 w-7"
+                                title="Dislike output"
+                                onClick={async () => await handleFeedback(promptResult, 'dislike')}
+                              >
+                                <ThumbsDown className={`h-3.5 w-3.5 ${promptResult.userFeedback === 'dislike' ? 'text-red-500' : 'text-muted-foreground'} transition-colors`} />
+                                <span className="sr-only">Dislike output</span>
+                              </Button>
                             </div>
-                          )}
-
-                          {(promptResult.outputData || (currentPromptIndex === index && completion)) && (
-                            <div className="mt-3 border border-border/50 rounded-md overflow-hidden">
-                              <div className="px-3 py-2 bg-muted/40 flex items-center justify-between">
-                                <div className="flex items-center text-xs font-medium text-foreground">
-                                  <Bot className="h-3.5 w-3.5 mr-1.5 flex-shrink-0 text-green-500"/>
-                                  Output
-                                </div>
-                              </div>
-                              <div className="p-4 bg-background">
-                                <div className="prose prose-sm dark:prose-invert max-w-none">
-                                  <style jsx global>{`
-                                    /* General Markdown Output Area */
-                                    .markdown-output {
-                                      line-height: 1.6; /* Slightly more spacious line height */
-                                      font-size: 0.95rem; /* Slightly larger base font */
-                                      color: var(--foreground);
-                                      overflow-wrap: break-word;
-                                      word-break: break-word; /* Ensure long words break */
-                                    }
-
-                                    /* Headings - Clear hierarchy, balanced spacing */
-                                    .markdown-output h1,
-                                    .markdown-output h2,
-                                    .markdown-output h3,
-                                    .markdown-output h4,
-                                    .markdown-output h5,
-                                    .markdown-output h6 {
-                                      font-weight: 600;
-                                      color: var(--foreground);
-                                      margin-top: 1.75em; /* More space above headings */
-                                      margin-bottom: 0.75em; /* Less space below headings */
-                                      line-height: 1.3;
-                                    }
-                                    .markdown-output h1 { /* Mapped to h2 by component override */
-                                      font-size: 1.3em; /* Larger */
-                                      padding-bottom: 0.3em;
-                                      border-bottom: 1px solid var(--border);
-                                    }
-                                    .markdown-output h2 { /* Mapped to h3 */
-                                      font-size: 1.15em;
-                                    }
-                                    .markdown-output h3 { /* Mapped to h4 */
-                                      font-size: 1.05em;
-                                    }
-                                    /* Prevent excessive top margin for the very first element */
-                                    .markdown-output > *:first-child {
-                                      margin-top: 0;
-                                    }
-
-                                    /* Paragraphs - Standard spacing */
-                                    .markdown-output p {
-                                      margin-top: 0.6em;
-                                      margin-bottom: 0.6em;
-                                    }
-
-                                    /* Lists - Proper indentation and spacing */
-                                    .markdown-output ul,
-                                    .markdown-output ol {
-                                      margin-top: 0.6em;
-                                      margin-bottom: 0.6em;
-                                      padding-left: 1.75em; /* Standard indentation */
-                                    }
-                                    .markdown-output li {
-                                      margin-top: 0.25em;
-                                      margin-bottom: 0.25em;
-                                    }
-                                    .markdown-output ul { list-style-type: disc; }
-                                    .markdown-output ol { list-style-type: decimal; }
-                                    .markdown-output li > p { margin-top: 0.25em; margin-bottom: 0.25em; } /* Tighter spacing for paragraphs within list items */
-                                    .markdown-output li > ul,
-                                    .markdown-output li > ol {
-                                      margin-top: 0.25em;
-                                      margin-bottom: 0.25em;
-                                    }
-
-                                    /* Other elements */
-                                    .markdown-output strong { font-weight: 600; }
-                                    .markdown-output blockquote {
-                                      border-left: 3px solid var(--border); /* Slightly thicker border */
-                                      padding-left: 1em;
-                                      margin-top: 1em;
-                                      margin-bottom: 1em;
-                                      color: var(--muted-foreground);
-                                      font-style: italic;
-                                    }
-                                    .markdown-output pre, .markdown-output code:not(pre code) {
-                                      max-width: 100%;
-                                      white-space: pre-wrap;
-                                      word-wrap: break-word;
-                                      overflow-wrap: break-word;
-                                    }
-                                    .markdown-output code:not(pre code) {
-                                      background-color: var(--muted);
-                                      padding: 0.2em 0.4em;
-                                      border-radius: 3px;
-                                      font-size: 0.9em;
-                                    }
-                                  `}</style>
-                                  <div className="markdown-output">
-                                    <ReactMarkdown
-                                      components={{
-                                      h1: (props) => <h2 {...props} />,
-                                      h2: (props) => <h3 {...props} />,
-                                      h3: (props) => <h4 {...props} />,
-                                    }}
-                                  >
-                                    {currentPromptIndex === index && completion ? completion : promptResult.outputData || ""}
-                                    </ReactMarkdown>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2 justify-end mt-4">
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7"
-                                    title="Copy output"
-                                    onClick={() => copyToClipboard(
-                                      currentPromptIndex === index && completion ? completion : promptResult.outputData || ""
-                                    )}
-                                  >
-                                    <Copy className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground transition-colors" />
-                                    <span className="sr-only">Copy output</span>
-                                  </Button>
-                                  <Button
-                                    variant={promptResult.userFeedback === 'like' ? 'success' : 'ghost'}
-                                    size="icon"
-                                    className="h-7 w-7"
-                                    title="Like output"
-                                    onClick={async () => await handleFeedback(promptResult, 'like')}
-                                  >
-                                    <ThumbsUp className={`h-3.5 w-3.5 ${promptResult.userFeedback === 'like' ? 'text-green-500' : 'text-muted-foreground'} transition-colors`} />
-                                    <span className="sr-only">Like output</span>
-                                  </Button>
-                                  <Button
-                                    variant={promptResult.userFeedback === 'dislike' ? 'error' : 'ghost'}
-                                    size="icon"
-                                    className="h-7 w-7"
-                                    title="Dislike output"
-                                    onClick={async () => await handleFeedback(promptResult, 'dislike')}
-                                  >
-                                    <ThumbsDown className={`h-3.5 w-3.5 ${promptResult.userFeedback === 'dislike' ? 'text-red-500' : 'text-muted-foreground'} transition-colors`} />
-                                    <span className="sr-only">Dislike output</span>
-                                  </Button>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </>
+                          </div>
+                        </div>
                       )}
                     </div>
                   ))}
-                  {(results.status === "completed" || conversationId !== null) && (
-                    <div className="mt-8">
-                      <ChatErrorBoundary>
-                        <AssistantArchitectChat
-                          execution={results as unknown as ExecutionResultDetails}
-                          conversationId={conversationId}
-                          onConversationCreated={setConversationId}
-                          isPreview={isPreview}
-                          modelId={tool?.prompts?.[0]?.modelId}
-                        />
-                      </ChatErrorBoundary>
-                    </div>
-                  )}
                 </div>
-              ) : (
-                 results && !isLoading && <p className="text-sm text-muted-foreground text-center py-4">No prompt results were generated.</p>
+              )}
+              
+              {/* Chat section for completed executions */}
+              {(results?.status === "completed" || conversationId !== null) && (
+                <div className="mt-8">
+                  <ChatErrorBoundary>
+                    <AssistantArchitectChat
+                      execution={results as unknown as ExecutionResultDetails}
+                      conversationId={conversationId}
+                      onConversationCreated={setConversationId}
+                      isPreview={isPreview}
+                      modelId={tool?.prompts?.[0]?.modelId}
+                    />
+                  </ChatErrorBoundary>
+                </div>
               )}
             </div>
           </ErrorBoundary>
