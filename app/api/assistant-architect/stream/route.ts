@@ -6,11 +6,11 @@ import { rateLimit } from "@/lib/rate-limit";
 import { NextRequest } from 'next/server';
 import { createProviderModel } from "@/app/api/chat/lib/provider-factory";
 import { transformSnakeToCamel } from '@/lib/db/field-mapper';
+import { streamText } from 'ai';
 
 // Try static import again to see the actual error
 import { retrieveKnowledgeForPrompt, formatKnowledgeContext } from "@/lib/assistant-architect/knowledge-retrieval";
 import { parseRepositoryIds } from "@/lib/utils/repository-utils";
-import { createAdaptedStream } from "../lib/stream-adapter";
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -436,29 +436,39 @@ export async function POST(req: NextRequest) {
                 // modelId from database is the actual model string like "gpt-5"
                 const model = await createProviderModel(prompt.provider, prompt.modelId);
                 
-                // Use our adapter to stream the response
-                const adaptedStream = await createAdaptedStream({
+                // Stream directly using AI SDK's streamText
+                const streamResult = streamText({
                   model,
-                  messages,
-                  promptIndex: i,
-                  promptId: prompt.id,
-                  modelName: prompt.modelName,
-                  onComplete: (result) => {
-                    fullResponse = result;
-                  }
+                  messages: messages.map(m => ({
+                    role: m.role,
+                    content: String(m.content)
+                  }))
                 });
                 
-                // Pipe the adapted stream to our output
-                const reader = adaptedStream.getReader();
-                try {
-                  while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    controller.enqueue(value);
-                  }
-                } finally {
-                  reader.releaseLock();
+                // Send initial streaming status
+                controller.enqueue(encoder.encode(
+                  `data: ${JSON.stringify({
+                    type: 'status',
+                    message: 'Streaming response...',
+                    promptIndex: i
+                  })}\n\n`
+                ));
+                
+                // Process the stream and convert to our format
+                for await (const chunk of streamResult.textStream) {
+                  fullResponse += chunk;
+                  
+                  // Send token event in our custom format
+                  controller.enqueue(encoder.encode(
+                    `data: ${JSON.stringify({
+                      type: 'token',
+                      promptIndex: i,
+                      token: chunk
+                    })}\n\n`
+                  ));
                 }
+                
+                // The stream is complete when we exit the for await loop
                 
 
                 // Update prompt result with full response
