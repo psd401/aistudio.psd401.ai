@@ -1,6 +1,5 @@
 import { getServerSession } from "@/lib/auth/server-session";
 import { executeSQL } from "@/lib/db/data-api-adapter";
-import { streamText } from "ai";
 import { createLogger, generateRequestId, startTimer } from "@/lib/logger";
 import { ErrorFactories } from "@/lib/error-utils";
 import { rateLimit } from "@/lib/rate-limit";
@@ -11,6 +10,7 @@ import { transformSnakeToCamel } from '@/lib/db/field-mapper';
 // Try static import again to see the actual error
 import { retrieveKnowledgeForPrompt, formatKnowledgeContext } from "@/lib/assistant-architect/knowledge-retrieval";
 import { parseRepositoryIds } from "@/lib/utils/repository-utils";
+import { createAdaptedStream } from "../lib/stream-adapter";
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -197,20 +197,10 @@ export async function POST(req: NextRequest) {
       return new Response('Execution is in an invalid state', { status: 400, headers: { 'X-Request-Id': requestId } });
     }
 
-    // Create a ReadableStream with heartbeat for SSE
+    // Create a ReadableStream for SSE using our adapter
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
-        // Set up heartbeat interval to prevent timeouts
-        const heartbeatInterval = setInterval(() => {
-          try {
-            // Send SSE comment as heartbeat (doesn't affect client parsing)
-            controller.enqueue(encoder.encode(': heartbeat\n\n'));
-          } catch (e) {
-            // Stream might be closed, clear interval
-            clearInterval(heartbeatInterval);
-          }
-        }, 10000); // Send heartbeat every 10 seconds
         
         try {
           // Send initial metadata
@@ -446,36 +436,28 @@ export async function POST(req: NextRequest) {
                 // modelId from database is the actual model string like "gpt-5"
                 const model = await createProviderModel(prompt.provider, prompt.modelId);
                 
-                // Use streamText directly like the chat route does
-                const streamResult = streamText({
+                // Use our adapter to stream the response
+                const adaptedStream = await createAdaptedStream({
                   model,
-                  messages: messages.map(m => ({
-                    role: m.role,
-                    content: String(m.content) // Ensure content is a string
-                  }))
+                  messages,
+                  promptIndex: i,
+                  promptId: prompt.id,
+                  modelName: prompt.modelName,
+                  onComplete: (result) => {
+                    fullResponse = result;
+                  }
                 });
                 
-                // Send first token event to indicate streaming has started
-                controller.enqueue(encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: 'status',
-                    message: 'AI is responding...',
-                    promptIndex: i
-                  })}\\n\\n`
-                ));
-                
-                // Consume the stream exactly like the AI SDK expects
-                for await (const chunk of streamResult.textStream) {
-                  fullResponse += chunk;
-                  
-                  // Send token to client
-                  controller.enqueue(encoder.encode(
-                    `data: ${JSON.stringify({
-                      type: 'token',
-                      promptIndex: i,
-                      token: chunk
-                    })}\n\n`
-                  ));
+                // Pipe the adapted stream to our output
+                const reader = adaptedStream.getReader();
+                try {
+                  while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    controller.enqueue(value);
+                  }
+                } finally {
+                  reader.releaseLock();
                 }
                 
 
@@ -564,8 +546,7 @@ export async function POST(req: NextRequest) {
             })}\n\n`
           ));
 
-          // Clear heartbeat and close stream
-          clearInterval(heartbeatInterval);
+          // Close stream
           controller.close();
 
         } catch (error) {
@@ -594,8 +575,7 @@ export async function POST(req: NextRequest) {
             })}\n\n`
           ));
           
-          // Clear heartbeat and close stream
-          clearInterval(heartbeatInterval);
+          // Close stream
           controller.close();
         }
       }
