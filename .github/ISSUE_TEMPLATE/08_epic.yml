@@ -1,0 +1,139 @@
+name: 🎯 Epic
+description: Create an epic for tracking large features or initiatives
+title: "[EPIC] "
+labels: ["epic", "tracking"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🎯 Epic
+        Use this template to create an epic that tracks multiple related issues.
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: Epic Objective
+      description: What is the high-level goal?
+      placeholder: |
+        Implement complete user authentication system with SSO support
+    validations:
+      required: true
+
+  - type: textarea
+    id: business_value
+    attributes:
+      label: Business Value
+      description: Why is this important?
+      placeholder: |
+        - Increased security
+        - Better user experience
+        - Compliance requirements
+        - Market differentiation
+    validations:
+      required: true
+
+  - type: textarea
+    id: success_criteria
+    attributes:
+      label: Success Criteria
+      description: How do we know when this epic is complete?
+      value: |
+        - [ ] All child issues completed
+        - [ ] Documentation updated
+        - [ ] Tests passing with >90% coverage
+        - [ ] Performance benchmarks met
+        - [ ] Security review completed
+        - [ ] Deployed to production
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What's included and excluded?
+      value: |
+        **In Scope:**
+        - 
+        
+        **Out of Scope:**
+        - 
+    validations:
+      required: true
+
+  - type: textarea
+    id: stories
+    attributes:
+      label: User Stories / Child Issues
+      description: List all related issues
+      value: |
+        ## Frontend
+        - [ ] #issue_number - Description
+        
+        ## Backend
+        - [ ] #issue_number - Description
+        
+        ## Database
+        - [ ] #issue_number - Description
+        
+        ## Infrastructure
+        - [ ] #issue_number - Description
+        
+        ## Testing
+        - [ ] #issue_number - Description
+        
+        ## Documentation
+        - [ ] #issue_number - Description
+    validations:
+      required: true
+
+  - type: textarea
+    id: timeline
+    attributes:
+      label: Timeline
+      description: Proposed timeline and milestones
+      value: |
+        **Phase 1 - Foundation (Week 1-2)**
+        - Setup infrastructure
+        - Database schema
+        
+        **Phase 2 - Core Features (Week 3-4)**
+        - Basic functionality
+        - API endpoints
+        
+        **Phase 3 - Polish (Week 5)**
+        - UI improvements
+        - Performance optimization
+        
+        **Phase 4 - Launch (Week 6)**
+        - Documentation
+        - Deployment
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks and Mitigation
+      description: What could go wrong?
+      placeholder: |
+        Risk: Third-party API limitations
+        Mitigation: Implement fallback providers
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0 - Critical
+        - P1 - High
+        - P2 - Medium
+        - P3 - Low
+    validations:
+      required: true
+
+  - type: input
+    id: estimated_effort
+    attributes:
+      label: Estimated Effort
+      description: T-shirt size or story points
+      placeholder: "XL (3-4 sprints)"

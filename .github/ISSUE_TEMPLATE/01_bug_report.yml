@@ -1,0 +1,160 @@
+name: 🐛 Bug Report
+description: Report a bug or unexpected behavior
+title: "[BUG] "
+labels: ["bug", "needs-triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🐛 Bug Report
+        Thanks for taking the time to report this bug! Please fill out the sections below to help us understand and reproduce the issue.
+        
+        **Please search existing issues before creating a new one.**
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      description: Please confirm the following
+      options:
+        - label: I have searched the existing issues
+          required: true
+        - label: I have tested with the latest version
+          required: true
+        - label: I have read the documentation
+          required: true
+        - label: This is not a security vulnerability (use private disclosure if it is)
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is
+      placeholder: |
+        When I try to... 
+        I expect to see...
+        But instead...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How severe is this bug?
+      options:
+        - "🔴 Critical - System is unusable"
+        - "🟠 High - Major feature broken"
+        - "🟡 Medium - Minor feature broken"
+        - "🟢 Low - Cosmetic or minor issue"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      description: Which part of the system is affected?
+      multiple: true
+      options:
+        - Frontend (Next.js)
+        - Backend (Lambda)
+        - Database (RDS)
+        - Authentication (Cognito)
+        - LLM Integration (Bedrock/OpenAI)
+        - Infrastructure (AWS/Amplify)
+        - API Gateway
+        - CI/CD Pipeline
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Detailed steps to reproduce the behavior
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. Scroll down to '...'
+        4. See error
+      value: |
+        1. 
+        2. 
+        3. 
+        4. 
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Logs
+      description: Please paste any relevant error logs
+      render: shell
+      placeholder: |
+        ```
+        Error: Connection refused
+        at Socket.<anonymous> (net.js:201:12)
+        ```
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Please complete the following information
+      value: |
+        - **OS**: [e.g., macOS 14.0, Ubuntu 22.04, Windows 11]
+        - **Node Version**: [e.g., 20.11.0]
+        - **Package Manager**: [npm/yarn/pnpm] [version]
+        - **Browser**: [e.g., Chrome 120, Safari 17, Firefox 121]
+        - **Device**: [Desktop/Mobile/Tablet]
+        - **Deployment**: [Local/Staging/Production]
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots/Videos
+      description: Add screenshots or videos to help explain the problem
+      placeholder: Drag and drop images here or paste links
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Possible Workaround
+      description: Have you found any workaround for this issue?
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context about the problem
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to submit a PR to fix this issue

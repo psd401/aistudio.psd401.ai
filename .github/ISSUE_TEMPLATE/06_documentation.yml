@@ -1,0 +1,76 @@
+name: 📚 Documentation
+description: Report documentation issues or improvements
+title: "[DOCS] "
+labels: ["documentation"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 📚 Documentation Issue
+        Help us improve our documentation!
+
+  - type: dropdown
+    id: doc_type
+    attributes:
+      label: Documentation Type
+      options:
+        - API Documentation
+        - Setup/Installation Guide
+        - Tutorial
+        - Architecture Documentation
+        - Code Comments
+        - README
+        - Contributing Guide
+        - Security Policy
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: issue_type
+    attributes:
+      label: Issue Type
+      options:
+        - Missing Documentation
+        - Incorrect Information
+        - Outdated Content
+        - Unclear Explanation
+        - Broken Links
+        - Missing Examples
+        - Typo/Grammar
+    validations:
+      required: true
+
+  - type: textarea
+    id: location
+    attributes:
+      label: Documentation Location
+      description: Where is the documentation issue?
+      placeholder: |
+        URL: https://docs.example.com/getting-started
+        File: README.md, Line 45
+        Section: Authentication Guide
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current Documentation
+      description: What does it currently say?
+
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed Documentation
+      description: What should it say instead?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I can submit a PR with the documentation fix

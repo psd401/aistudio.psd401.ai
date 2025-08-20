@@ -1,0 +1,59 @@
+name: 🚀 Enhancement
+description: Suggest an improvement to existing functionality
+title: "[ENHANCE] "
+labels: ["enhancement", "improvement"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🚀 Enhancement Request
+        Suggest improvements to make existing features better!
+
+  - type: textarea
+    id: current_behavior
+    attributes:
+      label: Current Behavior
+      description: How does the feature currently work?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_behavior
+    attributes:
+      label: Proposed Enhancement
+      description: How should it work after the enhancement?
+    validations:
+      required: true
+
+  - type: textarea
+    id: benefits
+    attributes:
+      label: Benefits
+      description: What are the benefits of this enhancement?
+      placeholder: |
+        - Improved performance
+        - Better user experience
+        - Reduced complexity
+        - Cost savings
+    validations:
+      required: true
+
+  - type: dropdown
+    id: breaking_change
+    attributes:
+      label: Breaking Change
+      description: Would this be a breaking change?
+      options:
+        - "No - Backward compatible"
+        - "Yes - Minor breaking change"
+        - "Yes - Major breaking change"
+    validations:
+      required: true
+
+  - type: textarea
+    id: migration
+    attributes:
+      label: Migration Strategy
+      description: If breaking, how should users migrate?
+      placeholder: Only required if this is a breaking change

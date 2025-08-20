@@ -1,0 +1,95 @@
+name: ⚡ Performance Issue
+description: Report slow performance or optimization opportunities
+title: "[PERF] "
+labels: ["performance", "optimization"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚡ Performance Issue
+        Help us identify and fix performance bottlenecks!
+
+  - type: dropdown
+    id: perf_type
+    attributes:
+      label: Performance Type
+      description: What kind of performance issue?
+      options:
+        - Page Load Speed
+        - API Response Time
+        - Database Query Performance
+        - Lambda Cold Start
+        - Memory Usage
+        - CPU Usage
+        - Network Latency
+        - Build Time
+        - Test Execution Time
+    validations:
+      required: true
+
+  - type: textarea
+    id: metrics
+    attributes:
+      label: Current Performance Metrics
+      description: Provide specific measurements
+      placeholder: |
+        - Page load time: 5.2 seconds
+        - API response: 1500ms average
+        - Memory usage: 2GB
+        - Query time: 800ms
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_metrics
+    attributes:
+      label: Expected Performance
+      description: What performance level is acceptable?
+      placeholder: |
+        - Page load time: < 2 seconds
+        - API response: < 500ms
+        - Memory usage: < 500MB
+        - Query time: < 100ms
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: How can we observe this performance issue?
+      value: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: true
+
+  - type: textarea
+    id: profiling
+    attributes:
+      label: Profiling Data
+      description: Attach any profiling data, flame graphs, or performance recordings
+      placeholder: |
+        Attach Chrome DevTools performance profile
+        Include AWS X-Ray traces
+        Add DataDog APM screenshots
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: User Impact
+      description: How does this affect users?
+      placeholder: |
+        - Users experiencing timeouts
+        - Increased bounce rate
+        - Poor mobile experience
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestions
+    attributes:
+      label: Optimization Suggestions
+      description: Any ideas for optimization?
