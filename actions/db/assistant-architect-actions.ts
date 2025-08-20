@@ -574,14 +574,18 @@ export async function deleteAssistantArchitectAction(
     const currentUser = currentUserResult.data.user;
     const isOwner = architect.user_id === currentUser.id;
     
-    // Check if user has admin access
-    const isAdmin = await hasToolAccess(session.sub, "admin");
+    // Check if user has user-management or role-management access (admin privileges)
+    const hasUserManagement = await hasToolAccess(session.sub, "user-management");
+    const hasRoleManagement = await hasToolAccess(session.sub, "role-management");
+    const isAdmin = hasUserManagement || hasRoleManagement;
     
     log.debug("Permission check", { 
       userId: currentUser.id,
       assistantOwnerId: architect.user_id,
       isOwner,
-      isAdmin 
+      isAdmin,
+      hasUserManagement,
+      hasRoleManagement
     })
     
     // Check permissions: owner OR admin can delete
@@ -603,7 +607,9 @@ export async function deleteAssistantArchitectAction(
       id,
       deletedBy: currentUser.id,
       isOwnerDeletion: isOwner,
-      isAdminDeletion: !isOwner && isAdmin 
+      isAdminDeletion: !isOwner && isAdmin,
+      hasUserManagement,
+      hasRoleManagement
     })
     
     // Delete from tools table (using prompt_chain_tool_id which references assistant_architect)
