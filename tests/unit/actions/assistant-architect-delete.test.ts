@@ -1,11 +1,16 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals'
 
 // Create simple mock functions
-const mockExecuteSQL = jest.fn()
-const mockDeleteAssistantArchitect = jest.fn()
-const mockHasToolAccess = jest.fn()
-const mockGetCurrentUserAction = jest.fn()
-const mockGetServerSession = jest.fn()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockExecuteSQL = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockDeleteAssistantArchitect = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockHasToolAccess = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGetCurrentUserAction = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGetServerSession = jest.fn<any>()
 
 // Mock all dependencies
 jest.mock('@/lib/auth/server-session', () => ({
