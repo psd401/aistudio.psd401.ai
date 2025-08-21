@@ -86,13 +86,17 @@ jest.mock('@/components/ui/form', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
     const Component = ({ children, render, control, setValue, handleSubmit, ...props }: any) => {
       // Filter out react-hook-form specific props to avoid DOM warnings
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { 
         name: fieldName, 
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         rules, 
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         defaultValue, 
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         onBlur, 
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         onChange, 
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         value,
         ...domProps 
       } = props;
