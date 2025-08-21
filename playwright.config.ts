@@ -1,14 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Read environment variables from file.
- * https://github.com/motdotla/dotenv
- */
-// import dotenv from 'dotenv';
-// import path from 'path';
-// dotenv.config({ path: path.resolve(__dirname, '.env.test.local') });
-
-/**
  * See https://playwright.dev/docs/test-configuration.
  */
 export default defineConfig({
@@ -18,9 +10,9 @@ export default defineConfig({
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
-  retries: process.env.CI ? 1 : 0, // Reduced from 2 to 1 for faster CI
-  /* Use multiple workers even in CI for better performance */
-  workers: process.env.CI ? 4 : undefined, // Increased from 1 to 4 workers in CI
+  retries: process.env.CI ? 1 : 0,
+  /* Reduce workers in CI to avoid resource contention */
+  workers: process.env.CI ? 2 : undefined,
   
   /* Global test timeout - kill any test that runs longer than 30 seconds */
   timeout: 30 * 1000,
@@ -48,8 +40,8 @@ export default defineConfig({
     /* Take screenshot on failure only to save time */
     screenshot: 'only-on-failure',
 
-    /* Video only on failure in CI to reduce storage */
-    video: process.env.CI ? 'retain-on-failure' : 'off',
+    /* Disable video in CI to avoid ffmpeg issues */
+    video: process.env.CI ? 'off' : 'retain-on-failure',
     
     /* Use headless mode in CI for better performance */
     headless: process.env.CI ? true : false,
@@ -79,8 +71,7 @@ export default defineConfig({
       name: 'chromium',
       use: { 
         ...devices['Desktop Chrome'],
-        // Use faster channel for CI
-        channel: 'chrome',
+        // Remove channel setting that might cause issues
       },
     },
   ] : [
@@ -99,26 +90,6 @@ export default defineConfig({
       name: 'webkit',
       use: { ...devices['Desktop Safari'] },
     },
-
-    /* Test against mobile viewports. */
-    // {
-    //   name: 'Mobile Chrome',
-    //   use: { ...devices['Pixel 5'] },
-    // },
-    // {
-    //   name: 'Mobile Safari',
-    //   use: { ...devices['iPhone 12'] },
-    // },
-
-    /* Test against branded browsers. */
-    // {
-    //   name: 'Microsoft Edge',
-    //   use: { ...devices['Desktop Edge'], channel: 'msedge' },
-    // },
-    // {
-    //   name: 'Google Chrome',
-    //   use: { ...devices['Desktop Chrome'], channel: 'chrome' },
-    // },
   ],
 
   /* Run your local dev server before starting the tests */
@@ -128,6 +99,6 @@ export default defineConfig({
         command: 'npm run dev',
         port: 3000,
         reuseExistingServer: true,
-        timeout: 60 * 1000, // Reduced from 120s to 60s
+        timeout: 60 * 1000,
       },
 });

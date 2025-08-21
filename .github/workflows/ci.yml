@@ -86,10 +86,13 @@ jobs:
       env:
         # Required environment variables for build
         NEXTAUTH_URL: http://localhost:3000
-        NEXTAUTH_SECRET: test-secret-for-ci-only
+        AUTH_TRUST_HOST: true
+        NEXTAUTH_SECRET: test-secret-for-ci-only-minimum-32-characters-long
         DATABASE_SECRET_ARN: arn:aws:secretsmanager:us-east-1:123456789012:secret:test
         DATABASE_ARN: arn:aws:rds:us-east-1:123456789012:cluster:test
         AWS_REGION: us-east-1
+        # Mock AI provider settings for build
+        OPENAI_API_KEY: sk-test-mock-key-for-build-only
     
     - name: Start Next.js server
       run: |
@@ -97,20 +100,32 @@ jobs:
         npx wait-on http://localhost:3000 --timeout 30000
       env:
         NEXTAUTH_URL: http://localhost:3000
-        NEXTAUTH_SECRET: test-secret-for-ci-only
+        AUTH_TRUST_HOST: true
+        NEXTAUTH_SECRET: test-secret-for-ci-only-minimum-32-characters-long
         DATABASE_SECRET_ARN: arn:aws:secretsmanager:us-east-1:123456789012:secret:test
         DATABASE_ARN: arn:aws:rds:us-east-1:123456789012:cluster:test
         AWS_REGION: us-east-1
+        # Mock AI provider settings
+        OPENAI_API_KEY: sk-test-mock-key-for-ci-only
+        NODE_ENV: production
     
     - name: Run E2E tests
       run: npx playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
       timeout-minutes: 8  # Test execution timeout
       env:
         CI: true
-        # Mock authentication for CI
+        # Fix auth trust host issue
         NEXTAUTH_URL: http://localhost:3000
-        NEXTAUTH_SECRET: test-secret-for-ci-only
+        AUTH_TRUST_HOST: true
+        NEXTAUTH_SECRET: test-secret-for-ci-only-minimum-32-characters-long
         PLAYWRIGHT_BROWSERS_PATH: 0  # Use system-installed browsers
+        # Mock database to prevent connection errors
+        DATABASE_SECRET_ARN: arn:aws:secretsmanager:us-east-1:123456789012:secret:test
+        DATABASE_ARN: arn:aws:rds:us-east-1:123456789012:cluster:test
+        AWS_REGION: us-east-1
+        # Disable real AWS calls in tests
+        AWS_ACCESS_KEY_ID: test
+        AWS_SECRET_ACCESS_KEY: test
     
     - name: Upload test results
       uses: actions/upload-artifact@v4
