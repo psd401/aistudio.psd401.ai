@@ -139,8 +139,8 @@ jobs:
         npm ci
         cd infra && npm ci
     
-    - name: Install CDK CLI v3
-      run: npm install -g aws-cdk@3
+    - name: Install CDK CLI
+      run: npm install -g aws-cdk@2
     
     - name: Build CDK TypeScript
       run: cd infra && npm run build
