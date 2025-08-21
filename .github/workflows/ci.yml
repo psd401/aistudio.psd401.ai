@@ -62,7 +62,7 @@ jobs:
     strategy:
       fail-fast: false  # Continue other jobs if one fails
       matrix:
-        shard: [1, 2, 3, 4]  # Split tests across 4 shards for parallel execution
+        shard: [1, 2]  # Split tests across 2 shards (reduced from 4 for reliability)
     
     steps:
     - name: Checkout code

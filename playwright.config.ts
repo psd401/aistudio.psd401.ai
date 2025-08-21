@@ -14,8 +14,8 @@ export default defineConfig({
   /* Reduce workers in CI to avoid resource contention */
   workers: process.env.CI ? 2 : undefined,
   
-  /* Global test timeout - kill any test that runs longer than 30 seconds */
-  timeout: 30 * 1000,
+  /* Global test timeout - kill any test that runs longer than 10 seconds in CI */
+  timeout: process.env.CI ? 10 * 1000 : 30 * 1000,
   
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: process.env.CI ? [
