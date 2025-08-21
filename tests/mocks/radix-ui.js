@@ -48,6 +48,40 @@ const TabsContent = ({ children, ...props }) => React.createElement('div', { ...
 // Mock Badge component
 const Badge = ({ children, ...props }) => React.createElement('span', { ...props, 'data-testid': 'badge' }, children);
 
+// Mock Dropdown Menu components
+const DropdownMenu = ({ children, ...props }) => React.createElement('div', { ...props, 'data-testid': 'dropdown-menu' }, children);
+DropdownMenu.displayName = 'DropdownMenu';
+
+const DropdownMenuTrigger = ({ children, ...props }) => React.createElement('button', { ...props, 'data-testid': 'dropdown-menu-trigger' }, children);
+DropdownMenuTrigger.displayName = 'DropdownMenuTrigger';
+
+const DropdownMenuContent = ({ children, ...props }) => React.createElement('div', { ...props, 'data-testid': 'dropdown-menu-content' }, children);
+DropdownMenuContent.displayName = 'DropdownMenuContent';
+
+const DropdownMenuItem = ({ children, ...props }) => React.createElement('div', { ...props, 'data-testid': 'dropdown-menu-item' }, children);
+DropdownMenuItem.displayName = 'DropdownMenuItem';
+
+const DropdownMenuSeparator = (props) => React.createElement('hr', { ...props, 'data-testid': 'dropdown-menu-separator' });
+DropdownMenuSeparator.displayName = 'DropdownMenuSeparator';
+
+const DropdownMenuLabel = ({ children, ...props }) => React.createElement('div', { ...props, 'data-testid': 'dropdown-menu-label' }, children);
+DropdownMenuLabel.displayName = 'DropdownMenuLabel';
+
+// Mock Scroll Area components  
+const ScrollArea = ({ children, ...props }) => React.createElement('div', { ...props, 'data-testid': 'scroll-area' }, children);
+ScrollArea.displayName = 'ScrollArea';
+
+const ScrollBar = ({ children, ...props }) => React.createElement('div', { ...props, 'data-testid': 'scroll-bar' }, children);
+ScrollBar.displayName = 'ScrollBar';
+
+// Mock Table components
+const Table = ({ children, ...props }) => React.createElement('table', { ...props, 'data-testid': 'table' }, children);
+const TableHeader = ({ children, ...props }) => React.createElement('thead', { ...props, 'data-testid': 'table-header' }, children);
+const TableBody = ({ children, ...props }) => React.createElement('tbody', { ...props, 'data-testid': 'table-body' }, children);
+const TableRow = ({ children, ...props }) => React.createElement('tr', { ...props, 'data-testid': 'table-row' }, children);
+const TableHead = ({ children, ...props }) => React.createElement('th', { ...props, 'data-testid': 'table-head' }, children);
+const TableCell = ({ children, ...props }) => React.createElement('td', { ...props, 'data-testid': 'table-cell' }, children);
+
 module.exports = {
   Select,
   SelectTrigger,
@@ -73,5 +107,19 @@ module.exports = {
   TabsList,
   TabsTrigger,
   TabsContent,
-  Badge
+  Badge,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+  ScrollArea,
+  ScrollBar,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell
 };

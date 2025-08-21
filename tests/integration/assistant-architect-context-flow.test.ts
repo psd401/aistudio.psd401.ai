@@ -119,7 +119,7 @@ describe('Assistant Architect Context Persistence - Integration Tests', () => {
       const executionContext = {
         executionId: 123,
         toolId: 456,
-        inputData: { message: 'analyze this text' },
+        inputData: { question: 'What was the dignity score?' },
         promptResults: [
           { 
             promptId: 1, 
@@ -133,6 +133,19 @@ describe('Assistant Architect Context Persistence - Integration Tests', () => {
       // Mock for initial conversation creation
       mockExecuteSQL
         .mockResolvedValueOnce([{ id: 1, model_id: 'gpt-4', provider: 'openai' }]) // Model query
+        .mockResolvedValueOnce([{ // Execution details for buildInitialPromptForStreaming
+          input_data: JSON.stringify({ question: 'What was the dignity score?' }),
+          status: 'completed',
+          tool_name: 'Test Tool',
+          tool_description: 'Test description'
+        }])
+        .mockResolvedValueOnce([{ // Chain prompts for buildInitialPromptForStreaming
+          id: 1,
+          name: 'Main Prompt',
+          content: 'Answer this question: ${question}',
+          system_context: 'You are a helpful assistant',
+          position: 1
+        }])
         .mockResolvedValueOnce([{ id: 500 }]) // New conversation ID
         .mockResolvedValueOnce([]) // Insert message
 
@@ -236,6 +249,19 @@ describe('Assistant Architect Context Persistence - Integration Tests', () => {
 
       mockExecuteSQL
         .mockResolvedValueOnce([{ id: 1, model_id: 'gpt-4', provider: 'openai' }])
+        .mockResolvedValueOnce([{ // Execution details
+          input_data: JSON.stringify({ question: 'Hello' }),
+          status: 'completed',
+          tool_name: 'Test Tool',
+          tool_description: 'Test description'
+        }])
+        .mockResolvedValueOnce([{ // Chain prompts
+          id: 1,
+          name: 'Main Prompt',
+          content: 'Answer this question: ${question}',
+          system_context: 'You are a helpful assistant',
+          position: 1
+        }])
         .mockResolvedValueOnce([{ id: 600 }])
         .mockResolvedValueOnce([])
 

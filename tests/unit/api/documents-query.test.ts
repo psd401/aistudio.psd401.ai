@@ -136,12 +136,12 @@ describe('POST /api/documents/query', () => {
         data: { user: { id: BigInt(1) } }
       } as any);
       (getDocumentsByConversationId as jest.Mock).mockResolvedValue([
-        { id: BigInt(1), name: 'Test Doc', conversationId: BigInt(1) }
+        { id: 1, name: 'Test Doc', conversationId: 1 }
       ] as any);
       (getDocumentChunksByDocumentId as jest.Mock).mockResolvedValue([
         { 
-          id: BigInt(1), 
-          documentId: BigInt(1), 
+          id: 1, 
+          documentId: 1, 
           chunkIndex: 0, 
           content: 'This is a test document with special characters: .*+?^${}()|[]\\' 
         }
@@ -182,14 +182,14 @@ describe('POST /api/documents/query', () => {
     it('should correctly match escaped special characters', async () => {
       (getDocumentChunksByDocumentId as jest.Mock).mockResolvedValue([
         { 
-          id: BigInt(1), 
-          documentId: BigInt(1), 
+          id: 1, 
+          documentId: 1, 
           chunkIndex: 0, 
           content: 'This document contains a literal .* pattern' 
         },
         { 
-          id: BigInt(2), 
-          documentId: BigInt(1), 
+          id: 2, 
+          documentId: 1, 
           chunkIndex: 1, 
           content: 'This document does not contain the pattern' 
         }
@@ -217,8 +217,8 @@ describe('POST /api/documents/query', () => {
         data: { user: { id: BigInt(1) } }
       } as any);
       (getDocumentsByConversationId as jest.Mock).mockResolvedValue([
-        { id: BigInt(1), name: 'Test Doc 1', conversationId: BigInt(1) },
-        { id: BigInt(2), name: 'Test Doc 2', conversationId: BigInt(1) }
+        { id: 1, name: 'Test Doc 1', conversationId: 1 },
+        { id: 2, name: 'Test Doc 2', conversationId: 1 }
       ] as any);
     });
 
@@ -239,14 +239,23 @@ describe('POST /api/documents/query', () => {
     });
 
     it('should search case-insensitively', async () => {
-      (getDocumentChunksByDocumentId as jest.Mock).mockResolvedValue([
-        { 
-          id: BigInt(1), 
-          documentId: BigInt(1), 
-          chunkIndex: 0, 
-          content: 'This is a TEST document' 
-        }
-      ] as any);
+      (getDocumentChunksByDocumentId as jest.Mock)
+        .mockResolvedValueOnce([
+          { 
+            id: 1, 
+            documentId: 1, 
+            chunkIndex: 0, 
+            content: 'This is a TEST document' 
+          }
+        ] as any)
+        .mockResolvedValueOnce([
+          { 
+            id: 2, 
+            documentId: 2, 
+            chunkIndex: 0, 
+            content: 'This document has no matching content' 
+          }
+        ] as any);
 
       const request = new NextRequest('http://localhost:3000/api/documents/query', {
         method: 'POST',
@@ -264,16 +273,16 @@ describe('POST /api/documents/query', () => {
       (getDocumentChunksByDocumentId as jest.Mock)
         .mockResolvedValueOnce([
           { 
-            id: BigInt(1), 
-            documentId: BigInt(1), 
+            id: 1, 
+            documentId: 1, 
             chunkIndex: 0, 
             content: 'test test test' // 3 occurrences
           }
         ] as any)
         .mockResolvedValueOnce([
           { 
-            id: BigInt(2), 
-            documentId: BigInt(2), 
+            id: 2, 
+            documentId: 2, 
             chunkIndex: 0, 
             content: 'test' // 1 occurrence
           }
@@ -295,8 +304,8 @@ describe('POST /api/documents/query', () => {
 
     it('should limit results to top 5', async () => {
       const chunks = Array.from({ length: 10 }, (_, i) => ({
-        id: BigInt(i),
-        documentId: BigInt(1),
+        id: i,
+        documentId: 1,
         chunkIndex: i,
         content: `Document chunk ${i} contains test`
       }));

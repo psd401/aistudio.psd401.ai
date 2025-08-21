@@ -352,4 +352,75 @@ jest.mock('@/components/ui/select', () => {
     SelectItem,
     SelectGroup
   };
+});
+
+// Mock Radix UI Dropdown Menu
+jest.mock('@radix-ui/react-dropdown-menu', () => {
+  const React = require('react');
+  
+  const createMockComponent = (displayName) => {
+    const Component = React.forwardRef((props, ref) => 
+      React.createElement('div', { ...props, ref })
+    );
+    Component.displayName = displayName;
+    return Component;
+  };
+  
+  // Create consistent component references
+  const SubTrigger = createMockComponent('DropdownMenuSubTrigger');
+  const SubContent = createMockComponent('DropdownMenuSubContent');
+  const Content = createMockComponent('DropdownMenuContent');
+  const Item = createMockComponent('DropdownMenuItem');
+  const CheckboxItem = createMockComponent('DropdownMenuCheckboxItem');
+  const RadioItem = createMockComponent('DropdownMenuRadioItem');
+  const Label = createMockComponent('DropdownMenuLabel');
+  const Separator = createMockComponent('DropdownMenuSeparator');
+  
+  return {
+    Root: createMockComponent('DropdownMenuRoot'),
+    Trigger: createMockComponent('DropdownMenuTrigger'),
+    Content,
+    Item,
+    Separator,
+    Label,
+    Portal: createMockComponent('DropdownMenuPortal'),
+    SubTrigger,
+    SubContent,
+    Sub: createMockComponent('DropdownMenuSub'),
+    Group: createMockComponent('DropdownMenuGroup'),
+    CheckboxItem,
+    RadioGroup: createMockComponent('DropdownMenuRadioGroup'),
+    RadioItem,
+    ItemIndicator: createMockComponent('DropdownMenuItemIndicator'),
+    Arrow: createMockComponent('DropdownMenuArrow')
+  };
+});
+
+// Mock Radix UI Scroll Area
+jest.mock('@radix-ui/react-scroll-area', () => {
+  const React = require('react');
+  
+  const createMockComponent = (displayName) => {
+    const Component = React.forwardRef((props, ref) => 
+      React.createElement('div', { ...props, ref })
+    );
+    Component.displayName = displayName;
+    return Component;
+  };
+  
+  const mockRoot = createMockComponent('ScrollAreaRoot');
+  const mockViewport = createMockComponent('ScrollAreaViewport'); 
+  const mockScrollbar = createMockComponent('ScrollAreaScrollbar');
+  const mockThumb = createMockComponent('ScrollAreaThumb');
+  const mockCorner = createMockComponent('ScrollAreaCorner');
+  
+  return {
+    Root: mockRoot,
+    Viewport: mockViewport,
+    Scrollbar: mockScrollbar,
+    ScrollAreaScrollbar: mockScrollbar, // Ensure both names point to same component
+    Thumb: mockThumb,
+    ScrollAreaThumb: mockThumb, // Ensure both names point to same component
+    Corner: mockCorner
+  };
 }); 

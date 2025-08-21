@@ -13,6 +13,9 @@ const customJestConfig = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
     'lucide-react': '<rootDir>/tests/mocks/lucide-react.js',
+    'next-auth/react': '<rootDir>/tests/mocks/next-auth.js',
+    'next/navigation': '<rootDir>/tests/mocks/next-navigation.js',
+    '^@radix-ui/(.*)$': '<rootDir>/tests/mocks/radix-ui-primitives.js',
     '^@/components/ui/select$': '<rootDir>/tests/mocks/radix-ui.js',
     '^@/components/ui/dialog$': '<rootDir>/tests/mocks/radix-ui.js',
     '^@/components/ui/label$': '<rootDir>/tests/mocks/radix-ui.js',
@@ -20,11 +23,14 @@ const customJestConfig = {
     '^@/components/ui/input$': '<rootDir>/tests/mocks/radix-ui.js',
     '^@/components/ui/card$': '<rootDir>/tests/mocks/radix-ui.js',
     '^@/components/ui/tabs$': '<rootDir>/tests/mocks/radix-ui.js',
-    '^@/components/ui/badge$': '<rootDir>/tests/mocks/radix-ui.js'
+    '^@/components/ui/badge$': '<rootDir>/tests/mocks/radix-ui.js',
+    '^@/components/ui/dropdown-menu$': '<rootDir>/tests/mocks/dropdown-menu.js',
+    '^@/components/ui/scroll-area$': '<rootDir>/tests/mocks/scroll-area.js',
+    '^@/components/ui/table$': '<rootDir>/tests/mocks/radix-ui.js'
   },
   setupFiles: ['<rootDir>/.jest/setEnvVars.js'],
   transformIgnorePatterns: [
-    'node_modules/(?!(lucide-react|next-auth)/)'
+    'node_modules/(?!(lucide-react|next-auth|@next-auth|nanoid)/)'
   ],
   testPathIgnorePatterns: [
     '/node_modules/',

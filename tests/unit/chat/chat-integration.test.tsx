@@ -2,6 +2,39 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
+
+// Mock nanoid
+jest.mock('nanoid', () => ({
+  nanoid: () => 'test-nanoid-id'
+}));
+
+// Mock Radix UI Primitives to prevent displayName errors - MUST come before component imports
+jest.mock('@radix-ui/react-scroll-area', () => {
+  const React = require('react');
+  
+  const createComponent = (displayName: string) => {
+    const Component = React.forwardRef(({ children, ...props }: any, ref: any) => 
+      React.createElement('div', { ...props, ref }, children)
+    );
+    Component.displayName = displayName;
+    return Component;
+  };
+
+  const ScrollAreaScrollbar = createComponent('ScrollAreaScrollbar');
+  
+  return {
+    __esModule: true,
+    Root: createComponent('ScrollAreaRoot'),
+    Viewport: createComponent('ScrollAreaViewport'),
+    Scrollbar: ScrollAreaScrollbar,
+    ScrollAreaScrollbar: ScrollAreaScrollbar, // Make sure both names reference the same component
+    Thumb: createComponent('ScrollAreaThumb'),
+    ScrollAreaThumb: createComponent('ScrollAreaThumb'),
+    Corner: createComponent('ScrollAreaCorner')
+  };
+});
+
+// Now import the components after the mocks are set up
 import { Chat } from '@/app/(protected)/chat/_components/chat';
 import { toast } from '@/components/ui/use-toast';
 

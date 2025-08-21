@@ -1,6 +1,105 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { SettingsClient } from './settings-client'
 import '@testing-library/jest-dom'
+
+// Mock the entire dropdown-menu UI component to avoid displayName issues
+jest.mock('@/components/ui/dropdown-menu', () => {
+  const React = require('react');
+  
+  const createComponent = (name: string) => {
+    const Component = ({ children, ...props }: any) => 
+      React.createElement('div', { ...props, 'data-testid': name.toLowerCase() }, children);
+    Component.displayName = name;
+    return Component;
+  };
+  
+  return {
+    DropdownMenu: createComponent('DropdownMenu'),
+    DropdownMenuTrigger: createComponent('DropdownMenuTrigger'),
+    DropdownMenuContent: createComponent('DropdownMenuContent'),
+    DropdownMenuItem: createComponent('DropdownMenuItem'),
+    DropdownMenuCheckboxItem: createComponent('DropdownMenuCheckboxItem'),
+    DropdownMenuRadioItem: createComponent('DropdownMenuRadioItem'),
+    DropdownMenuLabel: createComponent('DropdownMenuLabel'),
+    DropdownMenuSeparator: createComponent('DropdownMenuSeparator'),
+    DropdownMenuShortcut: createComponent('DropdownMenuShortcut'),
+    DropdownMenuGroup: createComponent('DropdownMenuGroup'),
+    DropdownMenuPortal: createComponent('DropdownMenuPortal'),
+    DropdownMenuSub: createComponent('DropdownMenuSub'),
+    DropdownMenuSubContent: createComponent('DropdownMenuSubContent'),
+    DropdownMenuSubTrigger: createComponent('DropdownMenuSubTrigger'),
+    DropdownMenuRadioGroup: createComponent('DropdownMenuRadioGroup')
+  }
+})
+
+// Mock the tabs UI component to avoid displayName issues
+jest.mock('@/components/ui/tabs', () => {
+  const React = require('react');
+  
+  const createComponent = (name: string) => {
+    const Component = ({ children, ...props }: any) => 
+      React.createElement('div', { ...props, 'data-testid': name.toLowerCase() }, children);
+    Component.displayName = name;
+    return Component;
+  };
+  
+  return {
+    Tabs: createComponent('Tabs'),
+    TabsList: createComponent('TabsList'),
+    TabsTrigger: createComponent('TabsTrigger'),
+    TabsContent: createComponent('TabsContent')
+  }
+})
+
+// Mock Alert Dialog
+jest.mock('@radix-ui/react-alert-dialog', () => {
+  const mockComponent = (name: string) => {
+    const MockedComponent = ({ children, ...props }: any) => <div {...props}>{children}</div>
+    MockedComponent.displayName = name
+    return MockedComponent
+  }
+  
+  return {
+    __esModule: true,
+    Root: mockComponent('AlertDialogRoot'),
+    Trigger: mockComponent('AlertDialogTrigger'),
+    Portal: mockComponent('AlertDialogPortal'),
+    Overlay: mockComponent('AlertDialogOverlay'),
+    Content: mockComponent('AlertDialogContent'),
+    Title: mockComponent('AlertDialogTitle'),
+    Description: mockComponent('AlertDialogDescription'),
+    Action: mockComponent('AlertDialogAction'),
+    Cancel: mockComponent('AlertDialogCancel')
+  }
+})
+
+// Mock form components
+jest.mock('@/components/ui/form', () => {
+  const React = require('react');
+  
+  const createFormComponent = (name: string) => {
+    const Component = ({ children, ...props }: any) => 
+      React.createElement('div', { ...props, 'data-testid': name.toLowerCase() }, children);
+    Component.displayName = name;
+    return Component;
+  };
+  
+  return {
+    Form: createFormComponent('Form'),
+    FormControl: createFormComponent('FormControl'),
+    FormField: createFormComponent('FormField'),
+    FormItem: createFormComponent('FormItem'),
+    FormLabel: createFormComponent('FormLabel'),
+    FormMessage: createFormComponent('FormMessage'),
+    FormDescription: createFormComponent('FormDescription'),
+    useFormField: () => ({
+      id: 'mock-form-field',
+      name: 'mock-field',
+      formItemId: 'mock-form-item',
+      formDescriptionId: 'mock-form-description',
+      formMessageId: 'mock-form-message'
+    })
+  }
+})
 
 // Mock the toast hook
 jest.mock('@/components/ui/use-toast', () => ({
@@ -11,6 +110,9 @@ jest.mock('@/components/ui/use-toast', () => ({
 
 // Mock fetch
 global.fetch = jest.fn()
+
+// Import component after mocks are set up
+import { SettingsClient } from './settings-client'
 
 describe('SettingsClient', () => {
   const mockSettings = [
