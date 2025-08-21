@@ -39,6 +39,15 @@ const CardDescription = ({ children, ...props }) => React.createElement('p', { .
 const CardContent = ({ children, ...props }) => React.createElement('div', { ...props, 'data-testid': 'card-content' }, children);
 const CardFooter = ({ children, ...props }) => React.createElement('div', { ...props, 'data-testid': 'card-footer' }, children);
 
+// Mock Tabs components
+const Tabs = ({ children, ...props }) => React.createElement('div', { ...props, 'data-testid': 'tabs' }, children);
+const TabsList = ({ children, ...props }) => React.createElement('div', { ...props, 'data-testid': 'tabs-list' }, children);
+const TabsTrigger = ({ children, ...props }) => React.createElement('button', { ...props, 'data-testid': 'tabs-trigger' }, children);
+const TabsContent = ({ children, ...props }) => React.createElement('div', { ...props, 'data-testid': 'tabs-content' }, children);
+
+// Mock Badge component
+const Badge = ({ children, ...props }) => React.createElement('span', { ...props, 'data-testid': 'badge' }, children);
+
 module.exports = {
   Select,
   SelectTrigger,
@@ -59,5 +68,10 @@ module.exports = {
   CardTitle,
   CardDescription,
   CardContent,
-  CardFooter
+  CardFooter,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+  Badge
 };

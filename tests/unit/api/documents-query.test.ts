@@ -11,11 +11,22 @@ jest.mock('@/lib/auth/server-session', () => ({
 jest.mock('@/actions/db/get-current-user-action');
 jest.mock('@/lib/db/queries/documents');
 jest.mock('@/lib/logger', () => ({
+  __esModule: true,
   default: {
     info: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
+    debug: jest.fn()
   },
+  createLogger: jest.fn(() => ({
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn()
+  })),
+  generateRequestId: jest.fn(() => 'test-request-id'),
+  startTimer: jest.fn(() => jest.fn()),
+  sanitizeForLogging: jest.fn((data) => data)
 }));
 
 // TODO: Fix test setup - mocking approach needs to be updated to match test environment

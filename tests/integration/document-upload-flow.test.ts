@@ -2,10 +2,25 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 
-// Add TextEncoder/TextDecoder polyfills for Node.js test environment
+// Add polyfills for Node.js test environment
 import { TextEncoder, TextDecoder } from 'util';
 global.TextEncoder = TextEncoder;
 global.TextDecoder = TextDecoder as any;
+
+// Add TransformStream polyfill for eventsource-parser
+global.TransformStream = class TransformStream {
+  readable: any;
+  writable: any;
+  
+  constructor() {
+    this.readable = {
+      getReader: () => ({ read: () => Promise.resolve({ done: true }) })
+    };
+    this.writable = {
+      getWriter: () => ({ write: () => Promise.resolve(), close: () => Promise.resolve() })
+    };
+  }
+} as any;
 
 // Mock Next.js server components first
 jest.mock('next/server', () => ({
@@ -44,12 +59,22 @@ jest.mock('@/lib/auth/server-session', () => ({
 jest.mock('@/actions/db/get-current-user-action');
 jest.mock('@/lib/aws/s3-client');
 jest.mock('@/lib/logger', () => ({
+  __esModule: true,
   default: {
     info: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
     debug: jest.fn()
-  }
+  },
+  createLogger: jest.fn(() => ({
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn()
+  })),
+  generateRequestId: jest.fn(() => 'test-request-id'),
+  startTimer: jest.fn(() => jest.fn()),
+  sanitizeForLogging: jest.fn((data) => data)
 }));
 jest.mock('@/lib/file-validation', () => ({
   ALLOWED_FILE_EXTENSIONS: ['.pdf', '.docx', '.txt'],

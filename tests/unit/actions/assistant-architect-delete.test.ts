@@ -3,7 +3,6 @@ import { deleteAssistantArchitectAction } from '@/actions/db/assistant-architect
 import { getServerSession } from '@/lib/auth/server-session'
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action'
 import { hasToolAccess } from '@/utils/roles'
-import { executeSQL } from '@/lib/db/data-api-adapter'
 
 // Mock dependencies
 jest.mock('@/lib/auth/server-session')
@@ -13,6 +12,9 @@ jest.mock('@/lib/db/data-api-adapter', () => ({
   executeSQL: jest.fn(),
   deleteAssistantArchitect: jest.fn()
 }))
+
+// Import after mocking
+const { executeSQL } = require('@/lib/db/data-api-adapter')
 jest.mock('@/lib/logger', () => ({
   createLogger: () => ({
     info: jest.fn(),
@@ -25,10 +27,10 @@ jest.mock('@/lib/logger', () => ({
 }))
 
 describe('deleteAssistantArchitectAction - Ownership Validation', () => {
-  const mockedGetServerSession = jest.mocked(getServerSession)
-  const mockedGetCurrentUserAction = jest.mocked(getCurrentUserAction)
-  const mockedHasToolAccess = jest.mocked(hasToolAccess)
-  const mockedExecuteSQL = jest.mocked(executeSQL)
+  const mockedGetServerSession = getServerSession as jest.MockedFunction<typeof getServerSession>
+  const mockedGetCurrentUserAction = getCurrentUserAction as jest.MockedFunction<typeof getCurrentUserAction>
+  const mockedHasToolAccess = hasToolAccess as jest.MockedFunction<typeof hasToolAccess>
+  const mockedExecuteSQL = executeSQL as jest.MockedFunction<any>
 
   beforeEach(() => {
     jest.clearAllMocks()

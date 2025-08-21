@@ -16,17 +16,30 @@ describe('UserRoleForm', () => {
   });
 
   it('handles role change', async () => {
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ message: 'Role updated successfully' })
+    });
+    global.fetch = mockFetch;
+
     await act(async () => {
-      render(<UserRoleForm userId="test-user" initialRole="Staff" />, { wrapper: TestWrapper });
+      render(<UserRoleForm userId="test-user" initialRole="staff" />, { wrapper: TestWrapper });
     });
     
-    const select = screen.getByTestId('role-select');
     await act(async () => {
-      await userEvent.click(select);
-      await userEvent.click(screen.getByText('Admin'));
+      await userEvent.click(screen.getByText('Administrator'));
     });
     
-    expect(select).toHaveValue('Admin');
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/admin/users/test-user/role',
+        expect.objectContaining({
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'administrator' })
+        })
+      );
+    });
   });
 
   it('submits role update successfully', async () => {
@@ -37,104 +50,86 @@ describe('UserRoleForm', () => {
     global.fetch = mockFetch;
 
     await act(async () => {
-      render(<UserRoleForm userId="test-user" initialRole="Staff" />, { wrapper: TestWrapper });
+      render(<UserRoleForm userId="test-user" initialRole="staff" />, { wrapper: TestWrapper });
     });
 
-    const select = screen.getByTestId('role-select');
     await act(async () => {
-      await userEvent.click(select);
-      await userEvent.click(screen.getByText('Admin'));
-    });
-    
-    const form = screen.getByTestId('role-form');
-    await act(async () => {
-      await fireEvent.submit(form);
+      await userEvent.click(screen.getByText('Administrator'));
     });
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
-        '/api/users/test-user/role',
+        '/api/admin/users/test-user/role',
         expect.objectContaining({
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ role: 'Admin' })
+          body: JSON.stringify({ role: 'administrator' })
         })
       );
     });
   });
 
   it('handles API error response', async () => {
+    // Mock alert function
+    const mockAlert = jest.fn();
+    global.alert = mockAlert;
+    
     const mockFetch = jest.fn().mockResolvedValue({
       ok: false,
       status: 400,
-      json: () => Promise.resolve({ error: 'Invalid role' })
+      text: () => Promise.resolve('Invalid role')
     });
     global.fetch = mockFetch;
 
     await act(async () => {
-      render(<UserRoleForm userId="test-user" initialRole="Staff" />, { wrapper: TestWrapper });
+      render(<UserRoleForm userId="test-user" initialRole="staff" />, { wrapper: TestWrapper });
     });
 
-    const select = screen.getByTestId('role-select');
     await act(async () => {
-      await userEvent.click(select);
-      await userEvent.click(screen.getByText('Admin'));
-    });
-    
-    const form = screen.getByTestId('role-form');
-    await act(async () => {
-      await fireEvent.submit(form);
+      await userEvent.click(screen.getByText('Administrator'));
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Error updating role')).toBeInTheDocument();
+      expect(mockAlert).toHaveBeenCalledWith('Failed to update role');
     });
   });
 
   it('handles network error', async () => {
+    // Mock alert function
+    const mockAlert = jest.fn();
+    global.alert = mockAlert;
+    
     const mockFetch = jest.fn().mockRejectedValue(new Error('Network error'));
     global.fetch = mockFetch;
 
     await act(async () => {
-      render(<UserRoleForm userId="test-user" initialRole="Staff" />, { wrapper: TestWrapper });
+      render(<UserRoleForm userId="test-user" initialRole="staff" />, { wrapper: TestWrapper });
     });
 
-    const select = screen.getByTestId('role-select');
     await act(async () => {
-      await userEvent.click(select);
-      await userEvent.click(screen.getByText('Admin'));
-    });
-    
-    const form = screen.getByTestId('role-form');
-    await act(async () => {
-      await fireEvent.submit(form);
+      await userEvent.click(screen.getByText('Administrator'));
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Error updating role')).toBeInTheDocument();
+      expect(mockAlert).toHaveBeenCalledWith('Failed to update role');
     });
   });
 
-  it('disables form submission while loading', async () => {
+  it('disables select while loading', async () => {
     const mockFetch = jest.fn().mockImplementation(() => new Promise(resolve => setTimeout(resolve, 100)));
     global.fetch = mockFetch;
 
     await act(async () => {
-      render(<UserRoleForm userId="test-user" initialRole="Staff" />, { wrapper: TestWrapper });
+      render(<UserRoleForm userId="test-user" initialRole="staff" />, { wrapper: TestWrapper });
     });
 
     const select = screen.getByTestId('role-select');
-    const submitButton = screen.getByRole('button', { name: /update/i });
 
     await act(async () => {
-      await userEvent.click(select);
-      await userEvent.click(screen.getByText('Admin'));
+      await userEvent.click(screen.getByText('Administrator'));
     });
     
-    await act(async () => {
-      fireEvent.click(submitButton);
-    });
-
-    expect(submitButton).toBeDisabled();
+    // Check that the select is disabled during the API call
+    expect(select).toBeDisabled();
   });
 }); 

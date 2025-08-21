@@ -18,7 +18,9 @@ const customJestConfig = {
     '^@/components/ui/label$': '<rootDir>/tests/mocks/radix-ui.js',
     '^@/components/ui/button$': '<rootDir>/tests/mocks/radix-ui.js',
     '^@/components/ui/input$': '<rootDir>/tests/mocks/radix-ui.js',
-    '^@/components/ui/card$': '<rootDir>/tests/mocks/radix-ui.js'
+    '^@/components/ui/card$': '<rootDir>/tests/mocks/radix-ui.js',
+    '^@/components/ui/tabs$': '<rootDir>/tests/mocks/radix-ui.js',
+    '^@/components/ui/badge$': '<rootDir>/tests/mocks/radix-ui.js'
   },
   setupFiles: ['<rootDir>/.jest/setEnvVars.js'],
   transformIgnorePatterns: [

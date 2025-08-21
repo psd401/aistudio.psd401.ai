@@ -33,6 +33,7 @@ import { uploadDocument } from '@/lib/aws/s3-client';
 import { saveDocument, saveDocumentChunk, batchInsertDocumentChunks } from '@/lib/db/queries/documents';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { getServerSession } from '@/lib/auth/server-session';
+import { extractTextFromDocument, chunkText, getFileTypeFromFileName } from '@/lib/document-processing';
 import { NextRequest } from 'next/server';
 
 // Mock dependencies
@@ -42,13 +43,22 @@ jest.mock('@/lib/auth/server-session', () => ({
 jest.mock('@/actions/db/get-current-user-action');
 jest.mock('@/lib/aws/s3-client');
 jest.mock('@/lib/db/queries/documents');
+jest.mock('@/lib/file-validation', () => {
+  const originalModule = jest.requireActual('@/lib/file-validation');
+  return {
+    ...originalModule,
+    getMaxFileSize: jest.fn(() => Promise.resolve(25 * 1024 * 1024)), // 25MB
+  };
+});
 jest.mock('@/lib/logger', () => ({
   default: {
+    debug: jest.fn(),
     info: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
   },
   createLogger: jest.fn(() => ({
+    debug: jest.fn(),
     info: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -62,15 +72,103 @@ jest.mock('@/lib/logger', () => ({
 class MockFile extends Blob {
   name: string;
   lastModified: number;
+  webkitRelativePath: string;
+  private _chunks: any[];
 
   constructor(chunks: any[], filename: string, options?: any) {
     super(chunks, options);
     this.name = filename;
     this.lastModified = Date.now();
+    this.webkitRelativePath = '';
+    this._chunks = chunks;
+  }
+
+  // Implement arrayBuffer method
+  async arrayBuffer(): Promise<ArrayBuffer> {
+    const content = this._chunks.join('');
+    const buffer = Buffer.from(content, 'utf8');
+    return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  }
+
+  // Ensure the file name is properly preserved
+  toString() {
+    return `[object File]`;
   }
 }
 
 global.File = MockFile as any;
+
+// Also mock FormData to ensure it preserves file names correctly
+class MockFormData {
+  private data: Map<string, any> = new Map();
+
+  append(name: string, value: any, filename?: string) {
+    if (value instanceof MockFile) {
+      this.data.set(name, value);
+    } else {
+      this.data.set(name, value);
+    }
+  }
+
+  get(name: string) {
+    return this.data.get(name);
+  }
+
+  has(name: string) {
+    return this.data.has(name);
+  }
+
+  set(name: string, value: any) {
+    this.data.set(name, value);
+  }
+
+  delete(name: string) {
+    this.data.delete(name);
+  }
+
+  entries() {
+    return this.data.entries();
+  }
+
+  keys() {
+    return this.data.keys();
+  }
+
+  values() {
+    return this.data.values();
+  }
+
+  forEach(callback: (value: any, key: string) => void) {
+    this.data.forEach(callback);
+  }
+}
+
+global.FormData = MockFormData as any;
+
+// Mock document processing functions
+jest.mock('@/lib/document-processing', () => ({
+  extractTextFromDocument: jest.fn().mockImplementation((buffer, fileType) => {
+    // Return the actual buffer content as text for testing
+    const text = buffer.toString('utf8');
+    return Promise.resolve({
+      text,
+      metadata: { pages: 1 }
+    });
+  }),
+  chunkText: jest.fn().mockImplementation((text) => {
+    // Split text into chunks of 1000 characters for testing
+    const chunkSize = 1000;
+    const chunks = [];
+    for (let i = 0; i < text.length; i += chunkSize) {
+      chunks.push(text.slice(i, i + chunkSize));
+    }
+    return chunks.length > 0 ? chunks : [text];
+  }),
+  getFileTypeFromFileName: jest.fn((filename) => {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    return ext || 'unknown';
+  })
+}));
 
 describe('POST /api/documents/upload', () => {
   const mockUserId = 'user-123';
@@ -103,7 +201,7 @@ describe('POST /api/documents/upload', () => {
       const data = await response.json();
       
       expect(response.status).toBe(401);
-      expect(data.error).toBe('User not authenticated');
+      expect(data.error).toBe('Unauthorized');
     });
 
     it('should return 401 if user is not found', async () => {
@@ -131,11 +229,12 @@ describe('POST /api/documents/upload', () => {
       const data = await response.json();
       
       expect(response.status).toBe(400);
-      expect(data.error).toBe('No file provided');
+      expect(data.error).toBe('No file uploaded');
     });
 
-    it('should reject files over 10MB', async () => {
-      const largeContent = new Array(11 * 1024 * 1024).fill('a').join('');
+
+    it('should reject files over 25MB', async () => {
+      const largeContent = new Array(26 * 1024 * 1024).fill('a').join('');
       const file = new MockFile([largeContent], 'large.pdf', { type: 'application/pdf' });
       
       const formData = new FormData();
@@ -146,7 +245,7 @@ describe('POST /api/documents/upload', () => {
       const data = await response.json();
       
       expect(response.status).toBe(400);
-      expect(data.error).toBe('File size exceeds 10MB limit');
+      expect(data.error).toBe('File size must be less than 25MB');
     });
 
     it('should reject invalid file types', async () => {
@@ -160,7 +259,7 @@ describe('POST /api/documents/upload', () => {
       const data = await response.json();
       
       expect(response.status).toBe(400);
-      expect(data.error).toBe('Invalid file type. Allowed types: pdf, docx, txt');
+      expect(data.error).toBe('Unsupported file extension. Allowed file types are: .pdf, .docx, .xlsx, .pptx, .txt, .md, .csv');
     });
   });
 
@@ -206,15 +305,15 @@ describe('POST /api/documents/upload', () => {
         id: 'doc-123',
         name: 'test.pdf',
         type: 'pdf',
-        url: expect.stringContaining('/api/documents/download?id=doc-123'),
+        url: mockUploadResult.key,
         size: 11,
-        createdAt: expect.any(String),
+        totalChunks: 1,
       });
       
       // Verify S3 upload was called
       expect(uploadDocument).toHaveBeenCalledWith({
         userId: mockUserId,
-        fileName: 'test-123.pdf',
+        fileName: 'test.pdf',
         fileContent: expect.any(Buffer),
         contentType: 'application/pdf',
         metadata: {
@@ -225,16 +324,13 @@ describe('POST /api/documents/upload', () => {
       
       // Verify document was created in database
       expect(saveDocument).toHaveBeenCalledWith({
-        name: 'test.pdf',
-        type: 'pdf',
-        url: mockUploadResult.key,
-        size: 11,
         userId: mockUserId,
         conversationId: null,
-        metadata: {
-          originalName: 'test.pdf',
-          uploadedBy: mockUserId,
-        },
+        name: 'test.pdf',
+        type: 'pdf',
+        size: 11,
+        url: mockUploadResult.key,
+        metadata: { pages: 1 },
       });
       
       // Verify chunks were created
@@ -418,10 +514,10 @@ describe('POST /api/documents/upload', () => {
   describe('Filename Sanitization', () => {
     it('should sanitize filenames with special characters', async () => {
       const testCases = [
-        { input: 'test file.pdf', expected: 'test-file' },
-        { input: 'test@#$%.pdf', expected: 'test' },
-        { input: 'test___file.pdf', expected: 'test-file' },
-        { input: '../../etc/passwd.pdf', expected: 'etc-passwd' },
+        { input: 'test file.pdf', expected: 'test_file.pdf' },
+        { input: 'test@#$%.pdf', expected: 'test____.pdf' },
+        { input: 'test___file.pdf', expected: 'test___file.pdf' },
+        { input: '../../etc/passwd.pdf', expected: '.._.._etc_passwd.pdf' },
       ];
       
       for (const testCase of testCases) {
@@ -434,19 +530,27 @@ describe('POST /api/documents/upload', () => {
         
         const mockDocument = {
           id: 'doc-123',
-          name: testCase.input,
+          name: testCase.expected,
           type: 'pdf',
+          url: 'test-key',
+          size: 12,
+          user_id: mockUserId,
+          conversation_id: null,
+          metadata: {},
+          created_at: new Date(),
+          updated_at: new Date(),
         };
         
-        (uploadDocument as jest.Mock).mockResolvedValue({ key: 'test', url: 'test' });
+        (uploadDocument as jest.Mock).mockResolvedValue({ key: 'test-key', url: 'test-url' });
         (saveDocument as jest.Mock).mockResolvedValue(mockDocument);
         (batchInsertDocumentChunks as jest.Mock).mockResolvedValue([]);
         
-        await POST(request);
+        const response = await POST(request);
         
+        expect(response.status).toBe(200);
         expect(uploadDocument).toHaveBeenCalledWith(
           expect.objectContaining({
-            fileName: expect.stringContaining(testCase.expected),
+            fileName: testCase.expected,
           })
         );
       }

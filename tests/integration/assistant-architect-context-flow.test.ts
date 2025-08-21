@@ -18,22 +18,25 @@ jest.mock('@/lib/db/data-api-adapter', () => ({
   executeTransaction: jest.fn()
 }))
 jest.mock('@/lib/logger', () => ({
+  __esModule: true,
   default: {
     info: jest.fn(),
     error: jest.fn(),
-    warn: jest.fn()
+    warn: jest.fn(),
+    debug: jest.fn()
   },
   createLogger: jest.fn(() => ({
     info: jest.fn(),
     error: jest.fn(),
-    warn: jest.fn()
+    warn: jest.fn(),
+    debug: jest.fn()
   })),
   generateRequestId: jest.fn(() => 'test-request-id'),
   startTimer: jest.fn(() => jest.fn()),
   sanitizeForLogging: jest.fn((data) => data)
 }))
 jest.mock('@/actions/db/get-current-user-action', () => ({
-  getCurrentUser: jest.fn()
+  getCurrentUserAction: jest.fn()
 }))
 jest.mock('@/lib/settings-manager', () => ({
   Settings: {
@@ -55,7 +58,34 @@ jest.mock('ai', () => ({
   streamText: jest.fn().mockResolvedValue({
     toDataStreamResponse: jest.fn().mockReturnValue(new Response())
   }),
+  convertToModelMessages: jest.fn(messages => messages),
   createOpenAI: jest.fn().mockReturnValue(() => ({}))
+}))
+jest.mock('@/app/api/chat/lib/provider-factory', () => ({
+  createProviderModel: jest.fn().mockResolvedValue({
+    chat: { completions: { create: jest.fn() } }
+  })
+}))
+jest.mock('@/app/api/chat/lib/system-prompt-builder', () => ({
+  buildSystemPrompt: jest.fn().mockReturnValue('System prompt')
+}))
+jest.mock('@/app/api/chat/lib/conversation-handler', () => ({
+  handleConversation: jest.fn().mockResolvedValue(500),
+  saveAssistantMessage: jest.fn().mockResolvedValue(true),
+  getModelConfig: jest.fn().mockResolvedValue({ id: 1, model_id: 'gpt-4', provider: 'openai' }),
+  getConversationContext: jest.fn().mockResolvedValue({})
+}))
+jest.mock('@/app/api/chat/lib/execution-context', () => ({
+  loadExecutionContextData: jest.fn().mockResolvedValue({
+    completeData: {
+      repositoryIds: [],
+      execution: {}
+    }
+  }),
+  buildInitialPromptForStreaming: jest.fn().mockReturnValue('Context prompt')
+}))
+jest.mock('@/app/api/chat/lib/knowledge-context', () => ({
+  getAssistantOwnerSub: jest.fn().mockResolvedValue('owner-sub')
 }))
 
 import { POST } from '@/app/api/chat/route'
@@ -65,7 +95,7 @@ import { getCurrentUserAction } from '@/actions/db/get-current-user-action'
 
 const mockGetServerSession = getServerSession as jest.Mock
 const mockExecuteSQL = executeSQL as jest.Mock
-const mockGetCurrentUser = getCurrentUserAction as jest.Mock
+const mockGetCurrentUserAction = getCurrentUserAction as jest.Mock
 
 describe('Assistant Architect Context Persistence - Integration Tests', () => {
   beforeEach(() => {
@@ -77,7 +107,7 @@ describe('Assistant Architect Context Persistence - Integration Tests', () => {
       expires: '2024-12-31'
     })
     
-    mockGetCurrentUser.mockResolvedValue({
+    mockGetCurrentUserAction.mockResolvedValue({
       isSuccess: true,
       data: { user: { id: 1, email: 'test@example.com' } }
     })
@@ -106,7 +136,7 @@ describe('Assistant Architect Context Persistence - Integration Tests', () => {
         .mockResolvedValueOnce([{ id: 500 }]) // New conversation ID
         .mockResolvedValueOnce([]) // Insert message
 
-      const firstRequest = new Request('http://localhost:3000/api/chat/stream-final', {
+      const firstRequest = new Request('http://localhost:3000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -119,6 +149,9 @@ describe('Assistant Architect Context Persistence - Integration Tests', () => {
       })
 
       const firstResponse = await POST(firstRequest)
+      if (firstResponse.status !== 200) {
+        console.log('Still error:', firstResponse.body)
+      }
       expect(firstResponse.status).toBe(200)
       expect(firstResponse.headers.get('X-Conversation-Id')).toBe('500')
 
@@ -155,7 +188,7 @@ describe('Assistant Architect Context Persistence - Integration Tests', () => {
         }])
         .mockResolvedValueOnce([]) // Insert message
 
-      const followUpRequest = new Request('http://localhost:3000/api/chat/stream-final', {
+      const followUpRequest = new Request('http://localhost:3000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -206,7 +239,7 @@ describe('Assistant Architect Context Persistence - Integration Tests', () => {
         .mockResolvedValueOnce([{ id: 600 }])
         .mockResolvedValueOnce([])
 
-      const request = new Request('http://localhost:3000/api/chat/stream-final', {
+      const request = new Request('http://localhost:3000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -255,7 +288,7 @@ describe('Assistant Architect Context Persistence - Integration Tests', () => {
         }])
         .mockResolvedValueOnce([])
 
-      const request = new Request('http://localhost:3000/api/chat/stream-final', {
+      const request = new Request('http://localhost:3000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -288,7 +321,7 @@ describe('Assistant Architect Context Persistence - Integration Tests', () => {
         .mockRejectedValueOnce(new Error('Database error')) // Conversation query fails
         .mockResolvedValueOnce([])
 
-      const request = new Request('http://localhost:3000/api/chat/stream-final', {
+      const request = new Request('http://localhost:3000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -325,7 +358,7 @@ describe('Assistant Architect Context Persistence - Integration Tests', () => {
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([])
 
-      const request1 = new Request('http://localhost:3000/api/chat/stream-final', {
+      const request1 = new Request('http://localhost:3000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -335,7 +368,7 @@ describe('Assistant Architect Context Persistence - Integration Tests', () => {
         })
       })
 
-      const request2 = new Request('http://localhost:3000/api/chat/stream-final', {
+      const request2 = new Request('http://localhost:3000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -127,7 +127,7 @@ describe('Success Response Creation', () => {
     const result = createSuccess(data)
     
     expect(result.isSuccess).toBe(true)
-    expect(result.message).toBe('Success')
+    expect(result.message).toBe('Operation successful')
     expect(result.data).toEqual(data)
   })
 })

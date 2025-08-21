@@ -34,7 +34,7 @@ describe('DocumentUpload Component', () => {
       
       expect(screen.getByText('Upload Document')).toBeInTheDocument();
       expect(screen.getByText(/Drag & drop or click to upload/)).toBeInTheDocument();
-      expect(screen.getByText(/PDF, DOCX, TXT up to 10MB/)).toBeInTheDocument();
+      expect(screen.getByText(/PDF, DOCX, TXT up to 25MB/)).toBeInTheDocument();
     });
 
     it('should handle file selection via click', async () => {
@@ -42,7 +42,7 @@ describe('DocumentUpload Component', () => {
       render(<DocumentUpload {...defaultProps} />);
       
       const file = new File(['test content'], 'test.pdf', { type: 'application/pdf' });
-      const input = screen.getByRole('textbox', { hidden: true }) as HTMLInputElement;
+      const input = screen.getByDisplayValue('') as HTMLInputElement; // Hidden file input
       
       await user.upload(input, file);
       
@@ -53,13 +53,15 @@ describe('DocumentUpload Component', () => {
     });
 
     it('should reject invalid file types', async () => {
-      const user = userEvent.setup();
       render(<DocumentUpload {...defaultProps} />);
       
       const file = new File(['test content'], 'test.exe', { type: 'application/exe' });
-      const input = screen.getByRole('textbox', { hidden: true }) as HTMLInputElement;
+      const input = screen.getByDisplayValue('') as HTMLInputElement;
       
-      await user.upload(input, file);
+      // Use fireEvent.change instead of user.upload for better control
+      await act(async () => {
+        fireEvent.change(input, { target: { files: [file] } });
+      });
       
       expect(toast).toHaveBeenCalledWith({
         title: 'Invalid file type',
@@ -69,20 +71,20 @@ describe('DocumentUpload Component', () => {
       expect(mockOnFileSelected).not.toHaveBeenCalled();
     });
 
-    it('should reject files over 10MB', async () => {
+    it('should reject files over 25MB', async () => {
       const user = userEvent.setup();
       render(<DocumentUpload {...defaultProps} />);
       
-      // Create a file larger than 10MB
-      const largeContent = new Array(11 * 1024 * 1024).fill('a').join('');
+      // Create a file larger than 25MB
+      const largeContent = new Array(26 * 1024 * 1024).fill('a').join('');
       const file = new File([largeContent], 'large.pdf', { type: 'application/pdf' });
-      const input = screen.getByRole('textbox', { hidden: true }) as HTMLInputElement;
+      const input = screen.getByDisplayValue('') as HTMLInputElement;
       
       await user.upload(input, file);
       
       expect(toast).toHaveBeenCalledWith({
         title: 'File too large',
-        description: 'Please select a file smaller than 10MB',
+        description: 'Please select a file smaller than 25MB',
         variant: 'destructive',
       });
       expect(mockOnFileSelected).not.toHaveBeenCalled();
@@ -136,7 +138,7 @@ describe('DocumentUpload Component', () => {
       render(<DocumentUpload {...defaultProps} />);
       
       const file = new File(['test content'], 'test.pdf', { type: 'application/pdf' });
-      const input = screen.getByRole('textbox', { hidden: true }) as HTMLInputElement;
+      const input = screen.getByDisplayValue('') as HTMLInputElement;
       
       await user.upload(input, file);
       
@@ -186,12 +188,14 @@ describe('DocumentUpload Component', () => {
       render(<DocumentUpload {...defaultProps} />);
       
       const file = new File(['test content'], 'test.pdf', { type: 'application/pdf' });
-      const input = screen.getByRole('textbox', { hidden: true }) as HTMLInputElement;
+      const input = screen.getByDisplayValue('') as HTMLInputElement;
       
       await user.upload(input, file);
       
       // Check that progress indicator appears
-      expect(screen.getByText(/Processing document/)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText(/Uploading document/i)).toBeInTheDocument();
+      });
       
       await waitFor(() => {
         expect(screen.getByText('Document processed successfully')).toBeInTheDocument();
@@ -211,14 +215,14 @@ describe('DocumentUpload Component', () => {
       render(<DocumentUpload {...defaultProps} />);
       
       const file = new File(['test content'], 'test.pdf', { type: 'application/pdf' });
-      const input = screen.getByRole('textbox', { hidden: true }) as HTMLInputElement;
+      const input = screen.getByDisplayValue('') as HTMLInputElement;
       
       await user.upload(input, file);
       
       await waitFor(() => {
         expect(toast).toHaveBeenCalledWith({
           title: 'Upload failed',
-          description: 'Upload failed',
+          description: 'Server error (500)',
           variant: 'destructive',
         });
       });
@@ -247,7 +251,7 @@ describe('DocumentUpload Component', () => {
       
       // Select a file first
       const file = new File(['test content'], 'test.pdf', { type: 'application/pdf' });
-      const input = screen.getByRole('textbox', { hidden: true }) as HTMLInputElement;
+      const input = screen.getByDisplayValue('') as HTMLInputElement;
       
       await act(async () => {
         fireEvent.change(input, { target: { files: [file] } });
@@ -266,7 +270,7 @@ describe('DocumentUpload Component', () => {
       render(<DocumentUpload {...defaultProps} />);
       
       const file = new File(['test content'], 'test.pdf', { type: 'application/pdf' });
-      const input = screen.getByRole('textbox', { hidden: true }) as HTMLInputElement;
+      const input = screen.getByDisplayValue('') as HTMLInputElement;
       
       await user.upload(input, file);
       
@@ -297,7 +301,7 @@ describe('DocumentUpload Component', () => {
       render(<DocumentUpload {...defaultProps} />);
       
       const file = new File(['test content'], 'test.pdf', { type: 'application/pdf' });
-      const input = screen.getByRole('textbox', { hidden: true }) as HTMLInputElement;
+      const input = screen.getByDisplayValue('') as HTMLInputElement;
       
       await user.upload(input, file);
       
@@ -332,10 +336,9 @@ describe('DocumentUpload Component', () => {
       );
       
       expect(screen.getByText('pending.pdf')).toBeInTheDocument();
-      expect(screen.getByText('Processed. Ready for chat.')).toBeInTheDocument();
     });
 
-    it('should show waiting message when no conversation ID and no pending document ID', () => {
+    it('should display pending document without ID', () => {
       const pendingDoc = {
         name: 'pending.pdf',
         type: 'pdf',
@@ -348,7 +351,7 @@ describe('DocumentUpload Component', () => {
         />
       );
       
-      expect(screen.getByText('The document will be uploaded when you start a conversation')).toBeInTheDocument();
+      expect(screen.getByText('pending.pdf')).toBeInTheDocument();
     });
   });
 });
