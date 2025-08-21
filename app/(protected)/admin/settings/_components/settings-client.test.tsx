@@ -79,6 +79,7 @@ jest.mock('@radix-ui/react-alert-dialog', () => {
 
 // Mock form components
 jest.mock('@/components/ui/form', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   
   const createFormComponent = (name: string) => {
