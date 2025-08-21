@@ -95,7 +95,7 @@ test.describe('Authentication Flow (CI-Safe)', () => {
     const response = await page.goto('/');
     
     // Skip test if server is not running (CI environment without server)
-    if (response?.status() === 404 || response?.status() >= 500) {
+    if (!response || response.status() === 404 || response.status() >= 500) {
       test.skip(true, 'Server not available in CI environment');
     }
     
