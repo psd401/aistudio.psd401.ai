@@ -26,7 +26,7 @@ jest.mock('@/components/ui/use-toast', () => ({
   })),
   toast: jest.fn()
 }));
-jest.mock('@/app/(protected)/chat/_components/model-selector', () => ({
+jest.mock('@/components/features/model-selector', () => ({
   ModelSelector: ({ onModelSelect }: any) => {
     React.useEffect(() => {
       onModelSelect({ model_id: 'test-model', name: 'Test Model', provider: 'test' });

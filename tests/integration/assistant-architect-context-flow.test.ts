@@ -32,8 +32,8 @@ jest.mock('@/lib/settings-manager', () => ({
     getOpenAI: jest.fn().mockResolvedValue('test-key')
   }
 }))
-jest.mock('openai', () => ({
-  default: jest.fn().mockImplementation(() => ({
+jest.mock('@ai-sdk/openai', () => ({
+  createOpenAI: jest.fn().mockImplementation(() => ({
     chat: {
       completions: {
         create: jest.fn().mockResolvedValue({

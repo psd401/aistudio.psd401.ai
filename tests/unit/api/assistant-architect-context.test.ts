@@ -34,8 +34,8 @@ jest.mock('@/actions/db/get-current-user-action', () => ({
 }))
 
 // Mock the OpenAI stream
-jest.mock('openai', () => ({
-  default: jest.fn().mockImplementation(() => ({
+jest.mock('@ai-sdk/openai', () => ({
+  createOpenAI: jest.fn().mockImplementation(() => ({
     chat: {
       completions: {
         create: jest.fn()

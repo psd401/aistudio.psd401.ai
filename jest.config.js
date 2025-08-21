@@ -17,6 +17,12 @@ const customJestConfig = {
   setupFiles: ['<rootDir>/.jest/setEnvVars.js'],
   transformIgnorePatterns: [
     'node_modules/(?!(lucide-react)/)'
+  ],
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    '/tests/e2e/',
+    '/.next/',
+    '/infra/cdk.out/'
   ]
 };
 
