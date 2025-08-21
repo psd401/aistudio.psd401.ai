@@ -22,7 +22,15 @@ jest.mock('@/lib/logger', () => ({
     info: jest.fn(),
     error: jest.fn(),
     warn: jest.fn()
-  }
+  },
+  createLogger: jest.fn(() => ({
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn()
+  })),
+  generateRequestId: jest.fn(() => 'test-request-id'),
+  startTimer: jest.fn(() => jest.fn()),
+  sanitizeForLogging: jest.fn((data) => data)
 }))
 
 // Mock the getCurrentUser module

@@ -48,6 +48,14 @@ jest.mock('@/lib/logger', () => ({
     error: jest.fn(),
     warn: jest.fn(),
   },
+  createLogger: jest.fn(() => ({
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+  })),
+  generateRequestId: jest.fn(() => 'test-request-id'),
+  startTimer: jest.fn(() => jest.fn()),
+  sanitizeForLogging: jest.fn((data) => data),
 }));
 
 // Mock FormData and File

@@ -139,13 +139,16 @@ jobs:
         npm ci
         cd infra && npm ci
     
+    - name: Install CDK CLI v3
+      run: npm install -g aws-cdk@3
+    
     - name: Build CDK TypeScript
       run: cd infra && npm run build
     
     - name: Synthesize CDK stacks
       run: |
         cd infra
-        npx cdk synth --context baseDomain=example.com
+        cdk synth --context baseDomain=example.com
       env:
         # Dummy values for synthesis only - not for deployment
         CDK_DEFAULT_ACCOUNT: '123456789012'
