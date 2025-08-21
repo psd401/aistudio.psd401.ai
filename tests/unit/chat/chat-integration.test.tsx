@@ -5,8 +5,8 @@ import '@testing-library/jest-dom';
 import { Chat } from '@/app/(protected)/chat/_components/chat';
 import { toast } from '@/components/ui/use-toast';
 
-// Mock ai/react
-jest.mock('ai/react', () => ({
+// Mock @ai-sdk/react instead of ai/react
+jest.mock('@ai-sdk/react', () => ({
   useChat: jest.fn(() => ({
     messages: [],
     input: '',

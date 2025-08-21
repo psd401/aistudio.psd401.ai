@@ -11,9 +11,8 @@ jest.mock('@/auth', () => ({
     return (req: NextRequest, evt: any) => {
       // Simulate auth middleware behavior
       const auth = req.headers.get('authorization') ? { user: { id: 'test-user', email: 'test@example.com' }, expires: new Date(Date.now() + 3600000).toISOString() } : null
-      const nextUrl = req.nextUrl
       // Create an augmented request object with auth and nextUrl
-      const augmentedReq = Object.assign(req, { auth, nextUrl })
+      const augmentedReq = Object.assign(req, { auth, nextUrl: req.nextUrl })
       return handler(augmentedReq)
     }
   })

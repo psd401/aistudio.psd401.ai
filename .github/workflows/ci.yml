@@ -140,7 +140,7 @@ jobs:
         cd infra && npm ci
     
     - name: Install CDK CLI
-      run: npm install -g aws-cdk@2.209.0
+      run: npm install -g aws-cdk@2.1025.0
     
     - name: Build CDK TypeScript
       run: cd infra && npm run build
