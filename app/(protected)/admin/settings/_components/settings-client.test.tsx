@@ -3,9 +3,11 @@ import '@testing-library/jest-dom'
 
 // Mock the entire dropdown-menu UI component to avoid displayName issues
 jest.mock('@/components/ui/dropdown-menu', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   
   const createComponent = (name: string) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const Component = ({ children, ...props }: any) => 
       React.createElement('div', { ...props, 'data-testid': name.toLowerCase() }, children);
     Component.displayName = name;
@@ -33,9 +35,11 @@ jest.mock('@/components/ui/dropdown-menu', () => {
 
 // Mock the tabs UI component to avoid displayName issues
 jest.mock('@/components/ui/tabs', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   
   const createComponent = (name: string) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const Component = ({ children, ...props }: any) => 
       React.createElement('div', { ...props, 'data-testid': name.toLowerCase() }, children);
     Component.displayName = name;
@@ -53,6 +57,7 @@ jest.mock('@/components/ui/tabs', () => {
 // Mock Alert Dialog
 jest.mock('@radix-ui/react-alert-dialog', () => {
   const mockComponent = (name: string) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const MockedComponent = ({ children, ...props }: any) => <div {...props}>{children}</div>
     MockedComponent.displayName = name
     return MockedComponent
@@ -77,8 +82,10 @@ jest.mock('@/components/ui/form', () => {
   const React = require('react');
   
   const createFormComponent = (name: string) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
     const Component = ({ children, render, control, setValue, handleSubmit, ...props }: any) => {
       // Filter out react-hook-form specific props to avoid DOM warnings
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { 
         name: fieldName, 
         rules, 
@@ -101,8 +108,10 @@ jest.mock('@/components/ui/form', () => {
   };
   
   return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Form: ({ children, ...props }: any) => {
       // Filter out form-specific props to avoid passing them to DOM
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { handleSubmit, control, setValue, reset, formState, ...domProps } = props;
       return React.createElement('div', { ...domProps, 'data-testid': 'form' }, children);
     },
@@ -124,54 +133,73 @@ jest.mock('@/components/ui/form', () => {
 
 // Mock Dialog components
 jest.mock('@/components/ui/dialog', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   
   return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Dialog: ({ children, open }: any) => open ? React.createElement('div', { role: 'dialog', 'data-testid': 'dialog' }, children) : null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     DialogContent: ({ children }: any) => React.createElement('div', { 'data-testid': 'dialog-content' }, children),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     DialogHeader: ({ children }: any) => React.createElement('div', { 'data-testid': 'dialog-header' }, children),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     DialogTitle: ({ children }: any) => React.createElement('h2', { 'data-testid': 'dialog-title' }, children),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     DialogDescription: ({ children }: any) => React.createElement('p', { 'data-testid': 'dialog-description' }, children),
   }
 })
 
 // Mock Select components
 jest.mock('@/components/ui/select', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   
   return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Select: ({ children }: any) => React.createElement('div', { 'data-testid': 'select' }, children),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     SelectContent: ({ children }: any) => React.createElement('div', { 'data-testid': 'select-content' }, children),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     SelectItem: ({ children }: any) => React.createElement('div', { 'data-testid': 'select-item' }, children),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     SelectTrigger: ({ children }: any) => React.createElement('div', { 'data-testid': 'select-trigger' }, children),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     SelectValue: ({ placeholder }: any) => React.createElement('span', { 'data-testid': 'select-value' }, placeholder),
   }
 })
 
 // Mock Input and Textarea
 jest.mock('@/components/ui/input', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
+  // eslint-disable-next-line react/display-name, @typescript-eslint/no-explicit-any
+  const Input = React.forwardRef((props: any, ref: any) => 
+    React.createElement('input', { ...props, ref, 'data-testid': 'input' })
+  )
   return {
-    Input: React.forwardRef((props: any, ref: any) => 
-      React.createElement('input', { ...props, ref, 'data-testid': 'input' })
-    )
+    Input
   }
 })
 
 jest.mock('@/components/ui/textarea', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
+  // eslint-disable-next-line react/display-name, @typescript-eslint/no-explicit-any
+  const Textarea = React.forwardRef((props: any, ref: any) => 
+    React.createElement('textarea', { ...props, ref, 'data-testid': 'textarea' })
+  )
   return {
-    Textarea: React.forwardRef((props: any, ref: any) => 
-      React.createElement('textarea', { ...props, ref, 'data-testid': 'textarea' })
-    )
+    Textarea
   }
 })
 
 // Mock Checkbox
 jest.mock('@/components/ui/checkbox', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
-  return {
-    Checkbox: React.forwardRef((props: any, ref: any) => {
+  // eslint-disable-next-line react/display-name, @typescript-eslint/no-explicit-any
+  const Checkbox = React.forwardRef((props: any, ref: any) => {
       const { onCheckedChange, checked, ...inputProps } = props;
       return React.createElement('input', { 
         ...inputProps, 
@@ -182,10 +210,13 @@ jest.mock('@/components/ui/checkbox', () => {
         checked
       });
     })
+  return {
+    Checkbox
   }
 })
 
 // Create global form data store for test
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let globalFormData: any = {
   key: 'NEW_KEY',
   value: 'new_value', 
@@ -199,13 +230,16 @@ jest.mock('react-hook-form', () => {
   return {
     useForm: () => ({
       control: {},
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       handleSubmit: (fn: any) => (e: any) => {
         e?.preventDefault();
         fn(globalFormData);
       },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setValue: jest.fn((name: string, value: any) => {
         globalFormData[name] = value;
       }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       reset: jest.fn((data: any) => {
         // If data is provided, use it; otherwise keep current data
         if (data) {
@@ -214,6 +248,7 @@ jest.mock('react-hook-form', () => {
       }),
       formState: { errors: {} }
     }),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Controller: ({ render }: any) => render({ field: { onChange: jest.fn(), value: '' } })
   }
 })
