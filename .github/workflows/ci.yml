@@ -78,7 +78,11 @@ jobs:
       run: npm ci
     
     - name: Install Playwright Browsers
-      run: npx playwright install --with-deps chromium  # Only install chromium for CI speed
+      run: |
+        # Ensure Playwright uses local browser install path
+        export PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/playwright
+        npx playwright install --with-deps chromium  # Only install chromium for CI speed
+        echo "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH" >> $GITHUB_ENV
     
     - name: Build Next.js application
       run: npm run build
@@ -128,7 +132,7 @@ jobs:
         NEXTAUTH_URL: http://localhost:3000
         AUTH_TRUST_HOST: true
         NEXTAUTH_SECRET: test-secret-for-ci-only-minimum-32-characters-long
-        PLAYWRIGHT_BROWSERS_PATH: 0  # Use system-installed browsers
+        # PLAYWRIGHT_BROWSERS_PATH is set in Install step
         # Mock database to prevent connection errors
         DATABASE_SECRET_ARN: arn:aws:secretsmanager:us-east-1:123456789012:secret:test
         DATABASE_ARN: arn:aws:rds:us-east-1:123456789012:cluster:test
