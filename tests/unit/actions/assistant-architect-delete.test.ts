@@ -9,7 +9,10 @@ import { executeSQL } from '@/lib/db/data-api-adapter'
 jest.mock('@/lib/auth/server-session')
 jest.mock('@/actions/db/get-current-user-action')
 jest.mock('@/utils/roles')
-jest.mock('@/lib/db/data-api-adapter')
+jest.mock('@/lib/db/data-api-adapter', () => ({
+  executeSQL: jest.fn(),
+  deleteAssistantArchitect: jest.fn()
+}))
 jest.mock('@/lib/logger', () => ({
   createLogger: () => ({
     info: jest.fn(),
@@ -45,12 +48,7 @@ describe('deleteAssistantArchitectAction - Ownership Validation', () => {
         familyName: 'User'
       })
 
-      mockedExecuteSQL.mockImplementation(async (query: string) => {
-        if (query.includes('SELECT user_id, status')) {
-          return [{ user_id: 1, status: 'draft' }] as any
-        }
-        return [] as any
-      })
+      mockedExecuteSQL.mockResolvedValue([{ user_id: 1, status: 'draft' }])
 
       mockedGetCurrentUserAction.mockResolvedValue({
         isSuccess: true,
@@ -63,11 +61,9 @@ describe('deleteAssistantArchitectAction - Ownership Validation', () => {
 
       mockedHasToolAccess.mockResolvedValue(false) // Not an admin (neither user-management nor role-management)
 
-      // Dynamic import mock
-      jest.doMock('@/lib/db/data-api-adapter', () => ({
-        ...(jest.requireActual('@/lib/db/data-api-adapter') as any),
-        deleteAssistantArchitect: jest.fn(() => Promise.resolve(true))
-      }))
+      // Mock deleteAssistantArchitect to succeed
+      const { deleteAssistantArchitect } = require('@/lib/db/data-api-adapter')
+      deleteAssistantArchitect.mockResolvedValue(true)
 
       // Execute
       const result = await deleteAssistantArchitectAction('1')
@@ -86,12 +82,7 @@ describe('deleteAssistantArchitectAction - Ownership Validation', () => {
         familyName: 'User'
       })
 
-      mockedExecuteSQL.mockImplementation(async (query: string) => {
-        if (query.includes('SELECT user_id, status')) {
-          return [{ user_id: 1, status: 'rejected' }] as any
-        }
-        return [] as any
-      })
+      mockedExecuteSQL.mockResolvedValue([{ user_id: 1, status: 'rejected' }])
 
       mockedGetCurrentUserAction.mockResolvedValue({
         isSuccess: true,
@@ -121,12 +112,7 @@ describe('deleteAssistantArchitectAction - Ownership Validation', () => {
         familyName: 'User'
       })
 
-      mockedExecuteSQL.mockImplementation(async (query: string) => {
-        if (query.includes('SELECT user_id, status')) {
-          return [{ user_id: 1, status: 'approved' }] as any
-        }
-        return [] as any
-      })
+      mockedExecuteSQL.mockResolvedValue([{ user_id: 1, status: 'approved' }])
 
       mockedGetCurrentUserAction.mockResolvedValue({
         isSuccess: true,
@@ -156,12 +142,7 @@ describe('deleteAssistantArchitectAction - Ownership Validation', () => {
         familyName: 'User'
       })
 
-      mockedExecuteSQL.mockImplementation(async (query: string) => {
-        if (query.includes('SELECT user_id, status')) {
-          return [{ user_id: 1, status: 'draft' }] as any // Owner is user ID 1
-        }
-        return [] as any
-      })
+      mockedExecuteSQL.mockResolvedValue([{ user_id: 1, status: 'draft' }]) // Owner is user ID 1
 
       mockedGetCurrentUserAction.mockResolvedValue({
         isSuccess: true,
@@ -193,12 +174,7 @@ describe('deleteAssistantArchitectAction - Ownership Validation', () => {
         familyName: 'User'
       })
 
-      mockedExecuteSQL.mockImplementation(async (query: string) => {
-        if (query.includes('SELECT user_id, status')) {
-          return [{ user_id: 1, status: 'draft' }] // Different owner
-        }
-        return [] as any
-      })
+      mockedExecuteSQL.mockResolvedValue([{ user_id: 1, status: 'draft' }]) // Different owner
 
       mockedGetCurrentUserAction.mockResolvedValue({
         isSuccess: true,
@@ -214,11 +190,9 @@ describe('deleteAssistantArchitectAction - Ownership Validation', () => {
         return tool === 'user-management' || tool === 'role-management'
       }) as any)
 
-      // Dynamic import mock
-      jest.doMock('@/lib/db/data-api-adapter', () => ({
-        ...(jest.requireActual('@/lib/db/data-api-adapter') as any),
-        deleteAssistantArchitect: jest.fn(() => Promise.resolve(true))
-      }))
+      // Mock deleteAssistantArchitect to succeed
+      const { deleteAssistantArchitect } = require('@/lib/db/data-api-adapter')
+      deleteAssistantArchitect.mockResolvedValue(true)
 
       // Execute
       const result = await deleteAssistantArchitectAction('1')
@@ -237,12 +211,7 @@ describe('deleteAssistantArchitectAction - Ownership Validation', () => {
         familyName: 'User'
       })
 
-      mockedExecuteSQL.mockImplementation(async (query: string) => {
-        if (query.includes('SELECT user_id, status')) {
-          return [{ user_id: 1, status: 'approved' }] as any
-        }
-        return [] as any
-      })
+      mockedExecuteSQL.mockResolvedValue([{ user_id: 1, status: 'approved' }])
 
       mockedGetCurrentUserAction.mockResolvedValue({
         isSuccess: true,
@@ -299,12 +268,7 @@ describe('deleteAssistantArchitectAction - Ownership Validation', () => {
         familyName: 'User'
       })
 
-      mockedExecuteSQL.mockImplementation(async (query: string) => {
-        if (query.includes('SELECT user_id, status')) {
-          return [] // No assistant found
-        }
-        return [] as any
-      })
+      mockedExecuteSQL.mockResolvedValue([]) // No assistant found
 
       const result = await deleteAssistantArchitectAction('999')
 
