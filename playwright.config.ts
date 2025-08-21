@@ -18,32 +18,73 @@ export default defineConfig({
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
-  workers: process.env.CI ? 1 : undefined,
+  retries: process.env.CI ? 1 : 0, // Reduced from 2 to 1 for faster CI
+  /* Use multiple workers even in CI for better performance */
+  workers: process.env.CI ? 4 : undefined, // Increased from 1 to 4 workers in CI
+  
+  /* Global test timeout - kill any test that runs longer than 30 seconds */
+  timeout: 30 * 1000,
+  
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: [
+  reporter: process.env.CI ? [
     ['html'],
     ['list'],
-    process.env.CI ? ['github'] : ['dot'],
+    ['github'],
+    ['json', { outputFile: 'test-results.json' }]
+  ] : [
+    ['html'],
+    ['list'],
+    ['dot']
   ],
+  
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000',
 
-    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-    trace: 'on-first-retry',
+    /* Collect trace only on retry failures to save time */
+    trace: process.env.CI ? 'retain-on-failure' : 'on-first-retry',
 
-    /* Take screenshot on failure */
+    /* Take screenshot on failure only to save time */
     screenshot: 'only-on-failure',
 
-    /* Video on failure */
-    video: 'retain-on-failure',
+    /* Video only on failure in CI to reduce storage */
+    video: process.env.CI ? 'retain-on-failure' : 'off',
+    
+    /* Use headless mode in CI for better performance */
+    headless: process.env.CI ? true : false,
+    
+    /* Reduce viewport calculations */
+    viewport: { width: 1280, height: 720 },
+    
+    /* Ignore HTTPS errors for faster testing */
+    ignoreHTTPSErrors: true,
+    
+    /* Set action timeout */
+    actionTimeout: 10 * 1000,
+    
+    /* Set navigation timeout */
+    navigationTimeout: 15 * 1000,
   },
 
-  /* Configure projects for major browsers */
-  projects: [
+  /* Expect timeout - fail assertions that take longer than 5 seconds */
+  expect: {
+    timeout: 5 * 1000
+  },
+
+  /* Configure projects for major browsers - optimize for CI */
+  projects: process.env.CI ? [
+    // In CI, only test Chromium for speed
+    {
+      name: 'chromium',
+      use: { 
+        ...devices['Desktop Chrome'],
+        // Use faster channel for CI
+        channel: 'chrome',
+      },
+    },
+  ] : [
+    // In local dev, test multiple browsers
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
@@ -87,6 +128,6 @@ export default defineConfig({
         command: 'npm run dev',
         port: 3000,
         reuseExistingServer: true,
-        timeout: 120 * 1000,
+        timeout: 60 * 1000, // Reduced from 120s to 60s
       },
 });

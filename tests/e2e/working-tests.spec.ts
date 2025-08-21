@@ -8,7 +8,69 @@ import { test, expect } from '@playwright/test';
 // Skip these tests in CI as they require a running server
 const describeOrSkip = process.env.CI ? test.describe.skip : test.describe;
 
-describeOrSkip('Public Pages', () => {
+// Performance-optimized tests for CI
+test.describe('Critical Path Tests (CI-Optimized)', () => {
+  test('should display home page and handle sign in flow', async ({ page }) => {
+    // Combined test to reduce setup overhead
+    await page.goto('/');
+    // Use faster wait strategy
+    await expect(page).toHaveURL('/');
+    
+    // Check for either welcome content or loading state
+    const welcomeHeading = page.getByRole('heading', { name: /Welcome to PSD AI Studio/i });
+    const loadingText = page.getByText('Loading...');
+    const signInButton = page.getByRole('button', { name: 'Sign In' });
+    
+    // Wait for any of these elements to appear
+    await Promise.race([
+      welcomeHeading.waitFor({ timeout: 5000 }).catch(() => {}),
+      loadingText.waitFor({ timeout: 5000 }).catch(() => {}),
+      signInButton.waitFor({ timeout: 5000 }).catch(() => {})
+    ]);
+    
+    // Verify page loaded successfully
+    await expect(page).toHaveTitle(/AI Studio/i);
+    
+    // Test sign in button if present
+    const signInExists = await signInButton.count();
+    if (signInExists > 0) {
+      await expect(signInButton).toBeVisible();
+      await expect(signInButton).toBeEnabled();
+      
+      // Verify only one sign-in button exists
+      const allSignInButtons = page.getByRole('button', { name: /Sign In/i });
+      await expect(allSignInButtons).toHaveCount(1);
+    }
+  });
+
+  test('should protect routes and redirect to auth', async ({ page }) => {
+    // Test multiple protected routes efficiently
+    const protectedRoutes = ['/dashboard', '/chat', '/admin/users', '/compare', '/repositories'];
+    
+    for (const route of protectedRoutes) {
+      await page.goto(route);
+      // Fast check for auth redirect
+      await expect(page).toHaveURL(/\/api\/auth\/signin/, { timeout: 3000 });
+    }
+  });
+
+  test('should load essential page resources', async ({ page }) => {
+    await page.goto('/');
+    
+    // Verify basic functionality without excessive waits
+    const hasReact = await page.evaluate(() => {
+      return typeof window !== 'undefined' && (
+        window.React !== undefined || 
+        document.querySelector('[data-reactroot]') !== null ||
+        document.querySelector('#__next') !== null
+      );
+    });
+    
+    expect(hasReact).toBeTruthy();
+  });
+});
+
+describeOrSkip('Public Pages (Development Only)', () => {
   test('should display home page', async ({ page }) => {
     await page.goto('/');
     // Wait for page to load

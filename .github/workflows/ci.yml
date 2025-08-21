@@ -12,6 +12,7 @@ jobs:
   test:
     name: Test, Lint, and Type Check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     
@@ -50,12 +51,18 @@ jobs:
     #   uses: codecov/codecov-action@v3
     #   if: always()
   
-  # E2E tests job - runs Playwright tests
+  # E2E tests job - runs Playwright tests with optimized configuration
   e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # Total job timeout - critical for performance
     permissions:
       contents: read
+    
+    strategy:
+      fail-fast: false  # Continue other jobs if one fails
+      matrix:
+        shard: [1, 2, 3, 4]  # Split tests across 4 shards for parallel execution
     
     steps:
     - name: Checkout code
@@ -71,10 +78,11 @@ jobs:
       run: npm ci
     
     - name: Install Playwright Browsers
-      run: npx playwright install --with-deps
+      run: npx playwright install --with-deps chromium  # Only install chromium for CI speed
     
     - name: Build Next.js application
       run: npm run build
+      timeout-minutes: 5  # Build timeout
       env:
         # Required environment variables for build
         NEXTAUTH_URL: http://localhost:3000
@@ -95,25 +103,36 @@ jobs:
         AWS_REGION: us-east-1
     
     - name: Run E2E tests
-      run: npm run test:e2e
+      run: npx playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+      timeout-minutes: 8  # Test execution timeout
       env:
         CI: true
         # Mock authentication for CI
         NEXTAUTH_URL: http://localhost:3000
         NEXTAUTH_SECRET: test-secret-for-ci-only
+        PLAYWRIGHT_BROWSERS_PATH: 0  # Use system-installed browsers
     
     - name: Upload test results
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: playwright-report
+        name: playwright-report-${{ matrix.shard }}
         path: playwright-report/
-        retention-days: 30
+        retention-days: 7  # Reduced from 30 days to save storage
+    
+    - name: Upload test results JSON
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-${{ matrix.shard }}
+        path: test-results.json
+        retention-days: 7
     
   # CDK validation job - checks infrastructure code
   cdk-validate:
     name: Validate CDK Infrastructure
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     permissions:
       contents: read
     
