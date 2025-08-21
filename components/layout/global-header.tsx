@@ -12,12 +12,14 @@ import {
   Bell,
   Mail,
   Bug,
-  Check
+  Check,
+  X,
+  Upload
 } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Textarea } from "@/components/ui/textarea"
-import { useState } from "react"
-import { createGithubIssueAction } from "@/actions/create-github-issue-action"
+import { useState, useRef } from "react"
+import { createFreshserviceTicketAction } from "@/actions/create-freshservice-ticket.actions"
 // ... rest of imports ...
 
 export function GlobalHeader() {
@@ -79,9 +81,67 @@ function BugReportPopover() {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
+  const [screenshot, setScreenshot] = useState<File | null>(null)
+  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState<{ url: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleScreenshotChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file && file.type.startsWith('image/')) {
+      // Check file size (10MB limit)
+      const maxSize = 10 * 1024 * 1024
+      if (file.size > maxSize) {
+        setError("Screenshot must be smaller than 10MB")
+        return
+      }
+      
+      setScreenshot(file)
+      setError(null)
+      
+      // Create preview URL
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setScreenshotPreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    } else if (file) {
+      setError("Only image files are supported")
+    }
+  }
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (items) {
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile()
+          if (file) {
+            setScreenshot(file)
+            setError(null)
+            
+            // Create preview URL
+            const reader = new FileReader()
+            reader.onloadend = () => {
+              setScreenshotPreview(reader.result as string)
+            }
+            reader.readAsDataURL(file)
+            break
+          }
+        }
+      }
+    }
+  }
+
+  const clearScreenshot = () => {
+    setScreenshot(null)
+    setScreenshotPreview(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -104,14 +164,24 @@ function BugReportPopover() {
 
     const fullDescription = `${description}\n\n${metadata}`
 
-    const res = await createGithubIssueAction({ title, description: fullDescription })
+    // Prepare FormData for server action
+    const formData = new FormData()
+    formData.append('title', title)
+    formData.append('description', fullDescription)
+    
+    if (screenshot) {
+      formData.append('screenshot', screenshot)
+    }
+
+    const res = await createFreshserviceTicketAction(formData)
     setLoading(false)
     if (res.isSuccess) {
-      setSuccess({ url: res.data.html_url })
+      setSuccess({ url: res.data.ticket_url })
       setTitle("")
       setDescription("")
+      clearScreenshot()
     } else {
-      setError(res.message || "Failed to submit issue.")
+      setError(res.message || "Failed to create ticket.")
     }
   }
 
@@ -126,18 +196,18 @@ function BugReportPopover() {
         {success ? (
           <div className="flex flex-col items-center space-y-2">
             <Check className="h-8 w-8 text-green-500" />
-            <div className="text-green-700 font-semibold">Issue submitted!</div>
+            <div className="text-green-700 font-semibold">Ticket created!</div>
             <a
               href={success.url}
               target="_blank"
               rel="noopener noreferrer"
               className="text-blue-600 underline"
             >
-              View on GitHub
+              View Ticket
             </a>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4" onPaste={handlePaste}>
             <div>
               <label className="block text-sm font-medium mb-1">Title</label>
               <Input
@@ -158,9 +228,61 @@ function BugReportPopover() {
                 disabled={loading}
               />
             </div>
+            
+            {/* Screenshot upload section */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Screenshot (optional)</label>
+              <div className="space-y-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={loading}
+                  className="w-full"
+                >
+                  <Upload className="h-4 w-4 mr-1" />
+                  Upload Screenshot
+                </Button>
+                
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleScreenshotChange}
+                  className="hidden"
+                />
+                
+                {screenshotPreview && (
+                  <div className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={screenshotPreview}
+                      alt="Screenshot preview"
+                      className="max-w-full h-32 object-cover rounded border"
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="absolute top-1 right-1 h-6 w-6 bg-white/80 hover:bg-white"
+                      onClick={clearScreenshot}
+                      disabled={loading}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+                
+                <div className="text-xs text-muted-foreground">
+                  Tip: You can also paste images directly (Ctrl/Cmd+V)
+                </div>
+              </div>
+            </div>
+            
             {error && <div className="text-red-600 text-sm">{error}</div>}
             <Button type="submit" disabled={loading || !title || !description}>
-              {loading ? "Submitting..." : "Submit"}
+              {loading ? "Creating ticket..." : "Create Ticket"}
             </Button>
           </form>
         )}

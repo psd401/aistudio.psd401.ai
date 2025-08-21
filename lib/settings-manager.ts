@@ -151,5 +151,24 @@ export const Settings = {
   // External Services
   async getGitHub() {
     return getSetting('GITHUB_ISSUE_TOKEN')
+  },
+
+  async getFreshservice() {
+    const [domain, apiKey, priority, status, ticketType, workspaceId] = await Promise.all([
+      getSetting('FRESHSERVICE_DOMAIN'),
+      getSetting('FRESHSERVICE_API_KEY'),
+      getSetting('FRESHSERVICE_DEFAULT_PRIORITY'),
+      getSetting('FRESHSERVICE_DEFAULT_STATUS'),
+      getSetting('FRESHSERVICE_TICKET_TYPE'),
+      getSetting('FRESHSERVICE_WORKSPACE_ID')
+    ])
+    return { 
+      domain, 
+      apiKey, 
+      priority: priority || '2',      // Default to Medium
+      status: status || '2',          // Default to Open
+      ticketType: ticketType || 'Incident',
+      workspaceId
+    }
   }
 }
