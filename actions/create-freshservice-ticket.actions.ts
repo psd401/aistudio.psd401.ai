@@ -85,10 +85,8 @@ export async function createFreshserviceTicketAction(
     freshserviceFormData.append('department_id', settings.departmentId)  // Required field
     freshserviceFormData.append('type', settings.ticketType)  // Required field with 'Request' value
     
-    // Add optional fields if configured
-    if (settings.workspaceId) {
-      freshserviceFormData.append('workspace', settings.workspaceId)  // Field name is 'workspace' not 'workspace_id'
-    }
+    // Note: workspace field removed as Freshservice API considers it invalid
+    // The workspace may be determined automatically based on department_id
     
     // Add screenshot if provided
     if (screenshot && screenshot.size > 0) {
