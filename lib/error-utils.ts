@@ -284,6 +284,14 @@ export const ErrorFactories = {
       `Quota exceeded for ${operation}. Limit: ${limit}, Current: ${current}`,
       { operation, quota: { limit, current, resetAt }, ...details }
     ),
+
+  // Streaming and Provider Errors
+  providerUnavailable: (provider: string, details?: Partial<ExternalServiceError>) =>
+    createTypedError<ExternalServiceError>(
+      ErrorCode.EXTERNAL_SERVICE_ERROR,
+      `Provider ${provider} is currently unavailable`,
+      { serviceName: provider, ...details }
+    ),
 }
 
 /**

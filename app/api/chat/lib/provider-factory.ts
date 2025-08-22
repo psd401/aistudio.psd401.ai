@@ -6,6 +6,7 @@ import { Settings } from '@/lib/settings-manager';
 import { ErrorFactories } from '@/lib/error-utils';
 import { createLogger } from '@/lib/logger';
 import { LanguageModel } from 'ai';
+import { getProviderAdapter, type ProviderCapabilities } from '@/lib/streaming/provider-adapters';
 
 const log = createLogger({ module: 'provider-factory' });
 
@@ -177,4 +178,77 @@ export function isSupportedProvider(provider: string): boolean {
  */
 export function getSupportedProviders(): string[] {
   return ['openai', 'google', 'amazon-bedrock', 'azure'];
+}
+
+/**
+ * Enhanced provider model creation with capabilities detection
+ * Returns both the model and its capabilities for the unified streaming system
+ */
+export async function createProviderModelWithCapabilities(
+  provider: string, 
+  modelId: string,
+  options?: {
+    reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+    responseMode?: 'standard' | 'flex' | 'priority';
+    backgroundMode?: boolean;
+    thinkingBudget?: number;
+  }
+): Promise<{ model: LanguageModel; capabilities: ProviderCapabilities }> {
+  log.info(`Creating enhanced model for provider: ${provider}, modelId: ${modelId}`, {
+    provider,
+    modelId,
+    options
+  });
+
+  // Get the provider adapter for enhanced capabilities
+  const adapter = await getProviderAdapter(provider);
+  
+  // Create the model using the adapter
+  const model = await adapter.createModel(modelId, options);
+  
+  // Get model capabilities
+  const capabilities = adapter.getCapabilities(modelId);
+  
+  log.debug('Model created with capabilities', {
+    provider,
+    modelId,
+    supportsReasoning: capabilities.supportsReasoning,
+    supportsThinking: capabilities.supportsThinking,
+    maxTimeoutMs: capabilities.maxTimeoutMs
+  });
+  
+  return { model, capabilities };
+}
+
+/**
+ * Get model capabilities without creating the model
+ * Useful for frontend model selection and configuration
+ */
+export async function getModelCapabilities(provider: string, modelId: string): Promise<ProviderCapabilities> {
+  const adapter = await getProviderAdapter(provider);
+  return adapter.getCapabilities(modelId);
+}
+
+/**
+ * Check if a specific model supports reasoning features
+ */
+export async function supportsReasoning(provider: string, modelId: string): Promise<boolean> {
+  const capabilities = await getModelCapabilities(provider, modelId);
+  return capabilities.supportsReasoning;
+}
+
+/**
+ * Check if a specific model supports thinking features (Claude)
+ */
+export async function supportsThinking(provider: string, modelId: string): Promise<boolean> {
+  const capabilities = await getModelCapabilities(provider, modelId);
+  return capabilities.supportsThinking;
+}
+
+/**
+ * Get recommended timeout for a model based on its capabilities
+ */
+export async function getRecommendedTimeout(provider: string, modelId: string): Promise<number> {
+  const capabilities = await getModelCapabilities(provider, modelId);
+  return capabilities.maxTimeoutMs;
 }
