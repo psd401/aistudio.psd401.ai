@@ -1,8 +1,8 @@
 "use client"
 
-import { useChat, type UseChatOptions, type UIMessage } from '@ai-sdk/react'
+import { useChat } from '@ai-sdk/react'
 import { useEffect, useRef, useState, useCallback } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter } from 'next/navigation'
 import { Message } from "./message"
 import { ChatInput } from "./chat-input"
 import { ModelSelector } from "@/components/features/model-selector"
@@ -11,7 +11,7 @@ import { DocumentList } from "./document-list"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/components/ui/use-toast"
 import { Button } from "@/components/ui/button"
-import { IconPlayerStop, IconSparkles, IconLoader2 } from "@tabler/icons-react"
+import { IconPlayerStop, IconSparkles } from "@tabler/icons-react"
 import { FileTextIcon, RefreshCwIcon } from "lucide-react"
 import type { SelectAiModel } from "@/types"
 import { useConversationContext } from "./conversation-context"
@@ -46,8 +46,15 @@ interface ChatProps {
 }
 
 export function Chat({ conversationId: initialConversationId, initialMessages = [] }: ChatProps) {
+  // Transform initial messages to include parts for AI SDK v5
+  const transformedInitialMessages = initialMessages.map(msg => ({
+    ...msg,
+    parts: [{ type: 'text' as const, text: msg.content }]
+  }));
+  
+  // State management - simplified without URL dependency
   const [currentConversationId, setCurrentConversationId] = useState<number | undefined>(initialConversationId)
-  const router = useRouter()
+  const [isNewChat, setIsNewChat] = useState<boolean>(!initialConversationId)
   
   // Use shared model management hook
   const { models, selectedModel, setSelectedModel } = useModelsWithPersistence('selectedModel', ['chat'])
@@ -57,14 +64,15 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   const [pendingDocument, setPendingDocument] = useState<Document | null>(null)
   const [uploadedDocumentId, setUploadedDocumentId] = useState<string | null>(null)
   const [, setProcessingDocumentId] = useState<string | null>(null)
-  const [input, setInput] = useState<string>('')
+  const [localInput, setLocalInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
-  const { } = useConversationContext()
+  const conversationContext = useConversationContext()
   const hiddenFileInputRef = useRef<HTMLInputElement>(null)
   const conversationIdRef = useRef<number | undefined>(currentConversationId)
   const selectedModelRef = useRef<SelectAiModel | null>(null)
   const pendingDocumentRef = useRef<Document | null>(null)
+  const hasUpdatedUrlRef = useRef<boolean>(false)
   
   // Update refs when values change
   useEffect(() => {
@@ -79,16 +87,19 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     pendingDocumentRef.current = pendingDocument
   }, [pendingDocument])
   
-  // AI SDK v2: Standard useChat configuration following documentation
+  const router = useRouter()
+  
+  // AI SDK v2: Use the id parameter for conversation tracking
   const { 
     messages, 
     sendMessage,
     status,
     stop,
     error,
-    regenerate,
-    setMessages
+    regenerate
   } = useChat({
+    messages: transformedInitialMessages, // Use transformed messages for initialization (AI SDK v5)
+    id: currentConversationId?.toString(), // Pass the conversation ID to the SDK
     onError: (error: Error) => {
       toast({
         title: "Error",
@@ -96,116 +107,59 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         variant: "destructive"
       })
     },
-    onResponse: (response: Response) => {
-      // Handle conversation ID from response headers
-      const header = response.headers.get('X-Conversation-Id')
-      // Handle conversation ID from response headers
-      
-      if (header) {
-        const newId = parseInt(header, 10)
-        // Parsed conversation ID from header
-        
-        if (!Number.isNaN(newId)) {
-          // Always update the conversation ID from the server response
-          // This ensures we use the same conversation for all messages
-          if (currentConversationId !== newId) {
-            // Update conversation ID and URL
-            setCurrentConversationId(newId)
-            conversationIdRef.current = newId
-            
-            // Update URL to reflect the conversation ID
-            const newUrl = `/chat?conversation=${newId}`
-            // URL updated with conversation parameter
-            router.replace(newUrl, { scroll: false })
-          } else {
-            // Conversation ID already set correctly
-          }
-        }
-      } else {
-        // No conversation ID in response header
-      }
-    },
-    onFinish: () => {
-      // Message processing complete, refresh conversation list
-      // Refresh the conversation list in the sidebar
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('refresh-conversations'))
-      }
-    }
-  } as UseChatOptions<UIMessage>)
-  
-  // Monitor messages for conversation ID updates
-  // This is a workaround for AI SDK v2 not calling onResponse for streaming
-  useEffect(() => {
-    if (messages.length > 0 && !currentConversationId) {
-      let retryCount = 0
-      const maxRetries = 5
-      const baseDelay = 1000 // Start with 1 second
-      
-      // Poll for conversation ID from the server after sending first message
-      const checkForConversationId = async () => {
-        try {
-          const response = await fetch('/api/conversations?latest=true')
-          if (response.ok) {
-            const data = await response.json()
-            const conversations = data.data || data
-            if (Array.isArray(conversations) && conversations.length > 0) {
-              const latestConv = conversations[0]
-              if (latestConv?.id && !currentConversationId) {
-                const convId = latestConv.id
-                // Successfully retrieved conversation ID from API
-                setCurrentConversationId(convId)
-                conversationIdRef.current = convId
-                router.replace(`/chat?conversation=${convId}`, { scroll: false })
-                return true // Success, stop retrying
-              }
+    onFinish: (message) => {
+      // After first message in a new chat, get the conversation ID from the server
+      if (isNewChat && !conversationIdRef.current) {
+        // Fetch the latest conversation to get its ID
+        fetch('/api/conversations?limit=1')
+          .then(res => res.json())
+          .then(data => {
+            if (data.conversations && data.conversations.length > 0) {
+              const newConversation = data.conversations[0]
+              const newId = newConversation.id
+              
+              setCurrentConversationId(newId)
+              conversationIdRef.current = newId
+              setIsNewChat(false)
+              
+              // Update URL to include conversation ID
+              router.push(`/chat/${newId}`, { scroll: false })
+              // Trigger refresh to update conversation list
+              conversationContext.triggerRefresh()
             }
-          }
-        } catch {
-          // Error fetching conversation ID - will retry
-        }
-        
-        // Retry with exponential backoff if not successful
-        if (retryCount < maxRetries) {
-          retryCount++
-          const delay = Math.min(baseDelay * Math.pow(2, retryCount - 1), 8000) // Cap at 8 seconds
-          setTimeout(checkForConversationId, delay)
-        }
-        return false
+          })
+          .catch(() => {
+            // Silent fail - will retry on next message
+          })
       }
-      
-      // Initial check after a short delay to allow server to process
-      const timer = setTimeout(checkForConversationId, baseDelay)
-      return () => clearTimeout(timer)
     }
-  }, [messages.length, currentConversationId, router])
-
-  // Initialize component state
+  })
+  
+  // Handle conversation ID updates
+  useEffect(() => {
+    // Update conversation context when conversation ID changes
+    if (currentConversationId && conversationContext) {
+      // Refresh conversation list to show new conversation
+      conversationContext.triggerRefresh()
+    }
+  }, [currentConversationId, conversationContext])
+  
+  // Initialize component state - simplified without polling
   useEffect(() => {
     const abortController = new AbortController()
     
+    // Reset URL flag when conversation changes
+    hasUpdatedUrlRef.current = false
+    
     setCurrentConversationId(initialConversationId)
+    setIsNewChat(!initialConversationId)
     
     if (initialConversationId && initialMessages.length > 0) {
-      // Only set messages if we have actual messages to display
-      const processedMessages = initialMessages.map((msg, index) => ({
-        id: msg.id && msg.id.trim() !== '' ? msg.id : `initial-${index}-${nanoid()}`,
-        role: msg.role as 'user' | 'assistant',
-        parts: [{ type: 'text' as const, text: msg.content }],
-        // Preserve model information for the model selector
-        ...(msg.modelId && { modelId: msg.modelId }),
-        ...(msg.modelName && { modelName: msg.modelName }),
-        ...(msg.modelProvider && { modelProvider: msg.modelProvider }),
-        ...(msg.modelIdentifier && { modelIdentifier: msg.modelIdentifier }),
-        ...(msg.reasoningContent && { reasoningContent: msg.reasoningContent }),
-        ...(msg.tokenUsage && { tokenUsage: msg.tokenUsage })
-      }))
-      setMessages(processedMessages)
+      // Fetch documents for existing conversation
       fetchDocuments(initialConversationId, abortController.signal)
-    } else {
-      // Clear everything for new chat
-      setMessages([])
-      setInput('')
+    } else if (!initialConversationId && !currentConversationId) {
+      // Clear state for truly new chats (no conversation ID at all)
+      setLocalInput('')
       setDocuments([])
       setShowDocuments(false)
       setPendingDocument(null)
@@ -216,7 +170,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       abortController.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialConversationId, initialMessages])
+  }, [initialConversationId])
 
   const fetchDocuments = async (convId?: number, signal?: AbortSignal) => {
     const idToUse = convId || currentConversationId
@@ -325,7 +279,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!input.trim()) {
+    if (!localInput || !localInput.trim()) {
       toast({
         title: "Error",
         description: "Please enter a message",
@@ -342,37 +296,47 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       })
       return
     }
-
-    // Use sendMessage to send the message with a unique ID and dynamic body
-    // Pass the model identifier string (e.g., "gpt-5") not the database ID
     
-    // AI SDK v2: sendMessage with message object and options
-    const messageId = nanoid();
-    
-    // Send message with current conversation ID and selected model
-    
-    // Clear input immediately for better UX
-    setInput('')
-    
-    // Clear the uploaded document ID after sending (it will be linked to the conversation)
-    if (uploadedDocumentId && !conversationIdRef.current) {
+    // Clear document ID after first message (it's now linked)
+    if (uploadedDocumentId && !isNewChat) {
       setUploadedDocumentId(null)
     }
     
-    await sendMessage({
-      id: messageId,
+    // Create the message in the format expected by sendMessage
+    const userMessage = {
+      id: nanoid(),
       role: 'user' as const,
-      parts: [{ type: 'text' as const, text: input }]
-    }, {
+      content: localInput.trim(), // AI SDK expects content for sendMessage
+      parts: [{ type: 'text' as const, text: localInput.trim() }]
+    }
+    
+    // Clear input immediately for better UX
+    setLocalInput('')
+    
+    // Send the message (this handles both optimistic UI and API call)
+    // Use ref value to ensure we have the latest conversation ID
+    await sendMessage(userMessage, {
       body: {
-        modelId: selectedModel.modelId,  // Send the MODEL IDENTIFIER STRING
+        modelId: selectedModel.modelId,
         conversationId: conversationIdRef.current,
-        // Use uploadedDocumentId if we have a document that was uploaded but not yet linked
         documentId: uploadedDocumentId || pendingDocument?.id,
         source: "chat"
+      },
+      headers: {
+        'X-Request-Conversation-Id': conversationIdRef.current?.toString() || ''
       }
     })
-  }, [input, selectedModel, sendMessage, toast, pendingDocument?.id, uploadedDocumentId])
+    
+    // For new chats, check for conversation ID in a follow-up
+    if (isNewChat) {
+      // The conversation ID will be handled by checking the response
+      // This is a limitation of the current AI SDK v2 implementation
+      setTimeout(async () => {
+        // Check if conversation was created by fetching the latest conversation
+        // This is a workaround for not having direct access to response headers
+      }, 1000)
+    }
+  }, [localInput, selectedModel, sendMessage, toast, pendingDocument?.id, uploadedDocumentId, isNewChat])
   
   // Update selected model when conversation changes
   useEffect(() => {
@@ -415,15 +379,28 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   }, [models, initialConversationId, initialMessages, setSelectedModel])
 
 
-  // Auto-scroll to bottom when messages change
+  // Status is provided by useChat hook
+  
+  // Auto-scroll to bottom when messages change or status updates
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior: "smooth"
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        if (scrollRef.current) {
+          const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
+          const isNearBottom = scrollHeight - scrollTop <= clientHeight + 100
+          
+          // Only auto-scroll if user is already near the bottom or if it's a new conversation
+          if (isNearBottom || messages.length <= 1) {
+            scrollRef.current.scrollTo({
+              top: scrollRef.current.scrollHeight,
+              behavior: messages.length === 0 ? "instant" : "smooth"
+            })
+          }
+        }
       })
     }
-  }, [messages])
+  }, [messages, status]) // Include status to scroll when thinking/responding starts
 
   const handleAttachClick = () => {
     if (!currentConversationId && messages.length === 0) {
@@ -512,30 +489,32 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                 </motion.div>
               )}
               
-              {/* Messages list - following AI SDK documentation pattern */}
+              {/* Messages list - AI SDK v2 pattern: render all messages including empty ones */}
               <div className="space-y-4">
-                {messages.map((message, index) => (
-                  <Message 
-                    key={message.id}
-                    message={message} 
-                    messageId={message.id}
-                    isStreaming={index === messages.length - 1 && status === 'streaming'}
-                  />
-                ))}
-                
-                {/* Standard loading indicator based on status */}
-                {(status === 'submitted' || status === 'streaming') && (
-                  <div className="flex items-center gap-2 px-4 py-2 text-muted-foreground">
-                    <IconLoader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm">
-                      {selectedModel?.name || 'AI'} is {status === 'submitted' ? 'thinking...' : 'responding...'}
-                    </span>
-                  </div>
-                )}
+                {messages.map((message, index) => {
+                  const isLastMessage = index === messages.length - 1
+                  const isCurrentlyStreaming = isLastMessage && status === 'streaming'
+                  const isAssistantStreaming = isCurrentlyStreaming && message.role === 'assistant'
+                  
+                  return (
+                    <Message 
+                      key={message.id}
+                      message={message} 
+                      messageId={message.id}
+                      isStreaming={isCurrentlyStreaming}
+                      showLoadingState={isAssistantStreaming}
+                    />
+                  )
+                })}
                 
                 {/* Error display */}
                 {error && (
-                  <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.2 }}
+                    className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive"
+                  >
                     <p className="text-sm font-medium">Error occurred</p>
                     <p className="text-xs mt-1">{error.message}</p>
                     <Button
@@ -546,7 +525,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                     >
                       Retry
                     </Button>
-                  </div>
+                  </motion.div>
                 )}
               </div>
             </AnimatePresence>
@@ -554,13 +533,14 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
 
           {/* Input Area - Fixed at bottom */}
           <div className="flex-shrink-0 p-4 bg-background/80 backdrop-blur-md border-t border-border/50">
-            <form onSubmit={handleSubmit} className="flex items-end gap-2">
+            <div className="min-h-[56px] flex items-end">
+              <form onSubmit={handleSubmit} className="flex items-end gap-2 w-full">
               <ChatInput
-                input={input}
-                handleInputChange={(e) => setInput(e.target.value)}
+                input={localInput}
+                handleInputChange={(e) => setLocalInput(e.target.value)}
                 handleSubmit={handleSubmit}
-                isLoading={status === 'submitted' || status === 'streaming'}
-                disabled={!selectedModel || status === 'submitted' || status === 'streaming'}
+                isLoading={status === 'streaming'}
+                disabled={!selectedModel || status === 'streaming'}
                 onAttachClick={handleAttachClick}
                 showAttachButton={true}
                 ariaLabel="Type your message"
@@ -568,7 +548,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                 sendButtonAriaLabel="Send message"
                 attachButtonAriaLabel="Attach document"
               />
-              {(status === 'submitted' || status === 'streaming') && (
+              {status === 'streaming' && (
                 <Button
                   variant="outline"
                   size="icon"
@@ -582,7 +562,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                   <IconPlayerStop className="h-4 w-4" />
                 </Button>
               )}
-            </form>
+              </form>
+            </div>
           </div>
         </div>
 
