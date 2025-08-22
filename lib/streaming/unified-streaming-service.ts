@@ -3,6 +3,7 @@ import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { ErrorFactories } from '@/lib/error-utils';
 import { getTelemetryConfig } from './telemetry-service';
 import { getProviderAdapter, type ProviderCapabilities } from './provider-adapters';
+import { CircuitBreaker, CircuitBreakerOpenError } from './circuit-breaker';
 import type { StreamRequest, StreamResponse, StreamConfig } from './types';
 
 const log = createLogger({ module: 'unified-streaming-service' });
@@ -57,8 +58,8 @@ export class UnifiedStreamingService {
       
       // 3. Check circuit breaker
       const circuitBreaker = this.getCircuitBreaker(request.provider);
-      if (circuitBreaker.isOpen()) {
-        throw ErrorFactories.providerUnavailable(request.provider);
+      if (!circuitBreaker.isOpen()) {
+        throw new CircuitBreakerOpenError(request.provider, circuitBreaker.getState());
       }
       
       // 4. Configure streaming with adaptive timeouts
@@ -271,55 +272,6 @@ export class UnifiedStreamingService {
       span.setStatus({ code: 2 }); // ERROR
     }
     circuitBreaker.recordFailure();
-  }
-}
-
-/**
- * Simple circuit breaker implementation
- */
-class CircuitBreaker {
-  private failures = 0;
-  private lastFailureTime = 0;
-  private state: 'closed' | 'open' | 'half-open' = 'closed';
-  
-  constructor(private config: {
-    failureThreshold: number;
-    recoveryTimeoutMs: number;
-    monitoringPeriodMs: number;
-  }) {}
-  
-  isOpen(): boolean {
-    const now = Date.now();
-    
-    // If we're in open state, check if we should transition to half-open
-    if (this.state === 'open') {
-      if (now - this.lastFailureTime > this.config.recoveryTimeoutMs) {
-        this.state = 'half-open';
-        return false; // Allow one request through
-      }
-      return true; // Circuit is open, reject request
-    }
-    
-    // Reset failure count if monitoring period has passed
-    if (now - this.lastFailureTime > this.config.monitoringPeriodMs) {
-      this.failures = 0;
-    }
-    
-    return false; // Circuit is closed or half-open, allow request
-  }
-  
-  recordSuccess(): void {
-    this.failures = 0;
-    this.state = 'closed';
-  }
-  
-  recordFailure(): void {
-    this.failures++;
-    this.lastFailureTime = Date.now();
-    
-    if (this.failures >= this.config.failureThreshold) {
-      this.state = 'open';
-    }
   }
 }
 

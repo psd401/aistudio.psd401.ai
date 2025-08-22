@@ -16,7 +16,7 @@ export function ModelCompare() {
   const [prompt, setPrompt] = useState("")
   const { toast } = useToast()
   
-  // Use AI SDK's useChat for model 1
+  // Use AI SDK's useChat for model 1 with unified streaming
   const chat1 = useChat({
     id: 'compare-model1',
     onError: (error) => {
@@ -28,7 +28,7 @@ export function ModelCompare() {
     }
   })
   
-  // Use AI SDK's useChat for model 2
+  // Use AI SDK's useChat for model 2 with unified streaming
   const chat2 = useChat({
     id: 'compare-model2',
     onError: (error) => {
@@ -80,7 +80,7 @@ export function ModelCompare() {
       parts: [{ type: 'text' as const, text: prompt.trim() }]
     }
 
-    // Send to both models in parallel using AI SDK v2 patterns
+    // Send to both models in parallel using the chat API (which now uses unified streaming)
     await Promise.all([
       chat1.sendMessage(userMessage, {
         body: {
