@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 
-// Mock all dependencies
-const mockGetTelemetryConfig = jest.fn();
-const mockGetProviderAdapter = jest.fn();
+// Mock all dependencies with proper typing
+const mockGetTelemetryConfig = jest.fn() as jest.Mock<any>;
+const mockGetProviderAdapter = jest.fn() as jest.Mock<any>;
 
 jest.doMock('../telemetry-service', () => ({
   getTelemetryConfig: mockGetTelemetryConfig
@@ -27,7 +27,8 @@ jest.doMock('@/lib/logger', () => ({
   startTimer: () => jest.fn()
 }));
 
-// Import after mocking
+// Import after mocking - disable ESLint for this specific case
+// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
 const { UnifiedStreamingService } = require('../unified-streaming-service');
 
 describe('UnifiedStreamingService', () => {
@@ -262,7 +263,7 @@ describe('UnifiedStreamingService', () => {
 
       // Create a failing adapter
       const failingAdapter = {
-        createModel: jest.fn().mockResolvedValue({ id: 'gpt-4', provider: 'openai' }),
+        createModel: (jest.fn() as jest.Mock<any>).mockResolvedValue({ id: 'gpt-4', provider: 'openai' }),
         getCapabilities: jest.fn().mockReturnValue({
           supportsReasoning: false,
           supportsThinking: false,
@@ -283,8 +284,8 @@ describe('UnifiedStreamingService', () => {
       for (let i = 0; i < 5; i++) {
         try {
           await streamingServiceWithFailures.stream(request);
-        } catch (error) {
-          // Expected to fail
+        } catch {
+          // Expected to fail - error intentionally ignored
         }
       }
 
@@ -345,7 +346,7 @@ describe('UnifiedStreamingService', () => {
 
       // Assert
       expect(mockGetTelemetryConfig).toHaveBeenCalled();
-      const callArgs = mockGetTelemetryConfig.mock.calls[0][0];
+      const callArgs = mockGetTelemetryConfig.mock.calls[0][0] as any;
       expect(callArgs.userId).toBe('test-user');
       expect(callArgs.modelId).toBe('gpt-4');
       expect(callArgs.provider).toBe('openai');
