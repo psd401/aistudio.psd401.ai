@@ -111,7 +111,7 @@ describe('CircuitBreaker', () => {
       circuitBreaker.recordFailure();
       
       expect(circuitBreaker.getState()).toBe(CircuitBreakerState.OPEN);
-      expect(circuitBreaker.isOpen()).toBe(false);
+      expect(circuitBreaker.isOpen()).toBe(true);
     });
   });
 
