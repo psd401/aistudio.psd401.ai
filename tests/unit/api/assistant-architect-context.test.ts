@@ -44,28 +44,32 @@ jest.mock('@/actions/db/get-current-user-action', () => ({
 
 // Mock unified streaming service - must return instance with stream method
 jest.mock('@/lib/streaming/unified-streaming-service', () => {
-  const mockStream = jest.fn().mockResolvedValue({
-    result: {
-      toUIMessageStreamResponse: jest.fn().mockImplementation((options = {}) => {
-        const headers = new Headers(options.headers || {});
-        headers.set('Content-Type', 'text/event-stream');
-        return new Response(new ReadableStream({
-          start(controller) {
-            controller.enqueue('{"type":"text","content":"Test response"}');
-            controller.close();
-          }
-        }), {
-          status: 200,
-          headers
-        });
-      })
-    },
-    telemetry: {
-      totalDuration: 100,
-      streamDuration: 80,
-      firstTokenLatency: 20
-    },
-    reasoning: undefined
+  const mockStream = jest.fn().mockImplementation(async () => {
+    return {
+      result: {
+        toUIMessageStreamResponse: jest.fn().mockImplementation((options = {}) => {
+          const headers = new Headers(options.headers || {});
+          headers.set('Content-Type', 'text/event-stream');
+          return new Response(new ReadableStream({
+            start(controller) {
+              controller.enqueue('{"type":"text","content":"Test response"}');
+              controller.close();
+            }
+          }), {
+            status: 200,
+            headers
+          });
+        })
+      },
+      requestId: 'test-request-id',
+      capabilities: {
+        supportsReasoning: false,
+        supportsThinking: false
+      },
+      telemetryConfig: {
+        isEnabled: false
+      }
+    };
   });
 
   return {
