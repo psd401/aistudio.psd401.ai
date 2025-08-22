@@ -423,11 +423,10 @@ export async function POST(req: Request) {
     
     timer({ status: 'error' });
     
-    // Return detailed error response
+    // Return generic error response
     return new Response(
       JSON.stringify({
         error: 'Failed to process chat request',
-        details: error instanceof Error ? error.message : 'Unknown error',
         requestId
       }),
       {

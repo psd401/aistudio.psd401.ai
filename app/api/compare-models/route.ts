@@ -25,13 +25,57 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { prompt, model1Id, model2Id, model1Name, model2Name } = body;
     
-    if (!prompt || !model1Id || !model2Id) {
-      log.warn('Missing required fields', { 
-        hasPrompt: !!prompt, 
-        hasModel1: !!model1Id, 
-        hasModel2: !!model2Id 
+    // Validate prompt
+    if (typeof prompt !== 'string' || prompt.trim().length === 0) {
+      log.warn('Invalid prompt', { promptType: typeof prompt, promptLength: typeof prompt === 'string' ? prompt.length : 0 });
+      return new Response(JSON.stringify({ error: 'Invalid prompt' }), { 
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
       });
-      return new Response('Missing required fields', { status: 400 });
+    }
+
+    // Add prompt length limit
+    const MAX_PROMPT_LENGTH = 10000;
+    if (prompt.length > MAX_PROMPT_LENGTH) {
+      log.warn('Prompt too long', { promptLength: prompt.length, maxLength: MAX_PROMPT_LENGTH });
+      return new Response(JSON.stringify({ error: 'Prompt too long' }), { 
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Validate model IDs are valid strings/numbers
+    const isValidModelId = (id: unknown): id is string | number => {
+      return (typeof id === 'string' && id.trim().length > 0) || 
+             (typeof id === 'number' && !isNaN(id) && id > 0);
+    };
+
+    if (!isValidModelId(model1Id) || !isValidModelId(model2Id)) {
+      log.warn('Invalid model IDs', { 
+        model1Id: typeof model1Id === 'string' ? model1Id.substring(0, 50) : model1Id,
+        model2Id: typeof model2Id === 'string' ? model2Id.substring(0, 50) : model2Id
+      });
+      return new Response(JSON.stringify({ error: 'Invalid model ID' }), { 
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Validate optional model names if provided
+    if (model1Name && typeof model1Name !== 'string') {
+      log.warn('Invalid model1Name type', { type: typeof model1Name });
+      return new Response(JSON.stringify({ error: 'Invalid model name' }), { 
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (model2Name && typeof model2Name !== 'string') {
+      log.warn('Invalid model2Name type', { type: typeof model2Name });
+      return new Response(JSON.stringify({ error: 'Invalid model name' }), { 
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
     
     log.debug('Request parsed', {
@@ -118,7 +162,7 @@ export async function POST(req: Request) {
                   sendData({ model1: event.text });
                 }
               },
-              onFinish: async ({ text, usage }) => {
+              onFinish: async ({ usage }) => {
                 log.info('Model 1 completed', {
                   modelId: model1Config.model_id,
                   tokensUsed: usage?.totalTokens
@@ -160,7 +204,7 @@ export async function POST(req: Request) {
                   sendData({ model2: event.text });
                 }
               },
-              onFinish: async ({ text, usage }) => {
+              onFinish: async ({ usage }) => {
                 log.info('Model 2 completed', {
                   modelId: model2Config.model_id,
                   tokensUsed: usage?.totalTokens
@@ -238,7 +282,6 @@ export async function POST(req: Request) {
     return new Response(
       JSON.stringify({
         error: 'Failed to process comparison request',
-        details: error instanceof Error ? error.message : 'Unknown error',
         requestId
       }),
       {

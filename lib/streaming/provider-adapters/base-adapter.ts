@@ -1,4 +1,4 @@
-import { streamText, consumeStream, type LanguageModel, type CoreMessage } from 'ai';
+import { streamText, type LanguageModel, type CoreMessage } from 'ai';
 import { createLogger } from '@/lib/logger';
 import type { 
   ProviderAdapter, 
@@ -94,8 +94,13 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
         messages: enhancedConfig.messages as CoreMessage[],
         system: enhancedConfig.system,
         temperature: enhancedConfig.temperature,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        experimental_telemetry: enhancedConfig.experimental_telemetry as any,
+        ...(enhancedConfig.experimental_telemetry && enhancedConfig.experimental_telemetry.isEnabled && {
+          experimental_telemetry: {
+            isEnabled: enhancedConfig.experimental_telemetry.isEnabled,
+            functionId: enhancedConfig.experimental_telemetry.functionId,
+            metadata: enhancedConfig.experimental_telemetry.metadata
+          }
+        }),
         onFinish: async (event) => {
           logger.info('streamText onFinish triggered', {
             provider: this.providerName,
@@ -105,16 +110,22 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
             textLength: event.text?.length || 0
           });
           
+          // Define proper type for usage
+          interface StreamUsage {
+            promptTokens?: number;
+            completionTokens?: number;
+            totalTokens?: number;
+            reasoningTokens?: number;
+          }
+          
           // Transform to our expected format
+          const usage = event.usage as StreamUsage;
           const transformedData = {
             text: event.text || '',
-            usage: event.usage ? {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              promptTokens: (event.usage as any).promptTokens || 0,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              completionTokens: (event.usage as any).completionTokens || 0,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              totalTokens: (event.usage as any).totalTokens || 0
+            usage: usage ? {
+              promptTokens: usage.promptTokens || 0,
+              completionTokens: usage.completionTokens || 0,
+              totalTokens: usage.totalTokens || 0
             } : undefined,
             finishReason: event.finishReason || 'stop'
           };

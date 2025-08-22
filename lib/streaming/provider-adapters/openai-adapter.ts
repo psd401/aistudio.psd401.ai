@@ -1,5 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { streamText, consumeStream, type CoreMessage } from 'ai';
+import { streamText, type CoreMessage } from 'ai';
 import { createLogger } from '@/lib/logger';
 import { Settings } from '@/lib/settings-manager';
 import { ErrorFactories } from '@/lib/error-utils';
@@ -267,16 +267,22 @@ export class OpenAIAdapter extends BaseProviderAdapter {
             textLength: event.text?.length || 0
           });
           
+          // Define proper type for usage
+          interface StreamUsage {
+            promptTokens?: number;
+            completionTokens?: number;
+            totalTokens?: number;
+            reasoningTokens?: number;
+          }
+          
           // Transform to our expected format
+          const usage = event.usage as StreamUsage;
           const transformedData = {
             text: event.text || '',
-            usage: event.usage ? {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              promptTokens: (event.usage as any).promptTokens || 0,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              completionTokens: (event.usage as any).completionTokens || 0,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              totalTokens: (event.usage as any).totalTokens || 0
+            usage: usage ? {
+              promptTokens: usage.promptTokens || 0,
+              completionTokens: usage.completionTokens || 0,
+              totalTokens: usage.totalTokens || 0
             } : undefined,
             finishReason: event.finishReason || 'stop'
           };

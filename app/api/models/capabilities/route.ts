@@ -17,16 +17,25 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     
-    // Validate required fields
-    if (!body.provider) {
+    // Validate required fields with type checking
+    if (!body.provider || typeof body.provider !== 'string' || body.provider.trim().length === 0) {
       throw ErrorFactories.validationFailed([
-        { field: 'provider', message: 'Provider is required' }
+        { field: 'provider', message: 'Provider must be a non-empty string' }
       ]);
     }
     
-    if (!body.modelId) {
+    if (!body.modelId || (typeof body.modelId !== 'string' && typeof body.modelId !== 'number') || 
+        (typeof body.modelId === 'string' && body.modelId.trim().length === 0)) {
       throw ErrorFactories.validationFailed([
-        { field: 'modelId', message: 'Model ID is required' }
+        { field: 'modelId', message: 'Model ID must be a non-empty string or number' }
+      ]);
+    }
+
+    // Validate provider is from known set
+    const VALID_PROVIDERS = ['openai', 'amazon-bedrock', 'google', 'azure'];
+    if (!VALID_PROVIDERS.includes(body.provider.toLowerCase())) {
+      throw ErrorFactories.validationFailed([
+        { field: 'provider', message: `Provider must be one of: ${VALID_PROVIDERS.join(', ')}` }
       ]);
     }
     
@@ -58,7 +67,8 @@ export async function POST(req: Request) {
       error: error instanceof Error ? error.message : String(error)
     });
     
-    if (error instanceof Error && error.message.includes('validation')) {
+    // Only expose validation errors to help users correct their input
+    if (error instanceof Error && error.name === 'ValidationError') {
       return Response.json(
         {
           error: 'Validation Error',
