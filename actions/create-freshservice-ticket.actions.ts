@@ -75,21 +75,17 @@ export async function createFreshserviceTicketAction(
       }
     }
     
-    // Prepare form data for Freshservice
-    const freshserviceFormData = new FormData()
-    freshserviceFormData.append('subject', title)
-    freshserviceFormData.append('description', description)
-    freshserviceFormData.append('email', session.email || 'noreply@example.com')
-    freshserviceFormData.append('priority', settings.priority)
-    freshserviceFormData.append('status', settings.status)
-    freshserviceFormData.append('department_id', settings.departmentId)  // Required field
-    freshserviceFormData.append('type', settings.ticketType)  // Required field with 'Request' value
+    // Prepare API request
+    const apiUrl = `https://${settings.domain}.freshservice.com/api/v2/tickets`
+    const encodedKey = Buffer.from(settings.apiKey + ":X").toString("base64")
     
-    // Note: workspace field removed as Freshservice API considers it invalid
-    // The workspace may be determined automatically based on department_id
+    let response: Response
     
-    // Add screenshot if provided
-    if (screenshot && screenshot.size > 0) {
+    // Check if we have a screenshot attachment
+    const hasAttachment = screenshot && screenshot.size > 0
+    
+    if (hasAttachment) {
+      // Validate screenshot
       const maxSizeBytes = 10 * 1024 * 1024 // 10MB
       if (screenshot.size > maxSizeBytes) {
         log.warn("Screenshot too large", { size: screenshot.size, maxSize: maxSizeBytes })
@@ -106,33 +102,75 @@ export async function createFreshserviceTicketAction(
         ])
       }
       
+      // Use multipart/form-data for requests with attachments
+      const freshserviceFormData = new FormData()
+      freshserviceFormData.append('subject', title)
+      freshserviceFormData.append('description', description)
+      freshserviceFormData.append('email', session.email || 'noreply@example.com')
+      freshserviceFormData.append('priority', settings.priority)
+      freshserviceFormData.append('status', settings.status)
+      freshserviceFormData.append('department_id', settings.departmentId)
+      freshserviceFormData.append('type', settings.ticketType)
+      
+      // Add workspace_id for multipart requests
+      if (settings.workspaceId) {
+        freshserviceFormData.append('workspace_id', settings.workspaceId)
+      }
+      
       freshserviceFormData.append('attachments[]', screenshot, screenshot.name || 'screenshot.png')
-      log.debug("Screenshot attached", { 
-        size: screenshot.size, 
-        type: screenshot.type, 
-        name: screenshot.name 
+      
+      log.info("Calling Freshservice API with attachment", {
+        domain: settings.domain,
+        titlePreview: title.substring(0, 50),
+        priority: settings.priority,
+        status: settings.status,
+        hasWorkspace: !!settings.workspaceId,
+        workspaceId: settings.workspaceId
+      })
+      
+      response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${encodedKey}`
+          // Note: Don't set Content-Type, fetch will set it with boundary for multipart/form-data
+        },
+        body: freshserviceFormData
+      })
+    } else {
+      // Use JSON for requests without attachments
+      const ticketData: any = {
+        subject: title,
+        description: description,
+        email: session.email || 'noreply@example.com',
+        priority: parseInt(settings.priority),
+        status: parseInt(settings.status),
+        department_id: parseInt(settings.departmentId),
+        type: settings.ticketType
+      }
+      
+      // Add workspace_id for JSON requests
+      if (settings.workspaceId) {
+        ticketData.workspace_id = parseInt(settings.workspaceId)
+      }
+      
+      log.info("Calling Freshservice API with JSON", {
+        domain: settings.domain,
+        titlePreview: title.substring(0, 50),
+        priority: settings.priority,
+        status: settings.status,
+        hasWorkspace: !!settings.workspaceId,
+        workspaceId: settings.workspaceId
+      })
+      
+      response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${encodedKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(ticketData)
       })
     }
-    
-    // Prepare API request
-    const apiUrl = `https://${settings.domain}.freshservice.com/api/v2/tickets`
-    const encodedKey = Buffer.from(settings.apiKey + ":X").toString("base64")
-    
-    log.info("Calling Freshservice API to create ticket", {
-      domain: settings.domain,
-      titlePreview: title.substring(0, 50),
-      priority: settings.priority,
-      status: settings.status
-    })
-    
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Basic ${encodedKey}`
-        // Note: Don't set Content-Type, fetch will set it with boundary for multipart/form-data
-      },
-      body: freshserviceFormData
-    })
     
     if (!response.ok) {
       const errorText = await response.text().catch(() => '')
