@@ -63,14 +63,15 @@ export async function createFreshserviceTicketAction(
     log.debug("User authenticated", { userId: session.sub })
     
     const settings = await Settings.getFreshservice()
-    if (!settings.domain || !settings.apiKey) {
+    if (!settings.domain || !settings.apiKey || !settings.departmentId) {
       log.error("Freshservice not configured", { 
         hasDomain: !!settings.domain, 
-        hasApiKey: !!settings.apiKey 
+        hasApiKey: !!settings.apiKey,
+        hasDepartmentId: !!settings.departmentId 
       })
       return { 
         isSuccess: false, 
-        message: "Freshservice not configured. Please contact your administrator to set up FRESHSERVICE_DOMAIN and FRESHSERVICE_API_KEY." 
+        message: "Freshservice not configured. Please contact your administrator to set up FRESHSERVICE_DOMAIN, FRESHSERVICE_API_KEY, and FRESHSERVICE_DEPARTMENT_ID." 
       }
     }
     
@@ -81,14 +82,12 @@ export async function createFreshserviceTicketAction(
     freshserviceFormData.append('email', session.email || 'noreply@example.com')
     freshserviceFormData.append('priority', settings.priority)
     freshserviceFormData.append('status', settings.status)
+    freshserviceFormData.append('department_id', settings.departmentId)  // Required field
+    freshserviceFormData.append('type', settings.ticketType)  // Required field with 'Request' value
     
     // Add optional fields if configured
     if (settings.workspaceId) {
       freshserviceFormData.append('workspace_id', settings.workspaceId)
-    }
-    
-    if (settings.ticketType) {
-      freshserviceFormData.append('type', settings.ticketType)
     }
     
     // Add screenshot if provided
