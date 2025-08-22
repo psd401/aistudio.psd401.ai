@@ -126,7 +126,7 @@ export async function POST(req: Request) {
       }
     }
     
-    // 6. Handle conversation (create/update)
+    // 6. Handle conversation (lazy creation for new chats)
     // Convert UIMessage to ChatMessage format    
     const chatMessages = messages.map((msg: { role: string; parts?: unknown[]; content?: string }) => ({
       role: msg.role as 'user' | 'assistant' | 'system',
@@ -140,18 +140,74 @@ export async function POST(req: Request) {
       content: msg.content
     }));
     
-    const conversationId = await handleConversation({
-      messages: chatMessages,
-      modelId: modelConfig.id,
-      conversationId: existingConversationId,
-      userId: currentUser.data.user.id,
+    log.info('Starting conversation handling', {
+      hasExistingConversation: !!existingConversationId,
+      messageCount: chatMessages.length,
       source,
-      executionId: validateExecutionId(executionId),
-      context: fullContext,
-      documentId
+      hasDocumentId: !!documentId
     });
     
-    log.info('Conversation handled', { conversationId });
+    // Lazy conversation creation - only create when needed
+    let conversationId = existingConversationId;
+    
+    // For new chats, create conversation atomically with first message
+    if (!existingConversationId) {
+      conversationId = await handleConversation({
+        messages: chatMessages,
+        modelId: modelConfig.id,
+        conversationId: undefined,
+        userId: currentUser.data.user.id,
+        source,
+        executionId: validateExecutionId(executionId),
+        context: fullContext,
+        documentId
+      });
+      
+      log.info('New conversation created', { 
+        conversationId,
+        userId: currentUser.data.user.id
+      });
+    } else {
+      // For existing conversations, just save the user message
+      await handleConversation({
+        messages: chatMessages,
+        modelId: modelConfig.id,
+        conversationId: existingConversationId,
+        userId: currentUser.data.user.id,
+        source,
+        executionId: validateExecutionId(executionId),
+        context: fullContext,
+        documentId
+      });
+      
+      log.info('Message added to existing conversation', { 
+        conversationId: existingConversationId
+      });
+    }
+    
+    // Validate conversation ID
+    if (!conversationId || conversationId <= 0) {
+      log.error('Invalid conversation ID', { 
+        conversationId,
+        existingConversationId,
+        userId: currentUser.data.user.id
+      });
+      timer({ status: 'error', reason: 'invalid_conversation_id' });
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to create or retrieve conversation',
+          details: 'Unable to process chat request.',
+          requestId
+        }),
+        { 
+          status: 500, 
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-Request-Id': requestId
+          } 
+        }
+      );
+    }
     
     // 7. Get existing conversation context if needed
     if (existingConversationId && !fullContext) {
@@ -300,13 +356,26 @@ export async function POST(req: Request) {
       const streamResponse = await unifiedStreamingService.stream(streamRequest);
       
       // Return unified streaming response
+      log.info('Returning unified streaming response', {
+        conversationId,
+        requestId,
+        hasConversationId: !!conversationId,
+        supportsReasoning: streamResponse.capabilities.supportsReasoning
+      });
+      
+      // Only send conversation ID header for new conversations
+      const responseHeaders: Record<string, string> = {
+        'X-Request-Id': requestId,
+        'X-Unified-Streaming': 'true',
+        'X-Supports-Reasoning': streamResponse.capabilities.supportsReasoning.toString()
+      };
+      
+      if (!existingConversationId && conversationId) {
+        responseHeaders['X-Conversation-Id'] = conversationId.toString();
+      }
+      
       return streamResponse.result.toUIMessageStreamResponse({
-        headers: {
-          'X-Conversation-Id': conversationId.toString(),
-          'X-Request-Id': requestId,
-          'X-Unified-Streaming': 'true',
-          'X-Supports-Reasoning': streamResponse.capabilities.supportsReasoning.toString()
-        }
+        headers: responseHeaders
       });
     }
     
@@ -357,11 +426,25 @@ export async function POST(req: Request) {
     });
     
     // 11. Return proper streaming response
+    log.info('Returning streaming response', {
+      conversationId,
+      requestId,
+      isNewConversation: !existingConversationId,
+      modelProvider: modelConfig.provider
+    });
+    
+    // Only send conversation ID header for NEW conversations
+    // Existing conversations already have their ID
+    const responseHeaders: Record<string, string> = {
+      'X-Request-Id': requestId
+    };
+    
+    if (!existingConversationId && conversationId) {
+      responseHeaders['X-Conversation-Id'] = conversationId.toString();
+    }
+    
     return result.toUIMessageStreamResponse({
-      headers: {
-        'X-Conversation-Id': conversationId.toString(),
-        'X-Request-Id': requestId
-      }
+      headers: responseHeaders
     });
     
   } catch (error) {

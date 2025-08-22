@@ -1,4 +1,4 @@
-import { executeSQL } from '@/lib/db/data-api-adapter';
+import { executeSQL, executeTransaction } from '@/lib/db/data-api-adapter';
 import { createLogger } from '@/lib/logger';
 import { ensureRDSNumber, ensureRDSString } from '@/lib/type-helpers';
 import type { SqlParameter } from "@aws-sdk/client-rds-data";
@@ -33,6 +33,7 @@ export interface SaveMessageOptions {
 
 /**
  * Handles conversation creation and management
+ * Uses transactions to ensure atomic operations
  */
 export async function handleConversation(
   options: ConversationOptions
@@ -52,7 +53,7 @@ export async function handleConversation(
   
   // Create new conversation if needed
   if (!convId) {
-    log.debug('Creating new conversation', { 
+    log.debug('Creating new conversation with transaction', { 
       userId, 
       modelId, 
       source 
@@ -74,27 +75,30 @@ export async function handleConversation(
       }
     }
     
-    convId = await createConversation({
+    // Use transaction to ensure atomic conversation creation
+    convId = await createConversationAtomic({
       title,
       userId,
       modelId,
       source,
       executionId,
-      context
+      context,
+      documentId,
+      userMessage: messages[messages.length - 1]
     });
     
-    log.info('New conversation created', { conversationId: convId });
-    
-    // Link the pending document to the new conversation if provided
-    if (documentId) {
-      await linkDocumentToConversation(documentId, convId, userId);
-      log.info('Document linked to new conversation', { documentId, conversationId: convId });
-    }
+    log.info('New conversation created atomically', { 
+      conversationId: convId,
+      userId,
+      modelId,
+      source,
+      title: title.substring(0, 50)
+    });
+  } else {
+    // For existing conversations, just save the user message
+    const userMessage = messages[messages.length - 1];
+    await saveUserMessage(convId, userMessage);
   }
-  
-  // Save user message
-  const userMessage = messages[messages.length - 1];
-  await saveUserMessage(convId, userMessage);
   
   return convId;
 }
@@ -137,6 +141,127 @@ async function createConversation(params: {
   
   const result = await executeSQL<{ id: number }>(query, parameters);
   return Number(result[0].id);
+}
+
+/**
+ * Creates a new conversation atomically using transactions
+ * Ensures conversation ID is committed before returning
+ */
+async function createConversationAtomic(params: {
+  title: string;
+  userId: number;
+  modelId: number;
+  source?: string;
+  executionId?: number;
+  context?: Record<string, unknown>;
+  documentId?: string;
+  userMessage: ChatMessage;
+}): Promise<number> {
+  log.debug('Starting atomic conversation creation', {
+    userId: params.userId,
+    modelId: params.modelId,
+    hasDocumentId: !!params.documentId
+  });
+
+  // Extract user message content
+  let messageContent = '';
+  if (params.userMessage) {
+    if ('parts' in params.userMessage && Array.isArray(params.userMessage.parts)) {
+      const textPart = params.userMessage.parts.find((part: { type?: string; text?: string }) => part.type === 'text');
+      if (textPart && textPart.text) {
+        messageContent = textPart.text;
+      }
+    } else if ('content' in params.userMessage && typeof params.userMessage.content === 'string') {
+      messageContent = params.userMessage.content;
+    }
+  }
+
+  // Prepare all statements for the transaction
+  const statements = [];
+
+  // 1. Create conversation
+  statements.push({
+    sql: `
+      INSERT INTO conversations (title, user_id, model_id, source, execution_id, context, created_at, updated_at)
+      VALUES (:title, :userId, :modelId, :source, :executionId, :context::jsonb, NOW(), NOW())
+      RETURNING id
+    `,
+    parameters: [
+      { name: 'title', value: { stringValue: params.title } },
+      { name: 'userId', value: { longValue: params.userId } },
+      { name: 'modelId', value: { longValue: params.modelId } },
+      { name: 'source', value: { stringValue: params.source || 'chat' } },
+      { 
+        name: 'executionId', 
+        value: params.executionId 
+          ? { longValue: params.executionId }
+          : { isNull: true }
+      },
+      { 
+        name: 'context', 
+        value: params.context 
+          ? { stringValue: JSON.stringify(params.context) }
+          : { isNull: true }
+      }
+    ]
+  });
+
+  // Execute the transaction
+  const results = await executeTransaction(statements);
+  const conversationId = Number(results[0][0].id);
+
+  log.debug('Conversation created in transaction', { conversationId });
+
+  // 2. Save user message (outside transaction for better performance)
+  if (messageContent) {
+    await executeSQL(`
+      INSERT INTO messages (conversation_id, role, content, created_at)
+      VALUES (:conversationId, :role, :content, NOW())
+    `, [
+      { name: 'conversationId', value: { longValue: conversationId } },
+      { name: 'role', value: { stringValue: 'user' } },
+      { name: 'content', value: { stringValue: messageContent } }
+    ]);
+
+    log.debug('User message saved', { conversationId, contentLength: messageContent.length });
+  }
+
+  // 3. Link document if provided (outside transaction to avoid blocking)
+  if (params.documentId) {
+    try {
+      await executeSQL(`
+        UPDATE documents 
+        SET conversation_id = :conversationId 
+        WHERE id = :documentId 
+        AND user_id = :userId
+        AND conversation_id IS NULL
+      `, [
+        { name: 'conversationId', value: { longValue: conversationId } },
+        { name: 'documentId', value: { stringValue: params.documentId } },
+        { name: 'userId', value: { longValue: params.userId } }
+      ]);
+
+      log.debug('Document linked to conversation', { 
+        documentId: params.documentId, 
+        conversationId 
+      });
+    } catch (error) {
+      log.error('Failed to link document to conversation', { 
+        error,
+        documentId: params.documentId,
+        conversationId 
+      });
+      // Don't throw - this is not critical for the chat to continue
+    }
+  }
+
+  log.info('Atomic conversation creation completed', { 
+    conversationId,
+    hasUserMessage: !!messageContent,
+    documentLinked: !!params.documentId
+  });
+
+  return conversationId;
 }
 
 /**

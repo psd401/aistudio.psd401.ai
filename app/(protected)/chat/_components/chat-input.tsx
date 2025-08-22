@@ -45,9 +45,15 @@ export function ChatInput({
 
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = "0px"
+      // Reset height to get accurate scrollHeight
+      textareaRef.current.style.height = "auto"
       const scrollHeight = textareaRef.current.scrollHeight
-      textareaRef.current.style.height = scrollHeight + "px"
+      const maxHeight = 200
+      const minHeight = 48
+      
+      // Calculate the final height
+      const finalHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight)
+      textareaRef.current.style.height = `${finalHeight}px`
     }
   }, [input])
 
@@ -58,9 +64,7 @@ export function ChatInput({
         currentTarget: { reset: () => {} }
       } as FormEvent<HTMLFormElement>
       handleSubmit(syntheticEvent)
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "48px"
-      }
+      // Don't reset height here - let the input change effect handle it naturally
     }
   }, [input, disabled, isLoading, handleSubmit])
 
