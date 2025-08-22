@@ -87,7 +87,7 @@ export async function createFreshserviceTicketAction(
     
     // Add optional fields if configured
     if (settings.workspaceId) {
-      freshserviceFormData.append('workspace_id', settings.workspaceId)
+      freshserviceFormData.append('workspace', settings.workspaceId)  // Field name is 'workspace' not 'workspace_id'
     }
     
     // Add screenshot if provided
