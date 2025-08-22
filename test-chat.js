@@ -26,7 +26,7 @@ async function testChat() {
       'Content-Type': 'application/json',
       'Content-Length': data.length,
     },
-    rejectUnauthorized: false
+    // rejectUnauthorized omitted to enable certificate validation (default is true)
   };
 
   return new Promise((resolve, reject) => {
