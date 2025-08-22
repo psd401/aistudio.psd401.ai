@@ -3,6 +3,7 @@ import { createLogger } from '@/lib/logger';
 import { Settings } from '@/lib/settings-manager';
 import { ErrorFactories } from '@/lib/error-utils';
 import { BaseProviderAdapter } from './base-adapter';
+import type { StreamingCallbacks } from '../types';
 import type { ProviderCapabilities, StreamRequest } from '../types';
 
 const log = createLogger({ module: 'gemini-adapter' });
@@ -16,7 +17,7 @@ const log = createLogger({ module: 'gemini-adapter' });
 export class GeminiAdapter extends BaseProviderAdapter {
   protected providerName = 'google';
   
-  async createModel(modelId: string, options?: StreamRequest['options']) {
+  async createModel(modelId: string) {
     try {
       const apiKey = await Settings.getGoogleAI();
       if (!apiKey) {
@@ -105,11 +106,11 @@ export class GeminiAdapter extends BaseProviderAdapter {
     return this.getDefaultCapabilities();
   }
   
-  getProviderOptions(modelId: string, options?: StreamRequest['options']): Record<string, any> {
+  getProviderOptions(modelId: string, options?: StreamRequest['options']): Record<string, unknown> {
     const baseOptions = super.getProviderOptions(modelId, options);
     
     // Add Gemini-specific options
-    const geminiOptions: Record<string, any> = {
+    const geminiOptions: Record<string, unknown> = {
       ...baseOptions
     };
     
@@ -150,7 +151,22 @@ export class GeminiAdapter extends BaseProviderAdapter {
     return this.matchesPattern(modelId, ['gemini-2.5*', 'models/gemini-2.5*']);
   }
   
-  protected async handleFinish(data: any, callbacks: any): Promise<void> {
+  protected async handleFinish(
+    data: {
+      text: string;
+      usage?: {
+        promptTokens: number;
+        completionTokens: number;
+        totalTokens: number;
+        reasoningTokens?: number;
+        totalCost?: number;
+      };
+      finishReason: string;
+      reasoning?: string;
+      codeExecutionResults?: unknown;
+    },
+    callbacks: StreamingCallbacks
+  ): Promise<void> {
     await super.handleFinish(data, callbacks);
     
     // Handle Gemini-specific reasoning content
@@ -169,7 +185,7 @@ export class GeminiAdapter extends BaseProviderAdapter {
     }
   }
   
-  protected handleError(error: Error, callbacks: any): void {
+  protected handleError(error: Error, callbacks: StreamingCallbacks): void {
     super.handleError(error, callbacks);
     
     // Handle Gemini-specific errors

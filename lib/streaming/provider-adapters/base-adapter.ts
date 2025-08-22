@@ -1,4 +1,4 @@
-import { streamText, type LanguageModel } from 'ai';
+import { streamText, consumeStream, type LanguageModel, type CoreMessage } from 'ai';
 import { createLogger } from '@/lib/logger';
 import type { 
   ProviderAdapter, 
@@ -33,8 +33,8 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
    * Get provider-specific options for streaming
    * Can be overridden by specific providers
    */
-  getProviderOptions(modelId: string, options?: StreamRequest['options']): Record<string, any> {
-    const baseOptions: Record<string, any> = {};
+  getProviderOptions(modelId: string, options?: StreamRequest['options']): Record<string, unknown> {
+    const baseOptions: Record<string, unknown> = {};
     
     // Add common options
     if (options?.reasoningEffort) {
@@ -60,10 +60,20 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
   async streamWithEnhancements(
     config: StreamConfig,
     callbacks: StreamingCallbacks
-  ): Promise<any> {
+  ): Promise<{
+    toDataStreamResponse: (options?: { headers?: Record<string, string> }) => Response;
+    toUIMessageStreamResponse: (options?: { headers?: Record<string, string> }) => Response;
+    usage: Promise<{
+      totalTokens?: number;
+      promptTokens?: number;
+      completionTokens?: number;
+      reasoningTokens?: number;
+      totalCost?: number;
+    }>;
+  }> {
     const logger = createLogger({ 
       module: `${this.providerName}-adapter`,
-      requestId: config.experimental_telemetry?.metadata?.['request.id']
+      requestId: config.experimental_telemetry?.metadata?.['request.id'] as string | undefined
     });
     
     logger.debug('Starting stream with enhancements', {
@@ -80,40 +90,49 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
       
       // Start streaming with AI SDK
       const result = streamText({
-        ...enhancedConfig,
-        onFinish: async (data: any) => {
-          logger.debug('Stream finished', {
+        model: enhancedConfig.model,
+        messages: enhancedConfig.messages as CoreMessage[],
+        system: enhancedConfig.system,
+        temperature: enhancedConfig.temperature,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        experimental_telemetry: enhancedConfig.experimental_telemetry as any,
+        onFinish: async (event) => {
+          logger.info('streamText onFinish triggered', {
             provider: this.providerName,
-            tokensUsed: data.usage?.totalTokens || 0,
-            finishReason: data.finishReason || 'unknown'
+            hasText: !!event.text,
+            hasUsage: !!event.usage,
+            finishReason: event.finishReason,
+            textLength: event.text?.length || 0
           });
           
-          // Transform usage data to expected format
+          // Transform to our expected format
           const transformedData = {
-            text: data.text || '',
-            usage: data.usage ? {
-              promptTokens: data.usage.promptTokens || 0,
-              completionTokens: data.usage.completionTokens || 0,
-              totalTokens: data.usage.totalTokens || 0,
-              reasoningTokens: data.usage.reasoningTokens,
-              totalCost: data.usage.totalCost
+            text: event.text || '',
+            usage: event.usage ? {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              promptTokens: (event.usage as any).promptTokens || 0,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              completionTokens: (event.usage as any).completionTokens || 0,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              totalTokens: (event.usage as any).totalTokens || 0
             } : undefined,
-            finishReason: data.finishReason || 'unknown'
+            finishReason: event.finishReason || 'stop'
           };
           
-          // Call provider-specific finish handler for internal processing
+          // Call provider-specific finish handler
           await this.handleFinish(transformedData, callbacks);
           
-          // Call user's finish callback - this is handled by the unified streaming service now
-          // The callback will be called from the unified service layer
+          // Call user's finish callback
           if (callbacks.onFinish) {
+            logger.info('Calling user onFinish callback from streamText', { 
+              hasCallback: true,
+              textLength: event.text?.length || 0 
+            });
             await callbacks.onFinish(transformedData);
           }
         },
-        onError: (errorData: any) => {
-          const error = errorData instanceof Error ? errorData : 
-                       errorData.error instanceof Error ? errorData.error :
-                       new Error(String(errorData.error || errorData));
+        onError: (event) => {
+          const error = event.error instanceof Error ? event.error : new Error(String(event.error));
           
           logger.error('Stream error', {
             provider: this.providerName,
@@ -133,7 +152,13 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
       // Handle streaming chunks for progress tracking
       this.handleStreamProgress(result, callbacks);
       
-      return result;
+      return {
+        toDataStreamResponse: (options?: { headers?: Record<string, string> }) => 
+          result.toUIMessageStreamResponse ? result.toUIMessageStreamResponse(options) : result.toTextStreamResponse(options),
+        toUIMessageStreamResponse: (options?: { headers?: Record<string, string> }) => 
+          result.toUIMessageStreamResponse ? result.toUIMessageStreamResponse(options) : result.toTextStreamResponse(options),
+        usage: result.usage
+      };
       
     } catch (error) {
       logger.error('Failed to start stream', {
@@ -154,7 +179,7 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
    * Enhance the stream configuration with provider-specific options
    * Can be overridden by specific providers
    */
-  protected enhanceStreamConfig(config: StreamConfig): any {
+  protected enhanceStreamConfig(config: StreamConfig): StreamConfig {
     return {
       model: config.model,
       messages: config.messages,
@@ -169,7 +194,7 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
    * Handle streaming progress for callbacks
    * Can be overridden by specific providers for custom progress handling
    */
-  protected handleStreamProgress(result: any, callbacks: StreamingCallbacks): void {
+  protected handleStreamProgress(result: unknown, callbacks: StreamingCallbacks): void {
     // Base implementation - providers can override for custom progress tracking
     if (callbacks.onProgress) {
       // This would need to be implemented based on AI SDK streaming capabilities
@@ -181,23 +206,29 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
    * Handle stream finish event
    * Can be overridden by specific providers
    */
-  protected async handleFinish(data: any, callbacks: StreamingCallbacks): Promise<void> {
-    // Extract reasoning content if available
-    if (data.experimental_reasoningContent && callbacks.onReasoning) {
-      callbacks.onReasoning(data.experimental_reasoningContent);
-    }
-    
-    // Extract thinking content if available (Claude-specific)
-    if (data.experimental_thinkingContent && callbacks.onThinking) {
-      callbacks.onThinking(data.experimental_thinkingContent);
-    }
+  protected async handleFinish(
+    data: {
+      text: string;
+      usage?: {
+        promptTokens: number;
+        completionTokens: number;
+        totalTokens: number;
+        reasoningTokens?: number;
+        totalCost?: number;
+      };
+      finishReason: string;
+    },
+    callbacks: StreamingCallbacks
+  ): Promise<void> {
+    // Provider-specific handlers can override this to extract special content
+    // For example, Claude might extract thinking content
   }
   
   /**
    * Handle stream error event
    * Can be overridden by specific providers
    */
-  protected handleError(error: Error, callbacks: any): void {
+  protected handleError(error: Error, callbacks: StreamingCallbacks): void {
     // Base error handling - log the error
     log.error(`${this.providerName} adapter error`, {
       error: error.message,

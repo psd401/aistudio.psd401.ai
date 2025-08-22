@@ -1,34 +1,56 @@
-// OpenTelemetry imports are optional - fail gracefully if not installed
-let trace: any;
-let metrics: any;
-
-try {
-  const otelApi = require('@opentelemetry/api');
-  trace = otelApi.trace;
-  metrics = otelApi.metrics;
-} catch {
-  // OpenTelemetry not installed - provide no-op implementations
-  trace = {
-    getTracer: () => ({
-      startSpan: () => ({
-        setAttributes: () => {},
-        addEvent: () => {},
-        recordException: () => {},
-        setStatus: () => {},
-        end: () => {}
-      })
-    })
-  };
-  metrics = {
-    getMeter: () => ({
-      createCounter: () => ({ add: () => {} }),
-      createHistogram: () => ({ record: () => {} })
-    })
-  };
-}
 import { createLogger } from '@/lib/logger';
 import { Settings } from '@/lib/settings-manager';
-import type { TelemetryConfig } from './types';
+import type { TelemetrySpan, TelemetryConfig } from './types';
+
+// OpenTelemetry types
+interface OTelTracer {
+  startSpan: (name: string, options?: Record<string, unknown>) => TelemetrySpan;
+}
+
+interface OTelMeter {
+  createCounter: (name: string, options?: { description?: string }) => {
+    add: (value: number, attributes?: Record<string, string | number>) => void;
+  };
+  createHistogram: (name: string, options?: { description?: string }) => {
+    record: (value: number, attributes?: Record<string, string | number>) => void;
+  };
+}
+
+// OpenTelemetry imports are optional - fail gracefully if not installed
+let trace: { getTracer: (name: string, version: string) => OTelTracer };
+let metrics: { getMeter: (name: string, version: string) => OTelMeter };
+
+// Initialize with no-op implementations
+trace = {
+  getTracer: () => ({
+    startSpan: () => ({
+      setAttributes: () => {},
+      addEvent: () => {},
+      recordException: () => {},
+      setStatus: () => {},
+      end: () => {}
+    })
+  })
+};
+metrics = {
+  getMeter: () => ({
+    createCounter: () => ({ add: () => {} }),
+    createHistogram: () => ({ record: () => {} })
+  })
+};
+
+// Try to load OpenTelemetry if available
+if (typeof window === 'undefined') { // Only on server side
+  try {
+    // Dynamic import for optional OpenTelemetry dependency
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const otelApi = require('@opentelemetry/api');
+    trace = otelApi.trace;
+    metrics = otelApi.metrics;
+  } catch {
+    // OpenTelemetry not installed - use no-op implementations
+  }
+}
 
 const log = createLogger({ module: 'telemetry-service' });
 
@@ -39,7 +61,7 @@ export interface AITelemetryRequest {
   conversationId?: string | number;
   modelId: string;
   provider: string;
-  source: 'chat' | 'compare' | 'assistant_execution';
+  source: 'chat' | 'compare' | 'assistant_execution' | 'ai-helpers';
   recordInputs?: boolean;
   recordOutputs?: boolean;
   customAttributes?: Record<string, string | number | boolean>;
@@ -176,7 +198,21 @@ export async function initializeTelemetry(): Promise<void> {
 async function getTelemetrySettings() {
   try {
     // Try to get settings from database first (if method exists)
-    const dbSettings = (Settings as any).getTelemetry ? await (Settings as any).getTelemetry() : null;
+    // Type assertion for Settings method that may not exist
+    const settingsWithTelemetry = Settings as typeof Settings & {
+      getTelemetry?: () => Promise<{
+        enabled: boolean;
+        endpoint?: string;
+        headers?: Record<string, string>;
+        serviceName?: string;
+        serviceVersion?: string;
+        recordInputs?: boolean;
+        recordOutputs?: boolean;
+        recordUserContext?: boolean;
+        samplingRate?: number;
+      }>;
+    };
+    const dbSettings = settingsWithTelemetry.getTelemetry ? await settingsWithTelemetry.getTelemetry() : null;
     
     if (dbSettings) {
       return dbSettings;

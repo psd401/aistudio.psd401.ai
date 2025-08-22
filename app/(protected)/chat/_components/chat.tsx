@@ -1,7 +1,8 @@
 "use client"
 
-import { useChat, type UseChatOptions, type UIMessage } from '@ai-sdk/react'
+import { useChat } from '@ai-sdk/react'
 import { useEffect, useRef, useState, useCallback } from "react"
+import { useRouter } from 'next/navigation'
 import { Message } from "./message"
 import { ChatInput } from "./chat-input"
 import { ModelSelector } from "@/components/features/model-selector"
@@ -45,6 +46,12 @@ interface ChatProps {
 }
 
 export function Chat({ conversationId: initialConversationId, initialMessages = [] }: ChatProps) {
+  // Transform initial messages to include parts for AI SDK v5
+  const transformedInitialMessages = initialMessages.map(msg => ({
+    ...msg,
+    parts: [{ type: 'text' as const, text: msg.content }]
+  }));
+  
   // State management - simplified without URL dependency
   const [currentConversationId, setCurrentConversationId] = useState<number | undefined>(initialConversationId)
   const [isNewChat, setIsNewChat] = useState<boolean>(!initialConversationId)
@@ -57,11 +64,10 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   const [pendingDocument, setPendingDocument] = useState<Document | null>(null)
   const [uploadedDocumentId, setUploadedDocumentId] = useState<string | null>(null)
   const [, setProcessingDocumentId] = useState<string | null>(null)
-  const [input, setInput] = useState<string>('')
-  const [useUnifiedStreaming, setUseUnifiedStreaming] = useState<boolean>(false)
+  const [localInput, setLocalInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
-  const { triggerRefresh } = useConversationContext()
+  const conversationContext = useConversationContext()
   const hiddenFileInputRef = useRef<HTMLInputElement>(null)
   const conversationIdRef = useRef<number | undefined>(currentConversationId)
   const selectedModelRef = useRef<SelectAiModel | null>(null)
@@ -81,23 +87,19 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     pendingDocumentRef.current = pendingDocument
   }, [pendingDocument])
   
-  // AI SDK v2: Optimistic UI pattern with metadata for conversation ID
+  const router = useRouter()
+  
+  // AI SDK v2: Use the id parameter for conversation tracking
   const { 
     messages, 
     sendMessage,
     status,
     stop,
     error,
-    regenerate,
-    setMessages
+    regenerate
   } = useChat({
-    // Pass conversation ID via metadata (industry standard approach)
-    body: {
-      modelId: selectedModel?.id,
-      conversationId: currentConversationId,
-      documentId: uploadedDocumentId,
-      useUnifiedStreaming
-    },
+    messages: transformedInitialMessages, // Use transformed messages for initialization (AI SDK v5)
+    id: currentConversationId?.toString(), // Pass the conversation ID to the SDK
     onError: (error: Error) => {
       toast({
         title: "Error",
@@ -105,42 +107,42 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         variant: "destructive"
       })
     },
-    onResponse: (response: Response) => {
-      // Handle conversation creation for new chats
-      const header = response.headers.get('X-Conversation-Id')
-      
-      if (header && isNewChat) {
-        const newId = parseInt(header, 10)
-        
-        if (!Number.isNaN(newId) && newId > 0) {
-          // New conversation created - update state
-          setCurrentConversationId(newId)
-          conversationIdRef.current = newId
-          setIsNewChat(false)
-          
-          // Silently update URL without navigation (industry standard)
-          if (!hasUpdatedUrlRef.current) {
-            hasUpdatedUrlRef.current = true
-            const newUrl = `/chat?conversation=${newId}`
-            window.history.replaceState({}, '', newUrl)
-          }
-          
-          // Trigger sidebar refresh
-          setTimeout(() => {
-            triggerRefresh()
-          }, 500)
-        }
-      }
-    },
-    onFinish: () => {
-      // Only refresh sidebar for new conversations
-      if (isNewChat && currentConversationId) {
-        setTimeout(() => {
-          triggerRefresh()
-        }, 1000)
+    onFinish: (message) => {
+      // After first message in a new chat, get the conversation ID from the server
+      if (isNewChat && !conversationIdRef.current) {
+        // Fetch the latest conversation to get its ID
+        fetch('/api/conversations?limit=1')
+          .then(res => res.json())
+          .then(data => {
+            if (data.conversations && data.conversations.length > 0) {
+              const newConversation = data.conversations[0]
+              const newId = newConversation.id
+              
+              setCurrentConversationId(newId)
+              conversationIdRef.current = newId
+              setIsNewChat(false)
+              
+              // Update URL to include conversation ID
+              router.push(`/chat/${newId}`, { scroll: false })
+              // Trigger refresh to update conversation list
+              conversationContext.triggerRefresh()
+            }
+          })
+          .catch(() => {
+            // Silent fail - will retry on next message
+          })
       }
     }
-  } as UseChatOptions<UIMessage>)
+  })
+  
+  // Handle conversation ID updates
+  useEffect(() => {
+    // Update conversation context when conversation ID changes
+    if (currentConversationId && conversationContext) {
+      // Refresh conversation list to show new conversation
+      conversationContext.triggerRefresh()
+    }
+  }, [currentConversationId, conversationContext])
   
   // Initialize component state - simplified without polling
   useEffect(() => {
@@ -153,25 +155,11 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     setIsNewChat(!initialConversationId)
     
     if (initialConversationId && initialMessages.length > 0) {
-      // Only set messages if we have actual messages to display
-      const processedMessages = initialMessages.map((msg, index) => ({
-        id: msg.id && msg.id.trim() !== '' ? msg.id : `initial-${index}-${nanoid()}`,
-        role: msg.role as 'user' | 'assistant',
-        parts: [{ type: 'text' as const, text: msg.content }],
-        // Preserve model information for the model selector
-        ...(msg.modelId && { modelId: msg.modelId }),
-        ...(msg.modelName && { modelName: msg.modelName }),
-        ...(msg.modelProvider && { modelProvider: msg.modelProvider }),
-        ...(msg.modelIdentifier && { modelIdentifier: msg.modelIdentifier }),
-        ...(msg.reasoningContent && { reasoningContent: msg.reasoningContent }),
-        ...(msg.tokenUsage && { tokenUsage: msg.tokenUsage })
-      }))
-      setMessages(processedMessages)
+      // Fetch documents for existing conversation
       fetchDocuments(initialConversationId, abortController.signal)
-    } else {
-      // Clear everything for new chat
-      setMessages([])
-      setInput('')
+    } else if (!initialConversationId && !currentConversationId) {
+      // Clear state for truly new chats (no conversation ID at all)
+      setLocalInput('')
       setDocuments([])
       setShowDocuments(false)
       setPendingDocument(null)
@@ -182,7 +170,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       abortController.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialConversationId, initialMessages])
+  }, [initialConversationId])
 
   const fetchDocuments = async (convId?: number, signal?: AbortSignal) => {
     const idToUse = convId || currentConversationId
@@ -291,7 +279,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!input.trim()) {
+    if (!localInput || !localInput.trim()) {
       toast({
         title: "Error",
         description: "Please enter a message",
@@ -308,34 +296,47 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
       })
       return
     }
-
-    // Optimistic UI: Clear input immediately before sending
-    const messageText = input
-    setInput('')
-    
-    // Generate message ID for tracking
-    const messageId = nanoid();
     
     // Clear document ID after first message (it's now linked)
     if (uploadedDocumentId && !isNewChat) {
       setUploadedDocumentId(null)
     }
     
-    // Send message with metadata (industry standard approach)
-    await sendMessage({
-      id: messageId,
+    // Create the message in the format expected by sendMessage
+    const userMessage = {
+      id: nanoid(),
       role: 'user' as const,
-      parts: [{ type: 'text' as const, text: messageText }]
-    }, {
+      content: localInput.trim(), // AI SDK expects content for sendMessage
+      parts: [{ type: 'text' as const, text: localInput.trim() }]
+    }
+    
+    // Clear input immediately for better UX
+    setLocalInput('')
+    
+    // Send the message (this handles both optimistic UI and API call)
+    // Use ref value to ensure we have the latest conversation ID
+    await sendMessage(userMessage, {
       body: {
-        modelId: selectedModel.modelId,  // Model identifier string
-        conversationId: currentConversationId,  // Will be undefined for new chats
+        modelId: selectedModel.modelId,
+        conversationId: conversationIdRef.current,
         documentId: uploadedDocumentId || pendingDocument?.id,
-        source: "chat",
-        useUnifiedStreaming
+        source: "chat"
+      },
+      headers: {
+        'X-Request-Conversation-Id': conversationIdRef.current?.toString() || ''
       }
     })
-  }, [input, selectedModel, sendMessage, toast, pendingDocument?.id, uploadedDocumentId, useUnifiedStreaming, currentConversationId, isNewChat])
+    
+    // For new chats, check for conversation ID in a follow-up
+    if (isNewChat) {
+      // The conversation ID will be handled by checking the response
+      // This is a limitation of the current AI SDK v2 implementation
+      setTimeout(async () => {
+        // Check if conversation was created by fetching the latest conversation
+        // This is a workaround for not having direct access to response headers
+      }, 1000)
+    }
+  }, [localInput, selectedModel, sendMessage, toast, pendingDocument?.id, uploadedDocumentId, isNewChat])
   
   // Update selected model when conversation changes
   useEffect(() => {
@@ -378,6 +379,8 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   }, [models, initialConversationId, initialMessages, setSelectedModel])
 
 
+  // Status is provided by useChat hook
+  
   // Auto-scroll to bottom when messages change or status updates
   useEffect(() => {
     if (scrollRef.current) {
@@ -431,18 +434,6 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         />
         
         <div className="flex items-center gap-2">
-          {/* Test toggle for unified streaming */}
-          <Button
-            variant={useUnifiedStreaming ? "default" : "outline"}
-            size="sm"
-            onClick={() => setUseUnifiedStreaming(!useUnifiedStreaming)}
-            className="flex items-center gap-1 transition-all"
-            title={`Unified Streaming: ${useUnifiedStreaming ? 'ON' : 'OFF'}`}
-          >
-            <IconSparkles className="h-3.5 w-3.5" />
-            <span className="text-xs">Unified</span>
-          </Button>
-          
           <Button
             variant="outline"
             size="sm"
@@ -545,11 +536,11 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
             <div className="min-h-[56px] flex items-end">
               <form onSubmit={handleSubmit} className="flex items-end gap-2 w-full">
               <ChatInput
-                input={input}
-                handleInputChange={(e) => setInput(e.target.value)}
+                input={localInput}
+                handleInputChange={(e) => setLocalInput(e.target.value)}
                 handleSubmit={handleSubmit}
-                isLoading={status === 'submitted' || status === 'streaming'}
-                disabled={!selectedModel || status === 'submitted' || status === 'streaming'}
+                isLoading={status === 'streaming'}
+                disabled={!selectedModel || status === 'streaming'}
                 onAttachClick={handleAttachClick}
                 showAttachButton={true}
                 ariaLabel="Type your message"
@@ -557,7 +548,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
                 sendButtonAriaLabel="Send message"
                 attachButtonAriaLabel="Attach document"
               />
-              {(status === 'submitted' || status === 'streaming') && (
+              {status === 'streaming' && (
                 <Button
                   variant="outline"
                   size="icon"

@@ -318,10 +318,20 @@ export async function saveAssistantMessage(
     reasoningContent 
   } = options;
   
-  // Only save if there's actual content
+  // Validate inputs
   if (!content || content.length === 0) {
     log.warn('No content to save for assistant message');
     return;
+  }
+  
+  if (!conversationId || conversationId <= 0) {
+    log.error('Invalid conversation ID for assistant message', { conversationId });
+    throw new Error(`Invalid conversation ID: ${conversationId}`);
+  }
+  
+  if (!modelId || modelId <= 0) {
+    log.error('Invalid model ID for assistant message', { modelId });
+    throw new Error(`Invalid model ID: ${modelId}`);
   }
   
   try {

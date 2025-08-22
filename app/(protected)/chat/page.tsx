@@ -103,6 +103,8 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
 
   return (
     <Chat
+      // Add key to force remount when switching conversations (AI SDK best practice)
+      key={conversationId || 'new-chat'}
       // Pass conversationId only if it's valid and verified, otherwise undefined for new chat
       conversationId={initialMessages.length > 0 ? conversationId : undefined}
       initialMessages={initialMessages}

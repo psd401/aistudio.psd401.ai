@@ -3,6 +3,7 @@ import { createLogger } from '@/lib/logger';
 import { Settings } from '@/lib/settings-manager';
 import { ErrorFactories } from '@/lib/error-utils';
 import { BaseProviderAdapter } from './base-adapter';
+import type { StreamingCallbacks } from '../types';
 import type { ProviderCapabilities, StreamRequest } from '../types';
 
 const log = createLogger({ module: 'azure-adapter' });
@@ -14,7 +15,7 @@ const log = createLogger({ module: 'azure-adapter' });
 export class AzureAdapter extends BaseProviderAdapter {
   protected providerName = 'azure';
   
-  async createModel(modelId: string, options?: StreamRequest['options']) {
+  async createModel(modelId: string) {
     try {
       const config = await Settings.getAzureOpenAI();
       if (!config.key || !config.resourceName) {
@@ -96,11 +97,11 @@ export class AzureAdapter extends BaseProviderAdapter {
     return this.getDefaultCapabilities();
   }
   
-  getProviderOptions(modelId: string, options?: StreamRequest['options']): Record<string, any> {
+  getProviderOptions(modelId: string, options?: StreamRequest['options']): Record<string, unknown> {
     const baseOptions = super.getProviderOptions(modelId, options);
     
     // Add Azure-specific options
-    const azureOptions: Record<string, any> = {
+    const azureOptions: Record<string, unknown> = {
       ...baseOptions
     };
     
@@ -133,7 +134,21 @@ export class AzureAdapter extends BaseProviderAdapter {
     return this.matchesPattern(modelId, supportedPatterns);
   }
   
-  protected async handleFinish(data: any, callbacks: any): Promise<void> {
+  protected async handleFinish(
+    data: {
+      text: string;
+      usage?: {
+        promptTokens: number;
+        completionTokens: number;
+        totalTokens: number;
+        reasoningTokens?: number;
+        totalCost?: number;
+      };
+      finishReason: string;
+      contentFilterResults?: unknown;
+    },
+    callbacks: StreamingCallbacks
+  ): Promise<void> {
     await super.handleFinish(data, callbacks);
     
     // Handle Azure-specific content filtering results
@@ -150,7 +165,7 @@ export class AzureAdapter extends BaseProviderAdapter {
     }
   }
   
-  protected handleError(error: Error, callbacks: any): void {
+  protected handleError(error: Error, callbacks: StreamingCallbacks): void {
     super.handleError(error, callbacks);
     
     // Handle Azure-specific errors

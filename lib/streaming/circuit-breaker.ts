@@ -49,9 +49,19 @@ export class CircuitBreaker {
   }
 
   /**
-   * Check if circuit breaker allows requests through
+   * Check if circuit breaker is open (blocking requests)
+   * @returns true if circuit is OPEN (requests blocked), false if CLOSED or HALF_OPEN (requests allowed)
    */
   isOpen(): boolean {
+    this.updateState();
+    return this.state === CircuitBreakerState.OPEN;
+  }
+
+  /**
+   * Check if circuit breaker allows requests through
+   * @returns true if requests are allowed (CLOSED or HALF_OPEN), false if blocked (OPEN)
+   */
+  allowsRequests(): boolean {
     this.updateState();
     return this.state !== CircuitBreakerState.OPEN;
   }

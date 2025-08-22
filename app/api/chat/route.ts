@@ -1,8 +1,7 @@
-import { streamText, convertToModelMessages, UIMessage } from 'ai';
+import { UIMessage } from 'ai';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
-import { createProviderModel } from './lib/provider-factory';
 import { buildSystemPrompt } from './lib/system-prompt-builder';
 import { 
   handleConversation, 
@@ -227,8 +226,26 @@ export async function POST(req: Request) {
     }
     
     // 8. Process messages for initial assistant executions
-    // For initial executions, replace the raw JSON with the actual prompt
-    let processedMessages = messages;
+    // Normalize messages to ensure they have the correct format for AI SDK v5
+    // AI SDK v5 expects UIMessage format with parts array
+    let processedMessages = messages.map((msg: UIMessage) => {
+      // If message already has parts array, use it as-is
+      if (msg.parts && Array.isArray(msg.parts)) {
+        return msg;
+      }
+      
+      // If message has content property (legacy format), convert to parts
+      if ('content' in msg && typeof msg.content === 'string') {
+        return {
+          ...msg,
+          parts: [{ type: 'text' as const, text: msg.content }]
+        };
+      }
+      
+      // Otherwise, return as-is and let convertToModelMessages handle it
+      return msg;
+    });
+    
     let originalUserQuestion: string | undefined;
     if (source === 'assistant_execution' && executionId && !existingConversationId) {
       const validExecutionId = validateExecutionId(executionId);
@@ -236,10 +253,10 @@ export async function POST(req: Request) {
         const promptData = await buildInitialPromptForStreaming(validExecutionId);
         if (promptData) {
           // Replace the last message (which contains raw JSON) with the processed prompt
-          processedMessages = messages.slice(0, -1).concat([{
-            ...messages[messages.length - 1],
-            parts: [{ type: 'text', text: promptData.processedPrompt }]
-          }] as UIMessage[]);
+          processedMessages = processedMessages.slice(0, -1).concat([{
+            ...processedMessages[processedMessages.length - 1],
+            parts: [{ type: 'text' as const, text: promptData.processedPrompt }]
+          }]);
           
           // Extract the original user question from the inputs
           // Look for common field names that might contain the user's question
@@ -299,19 +316,14 @@ export async function POST(req: Request) {
       promptLength: systemPrompt.length 
     });
     
-    // 9. Check if we should use unified streaming (feature flag)
-    const useUnifiedStreaming = body.useUnifiedStreaming === true || 
-                               req.headers.get('x-use-unified-streaming') === 'true';
-    
-    log.info('Streaming mode', { 
-      useUnifiedStreaming,
+    // 9. Use unified streaming service
+    log.info('Using unified streaming service', { 
       provider: modelConfig.provider,
       model: modelConfig.model_id
     });
     
-    if (useUnifiedStreaming) {
-      // Use new unified streaming service with callbacks
-      const streamRequest: StreamRequest = {
+    // Create streaming request with callbacks
+    const streamRequest: StreamRequest = {
         messages: processedMessages,
         modelId: modelConfig.model_id,
         provider: modelConfig.provider,
@@ -331,18 +343,40 @@ export async function POST(req: Request) {
               hasText: !!text,
               textLength: text?.length || 0,
               hasUsage: !!usage,
-              finishReason
+              finishReason,
+              conversationId,
+              modelId: modelConfig.id
             });
             
-            await saveAssistantMessage({
-              conversationId,
-              content: text,
-              role: 'assistant',
-              modelId: modelConfig.id,
-              usage,
-              finishReason,
-              reasoningContent: undefined // TODO: Extract from stream
-            });
+            try {
+              // Validate conversation still exists before saving
+              if (!conversationId || conversationId <= 0) {
+                throw new Error(`Invalid conversation ID at save time: ${conversationId}`);
+              }
+              
+              await saveAssistantMessage({
+                conversationId,
+                content: text,
+                role: 'assistant',
+                modelId: modelConfig.id,
+                usage,
+                finishReason,
+                reasoningContent: undefined // TODO: Extract from stream
+              });
+              
+              log.info('Assistant message saved successfully', {
+                conversationId,
+                modelId: modelConfig.id
+              });
+            } catch (saveError) {
+              log.error('Failed to save assistant message', {
+                error: saveError,
+                conversationId,
+                modelId: modelConfig.id
+              });
+              // Error is logged but not thrown to avoid breaking the stream
+              // The unified streaming service will also log this
+            }
             
             timer({ 
               status: 'success',
@@ -377,75 +411,6 @@ export async function POST(req: Request) {
       return streamResponse.result.toUIMessageStreamResponse({
         headers: responseHeaders
       });
-    }
-    
-    // Original implementation (fallback)
-    const model = await createProviderModel(
-      modelConfig.provider,
-      modelConfig.model_id
-    );
-    
-    log.info('Provider model created (legacy)', {
-      provider: modelConfig.provider,
-      model: modelConfig.model_id
-    });
-    
-    // 10. Stream response using AI SDK v5 pattern (original)
-    const result = streamText({
-      model,
-      system: systemPrompt,
-      messages: convertToModelMessages(processedMessages),
-      onFinish: async ({ text, usage, finishReason }) => {
-        log.info('Stream finished', {
-          hasText: !!text,
-          textLength: text?.length || 0,
-          hasUsage: !!usage,
-          finishReason
-        });
-        
-        // TODO: Extract reasoning content when available in AI SDK
-        const reasoning = undefined;
-        
-        // Save assistant response to database
-        await saveAssistantMessage({
-          conversationId,
-          content: text,
-          role: 'assistant',
-          modelId: modelConfig.id,
-          usage,
-          finishReason,
-          reasoningContent: reasoning
-        });
-        
-        timer({ 
-          status: 'success',
-          conversationId,
-          tokensUsed: usage?.totalTokens
-        });
-      }
-    });
-    
-    // 11. Return proper streaming response
-    log.info('Returning streaming response', {
-      conversationId,
-      requestId,
-      isNewConversation: !existingConversationId,
-      modelProvider: modelConfig.provider
-    });
-    
-    // Only send conversation ID header for NEW conversations
-    // Existing conversations already have their ID
-    const responseHeaders: Record<string, string> = {
-      'X-Request-Id': requestId
-    };
-    
-    if (!existingConversationId && conversationId) {
-      responseHeaders['X-Conversation-Id'] = conversationId.toString();
-    }
-    
-    return result.toUIMessageStreamResponse({
-      headers: responseHeaders
-    });
     
   } catch (error) {
     log.error('Chat API error', { 

@@ -1,4 +1,4 @@
-import type { UIMessage, LanguageModel } from 'ai';
+import type { UIMessage, LanguageModel, CoreMessage } from 'ai';
 
 /**
  * Core streaming types for the unified streaming architecture
@@ -16,7 +16,7 @@ export interface StreamRequest {
   conversationId?: string | number;
   
   // Request source and metadata
-  source: 'chat' | 'compare' | 'assistant_execution';
+  source: 'chat' | 'compare' | 'assistant_execution' | 'ai-helpers';
   executionId?: number;
   documentId?: string;
   
@@ -56,7 +56,17 @@ export interface StreamRequest {
 }
 
 export interface StreamResponse {
-  result: any; // AI SDK StreamTextResult
+  result: {
+    toDataStreamResponse: (options?: { headers?: Record<string, string> }) => Response;
+    toUIMessageStreamResponse: (options?: { headers?: Record<string, string> }) => Response;
+    usage: Promise<{
+      totalTokens?: number;
+      promptTokens?: number;
+      completionTokens?: number;
+      reasoningTokens?: number;
+      totalCost?: number;
+    }>;
+  };
   requestId: string;
   capabilities: ProviderCapabilities;
   telemetryConfig: TelemetryConfig;
@@ -64,19 +74,21 @@ export interface StreamResponse {
 
 export interface StreamConfig {
   model: LanguageModel;
-  messages: any[]; // AI SDK message format
+  messages: CoreMessage[];
   system?: string;
   maxTokens?: number;
   temperature?: number;
   timeout?: number;
-  providerOptions?: Record<string, any>;
+  providerOptions?: Record<string, unknown>;
   experimental_telemetry?: {
     isEnabled: boolean;
     functionId: string;
-    metadata: Record<string, any>;
+    metadata: Record<string, string | number | boolean>;
     recordInputs: boolean;
     recordOutputs: boolean;
-    tracer?: any;
+    tracer?: {
+      startSpan: (name: string, options?: Record<string, unknown>) => TelemetrySpan;
+    };
   };
 }
 
@@ -103,20 +115,31 @@ export interface ProviderCapabilities {
   costPerReasoningToken?: number;
 }
 
+export interface TelemetrySpan {
+  setAttributes: (attributes: Record<string, string | number | boolean>) => void;
+  addEvent: (name: string, attributes?: Record<string, unknown>) => void;
+  recordException: (error: Error) => void;
+  setStatus: (status: { code: number; message?: string }) => void;
+  end: () => void;
+}
+
 export interface TelemetryConfig {
   isEnabled: boolean;
   functionId: string;
-  metadata: Record<string, any>;
+  metadata: Record<string, string | number | boolean>;
   recordInputs: boolean;
   recordOutputs: boolean;
-  tracer?: any;
+  tracer?: {
+    startSpan: (name: string, options?: Record<string, unknown>) => TelemetrySpan;
+  };
 }
 
 export interface StreamingProgress {
   type: 'token' | 'reasoning' | 'thinking' | 'tool_call' | 'tool_result';
-  content: string;
+  content?: string;
+  text?: string; // For token events
   timestamp: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface StreamingCallbacks {
@@ -151,7 +174,7 @@ export interface ProviderAdapter {
   /**
    * Get provider-specific options for streaming
    */
-  getProviderOptions(modelId: string, options?: StreamRequest['options']): Record<string, any>;
+  getProviderOptions(modelId: string, options?: StreamRequest['options']): Record<string, unknown>;
   
   /**
    * Stream with provider-specific enhancements
@@ -159,7 +182,17 @@ export interface ProviderAdapter {
   streamWithEnhancements(
     config: StreamConfig,
     callbacks: StreamingCallbacks
-  ): Promise<any>; // AI SDK StreamTextResult
+  ): Promise<{
+    toDataStreamResponse: (options?: { headers?: Record<string, string> }) => Response;
+    toUIMessageStreamResponse: (options?: { headers?: Record<string, string> }) => Response;
+    usage: Promise<{
+      totalTokens?: number;
+      promptTokens?: number;
+      completionTokens?: number;
+      reasoningTokens?: number;
+      totalCost?: number;
+    }>;
+  }>;
   
   /**
    * Validate if this adapter supports the given model

@@ -2,6 +2,7 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createLogger } from '@/lib/logger';
 import { Settings } from '@/lib/settings-manager';
 import { BaseProviderAdapter } from './base-adapter';
+import type { StreamingCallbacks } from '../types';
 import type { ProviderCapabilities, StreamRequest, StreamConfig } from '../types';
 
 const log = createLogger({ module: 'claude-adapter' });
@@ -121,11 +122,11 @@ export class ClaudeAdapter extends BaseProviderAdapter {
     return this.getDefaultCapabilities();
   }
   
-  getProviderOptions(modelId: string, options?: StreamRequest['options']): Record<string, any> {
+  getProviderOptions(modelId: string, options?: StreamRequest['options']): Record<string, unknown> {
     const baseOptions = super.getProviderOptions(modelId, options);
     
     // Add Claude-specific options
-    const claudeOptions: Record<string, any> = {
+    const claudeOptions: Record<string, unknown> = {
       ...baseOptions
     };
     
@@ -142,7 +143,7 @@ export class ClaudeAdapter extends BaseProviderAdapter {
     return claudeOptions;
   }
   
-  protected enhanceStreamConfig(config: StreamConfig): any {
+  protected enhanceStreamConfig(config: StreamConfig): StreamConfig {
     const enhanced = super.enhanceStreamConfig(config);
     
     // Add Claude-specific enhancements
@@ -184,7 +185,23 @@ export class ClaudeAdapter extends BaseProviderAdapter {
     return Math.max(1024, Math.min(6553, requestedBudget));
   }
   
-  protected async handleFinish(data: any, callbacks: any): Promise<void> {
+  protected async handleFinish(
+    data: {
+      text: string;
+      usage?: {
+        promptTokens: number;
+        completionTokens: number;
+        totalTokens: number;
+        reasoningTokens?: number;
+        thinkingTokens?: number;
+        totalCost?: number;
+      };
+      finishReason: string;
+      thinking?: string;
+      model?: string;
+    },
+    callbacks: StreamingCallbacks
+  ): Promise<void> {
     await super.handleFinish(data, callbacks);
     
     // Handle Claude-specific thinking content
@@ -202,7 +219,7 @@ export class ClaudeAdapter extends BaseProviderAdapter {
     }
   }
   
-  protected handleError(error: Error, callbacks: any): void {
+  protected handleError(error: Error, callbacks: StreamingCallbacks): void {
     super.handleError(error, callbacks);
     
     // Handle Claude-specific errors

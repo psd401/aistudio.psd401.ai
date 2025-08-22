@@ -1,12 +1,9 @@
-import { streamText, convertToModelMessages, type UIMessage, type LanguageModel, type StreamTextResult } from 'ai';
+import { convertToModelMessages } from 'ai';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
-import { ErrorFactories } from '@/lib/error-utils';
 import { getTelemetryConfig } from './telemetry-service';
 import { getProviderAdapter, type ProviderCapabilities } from './provider-adapters';
 import { CircuitBreaker, CircuitBreakerOpenError } from './circuit-breaker';
-import type { StreamRequest, StreamResponse, StreamConfig } from './types';
-
-const log = createLogger({ module: 'unified-streaming-service' });
+import type { StreamRequest, StreamResponse, StreamConfig, StreamingProgress, TelemetrySpan, TelemetryConfig } from './types';
 
 /**
  * Unified streaming service that handles all AI streaming operations
@@ -58,8 +55,20 @@ export class UnifiedStreamingService {
       
       // 3. Check circuit breaker
       const circuitBreaker = this.getCircuitBreaker(request.provider);
-      if (!circuitBreaker.isOpen()) {
-        throw new CircuitBreakerOpenError(request.provider, circuitBreaker.getState());
+      const circuitState = circuitBreaker.getState();
+      log.info('Circuit breaker state', {
+        provider: request.provider,
+        state: circuitState,
+        isOpen: circuitBreaker.isOpen(),
+        metrics: circuitBreaker.getMetrics()
+      });
+      
+      if (circuitBreaker.isOpen()) {
+        log.error('Circuit breaker is open, blocking request', {
+          provider: request.provider,
+          state: circuitState
+        });
+        throw new CircuitBreakerOpenError(request.provider, circuitState);
       }
       
       // 4. Configure streaming with adaptive timeouts
@@ -118,7 +127,21 @@ export class UnifiedStreamingService {
               try {
                 await request.callbacks.onFinish(data);
               } catch (error) {
-                log.error('Error in user onFinish callback', { error });
+                log.error('Critical: Failed to save assistant message', { 
+                  error,
+                  conversationId: request.conversationId,
+                  userId: request.userId
+                });
+                // Add telemetry for failed saves
+                if (span) {
+                  span.recordException(error as Error);
+                  span.setAttributes({
+                    'ai.message.save.failed': true,
+                    'ai.message.save.error': (error as Error).message
+                  });
+                }
+                // Don't rethrow to avoid breaking the stream, but mark as error
+                // The message is already displayed to user, just not persisted
               }
             }
           },
@@ -206,12 +229,12 @@ export class UnifiedStreamingService {
   /**
    * Handle streaming progress events
    */
-  private handleProgress(event: any, span: any, telemetryConfig: any) {
+  private handleProgress(event: StreamingProgress, span: TelemetrySpan | undefined, telemetryConfig: TelemetryConfig) {
     // Record progress metrics
     if (telemetryConfig.isEnabled && span) {
       span.addEvent('ai.stream.progress', {
         timestamp: Date.now(),
-        'ai.tokens.streamed': event.tokens || 0
+        'ai.tokens.streamed': (event.metadata?.tokens as number) || 0
       });
     }
   }
@@ -219,7 +242,7 @@ export class UnifiedStreamingService {
   /**
    * Handle reasoning content for advanced models
    */
-  private handleReasoning(reasoning: string, span: any) {
+  private handleReasoning(reasoning: string, span: TelemetrySpan | undefined) {
     if (span) {
       span.addEvent('ai.reasoning.chunk', {
         timestamp: Date.now(),
@@ -231,7 +254,7 @@ export class UnifiedStreamingService {
   /**
    * Handle thinking content for Claude models
    */
-  private handleThinking(thinking: string, span: any) {
+  private handleThinking(thinking: string, span: TelemetrySpan | undefined) {
     if (span) {
       span.addEvent('ai.thinking.chunk', {
         timestamp: Date.now(),
@@ -243,7 +266,22 @@ export class UnifiedStreamingService {
   /**
    * Handle stream completion
    */
-  private handleFinish(data: any, span: any, telemetryConfig: any, timer: any) {
+  private handleFinish(
+    data: {
+      text: string;
+      usage?: {
+        promptTokens: number;
+        completionTokens: number;
+        totalTokens: number;
+        reasoningTokens?: number;
+        totalCost?: number;
+      };
+      finishReason: string;
+    },
+    span: TelemetrySpan | undefined,
+    telemetryConfig: TelemetryConfig,
+    timer: (metadata?: Record<string, unknown>) => void
+  ) {
     if (span) {
       span.setAttributes({
         'ai.tokens.input': data.usage?.promptTokens || 0,
@@ -266,7 +304,7 @@ export class UnifiedStreamingService {
   /**
    * Handle stream errors
    */
-  private handleError(error: Error, span: any, circuitBreaker: CircuitBreaker) {
+  private handleError(error: Error, span: TelemetrySpan | undefined, circuitBreaker: CircuitBreaker) {
     if (span) {
       span.recordException(error);
       span.setStatus({ code: 2 }); // ERROR

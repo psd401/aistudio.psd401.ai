@@ -58,7 +58,7 @@ export function ChatInput({
   }, [input])
 
   const submitMessage = useCallback(() => {
-    if (input.trim() && !disabled && !isLoading) {
+    if ((input || '').trim() && !disabled && !isLoading) {
       const syntheticEvent = {
         preventDefault: () => {},
         currentTarget: { reset: () => {} }
@@ -116,10 +116,10 @@ export function ChatInput({
         type="button"
         size="icon"
         variant="default"
-        disabled={input.trim().length === 0 || isLoading || disabled}
+        disabled={(input || '').trim().length === 0 || isLoading || disabled}
         className="absolute bottom-2.5 right-3 h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:bg-muted"
         aria-label={sendButtonAriaLabel}
-        aria-disabled={input.trim().length === 0 || isLoading || disabled}
+        aria-disabled={(input || '').trim().length === 0 || isLoading || disabled}
         onClick={submitMessage}
       >
         <IconSend className="h-4 w-4" />
