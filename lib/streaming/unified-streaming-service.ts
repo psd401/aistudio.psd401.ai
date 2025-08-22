@@ -57,7 +57,7 @@ export class UnifiedStreamingService {
       
       // 3. Check circuit breaker
       const circuitBreaker = this.getCircuitBreaker(request.provider);
-      if (!circuitBreaker.isOpen()) {
+      if (circuitBreaker.isOpen()) {
         throw ErrorFactories.providerUnavailable(request.provider);
       }
       
@@ -98,11 +98,33 @@ export class UnifiedStreamingService {
       try {
         // 6. Execute streaming with provider-specific handling
         const result = await adapter.streamWithEnhancements(config, {
-          onProgress: (event) => this.handleProgress(event, span, telemetryConfig),
-          onReasoning: (reasoning) => this.handleReasoning(reasoning, span),
-          onThinking: (thinking) => this.handleThinking(thinking, span),
-          onFinish: (data) => this.handleFinish(data, span, telemetryConfig, timer),
-          onError: (error) => this.handleError(error, span, circuitBreaker)
+          onProgress: (event) => {
+            this.handleProgress(event, span, telemetryConfig);
+            request.callbacks?.onProgress?.(event);
+          },
+          onReasoning: (reasoning) => {
+            this.handleReasoning(reasoning, span);
+            request.callbacks?.onReasoning?.(reasoning);
+          },
+          onThinking: (thinking) => {
+            this.handleThinking(thinking, span);
+            request.callbacks?.onThinking?.(thinking);
+          },
+          onFinish: async (data) => {
+            this.handleFinish(data, span, telemetryConfig, timer);
+            // Call user-provided onFinish callback
+            if (request.callbacks?.onFinish) {
+              try {
+                await request.callbacks.onFinish(data);
+              } catch (error) {
+                log.error('Error in user onFinish callback', { error });
+              }
+            }
+          },
+          onError: (error) => {
+            this.handleError(error, span, circuitBreaker);
+            request.callbacks?.onError?.(error);
+          }
         });
         
         // 7. Mark circuit breaker as successful
@@ -273,9 +295,9 @@ class CircuitBreaker {
     if (this.state === 'open') {
       if (now - this.lastFailureTime > this.config.recoveryTimeoutMs) {
         this.state = 'half-open';
-        return true; // Allow one request through
+        return false; // Allow one request through
       }
-      return false; // Circuit is open, reject request
+      return true; // Circuit is open, reject request
     }
     
     // Reset failure count if monitoring period has passed
@@ -283,7 +305,7 @@ class CircuitBreaker {
       this.failures = 0;
     }
     
-    return true; // Circuit is closed or half-open, allow request
+    return false; // Circuit is closed or half-open, allow request
   }
   
   recordSuccess(): void {

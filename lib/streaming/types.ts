@@ -50,6 +50,9 @@ export interface StreamRequest {
     recordOutputs?: boolean;
     customAttributes?: Record<string, string | number | boolean>;
   };
+  
+  // Callbacks for streaming events
+  callbacks?: StreamingCallbacks;
 }
 
 export interface StreamResponse {

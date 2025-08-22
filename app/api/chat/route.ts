@@ -12,6 +12,8 @@ import {
 } from './lib/conversation-handler';
 import { loadExecutionContextData, buildInitialPromptForStreaming } from './lib/execution-context';
 import { getAssistantOwnerSub } from './lib/knowledge-context';
+import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
+import type { StreamRequest } from '@/lib/streaming/types';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -241,18 +243,85 @@ export async function POST(req: Request) {
       promptLength: systemPrompt.length 
     });
     
-    // 9. Create provider-specific model
+    // 9. Check if we should use unified streaming (feature flag)
+    const useUnifiedStreaming = body.useUnifiedStreaming === true || 
+                               req.headers.get('x-use-unified-streaming') === 'true';
+    
+    log.info('Streaming mode', { 
+      useUnifiedStreaming,
+      provider: modelConfig.provider,
+      model: modelConfig.model_id
+    });
+    
+    if (useUnifiedStreaming) {
+      // Use new unified streaming service with callbacks
+      const streamRequest: StreamRequest = {
+        messages: processedMessages,
+        modelId: modelConfig.model_id,
+        provider: modelConfig.provider,
+        userId: currentUser.data.user.id.toString(),
+        sessionId: session.sub,
+        conversationId,
+        source: 'chat',
+        documentId,
+        systemPrompt,
+        options: {
+          reasoningEffort: body.reasoningEffort || 'medium',
+          responseMode: body.responseMode || 'standard'
+        },
+        callbacks: {
+          onFinish: async ({ text, usage, finishReason }) => {
+            log.info('Unified stream finished', {
+              hasText: !!text,
+              textLength: text?.length || 0,
+              hasUsage: !!usage,
+              finishReason
+            });
+            
+            await saveAssistantMessage({
+              conversationId,
+              content: text,
+              role: 'assistant',
+              modelId: modelConfig.id,
+              usage,
+              finishReason,
+              reasoningContent: undefined // TODO: Extract from stream
+            });
+            
+            timer({ 
+              status: 'success',
+              conversationId,
+              tokensUsed: usage?.totalTokens
+            });
+          }
+        }
+      };
+      
+      const streamResponse = await unifiedStreamingService.stream(streamRequest);
+      
+      // Return unified streaming response
+      return streamResponse.result.toUIMessageStreamResponse({
+        headers: {
+          'X-Conversation-Id': conversationId.toString(),
+          'X-Request-Id': requestId,
+          'X-Unified-Streaming': 'true',
+          'X-Supports-Reasoning': streamResponse.capabilities.supportsReasoning.toString()
+        }
+      });
+    }
+    
+    // Original implementation (fallback)
     const model = await createProviderModel(
       modelConfig.provider,
       modelConfig.model_id
     );
     
-    log.info('Provider model created', {
+    log.info('Provider model created (legacy)', {
       provider: modelConfig.provider,
       model: modelConfig.model_id
     });
     
-    // 10. Stream response using AI SDK v5 pattern
+    // 10. Stream response using AI SDK v5 pattern (original)
     const result = streamText({
       model,
       system: systemPrompt,

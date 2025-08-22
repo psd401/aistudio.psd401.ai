@@ -58,6 +58,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
   const [uploadedDocumentId, setUploadedDocumentId] = useState<string | null>(null)
   const [, setProcessingDocumentId] = useState<string | null>(null)
   const [input, setInput] = useState<string>('')
+  const [useUnifiedStreaming, setUseUnifiedStreaming] = useState<boolean>(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
   const { } = useConversationContext()
@@ -127,17 +128,20 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
     },
     onFinish: () => {
       // Message processing complete, refresh conversation list
-      // Refresh the conversation list in the sidebar
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('refresh-conversations'))
-      }
+      // Delay refresh to allow database save to complete
+      setTimeout(() => {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('refresh-conversations'))
+        }
+      }, 1000) // 1 second delay to ensure DB save is complete
     }
   } as UseChatOptions<UIMessage>)
   
   // Monitor messages for conversation ID updates
   // This is a workaround for AI SDK v2 not calling onResponse for streaming
   useEffect(() => {
-    if (messages.length > 0 && !currentConversationId) {
+    // Only poll if we have messages AND no conversation ID AND we're not already handling it via headers
+    if (messages.length > 0 && !currentConversationId && !conversationIdRef.current) {
       let retryCount = 0
       const maxRetries = 5
       const baseDelay = 1000 // Start with 1 second
@@ -369,10 +373,11 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         conversationId: conversationIdRef.current,
         // Use uploadedDocumentId if we have a document that was uploaded but not yet linked
         documentId: uploadedDocumentId || pendingDocument?.id,
-        source: "chat"
+        source: "chat",
+        useUnifiedStreaming  // Add feature flag
       }
     })
-  }, [input, selectedModel, sendMessage, toast, pendingDocument?.id, uploadedDocumentId])
+  }, [input, selectedModel, sendMessage, toast, pendingDocument?.id, uploadedDocumentId, useUnifiedStreaming])
   
   // Update selected model when conversation changes
   useEffect(() => {
@@ -457,6 +462,18 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         />
         
         <div className="flex items-center gap-2">
+          {/* Test toggle for unified streaming */}
+          <Button
+            variant={useUnifiedStreaming ? "default" : "outline"}
+            size="sm"
+            onClick={() => setUseUnifiedStreaming(!useUnifiedStreaming)}
+            className="flex items-center gap-1 transition-all"
+            title={`Unified Streaming: ${useUnifiedStreaming ? 'ON' : 'OFF'}`}
+          >
+            <IconSparkles className="h-3.5 w-3.5" />
+            <span className="text-xs">Unified</span>
+          </Button>
+          
           <Button
             variant="outline"
             size="sm"

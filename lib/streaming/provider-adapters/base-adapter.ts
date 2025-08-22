@@ -101,12 +101,13 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
             finishReason: data.finishReason || 'unknown'
           };
           
-          // Call provider-specific finish handler
+          // Call provider-specific finish handler for internal processing
           await this.handleFinish(transformedData, callbacks);
           
-          // Call user's finish callback
+          // Call user's finish callback - this is handled by the unified streaming service now
+          // The callback will be called from the unified service layer
           if (callbacks.onFinish) {
-            callbacks.onFinish(transformedData);
+            await callbacks.onFinish(transformedData);
           }
         },
         onError: (errorData: any) => {
