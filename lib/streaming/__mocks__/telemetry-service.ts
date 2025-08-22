@@ -1,0 +1,1 @@
+export const getTelemetryConfig = jest.fn();

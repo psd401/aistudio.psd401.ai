@@ -31,7 +31,7 @@ describe('CircuitBreaker', () => {
   describe('initial state', () => {
     it('should start in closed state', () => {
       expect(circuitBreaker.getState()).toBe(CircuitBreakerState.CLOSED);
-      expect(circuitBreaker.isOpen()).toBe(true); // Allows requests through
+      expect(circuitBreaker.isOpen()).toBe(false); // Circuit is closed (not open)
     });
 
     it('should have zero failures initially', () => {
@@ -48,7 +48,7 @@ describe('CircuitBreaker', () => {
       circuitBreaker.recordFailure();
       
       expect(circuitBreaker.getState()).toBe(CircuitBreakerState.CLOSED);
-      expect(circuitBreaker.isOpen()).toBe(true);
+      expect(circuitBreaker.isOpen()).toBe(false);
     });
 
     it('should open when failure threshold is reached', () => {
@@ -57,7 +57,7 @@ describe('CircuitBreaker', () => {
       circuitBreaker.recordFailure(); // Should trigger open state
       
       expect(circuitBreaker.getState()).toBe(CircuitBreakerState.OPEN);
-      expect(circuitBreaker.isOpen()).toBe(false); // Blocks requests
+      expect(circuitBreaker.isOpen()).toBe(true); // Circuit is open (blocks requests)
     });
 
     it('should track failure metrics correctly', () => {
@@ -86,7 +86,7 @@ describe('CircuitBreaker', () => {
       
       // Check state should now be half-open
       expect(circuitBreaker.getState()).toBe(CircuitBreakerState.HALF_OPEN);
-      expect(circuitBreaker.isOpen()).toBe(true); // Allows limited requests
+      expect(circuitBreaker.isOpen()).toBe(false); // Half-open allows limited requests
     });
 
     it('should close circuit after successful recovery', () => {
@@ -99,7 +99,7 @@ describe('CircuitBreaker', () => {
       circuitBreaker.recordSuccess(); // Should close the circuit
       
       expect(circuitBreaker.getState()).toBe(CircuitBreakerState.CLOSED);
-      expect(circuitBreaker.isOpen()).toBe(true);
+      expect(circuitBreaker.isOpen()).toBe(false);
     });
 
     it('should reopen circuit if failure occurs in half-open state', () => {
@@ -156,7 +156,7 @@ describe('CircuitBreaker', () => {
       circuitBreaker.reset();
       
       expect(circuitBreaker.getState()).toBe(CircuitBreakerState.CLOSED);
-      expect(circuitBreaker.isOpen()).toBe(true);
+      expect(circuitBreaker.isOpen()).toBe(false);
       
       const metrics = circuitBreaker.getMetrics();
       expect(metrics.failureCount).toBe(0);

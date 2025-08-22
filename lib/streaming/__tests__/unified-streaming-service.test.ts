@@ -19,10 +19,6 @@ jest.mock('@/lib/logger', () => ({
   startTimer: () => jest.fn()
 }));
 
-// Type assertions for mocked functions
-const mockGetTelemetryConfig = getTelemetryConfig as jest.MockedFunction<typeof getTelemetryConfig>;
-const mockGetProviderAdapter = getProviderAdapter as jest.MockedFunction<typeof getProviderAdapter>;
-
 describe('UnifiedStreamingService', () => {
   let streamingService: UnifiedStreamingService;
   let mockAdapter: {
@@ -69,8 +65,8 @@ describe('UnifiedStreamingService', () => {
       }
     };
     
-    (mockGetProviderAdapter as any).mockResolvedValue(mockAdapter as unknown as ProviderAdapter);
-    (mockGetTelemetryConfig as any).mockResolvedValue(mockTelemetryConfig);
+    (getProviderAdapter as any).mockResolvedValue(mockAdapter as unknown as ProviderAdapter);
+    (getTelemetryConfig as any).mockResolvedValue(mockTelemetryConfig);
   });
 
   describe('stream', () => {
@@ -111,10 +107,10 @@ describe('UnifiedStreamingService', () => {
         })
       };
 
-      (mockAdapter.getCapabilities as any).mockReturnValue(mockCapabilities);
-      (mockAdapter.createModel as any).mockResolvedValue('mock-model' as any);
-      (mockAdapter.getProviderOptions as any).mockReturnValue({});
-      (mockAdapter.streamWithEnhancements as any).mockResolvedValue(mockStreamResult as any);
+      mockAdapter.getCapabilities.mockReturnValue(mockCapabilities);
+      mockAdapter.createModel.mockResolvedValue('mock-model' as any);
+      mockAdapter.getProviderOptions.mockReturnValue({});
+      mockAdapter.streamWithEnhancements.mockResolvedValue(mockStreamResult as any);
 
       // Act
       const result = await streamingService.stream(request);
@@ -168,10 +164,10 @@ describe('UnifiedStreamingService', () => {
         })
       };
 
-      (mockAdapter.getCapabilities as any).mockReturnValue(mockCapabilities);
-      (mockAdapter.createModel as any).mockResolvedValue('mock-model' as any);
-      (mockAdapter.getProviderOptions as any).mockReturnValue({});
-      (mockAdapter.streamWithEnhancements as any).mockResolvedValue(mockStreamResult as any);
+      mockAdapter.getCapabilities.mockReturnValue(mockCapabilities);
+      mockAdapter.createModel.mockResolvedValue('mock-model' as any);
+      mockAdapter.getProviderOptions.mockReturnValue({});
+      mockAdapter.streamWithEnhancements.mockResolvedValue(mockStreamResult as any);
 
       // Act
       const result = await streamingService.stream(request);
@@ -223,16 +219,16 @@ describe('UnifiedStreamingService', () => {
         })
       };
 
-      (mockAdapter.getCapabilities as any).mockReturnValue(mockCapabilities);
-      (mockAdapter.createModel as any).mockResolvedValue('mock-model' as any);
-      (mockAdapter.getProviderOptions as any).mockReturnValue({
+      mockAdapter.getCapabilities.mockReturnValue(mockCapabilities);
+      mockAdapter.createModel.mockResolvedValue('mock-model' as any);
+      mockAdapter.getProviderOptions.mockReturnValue({
         anthropic: {
           thinkingBudget: 4000,
           enableThinking: true,
           streamThinking: true
         }
       });
-      (mockAdapter.streamWithEnhancements as any).mockResolvedValue(mockStreamResult as any);
+      mockAdapter.streamWithEnhancements.mockResolvedValue(mockStreamResult as any);
 
       // Act
       const result = await streamingService.stream(request);
@@ -264,7 +260,7 @@ describe('UnifiedStreamingService', () => {
         streamWithEnhancements: jest.fn(() => Promise.reject(new Error('Provider failure')))
       };
 
-      (mockGetProviderAdapter as any).mockResolvedValue(failingAdapter as unknown as ProviderAdapter);
+      (getProviderAdapter as any).mockResolvedValue(failingAdapter as unknown as ProviderAdapter);
 
       // Trip the circuit breaker by failing multiple times
       const streamingServiceWithFailures = new UnifiedStreamingService();
@@ -323,10 +319,10 @@ describe('UnifiedStreamingService', () => {
         })
       };
 
-      (mockAdapter.getCapabilities as any).mockReturnValue(mockCapabilities);
-      (mockAdapter.createModel as any).mockResolvedValue('mock-model' as any);
-      (mockAdapter.getProviderOptions as any).mockReturnValue({});
-      (mockAdapter.streamWithEnhancements as any).mockResolvedValue(mockStreamResult as any);
+      mockAdapter.getCapabilities.mockReturnValue(mockCapabilities);
+      mockAdapter.createModel.mockResolvedValue('mock-model' as any);
+      mockAdapter.getProviderOptions.mockReturnValue({});
+      mockAdapter.streamWithEnhancements.mockResolvedValue(mockStreamResult as any);
 
       // Act
       await streamingService.stream(request);
