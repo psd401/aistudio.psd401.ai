@@ -44,7 +44,7 @@ CREATE TABLE nexus_conversations (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   
   -- Constraints
-  UNIQUE(provider, external_id)
+  UNIQUE(provider, external_id) -- Note: Allows multiple NULL external_id per provider (intended for local conversations)
 );
 
 -- Indexes for conversations
@@ -201,8 +201,8 @@ CREATE INDEX idx_nexus_mcp_capabilities ON nexus_mcp_capabilities(server_id, typ
 
 CREATE TABLE nexus_mcp_audit_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id INTEGER NOT NULL REFERENCES users(id),
-  server_id UUID NOT NULL REFERENCES nexus_mcp_servers(id),
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  server_id UUID NOT NULL REFERENCES nexus_mcp_servers(id) ON DELETE CASCADE,
   tool_name VARCHAR(255) NOT NULL,
   input JSONB,
   output JSONB,
@@ -218,8 +218,8 @@ CREATE INDEX idx_nexus_mcp_audit_server ON nexus_mcp_audit_logs(server_id, creat
 
 CREATE TABLE nexus_mcp_connections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  server_id UUID NOT NULL REFERENCES nexus_mcp_servers(id),
-  user_id INTEGER NOT NULL REFERENCES users(id),
+  server_id UUID NOT NULL REFERENCES nexus_mcp_servers(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   status VARCHAR(50) NOT NULL CHECK (status IN ('connected', 'disconnected', 'error', 'connecting')),
   last_health_check TIMESTAMP,
   latency_ms INTEGER,
@@ -260,7 +260,7 @@ CREATE INDEX idx_nexus_templates_user ON nexus_templates(user_id);
 CREATE TABLE nexus_shares (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   conversation_id UUID NOT NULL REFERENCES nexus_conversations(id) ON DELETE CASCADE,
-  shared_by INTEGER NOT NULL REFERENCES users(id),
+  shared_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   share_token VARCHAR(255) UNIQUE NOT NULL,
   expires_at TIMESTAMP,
   view_count INTEGER DEFAULT 0,
@@ -275,19 +275,19 @@ CREATE INDEX idx_nexus_shares_expires ON nexus_shares(expires_at) WHERE expires_
 -- =====================================================
 
 -- Auto-update updated_at timestamp function (reuse existing if exists)
-DO 42153
+DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'update_updated_at_column') THEN
         CREATE OR REPLACE FUNCTION update_updated_at_column()
-        RETURNS TRIGGER AS 42154
+        RETURNS TRIGGER AS $func$
         BEGIN
             NEW.updated_at = CURRENT_TIMESTAMP;
             RETURN NEW;
         END;
-        42154 LANGUAGE plpgsql;
+        $func$ LANGUAGE plpgsql;
     END IF;
 END;
-42153;
+$$;
 
 -- Apply update trigger to all tables with updated_at
 CREATE TRIGGER update_nexus_conversations_updated_at 

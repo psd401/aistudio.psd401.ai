@@ -74,7 +74,7 @@ export type SelectDocument = {
   size: number;
   userId: number;
   conversationId: number | null;
-  metadata?: any;
+  metadata?: NexusConversationMetadata;
   createdAt: Date;
 }
 
@@ -86,7 +86,7 @@ export type InsertDocument = {
   size?: number;
   userId: number;
   conversationId?: number | null;
-  metadata?: any;
+  metadata?: NexusConversationMetadata;
 }
 
 export type SelectDocumentChunk = {
@@ -94,7 +94,7 @@ export type SelectDocumentChunk = {
   documentId: number;
   content: string;
   chunkIndex: number;
-  metadata?: any;
+  metadata?: NexusConversationMetadata;
   createdAt: Date;
 }
 
@@ -103,7 +103,7 @@ export type InsertDocumentChunk = {
   documentId: number;
   content: string;
   chunkIndex: number;
-  metadata?: any;
+  metadata?: NexusConversationMetadata;
 }
 
 export type SelectAssistantArchitect = {
@@ -248,6 +248,58 @@ export type SelectAiModel = {
 // NEXUS DATABASE TYPES
 // =====================================================
 
+// JSONB interfaces for type safety
+export interface NexusConversationMetadata {
+  tags?: string[];
+  customFields?: Record<string, unknown>;
+  providerData?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface NexusFolderSettings {
+  sortBy?: 'name' | 'updated' | 'created';
+  viewMode?: 'list' | 'grid';
+  autoArchive?: boolean;
+  [key: string]: unknown;
+}
+
+export interface NexusUserSettings {
+  theme?: 'light' | 'dark' | 'system';
+  notifications?: boolean;
+  shortcuts?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+export interface NexusConversationEventData {
+  eventType: 'created' | 'updated' | 'archived' | 'shared' | 'moved' | 'deleted';
+  userId: number;
+  changes?: Record<string, unknown>;
+  timestamp: string;
+  [key: string]: unknown;
+}
+
+export interface NexusMcpSchema {
+  type: 'object' | 'array' | 'string' | 'number' | 'boolean';
+  properties?: Record<string, unknown>;
+  required?: string[];
+  [key: string]: unknown;
+}
+
+export interface NexusMcpAuditData {
+  requestId?: string;
+  sessionId?: string;
+  metadata?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface NexusTemplateVariables {
+  name: string;
+  type: 'string' | 'number' | 'boolean' | 'array';
+  description?: string;
+  required?: boolean;
+  default?: unknown;
+}[]
+
 // Nexus Conversations
 export type SelectNexusConversation = {
   id: string;
@@ -263,7 +315,7 @@ export type SelectNexusConversation = {
   lastMessageAt: Date;
   isArchived: boolean;
   isPinned: boolean;
-  metadata: any;
+  metadata: NexusConversationMetadata;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -282,7 +334,7 @@ export type InsertNexusConversation = {
   lastMessageAt?: Date;
   isArchived?: boolean;
   isPinned?: boolean;
-  metadata?: any;
+  metadata?: NexusConversationMetadata;
 }
 
 // Nexus Folders
@@ -295,7 +347,7 @@ export type SelectNexusFolder = {
   icon: string;
   sortOrder: number;
   isExpanded: boolean;
-  settings: any;
+  settings: NexusFolderSettings;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -309,28 +361,28 @@ export type InsertNexusFolder = {
   icon?: string;
   sortOrder?: number;
   isExpanded?: boolean;
-  settings?: any;
+  settings?: NexusFolderSettings;
 }
 
 // Nexus User Preferences
 export type SelectNexusUserPreferences = {
   userId: number;
-  expandedFolders: any;
+  expandedFolders: string[];
   panelWidth: number;
   sortPreference: string;
   viewMode: string;
-  settings: any;
+  settings: NexusUserSettings;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export type InsertNexusUserPreferences = {
   userId: number;
-  expandedFolders?: any;
+  expandedFolders?: string[];
   panelWidth?: number;
   sortPreference?: string;
   viewMode?: string;
-  settings?: any;
+  settings?: NexusUserSettings;
 }
 
 // Nexus Conversation Events
@@ -338,7 +390,7 @@ export type SelectNexusConversationEvent = {
   id: string;
   conversationId: string;
   eventType: string;
-  eventData: any;
+  eventData: NexusConversationEventData;
   createdAt: Date;
 }
 
@@ -346,7 +398,7 @@ export type InsertNexusConversationEvent = {
   id?: string;
   conversationId: string;
   eventType: string;
-  eventData: any;
+  eventData: NexusConversationEventData;
 }
 
 // Nexus Cache Entries
@@ -403,8 +455,8 @@ export type SelectNexusMcpCapability = {
   type: 'tool' | 'resource' | 'prompt';
   name: string;
   description: string | null;
-  inputSchema: any;
-  outputSchema: any | null;
+  inputSchema: NexusMcpSchema;
+  outputSchema: NexusMcpSchema | null;
   sandboxLevel: 'standard' | 'strict' | 'none';
   rateLimit: number;
 }
@@ -415,8 +467,8 @@ export type InsertNexusMcpCapability = {
   type: 'tool' | 'resource' | 'prompt';
   name: string;
   description?: string;
-  inputSchema: any;
-  outputSchema?: any;
+  inputSchema: NexusMcpSchema;
+  outputSchema?: NexusMcpSchema;
   sandboxLevel?: 'standard' | 'strict' | 'none';
   rateLimit?: number;
 }
@@ -458,8 +510,8 @@ export type SelectNexusMcpAuditLog = {
   userId: number;
   serverId: string;
   toolName: string;
-  input: any | null;
-  output: any | null;
+  input: NexusMcpAuditData | null;
+  output: NexusMcpAuditData | null;
   error: string | null;
   durationMs: number | null;
   ipAddress: string | null;
@@ -472,8 +524,8 @@ export type InsertNexusMcpAuditLog = {
   userId: number;
   serverId: string;
   toolName: string;
-  input?: any;
-  output?: any;
+  input?: NexusMcpAuditData;
+  output?: NexusMcpAuditData;
   error?: string;
   durationMs?: number;
   ipAddress?: string;
@@ -487,7 +539,7 @@ export type SelectNexusTemplate = {
   name: string;
   description: string | null;
   prompt: string;
-  variables: any;
+  variables: NexusTemplateVariables;
   isPublic: boolean;
   usageCount: number;
   createdAt: Date;
@@ -500,7 +552,7 @@ export type InsertNexusTemplate = {
   name: string;
   description?: string;
   prompt: string;
-  variables?: any;
+  variables?: NexusTemplateVariables;
   isPublic?: boolean;
   usageCount?: number;
 }
