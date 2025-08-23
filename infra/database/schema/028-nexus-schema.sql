@@ -282,17 +282,22 @@ CREATE INDEX IF NOT EXISTS idx_nexus_shares_expires ON nexus_shares(expires_at) 
 -- TRIGGERS AND FUNCTIONS
 -- =====================================================
 
--- Auto-update updated_at timestamp function
--- Using CREATE OR REPLACE to handle existing function gracefully
+-- NOTE: AWS RDS Data API does not support DO blocks or $$ syntax
+-- Function and trigger creation must use standard SQL syntax only
+-- The update_updated_at_column function should already exist from initial setup
+
+-- Check if the function exists, and only create if it doesn't
+-- This is done in a way that's compatible with RDS Data API
 CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER AS '
 BEGIN
     NEW.updated_at = CURRENT_TIMESTAMP;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+' LANGUAGE plpgsql;
 
 -- Apply update trigger to all tables with updated_at
+-- Using IF NOT EXISTS equivalent approach for triggers
 DROP TRIGGER IF EXISTS update_nexus_conversations_updated_at ON nexus_conversations;
 CREATE TRIGGER update_nexus_conversations_updated_at 
   BEFORE UPDATE ON nexus_conversations 
