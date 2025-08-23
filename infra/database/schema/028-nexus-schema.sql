@@ -279,20 +279,15 @@ CREATE INDEX idx_nexus_shares_expires ON nexus_shares(expires_at) WHERE expires_
 -- TRIGGERS AND FUNCTIONS
 -- =====================================================
 
--- Auto-update updated_at timestamp function (reuse existing if exists)
-DO $$
+-- Auto-update updated_at timestamp function
+-- Using CREATE OR REPLACE to handle existing function gracefully
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'update_updated_at_column') THEN
-        CREATE OR REPLACE FUNCTION update_updated_at_column()
-        RETURNS TRIGGER AS $func$
-        BEGIN
-            NEW.updated_at = CURRENT_TIMESTAMP;
-            RETURN NEW;
-        END;
-        $func$ LANGUAGE plpgsql;
-    END IF;
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
 END;
-$$;
+$$ LANGUAGE plpgsql;
 
 -- Apply update trigger to all tables with updated_at
 CREATE TRIGGER update_nexus_conversations_updated_at 
