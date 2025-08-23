@@ -102,9 +102,28 @@ function BugReportPopover() {
     }
   }, [open])
 
+  // Clean up preview URLs when component unmounts or screenshot changes
+  useEffect(() => {
+    return () => {
+      if (screenshotPreview && screenshotPreview.startsWith('blob:')) {
+        URL.revokeObjectURL(screenshotPreview)
+      }
+    }
+  }, [screenshotPreview])
+
   const handleScreenshotChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file && file.type.startsWith('image/')) {
+    
+    // Define allowed MIME types explicitly (match server-side validation)
+    const ALLOWED_IMAGE_TYPES = [
+      'image/jpeg',
+      'image/jpg', 
+      'image/png',
+      'image/gif',
+      'image/webp'
+    ]
+    
+    if (file && ALLOWED_IMAGE_TYPES.includes(file.type)) {
       // Check file size (10MB limit)
       const maxSize = 10 * 1024 * 1024
       if (file.size > maxSize) {
@@ -115,6 +134,11 @@ function BugReportPopover() {
       setScreenshot(file)
       setError(null)
       
+      // Clean up previous preview URL to prevent memory leaks
+      if (screenshotPreview && screenshotPreview.startsWith('data:')) {
+        // Data URLs don't need explicit cleanup, but object URLs would
+      }
+      
       // Create preview URL
       const reader = new FileReader()
       reader.onloadend = () => {
@@ -122,19 +146,33 @@ function BugReportPopover() {
       }
       reader.readAsDataURL(file)
     } else if (file) {
-      setError("Only image files are supported")
+      setError("Only JPEG, PNG, GIF, and WebP images are supported")
     }
   }
 
   const handlePaste = (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items
     if (items) {
+      // Define allowed MIME types explicitly (match server-side validation)
+      const ALLOWED_IMAGE_TYPES = [
+        'image/jpeg',
+        'image/jpg', 
+        'image/png',
+        'image/gif',
+        'image/webp'
+      ]
+      
       for (const item of items) {
-        if (item.type.startsWith('image/')) {
+        if (ALLOWED_IMAGE_TYPES.includes(item.type)) {
           const file = item.getAsFile()
           if (file) {
             setScreenshot(file)
             setError(null)
+            
+            // Clean up previous preview URL to prevent memory leaks
+            if (screenshotPreview && screenshotPreview.startsWith('data:')) {
+              // Data URLs don't need explicit cleanup, but object URLs would
+            }
             
             // Create preview URL
             const reader = new FileReader()
@@ -150,6 +188,11 @@ function BugReportPopover() {
   }
 
   const clearScreenshot = () => {
+    // Clean up preview URL if it's an object URL (though we're using data URLs, this is future-proofing)
+    if (screenshotPreview && screenshotPreview.startsWith('blob:')) {
+      URL.revokeObjectURL(screenshotPreview)
+    }
+    
     setScreenshot(null)
     setScreenshotPreview(null)
     if (fileInputRef.current) {

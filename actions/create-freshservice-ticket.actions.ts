@@ -26,6 +26,17 @@ interface FreshserviceTicketResponse {
   ticket_id: number
 }
 
+// Define proper interface for Freshservice API response
+interface FreshserviceTicketResponseRaw {
+  id: number
+  display_id?: string
+  subject?: string
+  description?: string
+  status?: number
+  priority?: number
+  [key: string]: any
+}
+
 export async function createFreshserviceTicketAction(
   formData: FormData
 ): Promise<ActionState<FreshserviceTicketResponse>> {
@@ -69,10 +80,16 @@ export async function createFreshserviceTicketAction(
         hasApiKey: !!settings.apiKey,
         hasDepartmentId: !!settings.departmentId 
       })
-      return { 
-        isSuccess: false, 
-        message: "Freshservice not configured. Please contact your administrator to set up FRESHSERVICE_DOMAIN, FRESHSERVICE_API_KEY, and FRESHSERVICE_DEPARTMENT_ID." 
-      }
+      throw ErrorFactories.sysConfigurationError("Freshservice not configured. Please contact your administrator to set up FRESHSERVICE_DOMAIN, FRESHSERVICE_API_KEY, and FRESHSERVICE_DEPARTMENT_ID.")
+    }
+    
+    // Validate domain format to prevent SSRF attacks
+    const domainRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]$/
+    if (!domainRegex.test(settings.domain)) {
+      log.error("Invalid Freshservice domain format", { domain: sanitizeForLogging({ domain: settings.domain }) })
+      throw ErrorFactories.validationFailed([
+        { field: "domain", message: "Invalid Freshservice domain configuration" }
+      ])
     }
     
     // Prepare API request
@@ -94,11 +111,19 @@ export async function createFreshserviceTicketAction(
         ])
       }
       
-      // Validate file type
-      if (!screenshot.type.startsWith('image/')) {
+      // Validate file type - explicitly allow only safe image types
+      const ALLOWED_IMAGE_TYPES = [
+        'image/jpeg',
+        'image/jpg', 
+        'image/png',
+        'image/gif',
+        'image/webp'
+      ]
+      
+      if (!ALLOWED_IMAGE_TYPES.includes(screenshot.type)) {
         log.warn("Invalid file type", { type: screenshot.type })
         throw ErrorFactories.validationFailed([
-          { field: "screenshot", message: "Only image files are supported for screenshots" }
+          { field: "screenshot", message: "Only JPEG, PNG, GIF, and WebP images are supported" }
         ])
       }
       
@@ -106,7 +131,7 @@ export async function createFreshserviceTicketAction(
       const freshserviceFormData = new FormData()
       freshserviceFormData.append('subject', title)
       freshserviceFormData.append('description', description)
-      freshserviceFormData.append('email', session.email || 'noreply@example.com')
+      freshserviceFormData.append('email', session.email || 'noreply@psd401.org')
       freshserviceFormData.append('priority', settings.priority)
       freshserviceFormData.append('status', settings.status)
       freshserviceFormData.append('department_id', settings.departmentId)
@@ -125,7 +150,7 @@ export async function createFreshserviceTicketAction(
         priority: settings.priority,
         status: settings.status,
         hasWorkspace: !!settings.workspaceId,
-        workspaceId: settings.workspaceId
+        hasApiKey: !!settings.apiKey
       })
       
       response = await fetch(apiUrl, {
@@ -141,7 +166,7 @@ export async function createFreshserviceTicketAction(
       const ticketData: any = {
         subject: title,
         description: description,
-        email: session.email || 'noreply@example.com',
+        email: session.email || 'noreply@psd401.org',
         priority: parseInt(settings.priority),
         status: parseInt(settings.status),
         department_id: parseInt(settings.departmentId),
@@ -159,7 +184,7 @@ export async function createFreshserviceTicketAction(
         priority: settings.priority,
         status: settings.status,
         hasWorkspace: !!settings.workspaceId,
-        workspaceId: settings.workspaceId
+        hasApiKey: !!settings.apiKey
       })
       
       response = await fetch(apiUrl, {
@@ -199,7 +224,14 @@ export async function createFreshserviceTicketAction(
       throw ErrorFactories.externalServiceError("Freshservice", new Error(errorData.message || `API returned ${response.status}`))
     }
     
-    const ticket = await response.json()
+    const ticket: FreshserviceTicketResponseRaw = await response.json()
+    
+    // Validate ticket.id is a number for security
+    if (!ticket.id || typeof ticket.id !== 'number') {
+      log.error("Invalid ticket ID in response", { ticketId: ticket.id })
+      throw ErrorFactories.externalServiceError("Freshservice", new Error("Invalid ticket response"))
+    }
+    
     const ticketUrl = `https://${settings.domain}.freshservice.com/support/tickets/${ticket.id}`
     
     log.info("Freshservice ticket created successfully", {

@@ -21,7 +21,6 @@ export function initializeErrorCapture() {
   // eslint-disable-next-line no-console
   console.error = function(...args) {
     // Call original console.error
-    // eslint-disable-next-line no-console
     originalConsoleError.apply(console, args)
     
     // Store error with timestamp
