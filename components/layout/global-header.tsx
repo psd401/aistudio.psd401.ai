@@ -18,7 +18,7 @@ import {
 } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Textarea } from "@/components/ui/textarea"
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { createFreshserviceTicketAction } from "@/actions/create-freshservice-ticket.actions"
 // ... rest of imports ...
 
@@ -86,7 +86,21 @@ function BugReportPopover() {
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState<{ url: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [consoleErrors, setConsoleErrors] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+  
+  // Capture console errors when the popover is opened
+  interface WindowWithErrors extends Window {
+    __capturedErrors?: string[]
+  }
+
+  useEffect(() => {
+    if (open) {
+      // Check if we have any stored console errors
+      const storedErrors = (window as unknown as WindowWithErrors).__capturedErrors || []
+      setConsoleErrors(storedErrors.slice(-10)) // Keep last 10 errors
+    }
+  }, [open])
 
   const handleScreenshotChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -145,24 +159,116 @@ function BugReportPopover() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!title || !description) return
     setLoading(true)
     setError(null)
     setSuccess(null)
 
-    // Gather metadata
-    const metadata = [
-      '---',
-      '**Debug Info**',
-      `- Page: ${typeof window !== 'undefined' ? window.location.href : ''}`,
-      `- User Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : ''}`,
-      `- Platform: ${typeof navigator !== 'undefined' ? navigator.platform : ''}`,
-      `- Screen: ${typeof window !== 'undefined' ? `${window.screen.width}x${window.screen.height}` : ''}`,
-      `- Timestamp: ${new Date().toISOString()}`,
-      `- Locale: ${typeof navigator !== 'undefined' ? (navigator.language || (navigator.languages && navigator.languages[0]) || '') : ''}`,
-      `- Referrer: ${typeof document !== 'undefined' ? document.referrer : ''}`
-    ].join('\n')
-
-    const fullDescription = `${description}\n\n${metadata}`
+    // Gather enhanced troubleshooting metadata
+    const metadata = []
+    
+    // User's problem description
+    metadata.push('<strong>=== USER DESCRIPTION ===</strong>')
+    metadata.push(description)
+    metadata.push('<br>') // Extra spacing after user description
+    
+    // Browser and System Information
+    metadata.push('<br><strong>=== BROWSER & SYSTEM INFO ===</strong>')
+    if (typeof window !== 'undefined') {
+      metadata.push(`Page URL: ${window.location.href}`)
+      metadata.push(`Page Title: ${document.title}`)
+      metadata.push(`Referrer: ${document.referrer || 'Direct access'}`)
+    }
+    
+    if (typeof navigator !== 'undefined') {
+      metadata.push(`Browser: ${navigator.userAgent}`)
+      metadata.push(`Platform: ${navigator.platform}`)
+      metadata.push(`Language: ${navigator.language}`)
+      metadata.push(`Online Status: ${navigator.onLine ? 'Online' : 'Offline'}`)
+      metadata.push(`Cookies Enabled: ${navigator.cookieEnabled}`)
+      
+      // Memory info if available (Chrome)
+      interface NavigatorWithExtras {
+        deviceMemory?: number
+        hardwareConcurrency: number
+      }
+      const nav = navigator as unknown as NavigatorWithExtras
+      if (nav.deviceMemory) {
+        metadata.push(`Device Memory: ${nav.deviceMemory} GB`)
+      }
+      if (nav.hardwareConcurrency) {
+        metadata.push(`CPU Cores: ${nav.hardwareConcurrency}`)
+      }
+    }
+    
+    // Screen Information
+    metadata.push('<br><br><strong>=== DISPLAY INFO ===</strong>')
+    if (typeof window !== 'undefined') {
+      metadata.push(`Screen Resolution: ${window.screen.width}x${window.screen.height}`)
+      metadata.push(`Viewport Size: ${window.innerWidth}x${window.innerHeight}`)
+      metadata.push(`Screen Color Depth: ${window.screen.colorDepth}-bit`)
+      metadata.push(`Pixel Ratio: ${window.devicePixelRatio}`)
+    }
+    
+    // Session Information
+    metadata.push('<br><br><strong>=== SESSION INFO ===</strong>')
+    metadata.push(`Timestamp: ${new Date().toISOString()}`)
+    metadata.push(`Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`)
+    
+    // Local Storage Info (for debugging state issues)
+    if (typeof window !== 'undefined' && window.localStorage) {
+      metadata.push(`Local Storage Items: ${window.localStorage.length}`)
+      
+      // Check for auth session
+      const authSession = window.localStorage.getItem('next-auth.session-token')
+      metadata.push(`Authenticated: ${authSession ? 'Yes' : 'No'}`)
+    }
+    
+    // Performance metrics if available
+    metadata.push('<br><br><strong>=== PERFORMANCE METRICS ===</strong>')
+    interface PerformanceWithMemory extends Performance {
+      memory?: {
+        usedJSHeapSize: number
+        jsHeapSizeLimit: number
+      }
+    }
+    if (typeof window !== 'undefined' && window.performance) {
+      const perf = window.performance as PerformanceWithMemory
+      if (perf.memory) {
+        metadata.push(`JS Heap Used: ${Math.round(perf.memory.usedJSHeapSize / 1048576)} MB`)
+        metadata.push(`JS Heap Limit: ${Math.round(perf.memory.jsHeapSizeLimit / 1048576)} MB`)
+      }
+    }
+    
+    // Network Information
+    interface NavigatorWithConnection extends Navigator {
+      connection?: {
+        effectiveType?: string
+        downlink?: number
+        saveData?: boolean
+      }
+    }
+    const navWithConnection = navigator as NavigatorWithConnection
+    if (typeof navigator !== 'undefined' && navWithConnection.connection) {
+      const connection = navWithConnection.connection
+      metadata.push('<br><br><strong>=== NETWORK INFO ===</strong>')
+      metadata.push(`Connection Type: ${connection.effectiveType || 'Unknown'}`)
+      if (connection.downlink) {
+        metadata.push(`Downlink Speed: ${connection.downlink} Mbps`)
+      }
+      metadata.push(`Data Saver: ${connection.saveData ? 'Enabled' : 'Disabled'}`)
+    }
+    
+    // Console Errors (if any)
+    if (consoleErrors.length > 0) {
+      metadata.push('<br><br><strong>=== RECENT CONSOLE ERRORS ===</strong>')
+      consoleErrors.forEach((err, index) => {
+        metadata.push(`Error ${index + 1}: ${err}`)
+      })
+    }
+    
+    // Join with HTML line breaks for proper Freshservice formatting
+    const fullDescription = metadata.join('<br>')
 
     // Prepare FormData for server action
     const formData = new FormData()
@@ -197,14 +303,6 @@ function BugReportPopover() {
           <div className="flex flex-col items-center space-y-2">
             <Check className="h-8 w-8 text-green-500" />
             <div className="text-green-700 font-semibold">Ticket created!</div>
-            <a
-              href={success.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 underline"
-            >
-              View Ticket
-            </a>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col gap-4" onPaste={handlePaste}>
