@@ -11,7 +11,7 @@
 -- =====================================================
 
 -- Main conversations table (merged from #150 and #152)
-CREATE TABLE nexus_conversations (
+CREATE TABLE IF NOT EXISTS nexus_conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   
@@ -48,18 +48,18 @@ CREATE TABLE nexus_conversations (
 );
 
 -- Indexes for conversations
-CREATE INDEX idx_nexus_conv_user ON nexus_conversations(user_id);
-CREATE INDEX idx_nexus_conv_user_updated ON nexus_conversations(user_id, updated_at DESC);
-CREATE INDEX idx_nexus_conv_user_folder ON nexus_conversations(user_id, folder_id);
-CREATE INDEX idx_nexus_conv_external ON nexus_conversations(provider, external_id);
-CREATE INDEX idx_nexus_conv_cache ON nexus_conversations(cache_key) WHERE cache_key IS NOT NULL;
-CREATE INDEX idx_nexus_conv_archived ON nexus_conversations(user_id, is_archived);
+CREATE INDEX IF NOT EXISTS idx_nexus_conv_user ON nexus_conversations(user_id);
+CREATE INDEX IF NOT EXISTS idx_nexus_conv_user_updated ON nexus_conversations(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_nexus_conv_user_folder ON nexus_conversations(user_id, folder_id);
+CREATE INDEX IF NOT EXISTS idx_nexus_conv_external ON nexus_conversations(provider, external_id);
+CREATE INDEX IF NOT EXISTS idx_nexus_conv_cache ON nexus_conversations(cache_key) WHERE cache_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_nexus_conv_archived ON nexus_conversations(user_id, is_archived);
 
 -- =====================================================
 -- FOLDER ORGANIZATION (from #149)
 -- =====================================================
 
-CREATE TABLE nexus_folders (
+CREATE TABLE IF NOT EXISTS nexus_folders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   parent_id UUID REFERENCES nexus_folders(id) ON DELETE CASCADE,
@@ -84,27 +84,36 @@ CREATE TABLE nexus_folders (
   CHECK (id != parent_id) -- Prevent self-referencing
 );
 
--- Add foreign key for folder_id in conversations
-ALTER TABLE nexus_conversations 
-  ADD CONSTRAINT fk_conversation_folder 
-  FOREIGN KEY (folder_id) REFERENCES nexus_folders(id) ON DELETE SET NULL;
+-- Add foreign key for folder_id in conversations (if not exists)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'fk_conversation_folder'
+        AND table_name = 'nexus_conversations'
+    ) THEN
+        ALTER TABLE nexus_conversations 
+          ADD CONSTRAINT fk_conversation_folder 
+          FOREIGN KEY (folder_id) REFERENCES nexus_folders(id) ON DELETE SET NULL;
+    END IF;
+END $$;
 
 -- Indexes for folders
-CREATE INDEX idx_nexus_folders_user ON nexus_folders(user_id);
-CREATE INDEX idx_nexus_folders_parent ON nexus_folders(parent_id);
-CREATE INDEX idx_nexus_folders_user_sort ON nexus_folders(user_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_nexus_folders_user ON nexus_folders(user_id);
+CREATE INDEX IF NOT EXISTS idx_nexus_folders_parent ON nexus_folders(parent_id);
+CREATE INDEX IF NOT EXISTS idx_nexus_folders_user_sort ON nexus_folders(user_id, sort_order);
 
 -- Unique constraints for folder names (using partial indexes to handle NULL parent_id)
-CREATE UNIQUE INDEX idx_nexus_folders_unique_root_name 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_nexus_folders_unique_root_name 
   ON nexus_folders(user_id, name) WHERE parent_id IS NULL;
-CREATE UNIQUE INDEX idx_nexus_folders_unique_child_name 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_nexus_folders_unique_child_name 
   ON nexus_folders(user_id, parent_id, name) WHERE parent_id IS NOT NULL;
 
 -- =====================================================
 -- CONVERSATION ORGANIZATION (from #149)
 -- =====================================================
 
-CREATE TABLE nexus_conversation_folders (
+CREATE TABLE IF NOT EXISTS nexus_conversation_folders (
   conversation_id UUID NOT NULL REFERENCES nexus_conversations(id) ON DELETE CASCADE,
   folder_id UUID NOT NULL REFERENCES nexus_folders(id) ON DELETE CASCADE,
   
@@ -116,13 +125,13 @@ CREATE TABLE nexus_conversation_folders (
   PRIMARY KEY (conversation_id, folder_id)
 );
 
-CREATE INDEX idx_nexus_conv_folders_folder ON nexus_conversation_folders(folder_id, position);
+CREATE INDEX IF NOT EXISTS idx_nexus_conv_folders_folder ON nexus_conversation_folders(folder_id, position);
 
 -- =====================================================
 -- USER PREFERENCES (from #149)
 -- =====================================================
 
-CREATE TABLE nexus_user_preferences (
+CREATE TABLE IF NOT EXISTS nexus_user_preferences (
   user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   
   -- UI preferences
@@ -143,7 +152,7 @@ CREATE TABLE nexus_user_preferences (
 -- CACHING & EVENT SOURCING (from #150)
 -- =====================================================
 
-CREATE TABLE nexus_conversation_events (
+CREATE TABLE IF NOT EXISTS nexus_conversation_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   conversation_id UUID NOT NULL REFERENCES nexus_conversations(id) ON DELETE CASCADE,
   event_type VARCHAR(50) NOT NULL,
@@ -151,9 +160,9 @@ CREATE TABLE nexus_conversation_events (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_nexus_events_conversation ON nexus_conversation_events(conversation_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_nexus_events_conversation ON nexus_conversation_events(conversation_id, created_at DESC);
 
-CREATE TABLE nexus_cache_entries (
+CREATE TABLE IF NOT EXISTS nexus_cache_entries (
   cache_key VARCHAR(255) PRIMARY KEY,
   provider VARCHAR(50) NOT NULL,
   conversation_id UUID REFERENCES nexus_conversations(id) ON DELETE CASCADE,
@@ -164,14 +173,14 @@ CREATE TABLE nexus_cache_entries (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_nexus_cache_expires ON nexus_cache_entries(expires_at);
-CREATE INDEX idx_nexus_cache_conversation ON nexus_cache_entries(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_nexus_cache_expires ON nexus_cache_entries(expires_at);
+CREATE INDEX IF NOT EXISTS idx_nexus_cache_conversation ON nexus_cache_entries(conversation_id);
 
 -- =====================================================
 -- MCP INTEGRATION (from #151)
 -- =====================================================
 
-CREATE TABLE nexus_mcp_servers (
+CREATE TABLE IF NOT EXISTS nexus_mcp_servers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(255) NOT NULL,
   url TEXT NOT NULL,
@@ -186,9 +195,9 @@ CREATE TABLE nexus_mcp_servers (
   UNIQUE(name)
 );
 
-CREATE INDEX idx_nexus_mcp_transport ON nexus_mcp_servers(transport);
+CREATE INDEX IF NOT EXISTS idx_nexus_mcp_transport ON nexus_mcp_servers(transport);
 
-CREATE TABLE nexus_mcp_capabilities (
+CREATE TABLE IF NOT EXISTS nexus_mcp_capabilities (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   server_id UUID NOT NULL REFERENCES nexus_mcp_servers(id) ON DELETE CASCADE,
   type VARCHAR(50) NOT NULL CHECK (type IN ('tool', 'resource', 'prompt')),
@@ -202,9 +211,9 @@ CREATE TABLE nexus_mcp_capabilities (
   UNIQUE(server_id, name)
 );
 
-CREATE INDEX idx_nexus_mcp_capabilities ON nexus_mcp_capabilities(server_id, type);
+CREATE INDEX IF NOT EXISTS idx_nexus_mcp_capabilities ON nexus_mcp_capabilities(server_id, type);
 
-CREATE TABLE nexus_mcp_audit_logs (
+CREATE TABLE IF NOT EXISTS nexus_mcp_audit_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   server_id UUID NOT NULL REFERENCES nexus_mcp_servers(id) ON DELETE CASCADE,
@@ -218,10 +227,10 @@ CREATE TABLE nexus_mcp_audit_logs (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_nexus_mcp_audit_user ON nexus_mcp_audit_logs(user_id, created_at DESC);
-CREATE INDEX idx_nexus_mcp_audit_server ON nexus_mcp_audit_logs(server_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_nexus_mcp_audit_user ON nexus_mcp_audit_logs(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_nexus_mcp_audit_server ON nexus_mcp_audit_logs(server_id, created_at DESC);
 
-CREATE TABLE nexus_mcp_connections (
+CREATE TABLE IF NOT EXISTS nexus_mcp_connections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   server_id UUID NOT NULL REFERENCES nexus_mcp_servers(id) ON DELETE CASCADE,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -239,14 +248,14 @@ CREATE TABLE nexus_mcp_connections (
   UNIQUE(server_id, user_id)
 );
 
-CREATE INDEX idx_nexus_mcp_conn_status ON nexus_mcp_connections(server_id, status);
-CREATE INDEX idx_nexus_mcp_conn_user ON nexus_mcp_connections(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_nexus_mcp_conn_status ON nexus_mcp_connections(server_id, status);
+CREATE INDEX IF NOT EXISTS idx_nexus_mcp_conn_user ON nexus_mcp_connections(user_id, status);
 
 -- =====================================================
 -- TEMPLATES & SHARING (from #152)
 -- =====================================================
 
-CREATE TABLE nexus_templates (
+CREATE TABLE IF NOT EXISTS nexus_templates (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
@@ -259,10 +268,10 @@ CREATE TABLE nexus_templates (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_nexus_templates_public ON nexus_templates(is_public, usage_count DESC) WHERE is_public = TRUE;
-CREATE INDEX idx_nexus_templates_user ON nexus_templates(user_id);
+CREATE INDEX IF NOT EXISTS idx_nexus_templates_public ON nexus_templates(is_public, usage_count DESC) WHERE is_public = TRUE;
+CREATE INDEX IF NOT EXISTS idx_nexus_templates_user ON nexus_templates(user_id);
 
-CREATE TABLE nexus_shares (
+CREATE TABLE IF NOT EXISTS nexus_shares (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   conversation_id UUID NOT NULL REFERENCES nexus_conversations(id) ON DELETE CASCADE,
   shared_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -272,8 +281,8 @@ CREATE TABLE nexus_shares (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_nexus_shares_token ON nexus_shares(share_token);
-CREATE INDEX idx_nexus_shares_expires ON nexus_shares(expires_at) WHERE expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_nexus_shares_token ON nexus_shares(share_token);
+CREATE INDEX IF NOT EXISTS idx_nexus_shares_expires ON nexus_shares(expires_at) WHERE expires_at IS NOT NULL;
 
 -- =====================================================
 -- TRIGGERS AND FUNCTIONS
@@ -290,26 +299,32 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Apply update trigger to all tables with updated_at
+DROP TRIGGER IF EXISTS update_nexus_conversations_updated_at ON nexus_conversations;
 CREATE TRIGGER update_nexus_conversations_updated_at 
   BEFORE UPDATE ON nexus_conversations 
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_nexus_folders_updated_at ON nexus_folders;
 CREATE TRIGGER update_nexus_folders_updated_at 
   BEFORE UPDATE ON nexus_folders 
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_nexus_user_preferences_updated_at ON nexus_user_preferences;
 CREATE TRIGGER update_nexus_user_preferences_updated_at 
   BEFORE UPDATE ON nexus_user_preferences 
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_nexus_mcp_servers_updated_at ON nexus_mcp_servers;
 CREATE TRIGGER update_nexus_mcp_servers_updated_at 
   BEFORE UPDATE ON nexus_mcp_servers 
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_nexus_mcp_connections_updated_at ON nexus_mcp_connections;
 CREATE TRIGGER update_nexus_mcp_connections_updated_at 
   BEFORE UPDATE ON nexus_mcp_connections 
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_nexus_templates_updated_at ON nexus_templates;
 CREATE TRIGGER update_nexus_templates_updated_at 
   BEFORE UPDATE ON nexus_templates 
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
