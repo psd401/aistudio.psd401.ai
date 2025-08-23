@@ -292,13 +292,13 @@ export interface NexusMcpAuditData {
   [key: string]: unknown;
 }
 
-export interface NexusTemplateVariables {
+export interface NexusTemplateVariable {
   name: string;
   type: 'string' | 'number' | 'boolean' | 'array';
   description?: string;
   required?: boolean;
   default?: unknown;
-}[]
+}
 
 // Nexus Conversations
 export type SelectNexusConversation = {
@@ -539,7 +539,7 @@ export type SelectNexusTemplate = {
   name: string;
   description: string | null;
   prompt: string;
-  variables: NexusTemplateVariables;
+  variables: NexusTemplateVariable[];
   isPublic: boolean;
   usageCount: number;
   createdAt: Date;
@@ -552,7 +552,7 @@ export type InsertNexusTemplate = {
   name: string;
   description?: string;
   prompt: string;
-  variables?: NexusTemplateVariables;
+  variables?: NexusTemplateVariable[];
   isPublic?: boolean;
   usageCount?: number;
 }

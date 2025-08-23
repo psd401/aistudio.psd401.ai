@@ -81,7 +81,6 @@ CREATE TABLE nexus_folders (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   
   -- Constraints
-  UNIQUE(user_id, parent_id, name),
   CHECK (id != parent_id) -- Prevent self-referencing
 );
 
@@ -94,6 +93,12 @@ ALTER TABLE nexus_conversations
 CREATE INDEX idx_nexus_folders_user ON nexus_folders(user_id);
 CREATE INDEX idx_nexus_folders_parent ON nexus_folders(parent_id);
 CREATE INDEX idx_nexus_folders_user_sort ON nexus_folders(user_id, sort_order);
+
+-- Unique constraints for folder names (using partial indexes to handle NULL parent_id)
+CREATE UNIQUE INDEX idx_nexus_folders_unique_root_name 
+  ON nexus_folders(user_id, name) WHERE parent_id IS NULL;
+CREATE UNIQUE INDEX idx_nexus_folders_unique_child_name 
+  ON nexus_folders(user_id, parent_id, name) WHERE parent_id IS NOT NULL;
 
 -- =====================================================
 -- CONVERSATION ORGANIZATION (from #149)
