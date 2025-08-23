@@ -84,19 +84,13 @@ CREATE TABLE IF NOT EXISTS nexus_folders (
   CHECK (id != parent_id) -- Prevent self-referencing
 );
 
--- Add foreign key for folder_id in conversations (if not exists)
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.table_constraints 
-        WHERE constraint_name = 'fk_conversation_folder'
-        AND table_name = 'nexus_conversations'
-    ) THEN
-        ALTER TABLE nexus_conversations 
-          ADD CONSTRAINT fk_conversation_folder 
-          FOREIGN KEY (folder_id) REFERENCES nexus_folders(id) ON DELETE SET NULL;
-    END IF;
-END $$;
+-- Add foreign key for folder_id in conversations
+-- Note: This will error if constraint already exists, but that's handled by the migration runner
+ALTER TABLE nexus_conversations 
+  DROP CONSTRAINT IF EXISTS fk_conversation_folder;
+ALTER TABLE nexus_conversations 
+  ADD CONSTRAINT fk_conversation_folder 
+  FOREIGN KEY (folder_id) REFERENCES nexus_folders(id) ON DELETE SET NULL;
 
 -- Indexes for folders
 CREATE INDEX IF NOT EXISTS idx_nexus_folders_user ON nexus_folders(user_id);
