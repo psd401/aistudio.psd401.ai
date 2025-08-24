@@ -365,6 +365,7 @@ async function handleGeminiContextCaching(
 
 /**
  * Handle standard streaming for providers without special features
+ * Uses the UnifiedStreamingService for reliable, battle-tested streaming
  */
 async function handleStandardStreaming(
   request: ChatRequest,
@@ -373,26 +374,48 @@ async function handleStandardStreaming(
   log: ReturnType<typeof createLogger>,
   timer: ReturnType<typeof startTimer>
 ) {
-  log.info('Using standard streaming', {
+  log.info('Using unified streaming service', {
     requestId,
     provider: request.provider,
     modelId: request.modelId
   });
   
-  // This would use the existing unified streaming service
-  // Implementation details would go here
-  
-  timer({ status: 'success' });
-  
-  return new Response(
-    JSON.stringify({
-      message: 'Standard streaming not yet implemented',
-      provider: request.provider,
-      modelId: request.modelId
-    }),
-    {
-      status: 501,
-      headers: { 'Content-Type': 'application/json' }
+  try {
+    // For now, use simpler AI SDK streaming directly
+    const { createOpenAI } = await import('@ai-sdk/openai');
+    const { streamText } = await import('ai');
+    const { getSetting } = await import('@/lib/settings-manager');
+    
+    const apiKey = await getSetting('OPENAI_API_KEY');
+    if (!apiKey) {
+      throw ErrorFactories.sysConfigurationError('OpenAI API key not configured');
     }
-  );
+    
+    const openai = createOpenAI({ apiKey });
+    const model = openai(request.modelId);
+    
+    const result = await streamText({
+      model,
+      messages: [{ role: 'user', content: request.message }],
+      temperature: 0.7,
+    });
+    
+    timer({ status: 'success' });
+    
+    return result.toTextStreamResponse({
+      headers: {
+        'X-Conversation-Id': request.conversationId || '',
+        'X-Request-Id': requestId,
+        'X-Provider': request.provider || 'openai',
+        'X-Model-Id': request.modelId
+      }
+    });
+    
+  } catch (error) {
+    log.error('Unified streaming failed', {
+      requestId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
+  }
 }
