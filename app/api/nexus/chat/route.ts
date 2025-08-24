@@ -119,13 +119,13 @@ export async function POST(req: Request) {
     // 6. Save user message to nexus_messages
     const lastMessage = messages[messages.length - 1];
     if (lastMessage && lastMessage.role === 'user') {
-      // Extract text content and serializable parts
+      // Extract text content from message
       let userContent = '';
       let serializableParts: unknown[] = [];
       
-      // Handle AI SDK v5 message format - messages can have content or parts
+      // Handle assistant-ui message format - look for content array
       const messageContent = (lastMessage as UIMessage & { 
-        content?: string | Array<{ type: string; text?: string; image?: string; name?: string; mimeType?: string }> 
+        content?: string | Array<{ type: string; text?: string; image?: string }> 
       }).content;
       
       if (messageContent) {
@@ -134,24 +134,20 @@ export async function POST(req: Request) {
           userContent = messageContent;
           serializableParts = [{ type: 'text', text: messageContent }];
         } else if (Array.isArray(messageContent)) {
-          // Content parts array (includes attachments)
+          // Content parts array (includes attachments from assistant-ui)
           messageContent.forEach((part) => {
             if (part.type === 'text' && part.text) {
               userContent += (userContent ? ' ' : '') + part.text;
               serializableParts.push({ type: 'text', text: part.text });
             } else if (part.type === 'image' && part.image) {
-              // Store image reference (data URL)
+              // Store truncated reference only - NOT the full base64 data
               serializableParts.push({ 
-                type: 'image', 
-                image: part.image.substring(0, 100) + '...',  // Truncate for storage
-                name: part.name || 'image'
-              });
-            } else if (part.type === 'file' || part.type === 'document') {
-              // Store file/document reference
-              serializableParts.push({ 
-                type: part.type,
-                name: part.name || 'file',
-                mimeType: part.mimeType
+                type: 'image',
+                // Only store metadata, not the actual image data
+                metadata: {
+                  hasImage: true,
+                  prefix: part.image.substring(0, 50) // Just enough to identify type
+                }
               });
             }
           });
