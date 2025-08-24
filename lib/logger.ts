@@ -40,8 +40,8 @@ const SENSITIVE_PATTERNS = [
   /cognito[_-]?sub["\s]*[:=]\s*["']?[^"'\s,}]+/gi,
 ]
 
-// Email masking pattern (show domain only)
-const EMAIL_PATTERN = /([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g
+// Email masking pattern (show domain only) - using simpler non-backtracking pattern
+const EMAIL_PATTERN = /\b[A-Za-z0-9][A-Za-z0-9._%+-]*@([A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,})\b/g
 
 /**
  * Filters sensitive data from log messages and metadata
@@ -54,7 +54,7 @@ function filterSensitiveData(data: unknown): unknown {
       filtered = filtered.replace(pattern, "[REDACTED]")
     })
     // Mask email addresses (keep domain for debugging)
-    filtered = filtered.replace(EMAIL_PATTERN, "***@$2")
+    filtered = filtered.replace(EMAIL_PATTERN, "***@$1")
     return filtered
   }
   
@@ -75,7 +75,7 @@ function filterSensitiveData(data: unknown): unknown {
         filtered[key] = "[REDACTED]"
       } else if (lowerKey.includes("email")) {
         filtered[key] = typeof value === "string" 
-          ? value.replace(EMAIL_PATTERN, "***@$2")
+          ? value.replace(EMAIL_PATTERN, "***@$1")
           : value
       } else {
         filtered[key] = filterSensitiveData(value)
