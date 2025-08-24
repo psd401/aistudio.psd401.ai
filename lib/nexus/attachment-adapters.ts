@@ -176,8 +176,15 @@ export class PDFAttachmentAdapter implements AttachmentAdapter {
   private async fileToBase64(file: File): Promise<string> {
     const arrayBuffer = await file.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
-    // More efficient conversion - direct array conversion instead of string concatenation
-    return btoa(String.fromCharCode(...bytes));
+    
+    // For large files, we need to process in chunks to avoid stack overflow
+    let binary = '';
+    const chunkSize = 0x8000; // 32KB chunks
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, Array.from(chunk));
+    }
+    return btoa(binary);
   }
 
   private async verifyPDFMimeType(file: File): Promise<boolean> {
