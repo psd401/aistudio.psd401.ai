@@ -1,14 +1,14 @@
 import { LanguageModel } from 'ai';
 import { createProviderModelWithCapabilities } from '@/app/api/chat/lib/provider-factory';
 import { createLogger, generateRequestId, sanitizeForLogging } from '@/lib/logger';
-import { executeSQL } from './db-helpers';
+import { executeSQL, type DatabaseRow } from './db-helpers';
 import { transformSnakeToCamel } from '@/lib/db/field-mapper';
 import type { ProviderCapabilities } from '@/lib/streaming/types';
 
 const log = createLogger({ module: 'nexus-provider-factory' });
 
 // Database model info interface
-interface DatabaseModelInfo {
+interface DatabaseModelInfo extends DatabaseRow {
   provider: string;
   modelId: string;
   name: string;
@@ -157,7 +157,7 @@ export class NexusProviderFactory {
         modelId,
         capabilities: nexusCapabilities,
         options,
-        requestId
+        requestId: _requestId
       });
       
       // Record metrics
@@ -166,11 +166,11 @@ export class NexusProviderFactory {
         modelId,
         capabilities: nexusCapabilities,
         creationTime: Date.now() - startTime,
-        requestId
+        requestId: _requestId
       });
       
       log.info('Nexus model created successfully', {
-        requestId,
+        requestId: _requestId,
         provider,
         modelId,
         capabilities: {
@@ -185,7 +185,7 @@ export class NexusProviderFactory {
       
     } catch (error) {
       log.error('Failed to create Nexus model', {
-        requestId,
+        requestId: _requestId,
         provider,
         modelId,
         error: error instanceof Error ? error.message : String(error)
@@ -236,19 +236,19 @@ export class NexusProviderFactory {
       try {
         const nexusCaps = modelInfo.nexusCapabilities;
         // Apply all capabilities from database
-        enhanced.responsesAPI = nexusCaps.responsesAPI || false;
-        enhanced.promptCaching = nexusCaps.promptCaching || false;
-        enhanced.contextCaching = nexusCaps.contextCaching || false;
-        enhanced.artifacts = nexusCaps.artifacts || false;
-        enhanced.canvas = nexusCaps.canvas || false;
-        enhanced.webSearch = nexusCaps.webSearch || false;
-        enhanced.codeInterpreter = nexusCaps.codeInterpreter || false;
-        enhanced.grounding = nexusCaps.grounding || false;
-        enhanced.codeExecution = nexusCaps.codeExecution || false;
-        enhanced.computerUse = nexusCaps.computerUse || false;
-        enhanced.workspaceTools = nexusCaps.workspaceTools || false;
-        enhanced.supportsReasoning = nexusCaps.reasoning || baseCapabilities.supportsReasoning;
-        enhanced.supportsThinking = nexusCaps.thinking || baseCapabilities.supportsThinking;
+        enhanced.responsesAPI = Boolean(nexusCaps.responsesAPI) || false;
+        enhanced.promptCaching = Boolean(nexusCaps.promptCaching) || false;
+        enhanced.contextCaching = Boolean(nexusCaps.contextCaching) || false;
+        enhanced.artifacts = Boolean(nexusCaps.artifacts) || false;
+        enhanced.canvas = Boolean(nexusCaps.canvas) || false;
+        enhanced.webSearch = Boolean(nexusCaps.webSearch) || false;
+        enhanced.codeInterpreter = Boolean(nexusCaps.codeInterpreter) || false;
+        enhanced.grounding = Boolean(nexusCaps.grounding) || false;
+        enhanced.codeExecution = Boolean(nexusCaps.codeExecution) || false;
+        enhanced.computerUse = Boolean(nexusCaps.computerUse) || false;
+        enhanced.workspaceTools = Boolean(nexusCaps.workspaceTools) || false;
+        enhanced.supportsReasoning = Boolean(nexusCaps.reasoning) || baseCapabilities.supportsReasoning;
+        enhanced.supportsThinking = Boolean(nexusCaps.thinking) || baseCapabilities.supportsThinking;
       } catch (error) {
         log.warn('Failed to parse nexus capabilities from database', {
           provider,
@@ -393,7 +393,7 @@ export class NexusProviderFactory {
       };
       
       nexusModel.getCacheMetrics = async () => {
-        return await this.responseCache.getMetrics(provider, modelId, options.conversationId);
+        return await this.responseCache.getMetrics();
       };
     }
     
@@ -514,12 +514,15 @@ export class NexusProviderFactory {
       const result = await executeSQL(`
         SELECT metadata->'pricing'->'cost_per_token' as cost_per_token
         FROM ai_models 
-        WHERE provider = $1 AND model_id = $2 AND active = true
+        WHERE provider = :provider AND model_id = :modelId AND active = true
         LIMIT 1
-      `, [provider, modelId]);
+      `, [
+        { name: 'provider', value: { stringValue: provider } },
+        { name: 'modelId', value: { stringValue: modelId } }
+      ]);
       
       if (result.length > 0 && result[0].cost_per_token) {
-        return parseFloat(result[0].cost_per_token);
+        return parseFloat(String(result[0].cost_per_token));
       }
       
       // Fallback to provider-based estimates

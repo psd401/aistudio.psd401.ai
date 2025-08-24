@@ -178,7 +178,14 @@ export class ConversationStateManager {
         totalTokens: row.total_tokens || 0,
         lastMessageAt: new Date(row.last_message_at),
         metadata: {
-          capabilities: (row.metadata?.capabilities as Record<string, unknown>) || {},
+          capabilities: (row.metadata?.capabilities as NexusModelCapabilities) || {
+            supportsReasoning: false,
+            supportsThinking: false,
+            supportsToolCalls: false,
+            supportsImages: false,
+            supportsAudio: false,
+            maxTimeoutMs: 30000
+          },
           costTotal: ((metrics.avg_cost || 0) * (metrics.request_count || 0)) || 0,
           providerSwitches: await this.countProviderSwitches(conversationId),
           cacheHitRate,

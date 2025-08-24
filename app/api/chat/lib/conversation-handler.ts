@@ -1,6 +1,7 @@
 import { executeSQL, executeTransaction } from '@/lib/db/data-api-adapter';
 import { createLogger } from '@/lib/logger';
 import { ensureRDSNumber, ensureRDSString } from '@/lib/type-helpers';
+import { ErrorFactories } from '@/lib/error-utils';
 import type { SqlParameter } from "@aws-sdk/client-rds-data";
 interface ChatMessage {
   content?: string;
@@ -101,46 +102,6 @@ export async function handleConversation(
   }
   
   return convId;
-}
-
-/**
- * Creates a new conversation in the database
- */
-async function createConversation(params: {
-  title: string;
-  userId: number;
-  modelId: number;
-  source?: string;
-  executionId?: number;
-  context?: Record<string, unknown>;
-}): Promise<number> {
-  const query = `
-    INSERT INTO conversations (title, user_id, model_id, source, execution_id, context)
-    VALUES (:title, :userId, :modelId, :source, :executionId, :context::jsonb)
-    RETURNING id
-  `;
-  
-  const parameters = [
-    { name: 'title', value: { stringValue: params.title } },
-    { name: 'userId', value: { longValue: params.userId } },
-    { name: 'modelId', value: { longValue: params.modelId } },
-    { name: 'source', value: { stringValue: params.source || 'chat' } },
-    { 
-      name: 'executionId', 
-      value: params.executionId 
-        ? { longValue: params.executionId }
-        : { isNull: true }
-    },
-    { 
-      name: 'context', 
-      value: params.context 
-        ? { stringValue: JSON.stringify(params.context) }
-        : { isNull: true }
-    }
-  ];
-  
-  const result = await executeSQL<{ id: number }>(query, parameters);
-  return Number(result[0].id);
 }
 
 /**
@@ -326,12 +287,12 @@ export async function saveAssistantMessage(
   
   if (!conversationId || conversationId <= 0) {
     log.error('Invalid conversation ID for assistant message', { conversationId });
-    throw new Error(`Invalid conversation ID: ${conversationId}`);
+    throw ErrorFactories.invalidInput('conversationId', conversationId, 'Must be a positive integer');
   }
   
   if (!modelId || modelId <= 0) {
     log.error('Invalid model ID for assistant message', { modelId });
-    throw new Error(`Invalid model ID: ${modelId}`);
+    throw ErrorFactories.invalidInput('modelId', modelId, 'Must be a positive integer');
   }
   
   try {
@@ -452,42 +413,6 @@ export async function getModelConfig(modelId: string | number) {
     provider: ensureRDSString(rawResult.provider),
     model_id: ensureRDSString(rawResult.model_id || rawResult.modelId)
   };
-}
-
-/**
- * Links a document to a conversation
- */
-async function linkDocumentToConversation(
-  documentId: string,
-  conversationId: number,
-  userId: number
-): Promise<void> {
-  try {
-    // Update the document to link it to the conversation
-    const query = `
-      UPDATE documents 
-      SET conversation_id = :conversationId 
-      WHERE id = :documentId 
-      AND user_id = :userId
-      AND conversation_id IS NULL
-    `;
-    
-    const parameters = [
-      { name: 'conversationId', value: { longValue: conversationId } },
-      { name: 'documentId', value: { stringValue: documentId } },
-      { name: 'userId', value: { longValue: userId } }
-    ];
-    
-    const result = await executeSQL(query, parameters);
-    log.debug('Document linked to conversation', { documentId, conversationId, result });
-  } catch (error) {
-    log.error('Failed to link document to conversation', { 
-      error,
-      documentId,
-      conversationId 
-    });
-    // Don't throw - this is not critical for the chat to continue
-  }
 }
 
 /**

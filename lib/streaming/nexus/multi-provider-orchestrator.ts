@@ -112,7 +112,7 @@ export class MultiProviderOrchestrator {
           throw new Error(`Unknown orchestration strategy: ${request.strategy}`);
       }
       
-    } catch {
+    } catch (error) {
       log.error('Multi-provider orchestration failed', {
         requestId,
         error: error instanceof Error ? error.message : String(error),
@@ -210,7 +210,7 @@ export class MultiProviderOrchestrator {
           capabilitiesUsed: this.extractCapabilitiesUsed(provider.capabilities)
         };
         
-      } catch {
+      } catch (error) {
         log.warn('Provider failed in cost optimization', {
           requestId,
           provider: provider.name,
@@ -555,10 +555,10 @@ export class MultiProviderOrchestrator {
     return {
       reasoning: capabilities.supportsReasoning,
       thinking: capabilities.supportsThinking,
-      artifacts: capabilities.artifacts,
-      webSearch: capabilities.webSearch,
-      codeExecution: capabilities.codeExecution,
-      responsesAPI: capabilities.responsesAPI
+      artifacts: capabilities.artifacts || false,
+      webSearch: capabilities.webSearch || false,
+      codeExecution: capabilities.codeExecution || false,
+      responsesAPI: capabilities.responsesAPI || false
     };
   }
 }

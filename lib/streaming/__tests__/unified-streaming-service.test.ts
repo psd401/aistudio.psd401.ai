@@ -28,7 +28,7 @@ jest.doMock('@/lib/logger', () => ({
 }));
 
 // Import after mocking - disable ESLint for this specific case
-// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { UnifiedStreamingService } = require('../unified-streaming-service');
 
 describe('UnifiedStreamingService', () => {

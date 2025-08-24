@@ -218,6 +218,7 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
    * Can be overridden by specific providers
    */
   protected async handleFinish(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     data: {
       text: string;
       usage?: {
@@ -229,6 +230,7 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
       };
       finishReason: string;
     },
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     callbacks: StreamingCallbacks
   ): Promise<void> {
     // Provider-specific handlers can override this to extract special content
@@ -239,7 +241,11 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
    * Handle stream error event
    * Can be overridden by specific providers
    */
-  protected handleError(error: Error, callbacks: StreamingCallbacks): void {
+  protected handleError(
+    error: Error, 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    callbacks: StreamingCallbacks
+  ): void {
     // Base error handling - log the error
     log.error(`${this.providerName} adapter error`, {
       error: error.message,
