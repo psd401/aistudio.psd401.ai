@@ -821,9 +821,9 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                 <span className="sr-only">Copy output</span>
                               </Button>
                               <Button
-                                variant={promptResult.userFeedback === 'like' ? 'success' : 'ghost'}
+                                variant={promptResult.userFeedback === 'like' ? 'default' : 'ghost'}
                                 size="icon"
-                                className="h-7 w-7"
+                                className={`h-7 w-7 ${promptResult.userFeedback === 'like' ? 'bg-green-500/10 hover:bg-green-500/20' : ''}`}
                                 title="Like output"
                                 onClick={async () => await handleFeedback(promptResult, 'like')}
                               >
@@ -831,7 +831,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                 <span className="sr-only">Like output</span>
                               </Button>
                               <Button
-                                variant={promptResult.userFeedback === 'dislike' ? 'error' : 'ghost'}
+                                variant={promptResult.userFeedback === 'dislike' ? 'destructive' : 'ghost'}
                                 size="icon"
                                 className="h-7 w-7"
                                 title="Dislike output"

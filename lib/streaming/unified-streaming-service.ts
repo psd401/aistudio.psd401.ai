@@ -32,7 +32,9 @@ export class UnifiedStreamingService {
       modelId: request.modelId,
       source: request.source,
       userId: request.userId,
-      messageCount: request.messages.length
+      messageCount: request.messages?.length || 0,
+      hasMessages: !!request.messages,
+      messagesType: typeof request.messages
     });
     
     try {
@@ -72,9 +74,40 @@ export class UnifiedStreamingService {
       }
       
       // 4. Configure streaming with adaptive timeouts
+      // Validate messages before conversion
+      if (!request.messages || !Array.isArray(request.messages)) {
+        log.error('Messages invalid in streaming service', {
+          messages: request.messages,
+          hasMessages: !!request.messages,
+          isArray: Array.isArray(request.messages),
+          requestKeys: Object.keys(request)
+        });
+        throw new Error('Messages array is required for streaming');
+      }
+      
+      // Debug log the messages structure
+      log.info('Messages structure before conversion', {
+        messageCount: request.messages.length,
+        firstMessage: JSON.stringify(request.messages[0]),
+        allMessages: JSON.stringify(request.messages)
+      });
+      
+      let convertedMessages;
+      try {
+        convertedMessages = convertToModelMessages(request.messages);
+      } catch (conversionError) {
+        const error = conversionError as Error;
+        log.error('Failed to convert messages', {
+          error: error.message,
+          stack: error.stack,
+          messages: JSON.stringify(request.messages)
+        });
+        throw new Error(`Message conversion failed: ${error.message}`);
+      }
+      
       const config: StreamConfig = {
         model: await adapter.createModel(request.modelId, request.options),
-        messages: convertToModelMessages(request.messages),
+        messages: convertedMessages,
         system: request.systemPrompt,
         maxTokens: request.maxTokens,
         temperature: request.temperature,

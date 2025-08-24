@@ -1,110 +1,42 @@
+import { UIMessage } from 'ai';
 import { getServerSession } from '@/lib/auth/server-session';
-import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from '@/lib/logger';
-import { ErrorFactories } from '@/lib/error-utils';
-import { getSetting } from '@/lib/settings-manager';
-import { createResponsesAPIAdapter } from './lib/responses-api';
-import { streamHandler } from './lib/stream-handler';
-import { executeSQL, executeSQLTransaction } from '@/lib/streaming/nexus/db-helpers';
-import OpenAI from 'openai';
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
+import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
+import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
+import type { StreamRequest } from '@/lib/streaming/types';
+import { executeSQL } from '@/lib/db/data-api-adapter';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
 
-export interface ChatRequest {
-  message: string;
-  conversationId?: string;
-  previousResponseId?: string;
-  modelId: string;
-  provider?: string;
-  tools?: string[];
-  attachments?: File[];
-  options?: {
-    useResponsesAPI?: boolean;
-    enableCaching?: boolean;
-    reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
-  };
-}
-
 /**
- * Nexus Chat API - Multi-provider conversation management with Responses API
+ * Nexus Chat API - AI SDK v5 Compatible
+ * Follows the same patterns as /api/chat but uses Nexus tables
  */
 export async function POST(req: Request) {
   const requestId = generateRequestId();
-  const timer = startTimer('nexus.chat');
-  const log = createLogger({ requestId, route: 'nexus.chat' });
+  const timer = startTimer('api.nexus.chat');
+  const log = createLogger({ requestId, route: 'api.nexus.chat' });
   
   log.info('POST /api/nexus/chat - Processing chat request');
   
   try {
-    // 1. Parse and validate request
-    const body: ChatRequest = await req.json();
+    // 1. Parse and validate request (AI SDK format)
+    const body = await req.json();
     
-    // Validate required fields
-    if (!body.message || typeof body.message !== 'string') {
-      log.warn('Invalid message field', { message: typeof body.message });
-      timer({ status: 'error', reason: 'validation' });
-      return new Response(
-        JSON.stringify({ error: 'Invalid or missing message' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
+    // Extract fields from the request body (AI SDK format)
+    const messages: UIMessage[] = body.messages || [];
+    const modelId = body.modelId;
+    const provider = body.provider || 'openai';
+    const existingConversationId = body.conversationId;
     
-    // Validate message length (prevent abuse)
-    if (body.message.length > 50000) {
-      log.warn('Message too long', { length: body.message.length });
-      timer({ status: 'error', reason: 'validation' });
-      return new Response(
-        JSON.stringify({ error: 'Message exceeds maximum length (50,000 characters)' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-    
-    // Validate modelId
-    if (!body.modelId || typeof body.modelId !== 'string') {
-      log.warn('Invalid modelId field', { modelId: typeof body.modelId });
-      timer({ status: 'error', reason: 'validation' });
-      return new Response(
-        JSON.stringify({ error: 'Invalid or missing modelId' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-    
-    // Validate optional fields if provided
-    if (body.conversationId && typeof body.conversationId !== 'string') {
-      log.warn('Invalid conversationId field', { conversationId: typeof body.conversationId });
-      timer({ status: 'error', reason: 'validation' });
-      return new Response(
-        JSON.stringify({ error: 'Invalid conversationId format' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-    
-    if (body.previousResponseId && typeof body.previousResponseId !== 'string') {
-      log.warn('Invalid previousResponseId field', { previousResponseId: typeof body.previousResponseId });
-      timer({ status: 'error', reason: 'validation' });
-      return new Response(
-        JSON.stringify({ error: 'Invalid previousResponseId format' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-    
-    if (body.provider && typeof body.provider !== 'string') {
-      log.warn('Invalid provider field', { provider: typeof body.provider });
-      timer({ status: 'error', reason: 'validation' });
-      return new Response(
-        JSON.stringify({ error: 'Invalid provider format' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-    
-    log.debug('Request parsed and validated', {
-      hasMessage: !!body.message,
-      messageLength: body.message.length,
-      conversationId: body.conversationId,
-      previousResponseId: body.previousResponseId,
-      modelId: body.modelId,
-      provider: body.provider,
-      options: sanitizeForLogging(body.options)
+    log.info('Request parsed - DEBUG', {
+      messageCount: messages.length,
+      modelId,
+      provider,
+      hasConversationId: !!existingConversationId,
+      messagesContent: JSON.stringify(messages),
+      fullBody: JSON.stringify(body)
     });
     
     // 2. Authenticate user
@@ -115,304 +47,287 @@ export async function POST(req: Request) {
       return new Response('Unauthorized', { status: 401 });
     }
     
-    const userId = session.sub;
-    log.debug('User authenticated', { userId });
+    log.debug('User authenticated', { userId: session.sub });
     
-    // 3. Determine provider and check capabilities
-    const provider = body.provider || 'openai';
-    
-    // 4. Handle based on provider capabilities
-    if (provider === 'openai' && body.options?.useResponsesAPI !== false) {
-      return await handleOpenAIResponsesAPI(body, userId, requestId, log, timer);
-    } else if (provider === 'anthropic') {
-      return await handleAnthropicCaching(body, userId, requestId, log, timer);
-    } else if (provider === 'google') {
-      return await handleGeminiContextCaching(body, userId, requestId, log, timer);
-    } else {
-      return await handleStandardStreaming(body, userId, requestId, log, timer);
+    // 3. Get current user
+    const currentUser = await getCurrentUserAction();
+    if (!currentUser.isSuccess) {
+      log.error('Failed to get current user');
+      return new Response('Unauthorized', { status: 401 });
     }
     
-  } catch (error) {
-    timer({ status: 'error' });
+    const userId = currentUser.data.user.id;
     
-    // Log detailed error internally for debugging
-    log.error('Chat request failed', {
-      requestId,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined
+    // 4. Get model configuration from database
+    const modelResult = await executeSQL(
+      `SELECT id, provider, model_id 
+       FROM ai_models 
+       WHERE model_id = :modelId 
+       AND active = true 
+       AND chat_enabled = true
+       LIMIT 1`,
+      [{ name: 'modelId', value: { stringValue: modelId } }]
+    );
+    
+    if (modelResult.length === 0) {
+      log.error('Model not found or not enabled for chat', { modelId });
+      return new Response(
+        JSON.stringify({ error: 'Selected model not found or not enabled for chat' }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    const modelConfig = modelResult[0];
+    const dbModelId = modelConfig.id as number;
+    
+    log.info('Model configured', {
+      provider: modelConfig.provider,
+      modelId: modelConfig.model_id,
+      dbId: dbModelId
     });
     
-    // Return generic error to client to prevent information leakage
+    // 5. Handle conversation (create new or use existing)
+    let conversationId: string = existingConversationId;
+    
+    if (!conversationId) {
+      // Create new Nexus conversation
+      const createResult = await executeSQL(
+        `INSERT INTO nexus_conversations (
+          user_id, provider, model_used, title, 
+          message_count, total_tokens, metadata,
+          created_at, updated_at
+        ) VALUES (
+          :userId, :provider, :modelId, :title,
+          0, 0, :metadata::jsonb,
+          NOW(), NOW()
+        ) RETURNING id`,
+        [
+          { name: 'userId', value: { longValue: userId } },
+          { name: 'provider', value: { stringValue: provider } },
+          { name: 'modelId', value: { stringValue: modelId } },
+          { name: 'title', value: { stringValue: 'New Conversation' } },
+          { name: 'metadata', value: { stringValue: JSON.stringify({ source: 'nexus' }) } }
+        ]
+      );
+      
+      conversationId = createResult[0].id as string;
+      
+      log.info('Created new Nexus conversation', { 
+        conversationId,
+        userId
+      });
+    }
+    
+    // 6. Save user message to nexus_messages
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage && lastMessage.role === 'user') {
+      // Extract text content from message parts
+      let userContent = '';
+      let parts: unknown[] = [];
+      
+      // Messages now use parts structure
+      const messageParts = (lastMessage as { parts?: unknown[] }).parts;
+      if (messageParts && Array.isArray(messageParts)) {
+        parts = messageParts;
+        // Find the text part to extract content
+        const textPart = messageParts.find((part: unknown) => {
+          const p = part as { type?: string; text?: string };
+          return p.type === 'text';
+        }) as { text?: string } | undefined;
+        if (textPart && textPart.text) {
+          userContent = textPart.text;
+        }
+      }
+      
+      await executeSQL(
+        `INSERT INTO nexus_messages (
+          conversation_id, role, content, parts, 
+          model_id, metadata, created_at
+        ) VALUES (
+          :conversationId::uuid, :role, :content, :parts::jsonb,
+          :modelId, :metadata::jsonb, NOW()
+        )`,
+        [
+          { name: 'conversationId', value: { stringValue: conversationId } },
+          { name: 'role', value: { stringValue: 'user' } },
+          { name: 'content', value: { stringValue: userContent || '' } },
+          { name: 'parts', value: { stringValue: JSON.stringify(parts) } },
+          { name: 'modelId', value: { longValue: dbModelId } },
+          { name: 'metadata', value: { stringValue: JSON.stringify({}) } }
+        ]
+      );
+      
+      // Update conversation's last_message_at and message_count
+      await executeSQL(
+        `UPDATE nexus_conversations 
+         SET last_message_at = NOW(), 
+             message_count = message_count + 1,
+             updated_at = NOW()
+         WHERE id = :conversationId::uuid`,
+        [{ name: 'conversationId', value: { stringValue: conversationId } }]
+      );
+      
+      log.debug('User message saved to nexus_messages');
+    }
+    
+    // 7. Build system prompt (optional, can add Nexus-specific context here)
+    const systemPrompt = `You are a helpful AI assistant in the Nexus interface.`;
+    
+    // 8. Use unified streaming service (same as regular chat)
+    log.info('Using unified streaming service', { 
+      provider,
+      model: modelId,
+      messagesBeforeStream: messages ? messages.length : 'undefined'
+    });
+    
+    // Create streaming request with callbacks
+    // Validate messages before creating request
+    if (!messages || !Array.isArray(messages)) {
+      log.error('Messages invalid before streaming', {
+        messages,
+        isArray: Array.isArray(messages),
+        type: typeof messages
+      });
+      return new Response(
+        JSON.stringify({ error: 'Invalid messages array' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    const streamRequest: StreamRequest = {
+      messages: messages as UIMessage[],  // Ensure type is correct
+      modelId,
+      provider,
+      userId: userId.toString(),
+      sessionId: session.sub,
+      conversationId,
+      source: 'chat',  // Use 'chat' as source type (nexus is tracked in metadata)
+      systemPrompt,
+      options: {
+        reasoningEffort: body.reasoningEffort || 'medium',
+        responseMode: body.responseMode || 'standard'
+      },
+      callbacks: {
+        onFinish: async ({ text, usage, finishReason }) => {
+          log.info('Stream finished, saving assistant message', {
+            hasText: !!text,
+            textLength: text?.length || 0,
+            hasUsage: !!usage,
+            finishReason,
+            conversationId
+          });
+          
+          try {
+            // Save assistant message to nexus_messages
+            await executeSQL(
+              `INSERT INTO nexus_messages (
+                conversation_id, role, content, 
+                model_id, token_usage, finish_reason,
+                metadata, created_at
+              ) VALUES (
+                :conversationId::uuid, :role, :content,
+                :modelId, :tokenUsage::jsonb, :finishReason,
+                :metadata::jsonb, NOW()
+              )`,
+              [
+                { name: 'conversationId', value: { stringValue: conversationId } },
+                { name: 'role', value: { stringValue: 'assistant' } },
+                { name: 'content', value: { stringValue: text || '' } },
+                { name: 'modelId', value: { longValue: dbModelId } },
+                { name: 'tokenUsage', value: { stringValue: JSON.stringify(usage || {}) } },
+                { name: 'finishReason', value: { stringValue: finishReason || 'stop' } },
+                { name: 'metadata', value: { stringValue: JSON.stringify({}) } }
+              ]
+            );
+            
+            // Update conversation statistics
+            const totalTokens = usage?.totalTokens || 0;
+            await executeSQL(
+              `UPDATE nexus_conversations 
+               SET last_message_at = NOW(), 
+                   message_count = message_count + 1,
+                   total_tokens = total_tokens + :tokens,
+                   updated_at = NOW()
+               WHERE id = :conversationId::uuid`,
+              [
+                { name: 'conversationId', value: { stringValue: conversationId } },
+                { name: 'tokens', value: { longValue: totalTokens } }
+              ]
+            );
+            
+            log.info('Assistant message saved successfully', {
+              conversationId
+            });
+          } catch (saveError) {
+            log.error('Failed to save assistant message', {
+              error: saveError,
+              conversationId
+            });
+            // Error is logged but not thrown to avoid breaking the stream
+          }
+          
+          timer({ 
+            status: 'success',
+            conversationId,
+            tokensUsed: usage?.totalTokens
+          });
+        }
+      }
+    };
+    
+    log.info('About to call streaming service', {
+      hasStreamRequest: !!streamRequest,
+      hasMessages: !!streamRequest.messages,
+      messageCount: streamRequest.messages?.length,
+      firstMessage: streamRequest.messages?.[0]
+    });
+    
+    const streamResponse = await unifiedStreamingService.stream(streamRequest);
+    
+    // Return unified streaming response
+    log.info('Returning unified streaming response', {
+      conversationId,
+      requestId
+    });
+    
+    // Send conversation ID header for new conversations
+    const responseHeaders: Record<string, string> = {
+      'X-Request-Id': requestId,
+      'X-Unified-Streaming': 'true'
+    };
+    
+    if (!existingConversationId && conversationId) {
+      responseHeaders['X-Conversation-Id'] = conversationId;
+    }
+    
+    return streamResponse.result.toUIMessageStreamResponse({
+      headers: responseHeaders
+    });
+    
+  } catch (error) {
+    log.error('Nexus chat API error', { 
+      error: error instanceof Error ? {
+        message: error.message,
+        name: error.name,
+        stack: error.stack
+      } : String(error)
+    });
+    
+    timer({ status: 'error' });
+    
+    // Return generic error response
     return new Response(
       JSON.stringify({
-        error: 'An error occurred processing your request',
-        requestId // Include for support reference
+        error: 'Failed to process chat request',
+        requestId
       }),
       {
         status: 500,
-        headers: { 'Content-Type': 'application/json' }
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Request-Id': requestId
+        }
       }
     );
-  }
-}
-
-/**
- * Handle OpenAI with Responses API
- */
-async function handleOpenAIResponsesAPI(
-  request: ChatRequest,
-  userId: string | number,
-  requestId: string,
-  log: ReturnType<typeof createLogger>,
-  timer: ReturnType<typeof startTimer>
-) {
-  log.info('Using OpenAI Responses API', {
-    requestId,
-    conversationId: request.conversationId,
-    previousResponseId: request.previousResponseId,
-    modelId: request.modelId
-  });
-  
-  try {
-    // Get API key from settings manager
-    const apiKey = await getSetting('OPENAI_API_KEY');
-    if (!apiKey) {
-      throw ErrorFactories.externalServiceError('OpenAI', new Error('API key not configured'));
-    }
-    
-    const adapter = createResponsesAPIAdapter(apiKey);
-    
-    let conversationId = request.conversationId;
-    let responseId: string;
-    let stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
-    
-    // Create or get conversation
-    if (!conversationId) {
-      // Create new conversation in database
-      const result = await executeSQL(`
-        INSERT INTO nexus_conversations (
-          user_id, provider, model_used, title, external_id, 
-          message_count, total_tokens, metadata, created_at, updated_at
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW()
-        ) RETURNING id
-      `, [
-        userId,
-        'openai',
-        request.modelId,
-        'New Conversation',
-        null, // Will update with response ID
-        1,
-        0,
-        JSON.stringify({ useResponsesAPI: true }),
-      ]);
-      
-      conversationId = result[0].id as string;
-      
-      log.info('Created new conversation', {
-        requestId,
-        conversationId
-      });
-    }
-    
-    // Handle conversation continuation or new conversation
-    if (request.previousResponseId) {
-      // Continue existing conversation
-      const result = await adapter.continueConversation(
-        request.message,
-        request.previousResponseId,
-        request.modelId,
-        {
-          store: true,
-          includeReasoning: request.options?.reasoningEffort === 'high'
-        }
-      );
-      
-      responseId = result.responseId;
-      stream = result.stream;
-      
-      log.info('Continued conversation with Responses API', {
-        requestId,
-        conversationId,
-        responseId,
-        previousResponseId: request.previousResponseId
-      });
-      
-    } else {
-      // Create new conversation or start fresh
-      const messages = [
-        { role: 'user' as const, content: request.message }
-      ];
-      
-      const result = await adapter.createConversation(
-        messages,
-        request.modelId,
-        {
-          store: true,
-          includeReasoning: request.options?.reasoningEffort === 'high',
-          metadata: {
-            userId,
-            conversationId,
-            source: 'nexus'
-          }
-        }
-      );
-      
-      responseId = result.responseId;
-      stream = result.stream;
-      
-      log.info('Created new conversation with Responses API', {
-        requestId,
-        conversationId,
-        responseId
-      });
-    }
-    
-    // Update conversation and record event in a transaction
-    await executeSQLTransaction([
-      {
-        sql: `
-          UPDATE nexus_conversations 
-          SET external_id = $1, updated_at = NOW(), last_message_at = NOW()
-          WHERE id = $2
-        `,
-        params: [responseId, conversationId]
-      },
-      {
-        sql: `
-          INSERT INTO nexus_conversation_events (
-            conversation_id, event_type, event_data, created_at
-          ) VALUES ($1, $2, $3, NOW())
-        `,
-        params: [
-          conversationId,
-          'message_sent',
-          JSON.stringify({
-            responseId,
-            previousResponseId: request.previousResponseId,
-            provider: 'openai',
-            modelId: request.modelId,
-            useResponsesAPI: true
-          })
-        ]
-      }
-    ]);
-    
-    // Create SSE stream
-    const sseGenerator = streamHandler.handleOpenAIStream(stream, responseId);
-    const readableStream = streamHandler.createReadableStream(sseGenerator);
-    
-    timer({ status: 'success' });
-    
-    return new Response(readableStream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'X-Conversation-Id': conversationId || '',
-        'X-Response-Id': responseId
-      }
-    });
-    
-  } catch (error) {
-    log.error('OpenAI Responses API failed', {
-      requestId,
-      error: error instanceof Error ? error.message : String(error)
-    });
-    throw error;
-  }
-}
-
-/**
- * Handle Anthropic with prompt caching
- */
-async function handleAnthropicCaching(
-  request: ChatRequest,
-  userId: string | number,
-  requestId: string,
-  log: ReturnType<typeof createLogger>,
-  timer: ReturnType<typeof startTimer>
-) {
-  log.info('Using Anthropic with prompt caching', {
-    requestId,
-    modelId: request.modelId
-  });
-  
-  // Implementation would use Anthropic's caching mechanism
-  // For now, fall back to standard streaming
-  return handleStandardStreaming(request, userId, requestId, log, timer);
-}
-
-/**
- * Handle Google Gemini with context caching
- */
-async function handleGeminiContextCaching(
-  request: ChatRequest,
-  userId: string | number,
-  requestId: string,
-  log: ReturnType<typeof createLogger>,
-  timer: ReturnType<typeof startTimer>
-) {
-  log.info('Using Gemini with context caching', {
-    requestId,
-    modelId: request.modelId
-  });
-  
-  // Implementation would use Gemini's context caching
-  // For now, fall back to standard streaming
-  return handleStandardStreaming(request, userId, requestId, log, timer);
-}
-
-/**
- * Handle standard streaming for providers without special features
- * Uses the provider factory pattern for consistent API key management
- */
-async function handleStandardStreaming(
-  request: ChatRequest,
-  userId: string | number,
-  requestId: string,
-  log: ReturnType<typeof createLogger>,
-  timer: ReturnType<typeof startTimer>
-) {
-  log.info('Using standard streaming with provider factory', {
-    requestId,
-    provider: request.provider,
-    modelId: request.modelId
-  });
-  
-  try {
-    const { streamText } = await import('ai');
-    const { createProviderModel } = await import('@/app/api/chat/lib/provider-factory');
-    
-    const provider = request.provider || 'openai';
-    
-    // Use provider factory for consistent API key management and error handling
-    const model = await createProviderModel(provider, request.modelId);
-    
-    const result = await streamText({
-      model,
-      messages: [{ role: 'user', content: request.message }],
-      temperature: 0.7,
-    });
-    
-    timer({ status: 'success' });
-    
-    return result.toTextStreamResponse({
-      headers: {
-        'X-Conversation-Id': request.conversationId || '',
-        'X-Request-Id': requestId,
-        'X-Provider': provider,
-        'X-Model-Id': request.modelId
-      }
-    });
-    
-  } catch (error) {
-    log.error('Standard streaming failed', {
-      requestId,
-      provider: request.provider,
-      modelId: request.modelId,
-      error: error instanceof Error ? error.message : String(error)
-    });
-    throw error;
   }
 }
