@@ -365,6 +365,7 @@ async function handleGeminiContextCaching(
 
 /**
  * Handle standard streaming for providers without special features
+ * Uses the provider factory pattern for consistent API key management
  */
 async function handleStandardStreaming(
   request: ChatRequest,
@@ -373,26 +374,45 @@ async function handleStandardStreaming(
   log: ReturnType<typeof createLogger>,
   timer: ReturnType<typeof startTimer>
 ) {
-  log.info('Using standard streaming', {
+  log.info('Using standard streaming with provider factory', {
     requestId,
     provider: request.provider,
     modelId: request.modelId
   });
   
-  // This would use the existing unified streaming service
-  // Implementation details would go here
-  
-  timer({ status: 'success' });
-  
-  return new Response(
-    JSON.stringify({
-      message: 'Standard streaming not yet implemented',
+  try {
+    const { streamText } = await import('ai');
+    const { createProviderModel } = await import('@/app/api/chat/lib/provider-factory');
+    
+    const provider = request.provider || 'openai';
+    
+    // Use provider factory for consistent API key management and error handling
+    const model = await createProviderModel(provider, request.modelId);
+    
+    const result = await streamText({
+      model,
+      messages: [{ role: 'user', content: request.message }],
+      temperature: 0.7,
+    });
+    
+    timer({ status: 'success' });
+    
+    return result.toTextStreamResponse({
+      headers: {
+        'X-Conversation-Id': request.conversationId || '',
+        'X-Request-Id': requestId,
+        'X-Provider': provider,
+        'X-Model-Id': request.modelId
+      }
+    });
+    
+  } catch (error) {
+    log.error('Standard streaming failed', {
+      requestId,
       provider: request.provider,
-      modelId: request.modelId
-    }),
-    {
-      status: 501,
-      headers: { 'Content-Type': 'application/json' }
-    }
-  );
+      modelId: request.modelId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
+  }
 }
