@@ -7,16 +7,27 @@ const log = createLogger({ module: 'multi-provider-orchestrator' });
 export interface OrchestrationRequest {
   providers: string[];
   modelId: string;
-  messages: any[];
+  messages: Array<{ role: string; content: string | Record<string, unknown> }>;
   strategy: 'round_robin' | 'cost_optimized' | 'latency_optimized' | 'quality_optimized' | 'intelligent';
-  options?: any;
-  callbacks?: any;
+  options?: Record<string, unknown>;
+  callbacks?: Record<string, unknown>;
   userId: string;
   conversationId?: string;
 }
 
+export interface StreamingResponse {
+  text: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    reasoningTokens?: number;
+  };
+  finishReason?: string;
+}
+
 export interface OrchestrationResult {
-  primaryResponse: any;
+  primaryResponse: StreamingResponse;
   providersUsed: string[];
   primaryProvider: string;
   fallbacksTriggered: string[];
@@ -38,13 +49,27 @@ export interface OrchestrationResult {
   };
 }
 
+interface ProviderHealth {
+  isHealthy: boolean;
+  lastCheck: number;
+  averageLatency: number;
+  successRate: number;
+}
+
+interface ProviderPlan {
+  name: string;
+  modelId: string;
+  capabilities: NexusModelCapabilities;
+  health: ProviderHealth;
+  priority: number;
+}
+
+interface ExecutionPlan {
+  providers: ProviderPlan[];
+}
+
 export class MultiProviderOrchestrator {
-  private providerHealthCache = new Map<string, {
-    isHealthy: boolean;
-    lastCheck: number;
-    averageLatency: number;
-    successRate: number;
-  }>();
+  private providerHealthCache = new Map<string, ProviderHealth>();
   
   private fallbackChains = new Map<string, string[]>([
     ['openai', ['azure', 'google', 'amazon-bedrock']],
@@ -100,15 +125,7 @@ export class MultiProviderOrchestrator {
   /**
    * Create execution plan with provider capabilities and health
    */
-  private async createExecutionPlan(request: OrchestrationRequest): Promise<{
-    providers: {
-      name: string;
-      modelId: string;
-      capabilities: NexusModelCapabilities;
-      health: any;
-      priority: number;
-    }[];
-  }> {
+  private async createExecutionPlan(request: OrchestrationRequest): Promise<ExecutionPlan> {
     const providers = await Promise.all(
       request.providers.map(async (provider, index) => {
         const capabilities = await nexusProviderFactory.getAvailableCapabilities(provider, request.modelId);
@@ -132,7 +149,7 @@ export class MultiProviderOrchestrator {
    */
   private async executeRoundRobin(
     request: OrchestrationRequest,
-    plan: any,
+    plan: ExecutionPlan,
     requestId: string,
     startTime: number
   ): Promise<OrchestrationResult> {
@@ -166,13 +183,13 @@ export class MultiProviderOrchestrator {
    */
   private async executeCostOptimized(
     request: OrchestrationRequest,
-    plan: any,
+    plan: ExecutionPlan,
     requestId: string,
     startTime: number
   ): Promise<OrchestrationResult> {
     // Sort by cost per token
     const sortedProviders = plan.providers.sort(
-      (a: any, b: any) => (a.capabilities.costPerToken || 0) - (b.capabilities.costPerToken || 0)
+      (a, b) => (a.capabilities.costPerToken || 0) - (b.capabilities.costPerToken || 0)
     );
     
     for (const provider of sortedProviders) {
@@ -211,13 +228,13 @@ export class MultiProviderOrchestrator {
    */
   private async executeLatencyOptimized(
     request: OrchestrationRequest,
-    plan: any,
+    plan: ExecutionPlan,
     requestId: string,
     startTime: number
   ): Promise<OrchestrationResult> {
     // Sort by average latency
     const sortedProviders = plan.providers.sort(
-      (a: any, b: any) => (a.capabilities.averageLatency || 1000) - (b.capabilities.averageLatency || 1000)
+      (a, b) => (a.capabilities.averageLatency || 1000) - (b.capabilities.averageLatency || 1000)
     );
     
     // Try the fastest provider first
@@ -250,15 +267,15 @@ export class MultiProviderOrchestrator {
    */
   private async executeQualityOptimized(
     request: OrchestrationRequest,
-    plan: any,
+    plan: ExecutionPlan,
     requestId: string,
     startTime: number
   ): Promise<OrchestrationResult> {
     // Calculate quality score for each provider
-    const scoredProviders = plan.providers.map((provider: any) => ({
+    const scoredProviders = plan.providers.map((provider) => ({
       ...provider,
       qualityScore: this.calculateQualityScore(provider.capabilities)
-    })).sort((a: any, b: any) => b.qualityScore - a.qualityScore);
+    })).sort((a, b) => b.qualityScore - a.qualityScore);
     
     const primaryProvider = scoredProviders[0];
     
@@ -289,7 +306,7 @@ export class MultiProviderOrchestrator {
    */
   private async executeIntelligent(
     request: OrchestrationRequest,
-    plan: any,
+    plan: ExecutionPlan,
     requestId: string,
     startTime: number
   ): Promise<OrchestrationResult> {
@@ -298,7 +315,7 @@ export class MultiProviderOrchestrator {
     const userPreferences = await this.getUserPreferences(request.userId);
     
     // Score providers based on multiple factors
-    const scoredProviders = plan.providers.map((provider: any) => ({
+    const scoredProviders = plan.providers.map((provider) => ({
       ...provider,
       intelligenceScore: this.calculateIntelligenceScore(
         provider.capabilities,
@@ -306,7 +323,7 @@ export class MultiProviderOrchestrator {
         userPreferences,
         provider.health
       )
-    })).sort((a: any, b: any) => b.intelligenceScore - a.intelligenceScore);
+    })).sort((a, b) => b.intelligenceScore - a.intelligenceScore);
     
     const primaryProvider = scoredProviders[0];
     
@@ -315,7 +332,7 @@ export class MultiProviderOrchestrator {
       selectedProvider: primaryProvider.name,
       score: primaryProvider.intelligenceScore,
       requiredFeatures,
-      alternativeProviders: scoredProviders.slice(1).map((p: any) => ({
+      alternativeProviders: scoredProviders.slice(1).map((p) => ({
         name: p.name,
         score: p.intelligenceScore
       }))
@@ -348,13 +365,13 @@ export class MultiProviderOrchestrator {
    */
   private async executeWithFallback(
     request: OrchestrationRequest,
-    plan: any,
+    plan: ExecutionPlan,
     requestId: string,
     startTime: number,
     failedProviders: string[]
   ): Promise<OrchestrationResult> {
     const remainingProviders = plan.providers.filter(
-      (p: any) => !failedProviders.includes(p.name)
+      (p) => !failedProviders.includes(p.name)
     );
     
     if (remainingProviders.length === 0) {
@@ -394,7 +411,7 @@ export class MultiProviderOrchestrator {
   /**
    * Execute single provider
    */
-  private async executeSingleProvider(provider: any, request: OrchestrationRequest): Promise<any> {
+  private async executeSingleProvider(provider: ProviderPlan, request: OrchestrationRequest): Promise<StreamingResponse> {
     // Create model using Nexus factory
     const model = await nexusProviderFactory.createNexusModel(
       provider.name,
@@ -421,7 +438,7 @@ export class MultiProviderOrchestrator {
   
   // Helper methods
   
-  private async checkProviderHealth(provider: string): Promise<any> {
+  private async checkProviderHealth(provider: string): Promise<ProviderHealth> {
     const cached = this.providerHealthCache.get(provider);
     const now = Date.now();
     
@@ -430,7 +447,7 @@ export class MultiProviderOrchestrator {
     }
     
     // Simple health check (would be more sophisticated in reality)
-    const health = {
+    const health: ProviderHealth = {
       isHealthy: true,
       lastCheck: now,
       averageLatency: Math.random() * 1000 + 500, // 500-1500ms
@@ -453,9 +470,12 @@ export class MultiProviderOrchestrator {
     return score;
   }
   
-  private analyzeRequestFeatures(messages: any[]): string[] {
+  private analyzeRequestFeatures(messages: Array<{ role: string; content: string | Record<string, unknown> }>): string[] {
     const features: string[] = [];
-    const allText = messages.map(m => m.content).join(' ').toLowerCase();
+    const allText = messages
+      .map(m => typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
+      .join(' ')
+      .toLowerCase();
     
     if (allText.includes('think') || allText.includes('reason')) {
       features.push('reasoning');
@@ -472,7 +492,11 @@ export class MultiProviderOrchestrator {
     return features;
   }
   
-  private async getUserPreferences(userId: string): Promise<any> {
+  private async getUserPreferences(userId: string): Promise<{
+    preferredProvider: string;
+    maxCostPerRequest: number;
+    qualityPreference: string;
+  }> {
     // Would query user preferences from database
     return {
       preferredProvider: 'openai',
@@ -484,8 +508,12 @@ export class MultiProviderOrchestrator {
   private calculateIntelligenceScore(
     capabilities: NexusModelCapabilities,
     requiredFeatures: string[],
-    userPreferences: any,
-    health: any
+    userPreferences: {
+      preferredProvider: string;
+      maxCostPerRequest: number;
+      qualityPreference: string;
+    },
+    health: ProviderHealth
   ): number {
     let score = 0;
     
@@ -511,12 +539,19 @@ export class MultiProviderOrchestrator {
     return Math.min(100, score);
   }
   
-  private estimateCost(provider: any, response: any): number {
+  private estimateCost(provider: ProviderPlan, response: StreamingResponse): number {
     const tokens = response.usage?.totalTokens || 0;
     return tokens * (provider.capabilities.costPerToken || 0);
   }
   
-  private extractCapabilitiesUsed(capabilities: NexusModelCapabilities): any {
+  private extractCapabilitiesUsed(capabilities: NexusModelCapabilities): {
+    reasoning: boolean;
+    thinking: boolean;
+    artifacts: boolean;
+    webSearch: boolean;
+    codeExecution: boolean;
+    responsesAPI: boolean;
+  } {
     return {
       reasoning: capabilities.supportsReasoning,
       thinking: capabilities.supportsThinking,

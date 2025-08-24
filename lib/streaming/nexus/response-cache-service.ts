@@ -1,13 +1,39 @@
 import { createLogger, generateRequestId } from '@/lib/logger';
-import { executeSQL } from './db-helpers';
+import { executeSQL, type DatabaseRow, type ParameterValue } from './db-helpers';
 import { createHash } from 'crypto';
 
 const log = createLogger({ module: 'response-cache-service' });
 
+// Database interfaces for cache queries
+interface NexusCacheRow extends DatabaseRow {
+  cache_key: string;
+  provider: string;
+  conversation_id: string | null;
+  s3_url: string;
+  token_savings: number | null;
+  cost_savings_usd: number | null;
+  hit_count: number;
+  expires_at: string;
+}
+
+interface CacheStatsRow extends DatabaseRow {
+  total_entries: number;
+  total_hits: number;
+  tokens_saved: number | null;
+  cost_saved: number | null;
+  cache_size: number | null;
+}
+
+interface ProviderStatsRow extends DatabaseRow {
+  provider: string;
+  entries: number;
+  savings: number;
+}
+
 export interface CacheCheckRequest {
   provider: string;
   modelId: string;
-  messages: any[];
+  messages: Array<{ role: string; content: string | Record<string, unknown> }>;
   conversationId?: string;
   userId: string;
 }
@@ -15,18 +41,18 @@ export interface CacheCheckRequest {
 export interface CacheResult {
   hit: boolean;
   key?: string;
-  response?: any;
+  response?: { text: string; usage?: { totalTokens: number } };
   tokensSaved?: number;
   costSaved?: number;
   provider?: string;
-  capabilities?: any;
+  capabilities?: Record<string, unknown>;
 }
 
 export interface CacheStoreRequest {
   provider: string;
   modelId: string;
-  messages: any[];
-  response: any;
+  messages: Array<{ role: string; content: string | Record<string, unknown> }>;
+  response: { text: string; usage?: { totalTokens: number } };
   conversationId?: string;
   userId: string;
   cost: number;
@@ -200,7 +226,7 @@ export class ResponseCacheService {
   }): Promise<number> {
     try {
       let whereClause = 'WHERE 1=1';
-      const params: any[] = [];
+      const params: ParameterValue[] = [];
       let paramIndex = 1;
       
       if (options.cacheKey) {
@@ -262,7 +288,7 @@ export class ResponseCacheService {
   }> {
     try {
       let whereClause = 'WHERE expires_at > CURRENT_TIMESTAMP';
-      const params: any[] = [];
+      const params: ParameterValue[] = [];
       let paramIndex = 1;
       
       if (options.userId) {
@@ -281,7 +307,7 @@ export class ResponseCacheService {
       }
       
       // Get basic stats
-      const statsResult = await executeSQL(`
+      const statsResult = await executeSQL<CacheStatsRow>(`
         SELECT 
           COUNT(*) as total_entries,
           SUM(hit_count) as total_hits,
@@ -293,7 +319,7 @@ export class ResponseCacheService {
       `, params);
       
       // Get provider breakdown
-      const providersResult = await executeSQL(`
+      const providersResult = await executeSQL<ProviderStatsRow>(`
         SELECT 
           provider,
           COUNT(*) as entries,
@@ -315,7 +341,7 @@ export class ResponseCacheService {
         tokensSaved: stats.tokens_saved || 0,
         costSaved: stats.cost_saved || 0,
         cacheSize: stats.cache_size || 0,
-        topProviders: providersResult.map((row: any) => ({
+        topProviders: providersResult.map((row) => ({
           provider: row.provider,
           entries: row.entries,
           savings: row.savings
@@ -360,7 +386,7 @@ export class ResponseCacheService {
   }
   
   private async checkDatabaseCache(cacheKey: string, provider: string): Promise<CacheResult> {
-    const result = await executeSQL(`
+    const result = await executeSQL<NexusCacheRow>(`
       SELECT 
         cache_key,
         provider,
@@ -456,7 +482,7 @@ export class ResponseCacheService {
     const costSavings = request.cost * 0.9; // Assume 90% cost reduction from caching
     
     await executeSQL(`
-      INSERT INTO nexus_response_cache (
+      INSERT INTO nexus_cache_entries (
         cache_key,
         provider,
         conversation_id,
@@ -552,7 +578,7 @@ export class ResponseCacheService {
     }
   }
   
-  private estimateResponseSize(response: any): number {
+  private estimateResponseSize(response: { text: string; usage?: { totalTokens: number } }): number {
     // Simple size estimation
     return JSON.stringify(response).length * 2; // Rough estimate including overhead
   }

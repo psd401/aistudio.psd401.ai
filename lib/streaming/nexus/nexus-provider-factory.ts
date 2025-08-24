@@ -8,6 +8,24 @@ import type { ProviderCapabilities } from '@/lib/streaming/types';
 
 const log = createLogger({ module: 'nexus-provider-factory' });
 
+// Database model info interface
+interface DatabaseModelInfo {
+  provider: string;
+  modelId: string;
+  name: string;
+  description?: string;
+  maxTokens?: number;
+  inputCostPer1kTokens?: number;
+  outputCostPer1kTokens?: number;
+  cachedInputCostPer1kTokens?: number;
+  averageLatencyMs?: number;
+  maxConcurrency?: number;
+  supportsBatching?: boolean;
+  nexusCapabilities?: Record<string, unknown>;
+  providerMetadata?: Record<string, unknown>;
+  allowedRoles?: string[];
+}
+
 export interface NexusModelOptions {
   conversationId?: string;
   enableCaching?: boolean;
@@ -334,10 +352,20 @@ export class NexusProviderFactory {
     const nexusModel: NexusLanguageModel = {
       model,
       capabilities,
-      providerMetadata: {} as any,
-      enableCaching: undefined,
-      getCacheMetrics: undefined,
-      estimateCost: undefined
+      providerMetadata: {
+        provider,
+        modelId,
+        pricing: {
+          inputCostPerToken: 0,
+          outputCostPerToken: 0,
+          cachingDiscount: 0
+        },
+        limits: {
+          maxTokens: 4000,
+          maxRequests: 10,
+          contextWindow: 4000
+        }
+      }
     };
     
     // Add Nexus metadata
@@ -422,10 +450,40 @@ export class NexusProviderFactory {
   
   // Private database-driven helper methods
   
+  private async loadModelsFromDatabase(): Promise<DatabaseModelInfo[]> {
+    try {
+      const results = await executeSQL<DatabaseModelInfo>(`
+        SELECT 
+          provider,
+          model_id as "modelId",
+          name,
+          description,
+          max_tokens as "maxTokens",
+          input_cost_per_1k_tokens as "inputCostPer1kTokens",
+          output_cost_per_1k_tokens as "outputCostPer1kTokens",
+          cached_input_cost_per_1k_tokens as "cachedInputCostPer1kTokens",
+          average_latency_ms as "averageLatencyMs",
+          max_concurrency as "maxConcurrency",
+          supports_batching as "supportsBatching",
+          nexus_capabilities as "nexusCapabilities",
+          provider_metadata as "providerMetadata",
+          allowed_roles as "allowedRoles"
+        FROM ai_models 
+        WHERE enabled = true
+        ORDER BY provider, model_id
+      `);
+      
+      return results;
+    } catch (error) {
+      log.error('Failed to load models from database', { error });
+      return [];
+    }
+  }
+
   /**
    * Get model information from database
    */
-  private async getModelInfoFromDatabase(provider: string, modelId: string): Promise<any> {
+  private async getModelInfoFromDatabase(provider: string, modelId: string): Promise<DatabaseModelInfo | null> {
     try {
       const result = await executeSQL(`
         SELECT * FROM ai_models 
@@ -434,7 +492,7 @@ export class NexusProviderFactory {
       `, [provider, modelId]);
       
       if (result.length > 0) {
-        return transformSnakeToCamel(result[0]);
+        return transformSnakeToCamel<DatabaseModelInfo>(result[0]);
       }
       
       return null;
@@ -532,7 +590,7 @@ export class NexusProviderFactory {
    */
   private async getContextWindow(provider: string, modelId: string): Promise<number> {
     try {
-      const result = await executeSQL(`
+      const result = await executeSQL<{max_tokens: number}>(`
         SELECT max_tokens FROM ai_models 
         WHERE provider = $1 AND model_id = $2 AND active = true
         LIMIT 1
@@ -577,14 +635,14 @@ export class NexusProviderFactory {
    */
   private async getModelsForProvider(provider: string): Promise<string[]> {
     try {
-      const result = await executeSQL(`
+      const result = await executeSQL<{model_id: string}>(`
         SELECT model_id FROM ai_models 
         WHERE provider = $1 AND active = true AND chat_enabled = true
         ORDER BY name
       `, [provider]);
       
       if (result.length > 0) {
-        return result.map((row: any) => row.model_id);
+        return result.map((row) => row.model_id);
       }
     } catch (error) {
       log.warn('Failed to get models from database', {

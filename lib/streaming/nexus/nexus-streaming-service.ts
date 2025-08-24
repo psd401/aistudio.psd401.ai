@@ -10,6 +10,29 @@ import { CostOptimizer } from './cost-optimizer';
 
 const log = createLogger({ module: 'nexus-streaming-service' });
 
+// Interface for onFinish callback data
+interface FinishData {
+  text: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    reasoningTokens?: number;
+    totalCost?: number;
+  };
+  finishReason?: string;
+}
+
+export interface NexusOptions {
+  enableCaching?: boolean;
+  enableOptimizations?: boolean;
+  useResponsesAPI?: boolean;
+  enablePromptCache?: boolean;
+  enableContextCache?: boolean;
+  costBudget?: number;
+  qualityThreshold?: number;
+}
+
 export interface NexusStreamRequest extends StreamRequest {
   // Multi-provider support
   providers?: string[];
@@ -17,15 +40,7 @@ export interface NexusStreamRequest extends StreamRequest {
   fallbackChain?: string[];
   
   // Nexus-specific options
-  nexusOptions?: {
-    enableCaching?: boolean;
-    enableOptimizations?: boolean;
-    useResponsesAPI?: boolean;
-    enablePromptCache?: boolean;
-    enableContextCache?: boolean;
-    costBudget?: number;
-    qualityThreshold?: number;
-  };
+  nexusOptions?: NexusOptions;
   
   // Enhanced telemetry
   trackCosts?: boolean;
@@ -106,7 +121,7 @@ export class NexusStreamingService extends UnifiedStreamingService {
       modelId: request.modelId,
       source: request.source,
       userId: request.userId,
-      conversationId: request.conversationId,
+      conversationId: request.conversationId ? String(request.conversationId) : undefined,
       messageCount: request.messages.length,
       routingStrategy: request.routingStrategy,
       nexusOptions: sanitizeForLogging(request.nexusOptions)
@@ -162,7 +177,7 @@ export class NexusStreamingService extends UnifiedStreamingService {
       options: request.nexusOptions,
       callbacks: request.callbacks,
       userId: request.userId,
-      conversationId: request.conversationId
+      conversationId: request.conversationId ? String(request.conversationId) : undefined
     });
     
     // Process results
@@ -221,7 +236,7 @@ export class NexusStreamingService extends UnifiedStreamingService {
         provider: request.provider,
         modelId: request.modelId,
         messages: request.messages,
-        conversationId: request.conversationId,
+        conversationId: request.conversationId ? String(request.conversationId) : undefined,
         userId: request.userId
       });
       
@@ -242,7 +257,7 @@ export class NexusStreamingService extends UnifiedStreamingService {
       request.provider,
       request.modelId,
       {
-        conversationId: request.conversationId,
+        conversationId: request.conversationId ? String(request.conversationId) : undefined,
         enableCaching: request.nexusOptions?.enableCaching,
         enableOptimizations: request.nexusOptions?.enableOptimizations,
         useResponsesAPI: request.nexusOptions?.useResponsesAPI,
@@ -263,7 +278,7 @@ export class NexusStreamingService extends UnifiedStreamingService {
       callbacks: {
         ...request.callbacks,
         onProgress: (progress) => {
-          this.handleEnhancedProgress(progress, requestId, request.nexusOptions);
+          this.handleEnhancedProgress(progress, requestId, request);
           request.callbacks?.onProgress?.(progress);
         },
         onFinish: async (data) => {
@@ -290,7 +305,7 @@ export class NexusStreamingService extends UnifiedStreamingService {
         modelId: request.modelId,
         messages: request.messages,
         response: baseResponse.result,
-        conversationId: request.conversationId,
+        conversationId: request.conversationId ? String(request.conversationId) : undefined,
         userId: request.userId,
         cost: costEstimate
       });
@@ -353,9 +368,9 @@ export class NexusStreamingService extends UnifiedStreamingService {
   private handleEnhancedProgress(
     event: StreamingProgress,
     requestId: string,
-    nexusOptions?: NexusStreamRequest['nexusOptions']
+    request: NexusStreamRequest
   ) {
-    if (nexusOptions?.trackPerformance) {
+    if (request.trackPerformance) {
       // Track streaming performance metrics
       log.debug('Enhanced progress tracking', {
         requestId,
@@ -369,7 +384,7 @@ export class NexusStreamingService extends UnifiedStreamingService {
    * Handle enhanced finish with state management and metrics
    */
   private async handleEnhancedFinish(
-    data: any,
+    data: FinishData,
     request: NexusStreamRequest,
     capabilities: NexusModelCapabilities,
     requestId: string
@@ -377,7 +392,7 @@ export class NexusStreamingService extends UnifiedStreamingService {
     // Save conversation state
     if (request.conversationId) {
       await this.conversationStateManager.updateConversation({
-        conversationId: request.conversationId,
+        conversationId: String(request.conversationId),
         provider: request.provider,
         modelId: request.modelId,
         usage: data.usage,
@@ -387,11 +402,11 @@ export class NexusStreamingService extends UnifiedStreamingService {
     }
     
     // Record cost metrics if enabled
-    if (request.nexusOptions?.trackCosts && data.usage) {
+    if (request.trackCosts && data.usage) {
       const cost = (capabilities.costPerToken || 0) * data.usage.totalTokens;
       await this.recordCostMetrics({
         userId: request.userId,
-        conversationId: request.conversationId,
+        conversationId: request.conversationId ? String(request.conversationId) : undefined,
         provider: request.provider,
         modelId: request.modelId,
         tokens: data.usage.totalTokens,
@@ -401,7 +416,7 @@ export class NexusStreamingService extends UnifiedStreamingService {
     }
     
     // Update provider metrics if enabled
-    if (request.nexusOptions?.recordProviderMetrics) {
+    if (request.recordProviderMetrics) {
       await this.recordProviderMetrics({
         provider: request.provider,
         modelId: request.modelId,
@@ -417,7 +432,14 @@ export class NexusStreamingService extends UnifiedStreamingService {
    * Build response from cache hit
    */
   private buildCachedResponse(
-    cacheResult: any,
+    cacheResult: {
+      response: { text: string; usage?: { totalTokens: number } };
+      key: string;
+      tokensSaved: number;
+      costSaved: number;
+      provider: string;
+      capabilities?: Record<string, unknown>;
+    },
     requestId: string,
     timer: (metadata?: Record<string, unknown>) => void,
     startTime: number
@@ -545,9 +567,12 @@ export class NexusStreamingService extends UnifiedStreamingService {
   /**
    * Extract required features from messages
    */
-  private extractRequiredFeatures(messages: any[]): string[] {
+  private extractRequiredFeatures(messages: Array<{ content: string | Record<string, unknown> }>): string[] {
     const features: string[] = [];
-    const allText = messages.map(m => m.content).join(' ').toLowerCase();
+    const allText = messages
+      .map(m => typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
+      .join(' ')
+      .toLowerCase();
     
     if (allText.includes('think') || allText.includes('reason')) {
       features.push('reasoning', 'thinking');

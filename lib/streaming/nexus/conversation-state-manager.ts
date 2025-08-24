@@ -1,8 +1,51 @@
 import { createLogger } from '@/lib/logger';
-import { executeSQL } from './db-helpers';
+import { executeSQL, type DatabaseRow } from './db-helpers';
 import type { NexusModelCapabilities } from './nexus-provider-factory';
 
 const log = createLogger({ module: 'conversation-state-manager' });
+
+// Database row interfaces for typed queries
+interface NexusConversationRow extends DatabaseRow {
+  conversation_id: string;
+  provider: string;
+  model_id: string;
+  message_count: number | null;
+  total_tokens: number | null;
+  last_message_at: string;
+  metadata: Record<string, unknown> | null;
+}
+
+interface NexusProviderMetricsRow extends DatabaseRow {
+  request_count: number;
+  total_tokens: number | null;
+  avg_cost: number | null;
+  avg_response_time: number | null;
+  cached_tokens_total: number | null;
+}
+
+interface NexusConversationEventRow extends DatabaseRow {
+  event_data: Record<string, unknown>;
+  created_at: string;
+}
+
+interface NexusSwitchCountRow extends DatabaseRow {
+  switch_count: number;
+}
+
+interface NexusProviderUsageRow extends DatabaseRow {
+  provider: string;
+  usage_count: number;
+  avg_tokens: number;
+}
+
+interface NexusCostMetricsRow extends DatabaseRow {
+  avg_cost: number | null;
+  cache_savings: number | null;
+}
+
+interface NexusCapabilityEventRow extends DatabaseRow {
+  capabilities: Record<string, unknown> | null;
+}
 
 export interface ConversationState {
   conversationId: string;
@@ -85,7 +128,7 @@ export class ConversationStateManager {
    */
   async getConversationState(conversationId: string): Promise<ConversationState | null> {
     try {
-      const result = await executeSQL(`
+      const result = await executeSQL<NexusConversationRow>(`
         SELECT 
           id as conversation_id,
           provider,
@@ -102,10 +145,10 @@ export class ConversationStateManager {
         return null;
       }
       
-      const row = result[0] as any;
+      const row = result[0];
       
       // Get provider metrics
-      const metricsResult = await executeSQL(`
+      const metricsResult = await executeSQL<NexusProviderMetricsRow>(`
         SELECT 
           COUNT(*) as request_count,
           SUM(prompt_tokens + completion_tokens) as total_tokens,
@@ -116,9 +159,15 @@ export class ConversationStateManager {
         WHERE conversation_id = $1
       `, [conversationId]);
       
-      const metrics = metricsResult[0] || {};
-      const cacheHitRate = metrics.cached_tokens_total > 0 
-        ? metrics.cached_tokens_total / metrics.total_tokens 
+      const metrics = metricsResult[0] || {
+        request_count: 0,
+        total_tokens: null,
+        avg_cost: null,
+        avg_response_time: null,
+        cached_tokens_total: null
+      };
+      const cacheHitRate = (metrics.cached_tokens_total || 0) > 0 && (metrics.total_tokens || 0) > 0
+        ? (metrics.cached_tokens_total || 0) / (metrics.total_tokens || 1)
         : 0;
       
       return {
@@ -129,8 +178,8 @@ export class ConversationStateManager {
         totalTokens: row.total_tokens || 0,
         lastMessageAt: new Date(row.last_message_at),
         metadata: {
-          capabilities: row.metadata?.capabilities || {},
-          costTotal: metrics.avg_cost * metrics.request_count || 0,
+          capabilities: (row.metadata?.capabilities as Record<string, unknown>) || {},
+          costTotal: ((metrics.avg_cost || 0) * (metrics.request_count || 0)) || 0,
           providerSwitches: await this.countProviderSwitches(conversationId),
           cacheHitRate,
           avgResponseTime: metrics.avg_response_time || 0
@@ -212,7 +261,7 @@ export class ConversationStateManager {
     reason: string;
   }>> {
     try {
-      const result = await executeSQL(`
+      const result = await executeSQL<NexusConversationEventRow>(`
         SELECT event_data, created_at
         FROM nexus_conversation_events
         WHERE conversation_id = $1 
@@ -220,11 +269,11 @@ export class ConversationStateManager {
         ORDER BY created_at ASC
       `, [conversationId]);
       
-      return result.map((row: any) => ({
+      return result.map((row) => ({
         timestamp: new Date(row.created_at),
-        fromProvider: row.event_data.from_provider,
-        toProvider: row.event_data.to_provider,
-        reason: row.event_data.reason
+        fromProvider: (row.event_data as Record<string, string>).from_provider,
+        toProvider: (row.event_data as Record<string, string>).to_provider,
+        reason: (row.event_data as Record<string, string>).reason
       }));
       
     } catch (error) {
@@ -248,7 +297,7 @@ export class ConversationStateManager {
   }> {
     try {
       // Get provider preferences
-      const providerResult = await executeSQL(`
+      const providerResult = await executeSQL<NexusProviderUsageRow>(`
         SELECT 
           provider,
           COUNT(*) as usage_count,
@@ -260,7 +309,7 @@ export class ConversationStateManager {
       `, [userId]);
       
       // Get cost metrics
-      const costResult = await executeSQL(`
+      const costResult = await executeSQL<NexusCostMetricsRow>(`
         SELECT 
           AVG(cost_usd) as avg_cost,
           SUM(cached_tokens * 0.00001) as cache_savings
@@ -270,7 +319,7 @@ export class ConversationStateManager {
       `, [userId]);
       
       // Get capability usage
-      const capabilityResult = await executeSQL(`
+      const capabilityResult = await executeSQL<NexusCapabilityEventRow>(`
         SELECT 
           event_data->'capabilities' as capabilities
         FROM nexus_conversation_events nce
@@ -281,8 +330,8 @@ export class ConversationStateManager {
       
       // Process capability usage
       const capabilityCount = new Map<string, number>();
-      capabilityResult.forEach((row: any) => {
-        const capabilities = row.capabilities || {};
+      capabilityResult.forEach((row) => {
+        const capabilities = (row.capabilities as Record<string, boolean>) || {};
         Object.keys(capabilities).forEach(cap => {
           if (capabilities[cap]) {
             capabilityCount.set(cap, (capabilityCount.get(cap) || 0) + 1);
@@ -296,12 +345,12 @@ export class ConversationStateManager {
         .map(([cap]) => cap);
       
       return {
-        preferredProviders: providerResult.map((row: any) => ({
+        preferredProviders: providerResult.map((row) => ({
           provider: row.provider,
           usage: row.usage_count
         })),
         avgCostPerConversation: costResult[0]?.avg_cost || 0,
-        avgTokensPerConversation: providerResult.reduce((sum: number, row: any) => sum + row.avg_tokens, 0) / providerResult.length || 0,
+        avgTokensPerConversation: providerResult.reduce((sum, row) => sum + (row.avg_tokens || 0), 0) / providerResult.length || 0,
         mostUsedCapabilities,
         costSavingsFromCaching: costResult[0]?.cache_savings || 0
       };
@@ -413,7 +462,7 @@ export class ConversationStateManager {
   }
   
   private async countProviderSwitches(conversationId: string): Promise<number> {
-    const result = await executeSQL(`
+    const result = await executeSQL<NexusSwitchCountRow>(`
       SELECT COUNT(*) as switch_count
       FROM nexus_conversation_events
       WHERE conversation_id = $1 

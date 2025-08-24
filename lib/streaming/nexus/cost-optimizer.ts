@@ -1,8 +1,65 @@
 import { createLogger } from '@/lib/logger';
-import { executeSQL } from './db-helpers';
+import { executeSQL, type DatabaseRow } from './db-helpers';
 import { transformSnakeToCamel } from '@/lib/db/field-mapper';
 
 const log = createLogger({ module: 'cost-optimizer' });
+
+// Database row interfaces for cost optimization queries
+interface AIModelRow extends DatabaseRow {
+  provider: string;
+  model_id: string;
+  name: string;
+  description: string | null;
+  max_tokens: number | null;
+  input_cost_per_1k_tokens: number | null;
+  output_cost_per_1k_tokens: number | null;
+  cached_input_cost_per_1k_tokens: number | null;
+  average_latency_ms: number | null;
+  max_concurrency: number | null;
+  supports_batching: boolean | null;
+  nexus_capabilities: Record<string, unknown> | null;
+  provider_metadata: Record<string, unknown> | null;
+  allowed_roles: string[] | null;
+}
+
+interface CostModelRow extends DatabaseRow {
+  input_cost_per_1k_tokens: number | null;
+  output_cost_per_1k_tokens: number | null;
+}
+
+interface UsageMetricsRow extends DatabaseRow {
+  provider: string;
+  model_id: string;
+  total_cost: number | null;
+  total_tokens: number | null;
+  request_count: number;
+  usage_date: string;
+}
+
+interface ModelUsageAggregateRow extends DatabaseRow {
+  provider: string;
+  model_id: string;
+  total_cost: number;
+  total_tokens: number;
+}
+
+// Transform model data with proper typing
+interface TransformedModel extends DatabaseRow {
+  provider: string;
+  modelId: string;
+  name: string;
+  description?: string;
+  maxTokens?: number;
+  inputCostPer1kTokens?: number;
+  outputCostPer1kTokens?: number;
+  cachedInputCostPer1kTokens?: number;
+  averageLatencyMs?: number;
+  maxConcurrency?: number;
+  supportsBatching?: boolean;
+  nexusCapabilities?: Record<string, unknown>;
+  providerMetadata?: Record<string, unknown>;
+  allowedRoles?: string[];
+}
 
 export interface CostOptimizationRequest {
   userId: string;
@@ -33,7 +90,7 @@ export interface CostOptimizationResult {
  * Cost optimizer for intelligent provider/model selection
  */
 export class CostOptimizer {
-  private modelCache = new Map<string, any>();
+  private modelCache = new Map<string, TransformedModel>();
   private cacheExpiry = 5 * 60 * 1000; // 5 minutes
   private lastCacheRefresh = 0;
   
@@ -143,7 +200,7 @@ export class CostOptimizer {
       startDate.setDate(startDate.getDate() - days);
       
       // Get usage metrics
-      const usageResult = await executeSQL(`
+      const usageResult = await executeSQL<UsageMetricsRow>(`
         SELECT 
           provider,
           model_id,
@@ -160,12 +217,12 @@ export class CostOptimizer {
       `, [userId, startDate.toISOString()]);
       
       // Calculate metrics
-      const totalCost = usageResult.reduce((sum: number, row: any) => sum + (row.total_cost || 0), 0);
+      const totalCost = usageResult.reduce((sum, row) => sum + (row.total_cost || 0), 0);
       const avgCostPerDay = totalCost / days;
       
       // Get top models by cost
       const modelCosts = new Map<string, { cost: number; tokens: number }>();
-      usageResult.forEach((row: any) => {
+      usageResult.forEach((row) => {
         const key = `${row.provider}:${row.model_id}`;
         const existing = modelCosts.get(key) || { cost: 0, tokens: 0 };
         modelCosts.set(key, {
@@ -189,20 +246,20 @@ export class CostOptimizer {
       
       // Calculate cost trend
       const recentCost = usageResult
-        .filter((row: any) => {
+        .filter((row) => {
           const rowDate = new Date(row.usage_date);
           const daysAgo = (Date.now() - rowDate.getTime()) / (1000 * 60 * 60 * 24);
           return daysAgo <= 7;
         })
-        .reduce((sum: number, row: any) => sum + (row.total_cost || 0), 0);
+        .reduce((sum, row) => sum + (row.total_cost || 0), 0);
       
       const olderCost = usageResult
-        .filter((row: any) => {
+        .filter((row) => {
           const rowDate = new Date(row.usage_date);
           const daysAgo = (Date.now() - rowDate.getTime()) / (1000 * 60 * 60 * 24);
           return daysAgo > 7 && daysAgo <= 14;
         })
-        .reduce((sum: number, row: any) => sum + (row.total_cost || 0), 0);
+        .reduce((sum, row) => sum + (row.total_cost || 0), 0);
       
       let costTrend: 'increasing' | 'decreasing' | 'stable' = 'stable';
       if (recentCost > olderCost * 1.1) {
@@ -240,14 +297,14 @@ export class CostOptimizer {
   
   // Private helper methods
   
-  private async getModelsWithPricing(): Promise<any[]> {
+  private async getModelsWithPricing(): Promise<TransformedModel[]> {
     // Check cache
     if (this.modelCache.size > 0 && Date.now() - this.lastCacheRefresh < this.cacheExpiry) {
       return Array.from(this.modelCache.values());
     }
     
     try {
-      const result = await executeSQL(`
+      const result = await executeSQL<AIModelRow>(`
         SELECT 
           provider,
           model_id,
@@ -268,11 +325,11 @@ export class CostOptimizer {
         ORDER BY provider, name
       `);
       
-      const models = result.map((row: any) => transformSnakeToCamel(row));
+      const models = result.map((row) => transformSnakeToCamel<TransformedModel>(row));
       
       // Update cache
       this.modelCache.clear();
-      models.forEach((model: any) => {
+      models.forEach((model) => {
         this.modelCache.set(`${model.provider}:${model.modelId}`, model);
       });
       this.lastCacheRefresh = Date.now();
@@ -292,7 +349,7 @@ export class CostOptimizer {
     
     if (!model) {
       // Try to fetch from database
-      const result = await executeSQL(`
+      const result = await executeSQL<CostModelRow>(`
         SELECT input_cost_per_1k_tokens, output_cost_per_1k_tokens
         FROM ai_models 
         WHERE provider = $1 AND model_id = $2
@@ -312,7 +369,7 @@ export class CostOptimizer {
     return this.calculateCostForModel(model, tokens);
   }
   
-  private calculateCostForModel(model: any, tokens: number): number {
+  private calculateCostForModel(model: TransformedModel, tokens: number): number {
     const inputCost = model.inputCostPer1kTokens || 0;
     const outputCost = model.outputCostPer1kTokens || 0;
     // Rough estimate: 60% input, 40% output
@@ -320,9 +377,9 @@ export class CostOptimizer {
   }
   
   private async filterEligibleModels(
-    models: any[], 
+    models: TransformedModel[], 
     request: CostOptimizationRequest
-  ): Promise<any[]> {
+  ): Promise<TransformedModel[]> {
     return models.filter(model => {
       // Check budget constraint
       if (request.budget) {
@@ -340,13 +397,13 @@ export class CostOptimizer {
       }
       
       // Filter based on priority
-      if (request.priority === 'speed' && model.averageLatencyMs > 2000) {
+      if (request.priority === 'speed' && (model.averageLatencyMs || 0) > 2000) {
         return false;
       }
       
       if (request.priority === 'quality') {
         // Prefer models with advanced capabilities
-        const caps = model.nexusCapabilities || {};
+        const caps = (model.nexusCapabilities as Record<string, boolean>) || {};
         if (!caps.reasoning && !caps.thinking && !caps.artifacts) {
           return false;
         }
@@ -356,7 +413,7 @@ export class CostOptimizer {
     });
   }
   
-  private rankModels(models: any[], request: CostOptimizationRequest): any[] {
+  private rankModels(models: TransformedModel[], request: CostOptimizationRequest): TransformedModel[] {
     return models.sort((a, b) => {
       switch (request.priority) {
         case 'cost':
@@ -389,9 +446,9 @@ export class CostOptimizer {
     });
   }
   
-  private calculateQualityScore(model: any): number {
+  private calculateQualityScore(model: TransformedModel): number {
     let score = 50; // Base score
-    const caps = model.nexusCapabilities || {};
+    const caps = (model.nexusCapabilities as Record<string, boolean>) || {};
     
     if (caps.reasoning) score += 20;
     if (caps.thinking) score += 15;
@@ -401,13 +458,13 @@ export class CostOptimizer {
     if (caps.codeExecution) score += 5;
     
     // Bonus for larger context windows
-    if (model.maxTokens > 100000) score += 10;
-    if (model.maxTokens > 500000) score += 10;
+    if ((model.maxTokens || 0) > 100000) score += 10;
+    if ((model.maxTokens || 0) > 500000) score += 10;
     
     return Math.min(100, score);
   }
   
-  private describeTradeoffs(model: any, recommended: any): string {
+  private describeTradeoffs(model: TransformedModel, recommended: TransformedModel): string {
     const tradeoffs: string[] = [];
     
     const modelCost = model.inputCostPer1kTokens || 0;
@@ -431,7 +488,7 @@ export class CostOptimizer {
     return tradeoffs.join(', ') || 'Similar performance';
   }
   
-  private generateReasoning(model: any, request: CostOptimizationRequest): string {
+  private generateReasoning(model: TransformedModel, request: CostOptimizationRequest): string {
     const reasons: string[] = [];
     
     switch (request.priority) {
@@ -442,7 +499,7 @@ export class CostOptimizer {
         reasons.push(`Fast response time of ${model.averageLatencyMs || 1000}ms`);
         break;
       case 'quality':
-        const caps = model.nexusCapabilities || {};
+        const caps = (model.nexusCapabilities as Record<string, boolean>) || {};
         const features: string[] = [];
         if (caps.reasoning) features.push('advanced reasoning');
         if (caps.thinking) features.push('thinking display');
@@ -457,8 +514,8 @@ export class CostOptimizer {
       reasons.push(`Fits within budget of $${request.budget.toFixed(2)}`);
     }
     
-    if (model.maxTokens > 100000) {
-      reasons.push(`Large context window (${(model.maxTokens / 1000).toFixed(0)}K tokens)`);
+    if ((model.maxTokens || 0) > 100000) {
+      reasons.push(`Large context window (${((model.maxTokens || 0) / 1000).toFixed(0)}K tokens)`);
     }
     
     return reasons.join('. ') || 'Optimal for your requirements';

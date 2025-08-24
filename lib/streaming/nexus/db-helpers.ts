@@ -1,11 +1,26 @@
 import { executeSQL as executeRawSQL } from '@/lib/db/data-api-adapter';
-import type { SqlParameter } from '@aws-sdk/client-rds-data';
+import type { SqlParameter, Field } from '@aws-sdk/client-rds-data';
+
+/**
+ * Database row types for common queries
+ */
+export interface DatabaseRow {
+  [key: string]: unknown;
+}
+
+/**
+ * Supported parameter value types
+ */
+export type ParameterValue = string | number | boolean | Date | Uint8Array | null | undefined | Record<string, unknown>;
 
 /**
  * Helper function to execute SQL with simple parameter passing
  * Wraps the AWS RDS Data API parameter format
  */
-export async function executeSQL<T = any>(sql: string, params?: any[]): Promise<T[]> {
+export async function executeSQL<T extends DatabaseRow = DatabaseRow>(
+  sql: string, 
+  params?: ParameterValue[]
+): Promise<T[]> {
   if (!params || params.length === 0) {
     return executeRawSQL<T>(sql);
   }
@@ -29,7 +44,7 @@ export async function executeSQL<T = any>(sql: string, params?: any[]): Promise<
 /**
  * Convert a JavaScript value to RDS Data API format
  */
-function convertToRdsValue(value: any) {
+function convertToRdsValue(value: ParameterValue): Field {
   if (value === null || value === undefined) {
     return { isNull: true };
   }
@@ -64,7 +79,7 @@ function convertToRdsValue(value: any) {
 /**
  * Extract a value from RDS Data API result field
  */
-export function extractValue(field: any): any {
+export function extractValue(field: Field | null | undefined): unknown {
   if (!field) return null;
   
   if (field.isNull) return null;
