@@ -5,10 +5,11 @@ import { useChatRuntime, AssistantChatTransport } from '@assistant-ui/react-ai-s
 import { Thread } from '@/components/assistant-ui/thread'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import { useEffect } from 'react'
+import { useEffect, useMemo, useCallback } from 'react'
 import { NexusShell } from './_components/layout/nexus-shell'
 import { ErrorBoundary } from './_components/error-boundary'
 import { useModelsWithPersistence } from '@/lib/hooks/use-models'
+import type { SelectAiModel } from '@/types'
 
 export default function NexusPage() {
   const router = useRouter()
@@ -18,9 +19,18 @@ export default function NexusPage() {
   const { 
     models, 
     selectedModel, 
-    setSelectedModel, 
+    setSelectedModel: originalSetSelectedModel, 
     isLoading: isLoadingModels 
   } = useModelsWithPersistence('nexus-model', ['chat'])
+  
+  // Wrap setSelectedModel to reload page on model change
+  const setSelectedModel = useCallback((model: SelectAiModel | null) => {
+    originalSetSelectedModel(model);
+    // Force page reload to ensure clean state
+    if (model && selectedModel && model.modelId !== selectedModel.modelId) {
+      window.location.reload();
+    }
+  }, [originalSetSelectedModel, selectedModel])
   
   // Authentication verification for defense in depth
   useEffect(() => {
@@ -33,16 +43,19 @@ export default function NexusPage() {
     }
   }, [session, sessionStatus, router])
 
-  // Use assistant-ui with AI SDK runtime
-  const runtime = useChatRuntime({
-    transport: new AssistantChatTransport({
+  // Create transport that updates when model changes
+  const transport = useMemo(() => {
+    return new AssistantChatTransport({
       api: '/api/nexus/chat',
-      body: {
+      body: () => ({
         modelId: selectedModel?.modelId,
         provider: selectedModel?.provider
-      }
-    })
-  })
+      })
+    });
+  }, [selectedModel?.modelId, selectedModel?.provider]);
+
+  // Use the transport with the runtime
+  const runtime = useChatRuntime({ transport })
   
   // Show loading state while checking authentication
   if (sessionStatus === 'loading') {
@@ -69,11 +82,22 @@ export default function NexusPage() {
         models={models}
         isLoadingModels={isLoadingModels}
       >
-        <AssistantRuntimeProvider runtime={runtime}>
-          <div className="flex h-full flex-col">
-            <Thread />
+        {selectedModel ? (
+          <AssistantRuntimeProvider 
+            key={`${selectedModel.modelId}-${selectedModel.provider}`} 
+            runtime={runtime}
+          >
+            <div className="flex h-full flex-col">
+              <Thread />
+            </div>
+          </AssistantRuntimeProvider>
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <div className="text-center">
+              <div className="text-lg text-muted-foreground">Please select a model to start chatting</div>
+            </div>
           </div>
-        </AssistantRuntimeProvider>
+        )}
       </NexusShell>
     </ErrorBoundary>
   )

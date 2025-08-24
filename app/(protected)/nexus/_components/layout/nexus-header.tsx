@@ -30,7 +30,7 @@ export function NexusHeader({ selectedModel, onModelChange, models, isLoadingMod
             requiredCapabilities={["chat"]}
             placeholder="Select AI model"
             loading={isLoadingModels}
-            showDescription={false}
+            showDescription={true}
             groupByProvider={true}
             hideRoleRestricted={true}
             hideCapabilityMissing={true}
