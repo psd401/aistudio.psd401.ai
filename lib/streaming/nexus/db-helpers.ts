@@ -1,4 +1,4 @@
-import { executeSQL as executeRawSQL } from '@/lib/db/data-api-adapter';
+import { executeSQL as executeRawSQL, executeTransaction } from '@/lib/db/data-api-adapter';
 import type { SqlParameter, Field } from '@aws-sdk/client-rds-data';
 
 /**
@@ -74,6 +74,37 @@ function convertToRdsValue(value: ParameterValue): Field {
   
   // For complex types, stringify as JSON
   return { stringValue: JSON.stringify(value) };
+}
+
+/**
+ * Execute multiple SQL statements in a transaction with simple parameter passing
+ */
+export async function executeSQLTransaction<T extends DatabaseRow = DatabaseRow>(
+  statements: Array<{ sql: string; params?: ParameterValue[] }>
+): Promise<T[][]> {
+  // Convert simple params to RDS Data API format for each statement
+  const rdsStatements = statements.map(({ sql, params }) => {
+    if (!params || params.length === 0) {
+      return { sql };
+    }
+    
+    // Convert simple params to RDS Data API format
+    const rdsParams: SqlParameter[] = params.map((value, index) => {
+      const param: SqlParameter = {
+        name: `param${index + 1}`,
+        value: convertToRdsValue(value)
+      };
+      
+      // Update SQL to use named parameters
+      sql = sql.replace(new RegExp(`\\$${index + 1}`, 'g'), `:param${index + 1}`);
+      
+      return param;
+    });
+    
+    return { sql, parameters: rdsParams };
+  });
+  
+  return executeTransaction<T>(rdsStatements);
 }
 
 /**
