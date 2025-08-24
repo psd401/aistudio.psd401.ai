@@ -146,22 +146,24 @@ export class PDFAttachmentAdapter implements AttachmentAdapter {
   }
 
   async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
-    // Option 1: Extract text from PDF (requires pdf parsing library)
-    // const text = await this.extractTextFromPDF(attachment.file);
-
-    // Option 2: Convert to base64 for API processing
-    const base64Data = await this.fileToBase64(attachment.file);
-
+    // For now, just send a reference to the PDF
+    // Full implementation requires pdf.js or similar library
+    const fileName = this.sanitizeFileName(attachment.name);
+    const fileSize = attachment.file.size;
+    const fileSizeKB = Math.round(fileSize / 1024);
+    
     return {
       id: attachment.id,
       type: "document",
-      name: this.sanitizeFileName(attachment.name),
+      name: fileName,
       contentType: attachment.contentType || "application/pdf",
       file: attachment.file, // Keep the file reference - required by assistant-ui
       content: [
         {
           type: "text",
-          text: `[PDF Document: ${attachment.name}]\n${base64Data}`,
+          text: `<attachment name="${fileName}" type="pdf" size="${fileSizeKB}KB">
+[PDF placeholder - actual content extraction pending implementation]
+</attachment>`,
         },
       ],
       status: { type: "complete" },
@@ -221,13 +223,13 @@ export class PDFAttachmentAdapter implements AttachmentAdapter {
  * - Vision-capable image adapter (for AI models with vision)
  * - Simple image adapter (for display-only)
  * - Simple text adapter (for text files)
- * - PDF adapter (for document processing)
+ * - PDF adapter (for document processing - basic implementation)
  */
 export function createNexusAttachmentAdapter() {
   return new CompositeAttachmentAdapter([
     new VisionImageAdapter(),           // For vision-capable models
     new SimpleImageAttachmentAdapter(), // For display-only images
     new SimpleTextAttachmentAdapter(),  // For text files
-    new PDFAttachmentAdapter(),         // For PDF documents
+    new PDFAttachmentAdapter(),         // For PDF documents (placeholder implementation)
   ]);
 }
