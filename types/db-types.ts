@@ -154,7 +154,7 @@ export type SelectToolInputField = {
   name: string;
   label: string;
   fieldType: string;
-  options: ToolInputFieldOptions | null;
+  options: ToolInputFieldOptions | string | null;
   position: number;
   createdAt: Date;
   updatedAt: Date;

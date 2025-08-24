@@ -25,7 +25,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { addToolInputFieldAction, updateInputFieldAction } from "@/actions/db/assistant-architect-actions"
-import type { SelectToolInputField } from "@/types"
+import type { SelectToolInputField, ToolInputFieldOptions } from "@/types"
 
 const baseFormSchema = z.object({
   name: z
@@ -95,10 +95,18 @@ export function InputFieldsForm({
       if (Array.isArray(editingField.options)) {
         parsedOptions = editingField.options;
       } else if (typeof editingField.options === "string") {
-        parsedOptions = editingField.options.split(",").map((opt: string) => ({
+        parsedOptions = editingField.options.split(",").map((opt) => ({
           label: opt.trim(),
           value: opt.trim(),
         }));
+      } else if (editingField.options && typeof editingField.options === 'object') {
+        // Handle ToolInputFieldOptions object format
+        if (Array.isArray((editingField.options as ToolInputFieldOptions).values)) {
+          parsedOptions = (editingField.options as ToolInputFieldOptions).values!.map(val => ({
+            label: val,
+            value: val
+          }));
+        }
       }
       form.reset({
         name: editingField.name,

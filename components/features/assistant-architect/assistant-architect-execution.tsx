@@ -590,13 +590,24 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                       options = parsed
                                     }
                                   } catch {
-                                    options = field.options.split(",").map(s => ({
+                                    // Type is already narrowed to string in the outer if block
+                                    const optionsStr = field.options as string
+                                    options = optionsStr.split(",").map(s => ({
                                       value: s.trim(),
                                       label: s.trim()
                                     }))
                                   }
                                 } else if (Array.isArray(field.options)) {
                                   options = field.options
+                                } else if (field.options && typeof field.options === 'object' && 'values' in field.options) {
+                                  // Handle ToolInputFieldOptions format
+                                  const optionsObj = field.options as { values?: string[] }
+                                  if (Array.isArray(optionsObj.values)) {
+                                    options = optionsObj.values.map(val => ({
+                                      label: val,
+                                      value: val
+                                    }))
+                                  }
                                 }
                                 return options.map(option => (
                                   <SelectItem key={option.value} value={option.value}>
