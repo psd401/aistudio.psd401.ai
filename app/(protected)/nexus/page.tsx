@@ -3,6 +3,7 @@
 import { AssistantRuntimeProvider } from '@assistant-ui/react'
 import { useAISDKRuntime } from '@assistant-ui/react-ai-sdk'
 import { useChat } from '@ai-sdk/react'
+import { DefaultChatTransport } from 'ai'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
@@ -25,8 +26,12 @@ export default function NexusPage() {
     }
   }, [session, status, router])
 
-  // Create chat with custom transport for Nexus API
-  const chat = useChat()
+  // Create chat with proper API endpoint configuration
+  const chat = useChat({
+    transport: new DefaultChatTransport({
+      api: '/api/nexus/chat'
+    })
+  })
   
   const runtime = useAISDKRuntime(chat)
   
