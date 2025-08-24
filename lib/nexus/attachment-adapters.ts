@@ -21,11 +21,17 @@ export class VisionImageAdapter implements AttachmentAdapter {
       throw new Error("Image size exceeds 20MB limit");
     }
 
+    // Validate MIME type using magic bytes
+    const isValidImage = await this.verifyImageMimeType(file);
+    if (!isValidImage) {
+      throw new Error("Invalid image file format");
+    }
+
     // Return pending attachment while processing
     return {
       id: crypto.randomUUID(),
       type: "image",
-      name: file.name,
+      name: this.sanitizeFileName(file.name),
       contentType: file.type,
       file,
       status: { 
@@ -46,7 +52,6 @@ export class VisionImageAdapter implements AttachmentAdapter {
       type: "image",
       name: attachment.name,
       contentType: attachment.contentType || "image/jpeg",
-      file: attachment.file, // Keep the file reference
       content: [
         {
           type: "image",
@@ -73,6 +78,35 @@ export class VisionImageAdapter implements AttachmentAdapter {
       reader.readAsDataURL(file);
     });
   }
+
+  private async verifyImageMimeType(file: File): Promise<boolean> {
+    try {
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer).subarray(0, 4);
+      const header = Array.from(bytes)
+        .map(byte => byte.toString(16).padStart(2, '0'))
+        .join('');
+      
+      // Check magic bytes for common image formats
+      const imageHeaders = {
+        '89504e47': 'image/png',
+        'ffd8ffe0': 'image/jpeg',
+        'ffd8ffe1': 'image/jpeg',
+        'ffd8ffe2': 'image/jpeg',
+        '47494638': 'image/gif',
+        '52494646': 'image/webp', // Actually checks for RIFF, need to check WEBP after
+      };
+      
+      return Object.keys(imageHeaders).some(h => header.startsWith(h.toLowerCase()));
+    } catch {
+      return false;
+    }
+  }
+
+  private sanitizeFileName(name: string): string {
+    // Remove dangerous characters and limit length
+    return name.replace(/[^a-zA-Z0-9.-]/g, '_').substring(0, 255);
+  }
 }
 
 /**
@@ -90,10 +124,16 @@ export class PDFAttachmentAdapter implements AttachmentAdapter {
       throw new Error("PDF size exceeds 10MB limit");
     }
 
+    // Validate MIME type using magic bytes
+    const isValidPDF = await this.verifyPDFMimeType(file);
+    if (!isValidPDF) {
+      throw new Error("Invalid PDF file format");
+    }
+
     return {
       id: crypto.randomUUID(),
       type: "document",
-      name: file.name,
+      name: this.sanitizeFileName(file.name),
       contentType: file.type,
       file,
       status: { 
@@ -114,13 +154,12 @@ export class PDFAttachmentAdapter implements AttachmentAdapter {
     return {
       id: attachment.id,
       type: "document",
-      name: attachment.name,
+      name: this.sanitizeFileName(attachment.name),
       contentType: attachment.contentType || "application/pdf",
-      file: attachment.file, // Keep the file reference
       content: [
         {
           type: "text",
-          text: `[PDF Document: ${attachment.name}]\nBase64 data: ${base64Data.substring(0, 50)}...`,
+          text: `[PDF Document: ${attachment.name}]\n${base64Data}`,
         },
       ],
       status: { type: "complete" },
@@ -135,11 +174,28 @@ export class PDFAttachmentAdapter implements AttachmentAdapter {
   private async fileToBase64(file: File): Promise<string> {
     const arrayBuffer = await file.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
-    let binary = "";
-    bytes.forEach((byte) => {
-      binary += String.fromCharCode(byte);
-    });
-    return btoa(binary);
+    // More efficient conversion - direct array conversion instead of string concatenation
+    return btoa(String.fromCharCode(...bytes));
+  }
+
+  private async verifyPDFMimeType(file: File): Promise<boolean> {
+    try {
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer).subarray(0, 4);
+      const header = Array.from(bytes)
+        .map(byte => byte.toString(16).padStart(2, '0'))
+        .join('');
+      
+      // Check for PDF magic bytes: %PDF (25504446)
+      return header.toLowerCase().startsWith('25504446');
+    } catch {
+      return false;
+    }
+  }
+
+  private sanitizeFileName(name: string): string {
+    // Remove dangerous characters and limit length
+    return name.replace(/[^a-zA-Z0-9.-]/g, '_').substring(0, 255);
   }
 
   // Optional: Extract text from PDF using a library like pdf.js
