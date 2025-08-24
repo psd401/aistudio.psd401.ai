@@ -3,7 +3,7 @@
 import { useMessagePart } from "@assistant-ui/react";
 import type { SyntaxHighlighterProps } from "@assistant-ui/react-markdown";
 import mermaid from "mermaid";
-import { FC, useEffect, useRef } from "react";
+import { FC, useEffect, useRef, useId, useState } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -41,6 +41,8 @@ export const MermaidDiagram: FC<MermaidDiagramProps> = ({
   className,
 }) => {
   const ref = useRef<HTMLPreElement>(null);
+  const diagramId = useId();
+  const [theme, setTheme] = useState<'default' | 'dark'>('default');
 
   // Smart completion detection for streaming scenarios
   const isComplete = useMessagePart((part) => {
@@ -56,20 +58,40 @@ export const MermaidDiagram: FC<MermaidDiagramProps> = ({
     return closingBackticksMatch !== null;
   });
 
+  // Observe theme changes
+  useEffect(() => {
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+          const isDark = document.documentElement.classList.contains('dark');
+          setTheme(isDark ? 'dark' : 'default');
+        }
+      });
+    });
+
+    // Set initial theme
+    const isDark = document.documentElement.classList.contains('dark');
+    setTheme(isDark ? 'dark' : 'default');
+
+    // Start observing
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class']
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     // Only render when the code block is complete
     if (!isComplete) return;
 
     (async () => {
       try {
-        // Detect current theme
-        const isDark = document.documentElement.classList.contains('dark');
-        const theme = isDark ? 'dark' : 'default';
-        
         // Re-initialize mermaid with current theme
         mermaid.initialize({ theme, startOnLoad: false });
         
-        const id = `mermaid-${Math.random().toString(36).slice(2)}`;
+        const id = `mermaid-${diagramId.replace(/:/g, '')}`;
         const result = await mermaid.render(id, code);
         
         if (ref.current) {
@@ -77,12 +99,15 @@ export const MermaidDiagram: FC<MermaidDiagramProps> = ({
           result.bindFunctions?.(ref.current);
         }
       } catch (e) {
+        // Client-safe error handling
         if (process.env.NODE_ENV === 'development') {
+          // Only log to console in development
           console.error("Failed to render Mermaid diagram:", e);
         }
+        // Could optionally display error UI to user here
       }
     })();
-  }, [isComplete, code]);
+  }, [isComplete, code, theme, diagramId]);
 
   return (
     <pre ref={ref} className={cn("bg-muted rounded-b-lg p-2 text-center [&_svg]:mx-auto", className)} />
