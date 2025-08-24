@@ -45,7 +45,8 @@ const MIGRATION_FILES = [
   '023-navigation-multi-roles.sql',
   '024-model-role-restrictions.sql',
   '026-add-model-compare-source.sql',
-  '027-messages-model-tracking.sql'
+  '027-messages-model-tracking.sql',
+  '028-nexus-schema.sql'
   // ADD NEW MIGRATIONS HERE - they will run once and be tracked
 ];
 
@@ -382,6 +383,7 @@ function splitSqlStatements(sql: string): string[] {
     // Check if we're entering a block (CREATE TYPE, CREATE FUNCTION, etc.)
     if (trimmedLine.startsWith('CREATE TYPE') || 
         trimmedLine.startsWith('CREATE FUNCTION') ||
+        trimmedLine.startsWith('CREATE OR REPLACE FUNCTION') ||
         trimmedLine.startsWith('DROP TYPE')) {
       inBlock = true;
     }
@@ -391,7 +393,7 @@ function splitSqlStatements(sql: string): string[] {
     // Check if this line ends with a semicolon
     if (line.trim().endsWith(';')) {
       // If we're in a block, check if this is the end
-      if (inBlock && (trimmedLine === ');' || trimmedLine.endsWith(');'))) {
+      if (inBlock && (trimmedLine === ');' || trimmedLine.endsWith(');') || trimmedLine.endsWith("' LANGUAGE PLPGSQL;"))) {
         inBlock = false;
       }
       
