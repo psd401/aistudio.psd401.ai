@@ -1,6 +1,7 @@
 'use client'
 
 import { ReactNode } from 'react'
+import { NavbarNested } from '@/components/navigation/navbar-nested'
 
 interface NexusLayoutProps {
   children: ReactNode
@@ -8,10 +9,13 @@ interface NexusLayoutProps {
 
 export default function NexusLayout({ children }: NexusLayoutProps) {
   return (
-    <div className="flex h-screen bg-background">
-      <div className="flex flex-1 flex-col">
-        {children}
-      </div>
+    <div className="flex min-h-screen pt-14 bg-white">
+      <NavbarNested />
+      <main className="flex-1 lg:pl-[68px]">
+        <div className="bg-white h-full">
+          {children}
+        </div>
+      </main>
     </div>
   )
 }

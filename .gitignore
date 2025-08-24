@@ -49,3 +49,4 @@ next-env.d.ts
 /playwright/.cache/
 /tests/e2e/screenshots/
 /tests/e2e/videos/
+/.playwright-mcp/

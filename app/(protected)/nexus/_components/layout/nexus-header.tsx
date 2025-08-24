@@ -12,7 +12,7 @@ interface NexusHeaderProps {
 
 export function NexusHeader({ selectedModel, onModelChange, models, isLoadingModels }: NexusHeaderProps) {
   return (
-    <header className="border-b border-border bg-background px-4 py-3">
+    <header className="border-b border-border bg-white px-4 py-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold text-foreground">
