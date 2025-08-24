@@ -117,13 +117,44 @@ export type SelectAssistantArchitect = {
   updatedAt: Date;
 }
 
+export interface ToolInputFieldOptions {
+  values?: string[];
+  multiSelect?: boolean;
+  placeholder?: string;
+  [key: string]: unknown;
+}
+
+export interface NexusCapabilities {
+  canvas: boolean;
+  thinking: boolean;
+  artifacts: boolean;
+  grounding: boolean;
+  reasoning: boolean;
+  webSearch: boolean;
+  computerUse: boolean;
+  responsesAPI: boolean;
+  codeExecution: boolean;
+  promptCaching: boolean;
+  contextCaching: boolean;
+  workspaceTools: boolean;
+  codeInterpreter: boolean;
+  [key: string]: boolean; // Allow string indexing for dynamic access
+}
+
+export interface ProviderMetadata {
+  max_context_length?: number;
+  supports_streaming?: boolean;
+  supports_function_calling?: boolean;
+  [key: string]: unknown;
+}
+
 export type SelectToolInputField = {
   id: number;
   assistantArchitectId: number;
   name: string;
   label: string;
   fieldType: string;
-  options: any | null;
+  options: ToolInputFieldOptions | string | null;
   position: number;
   createdAt: Date;
   updatedAt: Date;
@@ -242,6 +273,18 @@ export type SelectAiModel = {
   createdAt: Date;
   updatedAt: Date;
   allowedRoles?: string | null;
+  // Pricing fields
+  inputCostPer1kTokens: number | null;
+  outputCostPer1kTokens: number | null;
+  cachedInputCostPer1kTokens: number | null;
+  pricingUpdatedAt: Date | null;
+  // Performance fields
+  averageLatencyMs: number | null;
+  maxConcurrency: number | null;
+  supportsBatching: boolean | null;
+  // Capability/Metadata fields (JSONB)
+  nexusCapabilities: NexusCapabilities | null;
+  providerMetadata: ProviderMetadata | null;
 }
 
 // =====================================================
