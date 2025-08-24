@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useCallback } from 'react'
 import { NexusShell } from './_components/layout/nexus-shell'
 import { ErrorBoundary } from './_components/error-boundary'
+import { ConversationPanel } from './_components/conversation-panel'
 import { useModelsWithPersistence } from '@/lib/hooks/use-models'
 import { createNexusAttachmentAdapter } from '@/lib/nexus/attachment-adapters'
 import type { SelectAiModel } from '@/types'
@@ -88,22 +89,25 @@ export default function NexusPage() {
         models={models}
         isLoadingModels={isLoadingModels}
       >
-        {selectedModel ? (
-          <AssistantRuntimeProvider 
-            key={`${selectedModel.modelId}-${selectedModel.provider}`} 
-            runtime={runtime}
-          >
-            <div className="flex h-full flex-col">
-              <Thread />
+        <div className="relative h-full">
+          {selectedModel ? (
+            <AssistantRuntimeProvider 
+              key={`${selectedModel.modelId}-${selectedModel.provider}`} 
+              runtime={runtime}
+            >
+              <div className="flex h-full flex-col">
+                <Thread />
+              </div>
+              <ConversationPanel />
+            </AssistantRuntimeProvider>
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <div className="text-center">
+                <div className="text-lg text-muted-foreground">Please select a model to start chatting</div>
+              </div>
             </div>
-          </AssistantRuntimeProvider>
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            <div className="text-center">
-              <div className="text-lg text-muted-foreground">Please select a model to start chatting</div>
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </NexusShell>
     </ErrorBoundary>
   )
