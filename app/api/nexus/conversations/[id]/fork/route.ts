@@ -1,6 +1,6 @@
 import { getServerSession } from '@/lib/auth/server-session';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
-import { executeSQL } from '@/lib/streaming/nexus/db-helpers';
+import { executeSQL, executeSQLTransaction } from '@/lib/streaming/nexus/db-helpers';
 import { transformSnakeToCamel } from '@/lib/db/field-mapper';
 
 
@@ -78,37 +78,44 @@ export async function POST(
       atMessageId: body.atMessageId
     };
     
-    const forkResult = await executeSQL(`
-      INSERT INTO nexus_conversations (
-        user_id,
-        title,
-        provider,
-        model_used,
-        external_id,
-        cache_key,
-        message_count,
-        total_tokens,
-        metadata,
-        created_at,
-        updated_at
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, 0, 0, $7, NOW(), NOW()
-      ) RETURNING 
-        id,
-        title,
-        provider,
-        model_used,
-        metadata,
-        created_at,
-        updated_at
-    `, [
-      userId,
-      newTitle,
-      original.provider as string,
-      original.model_used as string,
-      null, // New external_id will be set on first message
-      null, // New cache_key will be generated
-      newMetadata as Record<string, unknown>
+    // Execute fork operation in a transaction to ensure atomicity
+    const results = await executeSQLTransaction([
+      // Create the forked conversation
+      {
+        sql: `
+          INSERT INTO nexus_conversations (
+            user_id,
+            title,
+            provider,
+            model_used,
+            external_id,
+            cache_key,
+            message_count,
+            total_tokens,
+            metadata,
+            created_at,
+            updated_at
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, 0, 0, $7, NOW(), NOW()
+          ) RETURNING 
+            id,
+            title,
+            provider,
+            model_used,
+            metadata,
+            created_at,
+            updated_at
+        `,
+        params: [
+          userId,
+          newTitle,
+          original.provider as string,
+          original.model_used as string,
+          null, // New external_id will be set on first message
+          null, // New cache_key will be generated
+          newMetadata as Record<string, unknown>
+        ]
+      }
     ]);
     
     const forkedConversation = transformSnakeToCamel<{
@@ -119,33 +126,38 @@ export async function POST(
       metadata: Record<string, unknown>;
       createdAt: string;
       updatedAt: string;
-    }>(forkResult[0]);
+    }>(results[0][0]);
     
-    // Record fork event in both conversations
-    await executeSQL(`
-      INSERT INTO nexus_conversation_events (
-        conversation_id,
-        event_type,
-        event_data,
-        created_at
-      ) VALUES 
-        ($1, $2, $3, NOW()),
-        ($4, $5, $6, NOW())
-    `, [
-      originalConversationId,
-      'conversation_forked',
-      JSON.stringify({
-        forkedTo: forkedConversation.id,
-        atMessageId: body.atMessageId,
-        forkedBy: userId
-      }),
-      forkedConversation.id as string,
-      'conversation_created_from_fork',
-      JSON.stringify({
-        forkedFrom: originalConversationId,
-        atMessageId: body.atMessageId,
-        createdBy: userId
-      })
+    // Record fork events in a second transaction (after we have the new conversation ID)
+    await executeSQLTransaction([
+      {
+        sql: `
+          INSERT INTO nexus_conversation_events (
+            conversation_id,
+            event_type,
+            event_data,
+            created_at
+          ) VALUES 
+            ($1, $2, $3, NOW()),
+            ($4, $5, $6, NOW())
+        `,
+        params: [
+          originalConversationId,
+          'conversation_forked',
+          JSON.stringify({
+            forkedTo: forkedConversation.id,
+            atMessageId: body.atMessageId,
+            forkedBy: userId
+          }),
+          forkedConversation.id as string,
+          'conversation_created_from_fork',
+          JSON.stringify({
+            forkedFrom: originalConversationId,
+            atMessageId: body.atMessageId,
+            createdBy: userId
+          })
+        ]
+      }
     ]);
     
     // If OpenAI with external_id, handle forking at provider level

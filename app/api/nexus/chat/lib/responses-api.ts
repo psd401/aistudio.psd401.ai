@@ -1,4 +1,5 @@
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
+import { ErrorFactories } from '@/lib/error-utils';
 import OpenAI from 'openai';
 
 const log = createLogger({ module: 'responses-api' });
@@ -18,6 +19,16 @@ export interface ResponsesAPIResult {
     reasoningIncluded?: boolean;
     tokensSaved?: number;
   };
+}
+
+interface OpenAIRequestParams {
+  model: string;
+  messages: OpenAI.Chat.ChatCompletionMessageParam[];
+  stream: true;
+  store?: boolean;
+  metadata?: Record<string, string>;
+  previous_response_id?: string;
+  include?: string[];
 }
 
 export class OpenAIResponsesAPIAdapter {
@@ -47,7 +58,7 @@ export class OpenAIResponsesAPIAdapter {
     });
     
     try {
-      const params: any = {
+      const params: OpenAIRequestParams = {
         model: modelId,
         messages,
         stream: true,
@@ -55,7 +66,13 @@ export class OpenAIResponsesAPIAdapter {
       };
       
       if (options?.metadata) {
-        params.metadata = options.metadata;
+        // Convert metadata to string values as required by OpenAI
+        params.metadata = Object.fromEntries(
+          Object.entries(options.metadata).map(([key, value]) => [
+            key,
+            typeof value === 'string' ? value : JSON.stringify(value)
+          ])
+        );
       }
       
       // Add reasoning support for compatible models
@@ -65,8 +82,10 @@ export class OpenAIResponsesAPIAdapter {
       
       const stream = await this.client.chat.completions.create(params);
       
-      // Extract response ID from first chunk
-      const responseId = await this.extractResponseId(stream as unknown as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>);
+      // Extract response ID and get teed stream
+      const { responseId, stream: teedStream } = await this.extractResponseIdAndTeeStream(
+        stream as unknown as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>
+      );
       
       timer({ status: 'success' });
       log.info('Conversation created with Responses API', {
@@ -77,7 +96,7 @@ export class OpenAIResponsesAPIAdapter {
       
       return {
         responseId,
-        stream: stream as unknown as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>,
+        stream: teedStream,
         metadata: {
           reasoningIncluded: options?.includeReasoning && this.supportsReasoning(modelId)
         }
@@ -113,7 +132,7 @@ export class OpenAIResponsesAPIAdapter {
     });
     
     try {
-      const params: any = {
+      const params: OpenAIRequestParams = {
         model: modelId,
         messages: [{ role: 'user', content: message }],
         stream: true,
@@ -128,8 +147,10 @@ export class OpenAIResponsesAPIAdapter {
       
       const stream = await this.client.chat.completions.create(params);
       
-      // Extract new response ID
-      const responseId = await this.extractResponseId(stream as unknown as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>);
+      // Extract new response ID and get teed stream
+      const { responseId, stream: teedStream } = await this.extractResponseIdAndTeeStream(
+        stream as unknown as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>
+      );
       
       timer({ status: 'success' });
       log.info('Conversation continued with Responses API', {
@@ -141,7 +162,7 @@ export class OpenAIResponsesAPIAdapter {
       
       return {
         responseId,
-        stream: stream as unknown as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>,
+        stream: teedStream,
         metadata: {
           cached: true,
           tokensSaved: this.estimateTokensSaved()
@@ -234,23 +255,45 @@ export class OpenAIResponsesAPIAdapter {
   }
   
   /**
-   * Extract response ID from the stream
+   * Extract response ID and return both ID and teed stream
    */
-  private async extractResponseId(
+  private async extractResponseIdAndTeeStream(
     stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>
-  ): Promise<string> {
-    // Get first chunk to extract response ID
+  ): Promise<{ responseId: string; stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk> }> {
     const iterator = stream[Symbol.asyncIterator]();
     const firstChunk = await iterator.next();
     
     if (!firstChunk.value?.id) {
-      throw new Error('No response ID found in stream');
+      throw ErrorFactories.externalServiceError('OpenAI', new Error('No response ID found in stream'));
     }
     
-    // Note: Stream is consumed after extracting ID - would need refactoring to replay
+    const responseId = firstChunk.value.id;
     
-    // Return the response ID
-    return firstChunk.value.id;
+    // Create a new stream that includes the first chunk
+    const teedStream = this.createTeedStream(firstChunk.value, iterator);
+    
+    return {
+      responseId,
+      stream: teedStream
+    };
+  }
+
+  /**
+   * Create a stream that prepends the first chunk to the remaining stream
+   */
+  private async *createTeedStream(
+    firstChunk: OpenAI.Chat.Completions.ChatCompletionChunk,
+    iterator: AsyncIterator<OpenAI.Chat.Completions.ChatCompletionChunk>
+  ): AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk> {
+    // Yield the first chunk
+    yield firstChunk;
+    
+    // Yield the remaining chunks
+    let result = await iterator.next();
+    while (!result.done) {
+      yield result.value;
+      result = await iterator.next();
+    }
   }
   
   /**

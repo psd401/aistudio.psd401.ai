@@ -1,6 +1,49 @@
 import { createLogger, generateRequestId } from '@/lib/logger';
 import OpenAI from 'openai';
 
+// Extended chunk interface for reasoning and usage data
+interface ExtendedChunk {
+  reasoning?: {
+    encrypted_content?: string;
+  };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    reasoning_tokens?: number;
+  };
+}
+
+// Artifact interface for Anthropic streams
+interface Artifact {
+  id: string;
+  type: string;
+  name?: string;
+  content?: unknown;
+}
+
+// Anthropic stream chunk interface
+interface AnthropicChunk {
+  type: string;
+  delta?: {
+    text?: string;
+  };
+  id?: string;
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+  };
+}
+
+// Gemini stream chunk interface  
+interface GeminiChunk {
+  text?: string;
+  functionCall?: {
+    name: string;
+    args?: unknown;
+  };
+}
+
 const log = createLogger({ module: 'stream-handler' });
 
 export interface StreamEvent {
@@ -74,14 +117,14 @@ export class NexusStreamHandler {
         }
         
         // Handle reasoning traces (for o1, o3 models)
-        const chunkAny = chunk as any;
-        if (chunkAny.reasoning?.encrypted_content) {
+        const extendedChunk = chunk as ExtendedChunk;
+        if (extendedChunk.reasoning?.encrypted_content) {
           const event: StreamEvent = {
             type: 'thinking',
             content: '',
             metadata: {
               responseId,
-              thinkingTrace: chunkAny.reasoning.encrypted_content
+              thinkingTrace: extendedChunk.reasoning.encrypted_content
             }
           };
           
@@ -89,12 +132,12 @@ export class NexusStreamHandler {
         }
         
         // Capture usage data
-        if (chunkAny.usage) {
+        if (extendedChunk.usage) {
           usage = {
-            promptTokens: chunkAny.usage.prompt_tokens || 0,
-            completionTokens: chunkAny.usage.completion_tokens || 0,
-            totalTokens: chunkAny.usage.total_tokens || 0,
-            reasoningTokens: chunkAny.usage.reasoning_tokens
+            promptTokens: extendedChunk.usage.prompt_tokens || 0,
+            completionTokens: extendedChunk.usage.completion_tokens || 0,
+            totalTokens: extendedChunk.usage.total_tokens || 0,
+            reasoningTokens: extendedChunk.usage.reasoning_tokens
           };
         }
       }
@@ -138,7 +181,7 @@ export class NexusStreamHandler {
    * Handle Anthropic streaming with artifacts
    */
   async *handleAnthropicStream(
-    stream: AsyncIterable<any>,
+    stream: AsyncIterable<AnthropicChunk>,
     conversationId: string
   ): AsyncGenerator<Uint8Array> {
     const requestId = generateRequestId();
@@ -150,7 +193,7 @@ export class NexusStreamHandler {
     
     try {
       let totalContent = '';
-      const artifacts: any[] = [];
+      const artifacts: Artifact[] = [];
       
       for await (const chunk of stream) {
         // Handle text content
@@ -168,13 +211,14 @@ export class NexusStreamHandler {
         
         // Handle artifacts
         if (chunk.type === 'artifact') {
-          artifacts.push(chunk);
+          const artifact = chunk as unknown as Artifact;
+          artifacts.push(artifact);
           
           const event: StreamEvent = {
             type: 'artifact',
             content: JSON.stringify(chunk),
             metadata: {
-              artifactId: chunk.id
+              artifactId: artifact.id
             }
           };
           
@@ -228,7 +272,7 @@ export class NexusStreamHandler {
    * Handle Google Gemini streaming
    */
   async *handleGeminiStream(
-    stream: AsyncIterable<any>,
+    stream: AsyncIterable<GeminiChunk>,
     conversationId: string
   ): AsyncGenerator<Uint8Array> {
     const requestId = generateRequestId();

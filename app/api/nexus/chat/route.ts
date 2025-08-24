@@ -1,9 +1,11 @@
 import { getServerSession } from '@/lib/auth/server-session';
 import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from '@/lib/logger';
 import { ErrorFactories } from '@/lib/error-utils';
+import { getSetting } from '@/lib/settings-manager';
 import { createResponsesAPIAdapter } from './lib/responses-api';
 import { streamHandler } from './lib/stream-handler';
-import { executeSQL } from '@/lib/streaming/nexus/db-helpers';
+import { executeSQL, executeSQLTransaction } from '@/lib/streaming/nexus/db-helpers';
+import OpenAI from 'openai';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -37,8 +39,67 @@ export async function POST(req: Request) {
     // 1. Parse and validate request
     const body: ChatRequest = await req.json();
     
-    log.debug('Request parsed', {
+    // Validate required fields
+    if (!body.message || typeof body.message !== 'string') {
+      log.warn('Invalid message field', { message: typeof body.message });
+      timer({ status: 'error', reason: 'validation' });
+      return new Response(
+        JSON.stringify({ error: 'Invalid or missing message' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Validate message length (prevent abuse)
+    if (body.message.length > 50000) {
+      log.warn('Message too long', { length: body.message.length });
+      timer({ status: 'error', reason: 'validation' });
+      return new Response(
+        JSON.stringify({ error: 'Message exceeds maximum length (50,000 characters)' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Validate modelId
+    if (!body.modelId || typeof body.modelId !== 'string') {
+      log.warn('Invalid modelId field', { modelId: typeof body.modelId });
+      timer({ status: 'error', reason: 'validation' });
+      return new Response(
+        JSON.stringify({ error: 'Invalid or missing modelId' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Validate optional fields if provided
+    if (body.conversationId && typeof body.conversationId !== 'string') {
+      log.warn('Invalid conversationId field', { conversationId: typeof body.conversationId });
+      timer({ status: 'error', reason: 'validation' });
+      return new Response(
+        JSON.stringify({ error: 'Invalid conversationId format' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    if (body.previousResponseId && typeof body.previousResponseId !== 'string') {
+      log.warn('Invalid previousResponseId field', { previousResponseId: typeof body.previousResponseId });
+      timer({ status: 'error', reason: 'validation' });
+      return new Response(
+        JSON.stringify({ error: 'Invalid previousResponseId format' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    if (body.provider && typeof body.provider !== 'string') {
+      log.warn('Invalid provider field', { provider: typeof body.provider });
+      timer({ status: 'error', reason: 'validation' });
+      return new Response(
+        JSON.stringify({ error: 'Invalid provider format' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    log.debug('Request parsed and validated', {
       hasMessage: !!body.message,
+      messageLength: body.message.length,
       conversationId: body.conversationId,
       previousResponseId: body.previousResponseId,
       modelId: body.modelId,
@@ -73,13 +134,19 @@ export async function POST(req: Request) {
     
   } catch (error) {
     timer({ status: 'error' });
+    
+    // Log detailed error internally for debugging
     log.error('Chat request failed', {
-      error: error instanceof Error ? error.message : String(error)
+      requestId,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
     });
     
+    // Return generic error to client to prevent information leakage
     return new Response(
       JSON.stringify({
-        error: error instanceof Error ? error.message : 'Internal server error'
+        error: 'An error occurred processing your request',
+        requestId // Include for support reference
       }),
       {
         status: 500,
@@ -107,17 +174,17 @@ async function handleOpenAIResponsesAPI(
   });
   
   try {
-    // Get API key from settings
-    const apiKey = process.env.OPENAI_API_KEY;
+    // Get API key from settings manager
+    const apiKey = await getSetting('OPENAI_API_KEY');
     if (!apiKey) {
-      throw new Error('OpenAI API key not configured');
+      throw ErrorFactories.externalServiceError('OpenAI', new Error('API key not configured'));
     }
     
     const adapter = createResponsesAPIAdapter(apiKey);
     
     let conversationId = request.conversationId;
     let responseId: string;
-    let stream: any;
+    let stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
     
     // Create or get conversation
     if (!conversationId) {
@@ -201,32 +268,38 @@ async function handleOpenAIResponsesAPI(
       });
     }
     
-    // Update conversation with response ID
-    await executeSQL(`
-      UPDATE nexus_conversations 
-      SET external_id = $1, updated_at = NOW(), last_message_at = NOW()
-      WHERE id = $2
-    `, [responseId, conversationId]);
-    
-    // Record event
-    await executeSQL(`
-      INSERT INTO nexus_conversation_events (
-        conversation_id, event_type, event_data, created_at
-      ) VALUES ($1, $2, $3, NOW())
-    `, [
-      conversationId,
-      'message_sent',
-      JSON.stringify({
-        responseId,
-        previousResponseId: request.previousResponseId,
-        provider: 'openai',
-        modelId: request.modelId,
-        useResponsesAPI: true
-      })
+    // Update conversation and record event in a transaction
+    await executeSQLTransaction([
+      {
+        sql: `
+          UPDATE nexus_conversations 
+          SET external_id = $1, updated_at = NOW(), last_message_at = NOW()
+          WHERE id = $2
+        `,
+        params: [responseId, conversationId]
+      },
+      {
+        sql: `
+          INSERT INTO nexus_conversation_events (
+            conversation_id, event_type, event_data, created_at
+          ) VALUES ($1, $2, $3, NOW())
+        `,
+        params: [
+          conversationId,
+          'message_sent',
+          JSON.stringify({
+            responseId,
+            previousResponseId: request.previousResponseId,
+            provider: 'openai',
+            modelId: request.modelId,
+            useResponsesAPI: true
+          })
+        ]
+      }
     ]);
     
     // Create SSE stream
-    const sseGenerator = streamHandler.handleOpenAIStream(stream as AsyncIterable<any>, responseId);
+    const sseGenerator = streamHandler.handleOpenAIStream(stream, responseId);
     const readableStream = streamHandler.createReadableStream(sseGenerator);
     
     timer({ status: 'success' });
