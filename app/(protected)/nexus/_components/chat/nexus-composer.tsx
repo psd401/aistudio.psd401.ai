@@ -41,7 +41,7 @@ export function NexusComposer() {
                 : "Type your message... (⌘+Enter to send)"
             }
             disabled={isRunning}
-            className="min-h-[20px] w-full resize-none border-0 bg-transparent p-0 text-sm placeholder:text-muted-foreground focus-visible:ring-0"
+            className="min-h-[20px] w-full resize-none border-0 bg-white dark:bg-gray-900 p-0 text-base placeholder:text-muted-foreground focus-visible:ring-0"
           />
         </div>
 
