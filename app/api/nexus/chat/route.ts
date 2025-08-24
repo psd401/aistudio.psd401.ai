@@ -1,7 +1,7 @@
 import { UIMessage } from 'ai';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
-import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
+import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from '@/lib/logger';
 import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
 import type { StreamRequest } from '@/lib/streaming/types';
 import { executeSQL } from '@/lib/db/data-api-adapter';
@@ -30,14 +30,12 @@ export async function POST(req: Request) {
     const provider = body.provider || 'openai';
     const existingConversationId = body.conversationId;
     
-    log.info('Request parsed - DEBUG', {
+    log.info('Request parsed', sanitizeForLogging({
       messageCount: messages.length,
       modelId,
       provider,
-      hasConversationId: !!existingConversationId,
-      messagesContent: JSON.stringify(messages),
-      fullBody: JSON.stringify(body)
-    });
+      hasConversationId: !!existingConversationId
+    }));
     
     // 2. Authenticate user
     const session = await getServerSession();
@@ -47,7 +45,7 @@ export async function POST(req: Request) {
       return new Response('Unauthorized', { status: 401 });
     }
     
-    log.debug('User authenticated', { userId: session.sub });
+    log.debug('User authenticated', sanitizeForLogging({ userId: session.sub }));
     
     // 3. Get current user
     const currentUser = await getCurrentUserAction();
@@ -80,11 +78,11 @@ export async function POST(req: Request) {
     const modelConfig = modelResult[0];
     const dbModelId = modelConfig.id as number;
     
-    log.info('Model configured', {
+    log.info('Model configured', sanitizeForLogging({
       provider: modelConfig.provider,
       modelId: modelConfig.model_id,
       dbId: dbModelId
-    });
+    }));
     
     // 5. Handle conversation (create new or use existing)
     let conversationId: string = existingConversationId;
@@ -112,30 +110,47 @@ export async function POST(req: Request) {
       
       conversationId = createResult[0].id as string;
       
-      log.info('Created new Nexus conversation', { 
+      log.info('Created new Nexus conversation', sanitizeForLogging({ 
         conversationId,
         userId
-      });
+      }));
     }
     
     // 6. Save user message to nexus_messages
     const lastMessage = messages[messages.length - 1];
     if (lastMessage && lastMessage.role === 'user') {
-      // Extract text content from message parts
+      // Extract text content from message
       let userContent = '';
-      let parts: unknown[] = [];
+      let serializableParts: unknown[] = [];
       
-      // Messages now use parts structure
-      const messageParts = (lastMessage as { parts?: unknown[] }).parts;
-      if (messageParts && Array.isArray(messageParts)) {
-        parts = messageParts;
-        // Find the text part to extract content
-        const textPart = messageParts.find((part: unknown) => {
-          const p = part as { type?: string; text?: string };
-          return p.type === 'text';
-        }) as { text?: string } | undefined;
-        if (textPart && textPart.text) {
-          userContent = textPart.text;
+      // Handle assistant-ui message format - look for content array
+      const messageContent = (lastMessage as UIMessage & { 
+        content?: string | Array<{ type: string; text?: string; image?: string }> 
+      }).content;
+      
+      if (messageContent) {
+        if (typeof messageContent === 'string') {
+          // Simple string content
+          userContent = messageContent;
+          serializableParts = [{ type: 'text', text: messageContent }];
+        } else if (Array.isArray(messageContent)) {
+          // Content parts array (includes attachments from assistant-ui)
+          messageContent.forEach((part) => {
+            if (part.type === 'text' && part.text) {
+              userContent += (userContent ? ' ' : '') + part.text;
+              serializableParts.push({ type: 'text', text: part.text });
+            } else if (part.type === 'image' && part.image) {
+              // Store truncated reference only - NOT the full base64 data
+              serializableParts.push({ 
+                type: 'image',
+                // Only store metadata, not the actual image data
+                metadata: {
+                  hasImage: true,
+                  prefix: part.image.substring(0, 50) // Just enough to identify type
+                }
+              });
+            }
+          });
         }
       }
       
@@ -151,7 +166,7 @@ export async function POST(req: Request) {
           { name: 'conversationId', value: { stringValue: conversationId } },
           { name: 'role', value: { stringValue: 'user' } },
           { name: 'content', value: { stringValue: userContent || '' } },
-          { name: 'parts', value: { stringValue: JSON.stringify(parts) } },
+          { name: 'parts', value: { stringValue: JSON.stringify(serializableParts) } },
           { name: 'modelId', value: { longValue: dbModelId } },
           { name: 'metadata', value: { stringValue: JSON.stringify({}) } }
         ]
@@ -174,20 +189,20 @@ export async function POST(req: Request) {
     const systemPrompt = `You are a helpful AI assistant in the Nexus interface.`;
     
     // 8. Use unified streaming service (same as regular chat)
-    log.info('Using unified streaming service', { 
+    log.info('Using unified streaming service', sanitizeForLogging({ 
       provider,
       model: modelId,
       messagesBeforeStream: messages ? messages.length : 'undefined'
-    });
+    }));
     
     // Create streaming request with callbacks
     // Validate messages before creating request
     if (!messages || !Array.isArray(messages)) {
-      log.error('Messages invalid before streaming', {
-        messages,
+      log.error('Messages invalid before streaming', sanitizeForLogging({
+        messagesProvided: !!messages,
         isArray: Array.isArray(messages),
         type: typeof messages
-      });
+      }));
       return new Response(
         JSON.stringify({ error: 'Invalid messages array' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
@@ -209,13 +224,13 @@ export async function POST(req: Request) {
       },
       callbacks: {
         onFinish: async ({ text, usage, finishReason }) => {
-          log.info('Stream finished, saving assistant message', {
+          log.info('Stream finished, saving assistant message', sanitizeForLogging({
             hasText: !!text,
             textLength: text?.length || 0,
             hasUsage: !!usage,
             finishReason,
             conversationId
-          });
+          }));
           
           try {
             // Save assistant message to nexus_messages
@@ -255,14 +270,14 @@ export async function POST(req: Request) {
               ]
             );
             
-            log.info('Assistant message saved successfully', {
+            log.info('Assistant message saved successfully', sanitizeForLogging({
               conversationId
-            });
+            }));
           } catch (saveError) {
-            log.error('Failed to save assistant message', {
-              error: saveError,
+            log.error('Failed to save assistant message', sanitizeForLogging({
+              error: saveError instanceof Error ? saveError.message : String(saveError),
               conversationId
-            });
+            }));
             // Error is logged but not thrown to avoid breaking the stream
           }
           
@@ -275,20 +290,19 @@ export async function POST(req: Request) {
       }
     };
     
-    log.info('About to call streaming service', {
+    log.info('About to call streaming service', sanitizeForLogging({
       hasStreamRequest: !!streamRequest,
       hasMessages: !!streamRequest.messages,
-      messageCount: streamRequest.messages?.length,
-      firstMessage: streamRequest.messages?.[0]
-    });
+      messageCount: streamRequest.messages?.length
+    }));
     
     const streamResponse = await unifiedStreamingService.stream(streamRequest);
     
     // Return unified streaming response
-    log.info('Returning unified streaming response', {
+    log.info('Returning unified streaming response', sanitizeForLogging({
       conversationId,
       requestId
-    });
+    }));
     
     // Send conversation ID header for new conversations
     const responseHeaders: Record<string, string> = {
