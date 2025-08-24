@@ -1,24 +1,46 @@
 'use client'
 
-import { 
-  ComposerPrimitive,
-  useThread
-} from '@assistant-ui/react'
+import { FormEvent, KeyboardEvent } from 'react'
 import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import { Send, Paperclip, Square } from 'lucide-react'
 
-export function NexusComposer() {
-  const thread = useThread()
-  const isRunning = thread.isRunning
+interface NexusComposerProps {
+  input: string
+  isLoading: boolean
+  onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void
+  onSubmit: (e: FormEvent<HTMLFormElement>) => void
+  onStop?: () => void
+  disabled?: boolean
+  placeholder?: string
+}
 
-  const handleStop = () => {
-    // Stop functionality - placeholder for now
-    // Will be implemented when thread.stop is available
+export function NexusComposer({
+  input,
+  isLoading,
+  onInputChange,
+  onSubmit,
+  onStop,
+  disabled,
+  placeholder = "Type your message... (⌘+Enter to send)"
+}: NexusComposerProps) {
+  
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Submit on Cmd/Ctrl+Enter
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      if (!disabled && !isLoading && input.trim()) {
+        const form = e.currentTarget.form
+        if (form) {
+          form.requestSubmit()
+        }
+      }
+    }
   }
 
   return (
-    <ComposerPrimitive.Root className="flex w-full">
+    <form onSubmit={onSubmit} className="flex w-full">
       <div className="flex w-full items-end gap-3 rounded-2xl border border-border bg-background p-3 shadow-sm transition-all focus-within:border-primary focus-within:shadow-md">
         {/* Attachment Button */}
         <Button
@@ -26,27 +48,31 @@ export function NexusComposer() {
           variant="ghost"
           size="sm"
           className="h-8 w-8 flex-shrink-0 rounded-full"
-          disabled={isRunning}
+          disabled={isLoading || disabled}
         >
           <Paperclip size={16} />
         </Button>
 
-        {/* Text Input - Let ComposerPrimitive.Input manage its own state */}
+        {/* Text Input */}
         <div className="flex-1">
-          <ComposerPrimitive.Input 
+          <Textarea
+            value={input}
+            onChange={onInputChange}
+            onKeyDown={handleKeyDown}
             autoFocus
             placeholder={
-              isRunning 
+              isLoading 
                 ? "AI is responding..." 
-                : "Type your message... (⌘+Enter to send)"
+                : placeholder
             }
-            disabled={isRunning}
+            disabled={isLoading || disabled}
             className="min-h-[20px] w-full resize-none border-0 bg-white dark:bg-gray-900 p-0 text-base placeholder:text-muted-foreground focus-visible:ring-0"
+            rows={1}
           />
         </div>
 
         {/* Send/Cancel Button */}
-        {isRunning ? (
+        {isLoading && onStop ? (
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
@@ -56,7 +82,7 @@ export function NexusComposer() {
               type="button"
               variant="ghost"
               size="sm"
-              onClick={handleStop}
+              onClick={onStop}
               className="h-8 w-8 flex-shrink-0 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               <Square size={12} />
@@ -68,17 +94,17 @@ export function NexusComposer() {
             animate={{ scale: 1 }}
             exit={{ scale: 0 }}
           >
-            <ComposerPrimitive.Send asChild>
-              <Button
-                size="sm"
-                className="h-8 w-8 flex-shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              >
-                <Send size={12} />
-              </Button>
-            </ComposerPrimitive.Send>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={disabled || isLoading || !input.trim()}
+              className="h-8 w-8 flex-shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              <Send size={12} />
+            </Button>
           </motion.div>
         )}
       </div>
-    </ComposerPrimitive.Root>
+    </form>
   )
 }
