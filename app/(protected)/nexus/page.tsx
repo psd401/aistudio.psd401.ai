@@ -9,6 +9,7 @@ import { useEffect, useMemo, useCallback } from 'react'
 import { NexusShell } from './_components/layout/nexus-shell'
 import { ErrorBoundary } from './_components/error-boundary'
 import { useModelsWithPersistence } from '@/lib/hooks/use-models'
+import { createNexusAttachmentAdapter } from '@/lib/nexus/attachment-adapters'
 import type { SelectAiModel } from '@/types'
 
 export default function NexusPage() {
@@ -54,8 +55,13 @@ export default function NexusPage() {
     });
   }, [selectedModel?.modelId, selectedModel?.provider]);
 
-  // Use the transport with the runtime
-  const runtime = useChatRuntime({ transport })
+  // Use the transport with the runtime and attachment adapters
+  const runtime = useChatRuntime({ 
+    transport,
+    adapters: {
+      attachments: createNexusAttachmentAdapter(),
+    }
+  })
   
   // Show loading state while checking authentication
   if (sessionStatus === 'loading') {

@@ -125,18 +125,20 @@ export async function POST(req: Request) {
       let userContent = '';
       let parts: unknown[] = [];
       
-      // Messages now use parts structure
+      // Messages now use parts structure which may include attachments
       const messageParts = (lastMessage as { parts?: unknown[] }).parts;
       if (messageParts && Array.isArray(messageParts)) {
         parts = messageParts;
-        // Find the text part to extract content
-        const textPart = messageParts.find((part: unknown) => {
-          const p = part as { type?: string; text?: string };
-          return p.type === 'text';
-        }) as { text?: string } | undefined;
-        if (textPart && textPart.text) {
-          userContent = textPart.text;
-        }
+        
+        // Extract all content types (text, images, documents)
+        messageParts.forEach((part: unknown) => {
+          const p = part as { type?: string; text?: string; image?: string };
+          
+          if (p.type === 'text' && p.text) {
+            userContent += (userContent ? ' ' : '') + p.text;
+          }
+          // Images and other attachments are preserved in the parts array
+        });
       }
       
       await executeSQL(
