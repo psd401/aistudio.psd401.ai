@@ -46,7 +46,8 @@ const MIGRATION_FILES = [
   '024-model-role-restrictions.sql',
   '026-add-model-compare-source.sql',
   '027-messages-model-tracking.sql',
-  '028-nexus-schema.sql'
+  '028-nexus-schema.sql',
+  '029-ai-models-nexus-enhancements.sql'
   // ADD NEW MIGRATIONS HERE - they will run once and be tracked
 ];
 
