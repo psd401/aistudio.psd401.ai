@@ -30,13 +30,11 @@ export async function POST(req: Request) {
     const provider = body.provider || 'openai';
     const existingConversationId = body.conversationId;
     
-    log.info('Request parsed - DEBUG', {
+    log.info('Request parsed', {
       messageCount: messages.length,
       modelId,
       provider,
-      hasConversationId: !!existingConversationId,
-      messagesContent: JSON.stringify(messages),
-      fullBody: JSON.stringify(body)
+      hasConversationId: !!existingConversationId
     });
     
     // 2. Authenticate user
@@ -121,24 +119,43 @@ export async function POST(req: Request) {
     // 6. Save user message to nexus_messages
     const lastMessage = messages[messages.length - 1];
     if (lastMessage && lastMessage.role === 'user') {
-      // Extract text content from message parts
+      // Extract text content and serializable parts
       let userContent = '';
-      let parts: unknown[] = [];
+      let serializableParts: unknown[] = [];
       
-      // Messages now use parts structure which may include attachments
-      const messageParts = (lastMessage as { parts?: unknown[] }).parts;
-      if (messageParts && Array.isArray(messageParts)) {
-        parts = messageParts;
-        
-        // Extract all content types (text, images, documents)
-        messageParts.forEach((part: unknown) => {
-          const p = part as { type?: string; text?: string; image?: string };
-          
-          if (p.type === 'text' && p.text) {
-            userContent += (userContent ? ' ' : '') + p.text;
-          }
-          // Images and other attachments are preserved in the parts array
-        });
+      // Handle AI SDK v5 message format - messages can have content or parts
+      const messageContent = (lastMessage as UIMessage & { 
+        content?: string | Array<{ type: string; text?: string; image?: string; name?: string; mimeType?: string }> 
+      }).content;
+      
+      if (messageContent) {
+        if (typeof messageContent === 'string') {
+          // Simple string content
+          userContent = messageContent;
+          serializableParts = [{ type: 'text', text: messageContent }];
+        } else if (Array.isArray(messageContent)) {
+          // Content parts array (includes attachments)
+          messageContent.forEach((part) => {
+            if (part.type === 'text' && part.text) {
+              userContent += (userContent ? ' ' : '') + part.text;
+              serializableParts.push({ type: 'text', text: part.text });
+            } else if (part.type === 'image' && part.image) {
+              // Store image reference (data URL)
+              serializableParts.push({ 
+                type: 'image', 
+                image: part.image.substring(0, 100) + '...',  // Truncate for storage
+                name: part.name || 'image'
+              });
+            } else if (part.type === 'file' || part.type === 'document') {
+              // Store file/document reference
+              serializableParts.push({ 
+                type: part.type,
+                name: part.name || 'file',
+                mimeType: part.mimeType
+              });
+            }
+          });
+        }
       }
       
       await executeSQL(
@@ -153,7 +170,7 @@ export async function POST(req: Request) {
           { name: 'conversationId', value: { stringValue: conversationId } },
           { name: 'role', value: { stringValue: 'user' } },
           { name: 'content', value: { stringValue: userContent || '' } },
-          { name: 'parts', value: { stringValue: JSON.stringify(parts) } },
+          { name: 'parts', value: { stringValue: JSON.stringify(serializableParts) } },
           { name: 'modelId', value: { longValue: dbModelId } },
           { name: 'metadata', value: { stringValue: JSON.stringify({}) } }
         ]
