@@ -809,9 +809,30 @@ export async function createAIModel(modelData: {
   return result[0];
 }
 
-export async function updateAIModel(id: number, updates: Record<string, any>) {
+interface AIModelUpdateFields {
+  name?: string;
+  modelId?: string;
+  provider?: string;
+  description?: string;
+  capabilities?: string;
+  allowedRoles?: string;
+  maxTokens?: number;
+  isActive?: boolean;
+  chatEnabled?: boolean;
+  inputCostPer1kTokens?: number;
+  outputCostPer1kTokens?: number;
+  cachedInputCostPer1kTokens?: number;
+  pricingUpdatedAt?: Date | string;
+  averageLatencyMs?: number;
+  maxConcurrency?: number;
+  supportsBatching?: boolean;
+  nexusCapabilities?: Record<string, boolean> | string;
+  providerMetadata?: Record<string, unknown> | string;
+}
+
+export async function updateAIModel(id: number, updates: AIModelUpdateFields) {
   // Convert camelCase keys to snake_case for the database
-  const snakeCaseUpdates: Record<string, any> = {};
+  const snakeCaseUpdates: Record<string, string | number | boolean> = {};
   for (const [key, value] of Object.entries(updates)) {
     const snakeKey = toSnakeCase(key);
     // Handle JSONB fields - ensure they're strings

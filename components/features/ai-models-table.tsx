@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { IconPlus, IconEdit, IconTrash, IconChevronRight } from '@tabler/icons-react';
-import type { SelectAiModel } from '@/types';
+import type { SelectAiModel, NexusCapabilities, ProviderMetadata } from '@/types';
 import { MultiSelect, type MultiSelectOption } from '@/components/ui/multi-select';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
@@ -43,6 +43,7 @@ const ModelForm = React.memo(function ModelForm({
   const [performanceOpen, setPerformanceOpen] = useState(false);
   const [nexusCapabilitiesOpen, setNexusCapabilitiesOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [jsonError, setJsonError] = useState<string | null>(null);
   
   // Basic field handlers
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => 
@@ -69,22 +70,67 @@ const ModelForm = React.memo(function ModelForm({
   const handleActiveChange = (checked: boolean) => 
     setModelData({ ...modelData, active: checked });
 
-  // Pricing field handlers
-  const handleInputCostChange = (e: React.ChangeEvent<HTMLInputElement>) => 
-    setModelData({ ...modelData, inputCostPer1kTokens: e.target.value ? parseFloat(e.target.value) : null });
+  // Pricing field handlers with validation
+  const handleInputCostChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (!value) {
+      setModelData({ ...modelData, inputCostPer1kTokens: null });
+      return;
+    }
+    const parsed = parseFloat(value);
+    if (!isNaN(parsed) && parsed >= 0 && parsed <= 1000) {
+      setModelData({ ...modelData, inputCostPer1kTokens: parsed });
+    }
+  };
     
-  const handleOutputCostChange = (e: React.ChangeEvent<HTMLInputElement>) => 
-    setModelData({ ...modelData, outputCostPer1kTokens: e.target.value ? parseFloat(e.target.value) : null });
+  const handleOutputCostChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (!value) {
+      setModelData({ ...modelData, outputCostPer1kTokens: null });
+      return;
+    }
+    const parsed = parseFloat(value);
+    if (!isNaN(parsed) && parsed >= 0 && parsed <= 1000) {
+      setModelData({ ...modelData, outputCostPer1kTokens: parsed });
+    }
+  };
     
-  const handleCachedInputCostChange = (e: React.ChangeEvent<HTMLInputElement>) => 
-    setModelData({ ...modelData, cachedInputCostPer1kTokens: e.target.value ? parseFloat(e.target.value) : null });
+  const handleCachedInputCostChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (!value) {
+      setModelData({ ...modelData, cachedInputCostPer1kTokens: null });
+      return;
+    }
+    const parsed = parseFloat(value);
+    if (!isNaN(parsed) && parsed >= 0 && parsed <= 1000) {
+      setModelData({ ...modelData, cachedInputCostPer1kTokens: parsed });
+    }
+  };
 
-  // Performance field handlers
-  const handleLatencyChange = (e: React.ChangeEvent<HTMLInputElement>) => 
-    setModelData({ ...modelData, averageLatencyMs: e.target.value ? parseInt(e.target.value) : null });
+  // Performance field handlers with validation
+  const handleLatencyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (!value) {
+      setModelData({ ...modelData, averageLatencyMs: null });
+      return;
+    }
+    const parsed = parseInt(value);
+    if (!isNaN(parsed) && parsed >= 0 && parsed <= 30000) {
+      setModelData({ ...modelData, averageLatencyMs: parsed });
+    }
+  };
     
-  const handleConcurrencyChange = (e: React.ChangeEvent<HTMLInputElement>) => 
-    setModelData({ ...modelData, maxConcurrency: e.target.value ? parseInt(e.target.value) : null });
+  const handleConcurrencyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (!value) {
+      setModelData({ ...modelData, maxConcurrency: null });
+      return;
+    }
+    const parsed = parseInt(value);
+    if (!isNaN(parsed) && parsed >= 1 && parsed <= 1000) {
+      setModelData({ ...modelData, maxConcurrency: parsed });
+    }
+  };
     
   const handleBatchingChange = (checked: boolean) => 
     setModelData({ ...modelData, supportsBatching: checked });
@@ -100,13 +146,36 @@ const ModelForm = React.memo(function ModelForm({
     });
   };
 
-  // Provider metadata handler (simple JSON string for now)
+  // Provider metadata handler with validation
   const handleProviderMetadataChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value.trim();
+    
+    // Allow empty input
+    if (!value) {
+      setModelData({ ...modelData, providerMetadata: {} });
+      setJsonError(null);
+      return;
+    }
+    
     try {
-      const parsed = JSON.parse(e.target.value || '{}');
-      setModelData({ ...modelData, providerMetadata: parsed });
-    } catch {
-      // Keep the current value if invalid JSON
+      const parsed = JSON.parse(value);
+      
+      // Validate that it's an object (not array or primitive)
+      if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) {
+        throw new Error('Must be a valid JSON object');
+      }
+      
+      // Basic security validation - reject common dangerous patterns
+      const jsonString = JSON.stringify(parsed);
+      if (jsonString.includes('__proto__') || jsonString.includes('constructor') || jsonString.includes('prototype')) {
+        throw new Error('Invalid JSON: contains prohibited properties');
+      }
+      
+      setModelData({ ...modelData, providerMetadata: parsed as ProviderMetadata });
+      setJsonError(null);
+    } catch (error) {
+      setJsonError(error instanceof Error ? error.message : 'Invalid JSON format');
+      // Don't update the model data on error, preserving user input
     }
   };
 
@@ -358,10 +427,15 @@ const ModelForm = React.memo(function ModelForm({
             <Textarea
               value={JSON.stringify(modelData.providerMetadata, null, 2)}
               onChange={handleProviderMetadataChange}
-              className="font-mono text-xs"
+              className={`font-mono text-xs ${jsonError ? 'border-red-500' : ''}`}
               rows={6}
               placeholder='{"max_context_length": 128000, "supports_streaming": true}'
             />
+            {jsonError && (
+              <p className="text-xs text-red-600">
+                {jsonError}
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">
               Provider-specific configuration and metadata
             </p>
@@ -403,9 +477,25 @@ type ModelFormData = {
   maxConcurrency: number | null;
   supportsBatching: boolean;
   // Capability/Metadata fields
-  nexusCapabilities: Record<string, boolean>;
-  providerMetadata: Record<string, unknown>;
+  nexusCapabilities: NexusCapabilities;
+  providerMetadata: ProviderMetadata;
 };
+
+const DEFAULT_NEXUS_CAPABILITIES: NexusCapabilities = {
+  canvas: false,
+  thinking: false,
+  artifacts: false,
+  grounding: false,
+  reasoning: false,
+  webSearch: false,
+  computerUse: false,
+  responsesAPI: false,
+  codeExecution: false,
+  promptCaching: false,
+  contextCaching: false,
+  workspaceTools: false,
+  codeInterpreter: false
+} as const;
 
 const emptyModel: ModelFormData = {
   name: '',
@@ -426,21 +516,7 @@ const emptyModel: ModelFormData = {
   maxConcurrency: null,
   supportsBatching: false,
   // Capability/Metadata fields
-  nexusCapabilities: {
-    canvas: false,
-    thinking: false,
-    artifacts: false,
-    grounding: false,
-    reasoning: false,
-    webSearch: false,
-    computerUse: false,
-    responsesAPI: false,
-    codeExecution: false,
-    promptCaching: false,
-    contextCaching: false,
-    workspaceTools: false,
-    codeInterpreter: false
-  },
+  nexusCapabilities: { ...DEFAULT_NEXUS_CAPABILITIES },
   providerMetadata: {}
 };
 
@@ -572,42 +648,14 @@ export const AiModelsTable = React.memo(function AiModelsTable({
       // Capability/Metadata fields - parse JSON strings if needed
       nexusCapabilities: (() => {
         if (!model.nexusCapabilities) {
-          return {
-            canvas: false,
-            thinking: false,
-            artifacts: false,
-            grounding: false,
-            reasoning: false,
-            webSearch: false,
-            computerUse: false,
-            responsesAPI: false,
-            codeExecution: false,
-            promptCaching: false,
-            contextCaching: false,
-            workspaceTools: false,
-            codeInterpreter: false
-          };
+          return { ...DEFAULT_NEXUS_CAPABILITIES };
         }
         try {
           return typeof model.nexusCapabilities === 'string' 
             ? JSON.parse(model.nexusCapabilities) 
             : model.nexusCapabilities;
         } catch {
-          return {
-            canvas: false,
-            thinking: false,
-            artifacts: false,
-            grounding: false,
-            reasoning: false,
-            webSearch: false,
-            computerUse: false,
-            responsesAPI: false,
-            codeExecution: false,
-            promptCaching: false,
-            contextCaching: false,
-            workspaceTools: false,
-            codeInterpreter: false
-          };
+          return { ...DEFAULT_NEXUS_CAPABILITIES };
         }
       })(),
       providerMetadata: (() => {
@@ -805,7 +853,23 @@ export const AiModelsTable = React.memo(function AiModelsTable({
       inputCostPer1kTokens: modelData.inputCostPer1kTokens,
       outputCostPer1kTokens: modelData.outputCostPer1kTokens,
       cachedInputCostPer1kTokens: modelData.cachedInputCostPer1kTokens,
-      pricingUpdatedAt: (modelData.inputCostPer1kTokens || modelData.outputCostPer1kTokens) ? new Date() : null,
+      pricingUpdatedAt: (() => {
+        // Check if any pricing field has actually changed from the existing model
+        if (editingModel) {
+          const pricingChanged = 
+            editingModel.inputCostPer1kTokens !== modelData.inputCostPer1kTokens ||
+            editingModel.outputCostPer1kTokens !== modelData.outputCostPer1kTokens ||
+            editingModel.cachedInputCostPer1kTokens !== modelData.cachedInputCostPer1kTokens;
+          return pricingChanged ? new Date() : editingModel.pricingUpdatedAt;
+        } else {
+          // For new models, set timestamp if any pricing field has a value (including 0)
+          const hasPricing = 
+            modelData.inputCostPer1kTokens !== null ||
+            modelData.outputCostPer1kTokens !== null ||
+            modelData.cachedInputCostPer1kTokens !== null;
+          return hasPricing ? new Date() : null;
+        }
+      })(),
       // Performance fields
       averageLatencyMs: modelData.averageLatencyMs,
       maxConcurrency: modelData.maxConcurrency,
