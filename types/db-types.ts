@@ -242,6 +242,18 @@ export type SelectAiModel = {
   createdAt: Date;
   updatedAt: Date;
   allowedRoles?: string | null;
+  // Pricing fields
+  inputCostPer1kTokens: number | null;
+  outputCostPer1kTokens: number | null;
+  cachedInputCostPer1kTokens: number | null;
+  pricingUpdatedAt: Date | null;
+  // Performance fields
+  averageLatencyMs: number | null;
+  maxConcurrency: number | null;
+  supportsBatching: boolean | null;
+  // Capability/Metadata fields (JSONB)
+  nexusCapabilities: Record<string, boolean> | null;
+  providerMetadata: Record<string, unknown> | null;
 }
 
 // =====================================================
