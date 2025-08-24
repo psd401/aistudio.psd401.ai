@@ -805,12 +805,17 @@ export async function createAIModel(modelData: {
   return result[0];
 }
 
-export async function updateAIModel(id: number, updates: Record<string, string | number | boolean | null>) {
+export async function updateAIModel(id: number, updates: Record<string, any>) {
   // Convert camelCase keys to snake_case for the database
-  const snakeCaseUpdates: Record<string, string | number | boolean | null> = {};
+  const snakeCaseUpdates: Record<string, any> = {};
   for (const [key, value] of Object.entries(updates)) {
     const snakeKey = toSnakeCase(key);
-    snakeCaseUpdates[snakeKey] = value;
+    // Handle JSONB fields - ensure they're strings
+    if ((key === 'nexusCapabilities' || key === 'providerMetadata') && value && typeof value === 'object') {
+      snakeCaseUpdates[snakeKey] = JSON.stringify(value);
+    } else {
+      snakeCaseUpdates[snakeKey] = value;
+    }
   }
   
   // Fields that need JSONB casting
