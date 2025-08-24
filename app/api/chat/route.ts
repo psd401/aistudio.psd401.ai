@@ -2,6 +2,7 @@ import { UIMessage } from 'ai';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
+import { ErrorFactories } from '@/lib/error-utils';
 import { buildSystemPrompt } from './lib/system-prompt-builder';
 import { 
   handleConversation, 
@@ -351,7 +352,7 @@ export async function POST(req: Request) {
             try {
               // Validate conversation still exists before saving
               if (!conversationId || conversationId <= 0) {
-                throw new Error(`Invalid conversation ID at save time: ${conversationId}`);
+                throw ErrorFactories.invalidInput('conversationId', conversationId, 'Must be a positive integer at save time');
               }
               
               await saveAssistantMessage({

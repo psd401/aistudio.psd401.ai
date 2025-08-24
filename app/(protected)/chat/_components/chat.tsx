@@ -107,7 +107,7 @@ export function Chat({ conversationId: initialConversationId, initialMessages = 
         variant: "destructive"
       })
     },
-    onFinish: (message) => {
+    onFinish: () => {
       // After first message in a new chat, get the conversation ID from the server
       if (isNewChat && !conversationIdRef.current) {
         // Fetch the latest conversation to get its ID
