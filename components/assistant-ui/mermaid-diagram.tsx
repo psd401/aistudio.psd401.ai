@@ -98,13 +98,10 @@ export const MermaidDiagram: FC<MermaidDiagramProps> = ({
           ref.current.innerHTML = result.svg;
           result.bindFunctions?.(ref.current);
         }
-      } catch (e) {
-        // Client-safe error handling
-        if (process.env.NODE_ENV === 'development') {
-          // Only log to console in development
-          console.error("Failed to render Mermaid diagram:", e);
-        }
-        // Could optionally display error UI to user here
+      } catch {
+        // Silently fail - diagram won't render but app continues
+        // Mermaid will handle invalid syntax gracefully by not rendering
+        // No logging needed as this is expected behavior for invalid diagrams
       }
     })();
   }, [isComplete, code, theme, diagramId]);
