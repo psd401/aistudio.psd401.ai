@@ -365,7 +365,7 @@ async function handleGeminiContextCaching(
 
 /**
  * Handle standard streaming for providers without special features
- * Uses the UnifiedStreamingService for reliable, battle-tested streaming
+ * Uses the provider factory pattern for consistent API key management
  */
 async function handleStandardStreaming(
   request: ChatRequest,
@@ -374,25 +374,20 @@ async function handleStandardStreaming(
   log: ReturnType<typeof createLogger>,
   timer: ReturnType<typeof startTimer>
 ) {
-  log.info('Using unified streaming service', {
+  log.info('Using standard streaming with provider factory', {
     requestId,
     provider: request.provider,
     modelId: request.modelId
   });
   
   try {
-    // For now, use simpler AI SDK streaming directly
-    const { createOpenAI } = await import('@ai-sdk/openai');
     const { streamText } = await import('ai');
-    const { getSetting } = await import('@/lib/settings-manager');
+    const { createProviderModel } = await import('@/app/api/chat/lib/provider-factory');
     
-    const apiKey = await getSetting('OPENAI_API_KEY');
-    if (!apiKey) {
-      throw ErrorFactories.sysConfigurationError('OpenAI API key not configured');
-    }
+    const provider = request.provider || 'openai';
     
-    const openai = createOpenAI({ apiKey });
-    const model = openai(request.modelId);
+    // Use provider factory for consistent API key management and error handling
+    const model = await createProviderModel(provider, request.modelId);
     
     const result = await streamText({
       model,
@@ -406,14 +401,16 @@ async function handleStandardStreaming(
       headers: {
         'X-Conversation-Id': request.conversationId || '',
         'X-Request-Id': requestId,
-        'X-Provider': request.provider || 'openai',
+        'X-Provider': provider,
         'X-Model-Id': request.modelId
       }
     });
     
   } catch (error) {
-    log.error('Unified streaming failed', {
+    log.error('Standard streaming failed', {
       requestId,
+      provider: request.provider,
+      modelId: request.modelId,
       error: error instanceof Error ? error.message : String(error)
     });
     throw error;

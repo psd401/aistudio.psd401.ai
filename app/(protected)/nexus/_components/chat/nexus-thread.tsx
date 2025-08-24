@@ -6,6 +6,7 @@ import {
 } from '@assistant-ui/react'
 import { motion } from 'framer-motion'
 import { NexusComposer } from './nexus-composer'
+import { NexusMessage } from './nexus-message'
 import { NexusThinkingIndicator } from './nexus-thinking-indicator'
 import { Sparkles } from 'lucide-react'
 
@@ -54,8 +55,8 @@ export function NexusThread({ className }: NexusThreadProps) {
             <div className="h-full overflow-y-auto px-4 py-2">
               <ThreadPrimitive.Messages 
                 components={{
-                  UserMessage: () => null, // Will be handled by assistant-ui default
-                  AssistantMessage: () => null, // Will be handled by assistant-ui default
+                  UserMessage: NexusMessage,
+                  AssistantMessage: NexusMessage,
                 }}
               />
             </div>
