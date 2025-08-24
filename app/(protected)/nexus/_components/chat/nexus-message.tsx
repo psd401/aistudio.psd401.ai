@@ -31,7 +31,14 @@ export function NexusMessage() {
   const isAssistant = message.role === 'assistant'
   
   const handleCopy = async () => {
-    const textContent = message.content?.find(part => 'text' in part)?.text || ''
+    // Handle all text parts in the message content
+    const textContent = message.content
+      ?.filter((part): part is { type: 'text'; text: string } => 
+        typeof part === 'object' && 'text' in part
+      )
+      .map(part => part.text)
+      .join('') || ''
+      
     if (textContent) {
       await navigator.clipboard.writeText(textContent)
       setCopied(true)
@@ -88,11 +95,8 @@ export function NexusMessage() {
 
           {/* Message Actions */}
           {isAssistant && (
-            <motion.div
-              className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0 }}
-              whileHover={{ opacity: 1 }}
+            <div
+              className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
             >
               <Button 
                 variant="ghost" 
@@ -121,7 +125,7 @@ export function NexusMessage() {
               <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
                 <ThumbsDown size={12} />
               </Button>
-            </motion.div>
+            </div>
           )}
         </div>
 

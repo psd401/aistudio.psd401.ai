@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 import { NexusShell } from './_components/layout/nexus-shell'
 import { NexusThread } from './_components/chat/nexus-thread'
+import { ErrorBoundary } from './_components/error-boundary'
 
 export default function NexusPage() {
   const router = useRouter()
@@ -24,6 +25,7 @@ export default function NexusPage() {
     }
   }, [session, status, router])
 
+  // Create chat with custom transport for Nexus API
   const chat = useChat()
   
   const runtime = useAISDKRuntime(chat)
@@ -46,10 +48,14 @@ export default function NexusPage() {
   }
   
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <NexusShell>
-        <NexusThread className="h-full" />
-      </NexusShell>
-    </AssistantRuntimeProvider>
+    <ErrorBoundary>
+      <AssistantRuntimeProvider runtime={runtime}>
+        <NexusShell>
+          <ErrorBoundary>
+            <NexusThread className="h-full" />
+          </ErrorBoundary>
+        </NexusShell>
+      </AssistantRuntimeProvider>
+    </ErrorBoundary>
   )
 }
