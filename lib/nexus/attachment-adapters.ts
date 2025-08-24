@@ -46,6 +46,7 @@ export class VisionImageAdapter implements AttachmentAdapter {
       type: "image",
       name: attachment.name,
       contentType: attachment.contentType || "image/jpeg",
+      file: attachment.file, // Keep the file reference
       content: [
         {
           type: "image",
@@ -115,6 +116,7 @@ export class PDFAttachmentAdapter implements AttachmentAdapter {
       type: "document",
       name: attachment.name,
       contentType: attachment.contentType || "application/pdf",
+      file: attachment.file, // Keep the file reference
       content: [
         {
           type: "text",
