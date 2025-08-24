@@ -52,6 +52,7 @@ export class VisionImageAdapter implements AttachmentAdapter {
       type: "image",
       name: attachment.name,
       contentType: attachment.contentType || "image/jpeg",
+      file: attachment.file, // Keep the file reference - required by assistant-ui
       content: [
         {
           type: "image",
@@ -156,6 +157,7 @@ export class PDFAttachmentAdapter implements AttachmentAdapter {
       type: "document",
       name: this.sanitizeFileName(attachment.name),
       contentType: attachment.contentType || "application/pdf",
+      file: attachment.file, // Keep the file reference - required by assistant-ui
       content: [
         {
           type: "text",
