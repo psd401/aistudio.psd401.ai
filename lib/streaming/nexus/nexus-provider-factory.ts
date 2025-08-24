@@ -510,19 +510,20 @@ export class NexusProviderFactory {
    */
   private async getModelCostFromDatabase(provider: string, modelId: string): Promise<number> {
     try {
-      // First check if we have the model in database with pricing metadata
-      const result = await executeSQL(`
-        SELECT metadata->'pricing'->'cost_per_token' as cost_per_token
+      // First check if we have the model in database with structured pricing columns
+      const result = await executeSQL<{input_cost_per_1k_tokens: number; output_cost_per_1k_tokens: number}>(`
+        SELECT 
+          input_cost_per_1k_tokens,
+          output_cost_per_1k_tokens
         FROM ai_models 
-        WHERE provider = :provider AND model_id = :modelId AND active = true
+        WHERE provider = $1 AND model_id = $2 AND active = true
         LIMIT 1
-      `, [
-        { name: 'provider', value: { stringValue: provider } },
-        { name: 'modelId', value: { stringValue: modelId } }
-      ]);
+      `, [provider, modelId]);
       
-      if (result.length > 0 && result[0].cost_per_token) {
-        return parseFloat(String(result[0].cost_per_token));
+      if (result.length > 0 && result[0].input_cost_per_1k_tokens !== null) {
+        // Convert from per-1k-tokens to per-token and use input cost as base estimate
+        // For cost estimation purposes, we use input token cost as the primary metric
+        return result[0].input_cost_per_1k_tokens / 1000;
       }
       
       // Fallback to provider-based estimates
