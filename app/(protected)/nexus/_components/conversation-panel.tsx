@@ -51,7 +51,7 @@ export function ConversationPanel() {
         variant="ghost"
         size="icon"
         onClick={togglePanel}
-        className="fixed right-4 top-20 z-40"
+        className="fixed right-4 top-32 z-40"
         aria-label={isOpen ? 'Close conversations panel' : 'Open conversations panel'}
       >
         {isOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}

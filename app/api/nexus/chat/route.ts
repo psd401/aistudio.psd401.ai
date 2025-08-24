@@ -86,9 +86,37 @@ export async function POST(req: Request) {
     
     // 5. Handle conversation (create new or use existing)
     let conversationId: string = existingConversationId;
+    let conversationTitle = 'New Conversation';
     
     if (!conversationId) {
-      // Create new Nexus conversation
+      // Generate a title from the first user message
+      const firstUserMessage = messages.find(m => m.role === 'user');
+      if (firstUserMessage) {
+        // Extract text content for title generation
+        let messageText = '';
+        const content = (firstUserMessage as UIMessage & { 
+          content?: string | Array<{ type: string; text?: string }> 
+        }).content;
+        
+        if (typeof content === 'string') {
+          messageText = content;
+        } else if (Array.isArray(content)) {
+          const textPart = content.find(part => part.type === 'text' && part.text);
+          if (textPart?.text) {
+            messageText = textPart.text;
+          }
+        }
+        
+        // Generate a concise title (max 100 chars)
+        if (messageText) {
+          conversationTitle = messageText.slice(0, 100).trim();
+          if (messageText.length > 100) {
+            conversationTitle += '...';
+          }
+        }
+      }
+      
+      // Create new Nexus conversation with generated title
       const createResult = await executeSQL(
         `INSERT INTO nexus_conversations (
           user_id, provider, model_used, title, 
@@ -103,7 +131,7 @@ export async function POST(req: Request) {
           { name: 'userId', value: { longValue: userId } },
           { name: 'provider', value: { stringValue: provider } },
           { name: 'modelId', value: { stringValue: modelId } },
-          { name: 'title', value: { stringValue: 'New Conversation' } },
+          { name: 'title', value: { stringValue: conversationTitle } },
           { name: 'metadata', value: { stringValue: JSON.stringify({ source: 'nexus' }) } }
         ]
       );
@@ -112,7 +140,8 @@ export async function POST(req: Request) {
       
       log.info('Created new Nexus conversation', sanitizeForLogging({ 
         conversationId,
-        userId
+        userId,
+        title: conversationTitle
       }));
     }
     
@@ -304,7 +333,7 @@ export async function POST(req: Request) {
       requestId
     }));
     
-    // Send conversation ID header for new conversations
+    // Send conversation ID and title headers for new conversations
     const responseHeaders: Record<string, string> = {
       'X-Request-Id': requestId,
       'X-Unified-Streaming': 'true'
@@ -312,6 +341,8 @@ export async function POST(req: Request) {
     
     if (!existingConversationId && conversationId) {
       responseHeaders['X-Conversation-Id'] = conversationId;
+      // Also send the title so the client can update the thread metadata
+      responseHeaders['X-Conversation-Title'] = conversationTitle || 'New Conversation';
     }
     
     return streamResponse.result.toUIMessageStreamResponse({
