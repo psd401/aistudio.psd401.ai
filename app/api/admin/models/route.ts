@@ -195,7 +195,19 @@ export async function POST(request: Request) {
       allowedRoles: validatedAllowedRoles || undefined,
       maxTokens: body.maxTokens ? parseInt(body.maxTokens) : undefined,
       isActive: body.active ?? true,
-      chatEnabled: body.chatEnabled ?? false
+      chatEnabled: body.chatEnabled ?? false,
+      // Pricing fields
+      inputCostPer1kTokens: body.inputCostPer1kTokens || undefined,
+      outputCostPer1kTokens: body.outputCostPer1kTokens || undefined,
+      cachedInputCostPer1kTokens: body.cachedInputCostPer1kTokens || undefined,
+      pricingUpdatedAt: body.pricingUpdatedAt || undefined,
+      // Performance fields
+      averageLatencyMs: body.averageLatencyMs || undefined,
+      maxConcurrency: body.maxConcurrency || undefined,
+      supportsBatching: body.supportsBatching ?? undefined,
+      // JSONB fields
+      nexusCapabilities: body.nexusCapabilities || undefined,
+      providerMetadata: body.providerMetadata || undefined
     };
 
     const model = await createAIModel(modelData);

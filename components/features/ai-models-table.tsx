@@ -569,23 +569,57 @@ export const AiModelsTable = React.memo(function AiModelsTable({
       averageLatencyMs: model.averageLatencyMs || null,
       maxConcurrency: model.maxConcurrency || null,
       supportsBatching: model.supportsBatching || false,
-      // Capability/Metadata fields
-      nexusCapabilities: model.nexusCapabilities || {
-        canvas: false,
-        thinking: false,
-        artifacts: false,
-        grounding: false,
-        reasoning: false,
-        webSearch: false,
-        computerUse: false,
-        responsesAPI: false,
-        codeExecution: false,
-        promptCaching: false,
-        contextCaching: false,
-        workspaceTools: false,
-        codeInterpreter: false
-      },
-      providerMetadata: model.providerMetadata || {}
+      // Capability/Metadata fields - parse JSON strings if needed
+      nexusCapabilities: (() => {
+        if (!model.nexusCapabilities) {
+          return {
+            canvas: false,
+            thinking: false,
+            artifacts: false,
+            grounding: false,
+            reasoning: false,
+            webSearch: false,
+            computerUse: false,
+            responsesAPI: false,
+            codeExecution: false,
+            promptCaching: false,
+            contextCaching: false,
+            workspaceTools: false,
+            codeInterpreter: false
+          };
+        }
+        try {
+          return typeof model.nexusCapabilities === 'string' 
+            ? JSON.parse(model.nexusCapabilities) 
+            : model.nexusCapabilities;
+        } catch {
+          return {
+            canvas: false,
+            thinking: false,
+            artifacts: false,
+            grounding: false,
+            reasoning: false,
+            webSearch: false,
+            computerUse: false,
+            responsesAPI: false,
+            codeExecution: false,
+            promptCaching: false,
+            contextCaching: false,
+            workspaceTools: false,
+            codeInterpreter: false
+          };
+        }
+      })(),
+      providerMetadata: (() => {
+        if (!model.providerMetadata) return {};
+        try {
+          return typeof model.providerMetadata === 'string' 
+            ? JSON.parse(model.providerMetadata) 
+            : model.providerMetadata;
+        } catch {
+          return {};
+        }
+      })()
     });
   }, []);
 
