@@ -3,6 +3,7 @@
 import { AssistantRuntimeProvider } from '@assistant-ui/react'
 import { useAISDKRuntime } from '@assistant-ui/react-ai-sdk'
 import { useChat } from '@ai-sdk/react'
+import { DefaultChatTransport } from 'ai'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
@@ -34,8 +35,37 @@ export default function NexusPage() {
     }
   }, [session, status, router])
 
-  // Create chat using standard approach that matches the existing assistant-ui pattern
+  // Create chat with proper Nexus API configuration using transport
   const chat = useChat({
+    transport: new DefaultChatTransport({
+      api: '/api/nexus/chat',
+      body: selectedModel ? {
+        modelId: selectedModel.modelId,
+        provider: selectedModel.provider,
+      } : undefined,
+      // Prepare the request to match the Nexus API format
+      prepareSendMessagesRequest: ({ messages }) => {
+        if (!selectedModel) {
+          // Don't send request if no model is selected
+          throw new Error('Please select a model before sending messages')
+        }
+        
+        const lastMessage = messages[messages.length - 1]
+        // Extract text content from the message parts
+        const messageContent = lastMessage.parts
+          .filter(part => part.type === 'text')
+          .map(part => (part as any).text)
+          .join('')
+        
+        return {
+          body: {
+            message: messageContent,
+            modelId: selectedModel.modelId,
+            provider: selectedModel.provider,
+          }
+        }
+      }
+    }),
     // Error handling
     onError: () => {
       // Use proper logging instead of console - implement later
