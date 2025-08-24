@@ -1,7 +1,6 @@
 import { LanguageModel } from 'ai';
-import { createProviderModel, createProviderModelWithCapabilities } from '@/app/api/chat/lib/provider-factory';
+import { createProviderModelWithCapabilities } from '@/app/api/chat/lib/provider-factory';
 import { createLogger, generateRequestId, sanitizeForLogging } from '@/lib/logger';
-import { ErrorFactories } from '@/lib/error-utils';
 import { executeSQL } from './db-helpers';
 import { transformSnakeToCamel } from '@/lib/db/field-mapper';
 import type { ProviderCapabilities } from '@/lib/streaming/types';
@@ -126,11 +125,11 @@ export class NexusProviderFactory {
     modelId: string,
     options: NexusModelOptions = {}
   ): Promise<NexusLanguageModel> {
-    const requestId = generateRequestId();
+    const _requestId = generateRequestId();
     const startTime = Date.now();
     
     log.info('Creating Nexus model', {
-      requestId,
+      requestId: _requestId,
       provider,
       modelId,
       options: sanitizeForLogging(options)
@@ -343,7 +342,7 @@ export class NexusProviderFactory {
       requestId: string;
     }
   ): Promise<NexusLanguageModel> {
-    const { provider, modelId, capabilities, options, requestId } = config;
+    const { provider, modelId, capabilities, options } = config;
     
     // Get model info from database for pricing and metadata
     const modelInfo = await this.getModelInfoFromDatabase(provider, modelId);
@@ -744,7 +743,7 @@ class ResponseCacheManager {
     return this.enabledModels.has(`${provider}:${modelId}:${conversationId || 'global'}`);
   }
   
-  async getMetrics(provider: string, modelId: string, conversationId?: string): Promise<CacheMetrics> {
+  async getMetrics(): Promise<CacheMetrics> {
     // This would query the nexus_cache_entries table
     return {
       hitRate: 0.75,

@@ -1,8 +1,7 @@
 import { UnifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
-import { nexusProviderFactory, type NexusModelOptions, type NexusModelCapabilities } from './nexus-provider-factory';
+import { nexusProviderFactory, type NexusModelCapabilities } from './nexus-provider-factory';
 import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from '@/lib/logger';
-import { ErrorFactories } from '@/lib/error-utils';
-import type { StreamRequest, StreamResponse, StreamConfig, StreamingProgress, TelemetrySpan } from '@/lib/streaming/types';
+import type { StreamRequest, StreamResponse, StreamingProgress } from '@/lib/streaming/types';
 import { ConversationStateManager } from './conversation-state-manager';
 import { MultiProviderOrchestrator } from './multi-provider-orchestrator';
 import { ResponseCacheService } from './response-cache-service';

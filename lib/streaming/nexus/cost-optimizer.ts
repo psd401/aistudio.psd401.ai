@@ -36,13 +36,6 @@ interface UsageMetricsRow extends DatabaseRow {
   usage_date: string;
 }
 
-interface ModelUsageAggregateRow extends DatabaseRow {
-  provider: string;
-  model_id: string;
-  total_cost: number;
-  total_tokens: number;
-}
-
 // Transform model data with proper typing
 interface TransformedModel extends DatabaseRow {
   provider: string;

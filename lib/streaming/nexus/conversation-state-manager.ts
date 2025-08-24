@@ -102,10 +102,10 @@ export class ConversationStateManager {
       await this.updateConversationRecord(conversationId, provider, modelId, usage);
       
       // Record provider usage metrics
-      await this.recordProviderMetrics(conversationId, provider, modelId, usage, capabilities, requestId);
+      await this.recordProviderMetrics(conversationId, provider, modelId, usage, capabilities);
       
       // Update conversation metadata
-      await this.updateConversationMetadata(conversationId, provider, capabilities, usage);
+      await this.updateConversationMetadata(conversationId, provider, capabilities);
       
       log.debug('Conversation state updated successfully', {
         requestId,
@@ -402,8 +402,7 @@ export class ConversationStateManager {
     provider: string,
     modelId: string,
     usage: ConversationUpdateRequest['usage'],
-    capabilities: NexusModelCapabilities,
-    requestId: string
+    capabilities: NexusModelCapabilities
   ): Promise<void> {
     if (!usage) return;
     
@@ -436,8 +435,7 @@ export class ConversationStateManager {
   private async updateConversationMetadata(
     conversationId: string,
     provider: string,
-    capabilities: NexusModelCapabilities,
-    usage?: ConversationUpdateRequest['usage']
+    capabilities: NexusModelCapabilities
   ): Promise<void> {
     const metadata = {
       last_provider: provider,

@@ -112,7 +112,7 @@ export class MultiProviderOrchestrator {
           throw new Error(`Unknown orchestration strategy: ${request.strategy}`);
       }
       
-    } catch (error) {
+    } catch {
       log.error('Multi-provider orchestration failed', {
         requestId,
         error: error instanceof Error ? error.message : String(error),
@@ -172,7 +172,7 @@ export class MultiProviderOrchestrator {
         capabilitiesUsed: this.extractCapabilitiesUsed(primaryProvider.capabilities)
       };
       
-    } catch (error) {
+    } catch {
       // Try next provider in round robin
       return await this.executeWithFallback(request, plan, requestId, startTime, [primaryProvider.name]);
     }
@@ -210,7 +210,7 @@ export class MultiProviderOrchestrator {
           capabilitiesUsed: this.extractCapabilitiesUsed(provider.capabilities)
         };
         
-      } catch (error) {
+      } catch {
         log.warn('Provider failed in cost optimization', {
           requestId,
           provider: provider.name,
@@ -257,7 +257,7 @@ export class MultiProviderOrchestrator {
         capabilitiesUsed: this.extractCapabilitiesUsed(primaryProvider.capabilities)
       };
       
-    } catch (error) {
+    } catch {
       return await this.executeWithFallback(request, plan, requestId, startTime, [primaryProvider.name]);
     }
   }
@@ -296,7 +296,7 @@ export class MultiProviderOrchestrator {
         capabilitiesUsed: this.extractCapabilitiesUsed(primaryProvider.capabilities)
       };
       
-    } catch (error) {
+    } catch {
       return await this.executeWithFallback(request, plan, requestId, startTime, [primaryProvider.name]);
     }
   }
@@ -312,7 +312,7 @@ export class MultiProviderOrchestrator {
   ): Promise<OrchestrationResult> {
     // Analyze request to determine best provider
     const requiredFeatures = this.analyzeRequestFeatures(request.messages);
-    const userPreferences = await this.getUserPreferences(request.userId);
+    const userPreferences = await this.getUserPreferences();
     
     // Score providers based on multiple factors
     const scoredProviders = plan.providers.map((provider) => ({
@@ -355,7 +355,7 @@ export class MultiProviderOrchestrator {
         capabilitiesUsed: this.extractCapabilitiesUsed(primaryProvider.capabilities)
       };
       
-    } catch (error) {
+    } catch {
       return await this.executeWithFallback(request, plan, requestId, startTime, [primaryProvider.name]);
     }
   }
@@ -397,7 +397,7 @@ export class MultiProviderOrchestrator {
         capabilitiesUsed: this.extractCapabilitiesUsed(fallbackProvider.capabilities)
       };
       
-    } catch (error) {
+    } catch {
       return await this.executeWithFallback(
         request,
         plan,
@@ -413,7 +413,7 @@ export class MultiProviderOrchestrator {
    */
   private async executeSingleProvider(provider: ProviderPlan, request: OrchestrationRequest): Promise<StreamingResponse> {
     // Create model using Nexus factory
-    const model = await nexusProviderFactory.createNexusModel(
+    await nexusProviderFactory.createNexusModel(
       provider.name,
       provider.modelId,
       {
@@ -492,7 +492,7 @@ export class MultiProviderOrchestrator {
     return features;
   }
   
-  private async getUserPreferences(userId: string): Promise<{
+  private async getUserPreferences(): Promise<{
     preferredProvider: string;
     maxCostPerRequest: number;
     qualityPreference: string;

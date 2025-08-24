@@ -109,7 +109,7 @@ export class ResponseCacheService {
       }
       
       // Check provider-specific caches
-      const providerCacheResult = await this.checkProviderSpecificCache(request, cacheKey);
+      const providerCacheResult = await this.checkProviderSpecificCache(request);
       
       if (providerCacheResult.hit) {
         log.info('Provider cache hit found', {
@@ -428,45 +428,35 @@ export class ResponseCacheService {
   }
   
   private async checkProviderSpecificCache(
-    request: CacheCheckRequest, 
-    cacheKey: string
+    request: CacheCheckRequest
   ): Promise<CacheResult> {
     // Provider-specific cache checking logic
     switch (request.provider.toLowerCase()) {
       case 'openai':
-        return await this.checkOpenAIResponsesCache(request, cacheKey);
+        return await this.checkOpenAIResponsesCache();
       case 'anthropic':
       case 'amazon-bedrock':
-        return await this.checkAnthropicPromptCache(request, cacheKey);
+        return await this.checkAnthropicPromptCache();
       case 'google':
-        return await this.checkGeminiContextCache(request, cacheKey);
+        return await this.checkGeminiContextCache();
       default:
         return { hit: false };
     }
   }
   
-  private async checkOpenAIResponsesCache(
-    request: CacheCheckRequest, 
-    cacheKey: string
-  ): Promise<CacheResult> {
+  private async checkOpenAIResponsesCache(): Promise<CacheResult> {
     // OpenAI Responses API cache checking
     // Would implement server-side conversation state checking
     return { hit: false };
   }
   
-  private async checkAnthropicPromptCache(
-    request: CacheCheckRequest, 
-    cacheKey: string
-  ): Promise<CacheResult> {
+  private async checkAnthropicPromptCache(): Promise<CacheResult> {
     // Anthropic prompt caching logic
     // Would check for system prompt reuse
     return { hit: false };
   }
   
-  private async checkGeminiContextCache(
-    request: CacheCheckRequest, 
-    cacheKey: string
-  ): Promise<CacheResult> {
+  private async checkGeminiContextCache(): Promise<CacheResult> {
     // Gemini context caching logic
     // Would check for conversation context reuse
     return { hit: false };
