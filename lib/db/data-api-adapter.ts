@@ -664,6 +664,10 @@ export async function getUserTools(cognitoSub: string): Promise<string[]> {
 
 // Helper function to convert camelCase to snake_case
 function toSnakeCase(str: string): string {
+  // Special handling for field names with "1k" in them
+  if (str.includes('Per1k')) {
+    str = str.replace('Per1k', 'Per_1k');
+  }
   return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
 }
 

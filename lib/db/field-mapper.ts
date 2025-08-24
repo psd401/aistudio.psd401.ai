@@ -83,6 +83,15 @@ export const fieldMap = {
   // AI Model fields
   max_tokens: 'maxTokens',
   chat_enabled: 'chatEnabled',
+  input_cost_per_1k_tokens: 'inputCostPer1kTokens',
+  output_cost_per_1k_tokens: 'outputCostPer1kTokens',
+  cached_input_cost_per_1k_tokens: 'cachedInputCostPer1kTokens',
+  pricing_updated_at: 'pricingUpdatedAt',
+  average_latency_ms: 'averageLatencyMs',
+  max_concurrency: 'maxConcurrency',
+  supports_batching: 'supportsBatching',
+  nexus_capabilities: 'nexusCapabilities',
+  provider_metadata: 'providerMetadata',
   
   // Tool execution fields
   input_data: 'inputData',
