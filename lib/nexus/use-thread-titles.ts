@@ -20,10 +20,10 @@ export function useThreadTitles() {
   
   // Fetch titles from database
   const fetchTitles = useCallback(async () => {
-    if (!threadList?.threads?.length) return;
-    
     try {
       setIsLoading(true);
+      log.info('Fetching conversation titles from API');
+      
       const response = await fetch('/api/nexus/conversations');
       
       if (!response.ok) {
@@ -31,6 +31,12 @@ export function useThreadTitles() {
       }
       
       const data = await response.json();
+      log.info('API response received', { 
+        hasConversations: !!data.conversations, 
+        conversationCount: data.conversations?.length || 0,
+        sampleData: data.conversations?.slice(0, 2)
+      });
+      
       const newTitles: ThreadTitles = {};
       
       // Map conversation IDs to titles
@@ -48,7 +54,7 @@ export function useThreadTitles() {
     } finally {
       setIsLoading(false);
     }
-  }, [threadList?.threads?.length]);
+  }, []);
   
   // Sync titles when threads change
   useEffect(() => {
