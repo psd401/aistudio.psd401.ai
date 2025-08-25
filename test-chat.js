@@ -47,7 +47,14 @@ async function testChat() {
     });
 
     req.on('error', (error) => {
-      console.error('Request error:', error);
+      // Sanitize error message to prevent log injection
+      let sanitizedError;
+      if (error && typeof error.message === 'string') {
+        sanitizedError = error.message.replace(/[\n\r]/g, '');
+      } else {
+        sanitizedError = String(error).replace(/[\n\r]/g, '');
+      }
+      console.error('Request error:', sanitizedError);
       reject(error);
     });
 
