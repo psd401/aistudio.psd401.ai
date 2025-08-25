@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
-import { ThreadList } from '@/components/assistant-ui/thread-list'
+import { NexusThreadList } from '@/components/assistant-ui/nexus-thread-list'
 import { useMediaQuery } from '@/lib/hooks/use-media-query'
 import { Button } from '@/components/ui/button'
 import { PanelRightOpen, PanelRightClose } from 'lucide-react'
@@ -36,7 +36,7 @@ export function ConversationPanel() {
             </DrawerHeader>
             
             <div className="flex-1 overflow-auto px-4 pb-4">
-              <ThreadList />
+              <NexusThreadList />
             </div>
           </DrawerContent>
         </Drawer>
@@ -65,7 +65,7 @@ export function ConversationPanel() {
           </SheetHeader>
           
           <div className="flex-1 overflow-auto mt-4">
-            <ThreadList />
+            <NexusThreadList />
           </div>
         </SheetContent>
       </Sheet>
