@@ -29,6 +29,15 @@ export interface ToolDefinition {
   execute?: (params: unknown) => Promise<unknown>
 }
 
+// Placeholder tool definition for provider-native tools
+const createPlaceholderTool = (description: string): ToolDefinition => ({
+  description,
+  parameters: {
+    _input: undefined,
+    _output: undefined
+  }
+})
+
 export interface ToolConfig {
   name: string
   tool: ToolDefinition
@@ -45,7 +54,7 @@ export interface ToolConfig {
 const TOOL_REGISTRY: Record<string, ToolConfig> = {
   webSearch: {
     name: 'webSearch',
-    tool: {} as ToolDefinition, // Placeholder - actual tools come from provider-native-tools
+    tool: createPlaceholderTool('Search the web for current information and facts'),
     requiredCapabilities: ['webSearch', 'grounding'],
     displayName: 'Web Search',
     description: 'Search the web for current information and facts',
@@ -53,7 +62,7 @@ const TOOL_REGISTRY: Record<string, ToolConfig> = {
   },
   codeInterpreter: {
     name: 'codeInterpreter', 
-    tool: {} as ToolDefinition, // Placeholder - actual tools come from provider-native-tools
+    tool: createPlaceholderTool('Execute code and perform data analysis'),
     requiredCapabilities: ['codeInterpreter', 'codeExecution'],
     displayName: 'Code Interpreter',
     description: 'Execute code and perform data analysis',
@@ -62,10 +71,19 @@ const TOOL_REGISTRY: Record<string, ToolConfig> = {
 }
 
 /**
- * Get model capabilities from database
+ * Get model capabilities from database (SERVER-SIDE ONLY)
  */
 export async function getModelCapabilities(modelId: string): Promise<ModelCapabilities | null> {
+  // Server-side only guard
+  if (typeof window !== 'undefined') {
+    throw new Error('getModelCapabilities can only be called server-side. Use client-tool-registry for client-side usage.')
+  }
   try {
+    // Validate modelId format before database query
+    if (!modelId || typeof modelId !== 'string' || !/^[a-zA-Z0-9\-_.]+$/.test(modelId)) {
+      return null
+    }
+    
     const result = await executeSQL(
       `SELECT nexus_capabilities 
        FROM ai_models 
@@ -88,15 +106,20 @@ export async function getModelCapabilities(modelId: string): Promise<ModelCapabi
     
     return capabilities as unknown as ModelCapabilities
   } catch {
-    // Silent error handling to avoid logging issues in client-side usage
+    // Return null on error - error details available through proper logging 
+    // in calling functions (server actions, API routes) that have access to logger
     return null
   }
 }
 
 /**
- * Get available tools for a specific model based on its capabilities
+ * Get available tools for a specific model based on its capabilities (SERVER-SIDE ONLY)
  */
 export async function getAvailableToolsForModel(modelId: string): Promise<ToolConfig[]> {
+  // Server-side only guard
+  if (typeof window !== 'undefined') {
+    throw new Error('getAvailableToolsForModel can only be called server-side. Use client-tool-registry for client-side usage.')
+  }
   const capabilities = await getModelCapabilities(modelId)
   if (!capabilities) {
     return []
@@ -131,12 +154,16 @@ export async function buildToolsForRequest(
 }
 
 /**
- * Check if a specific tool is available for a model
+ * Check if a specific tool is available for a model (SERVER-SIDE ONLY)
  */
 export async function isToolAvailableForModel(
   modelId: string, 
   toolName: string
 ): Promise<boolean> {
+  // Server-side only guard
+  if (typeof window !== 'undefined') {
+    throw new Error('isToolAvailableForModel can only be called server-side. Use client-tool-registry for client-side usage.')
+  }
   const availableTools = await getAvailableToolsForModel(modelId)
   return availableTools.some(tool => tool.name === toolName)
 }
