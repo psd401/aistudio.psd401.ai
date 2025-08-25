@@ -405,7 +405,7 @@ export async function POST(req: Request) {
         'X-Supports-Reasoning': streamResponse.capabilities.supportsReasoning.toString()
       };
       
-      if (!existingConversationId && conversationId) {
+      if (!existingConversationId) {
         responseHeaders['X-Conversation-Id'] = conversationId.toString();
       }
       
