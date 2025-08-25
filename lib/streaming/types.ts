@@ -1,4 +1,4 @@
-import type { UIMessage, LanguageModel, CoreMessage } from 'ai';
+import type { UIMessage, LanguageModel, CoreMessage, ToolSet } from 'ai';
 
 /**
  * Core streaming types for the unified streaming architecture
@@ -26,6 +26,9 @@ export interface StreamRequest {
   temperature?: number;
   timeout?: number;
   
+  // Tools configuration
+  tools?: ToolSet;
+  
   // Advanced model options
   options?: {
     // Reasoning configuration
@@ -42,6 +45,7 @@ export interface StreamRequest {
     enableWebSearch?: boolean;
     enableCodeInterpreter?: boolean;
     enableImageGeneration?: boolean;
+    enabledTools?: string[];
   };
   
   // Telemetry configuration
@@ -79,6 +83,7 @@ export interface StreamConfig {
   maxTokens?: number;
   temperature?: number;
   timeout?: number;
+  tools?: ToolSet;
   providerOptions?: Record<string, unknown>;
   experimental_telemetry?: {
     isEnabled: boolean;

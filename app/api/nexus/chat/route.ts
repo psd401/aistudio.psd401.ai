@@ -5,6 +5,7 @@ import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from 
 import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
 import type { StreamRequest } from '@/lib/streaming/types';
 import { executeSQL } from '@/lib/db/data-api-adapter';
+import { buildToolsForRequest } from '@/lib/tools/tool-registry';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -29,12 +30,14 @@ export async function POST(req: Request) {
     const modelId = body.modelId;
     const provider = body.provider || 'openai';
     const existingConversationId = body.conversationId;
+    const enabledTools: string[] = body.enabledTools || [];
     
     log.info('Request parsed', sanitizeForLogging({
       messageCount: messages.length,
       modelId,
       provider,
-      hasConversationId: !!existingConversationId
+      hasConversationId: !!existingConversationId,
+      enabledTools
     }));
     
     // 2. Authenticate user
@@ -214,14 +217,33 @@ export async function POST(req: Request) {
       log.debug('User message saved to nexus_messages');
     }
     
-    // 7. Build system prompt (optional, can add Nexus-specific context here)
+    // 7. Build tools based on model capabilities and user selection
+    log.info('About to build tools', sanitizeForLogging({
+      modelId,
+      provider, 
+      enabledTools,
+      enabledToolsLength: enabledTools?.length || 0
+    }));
+    
+    const tools = await buildToolsForRequest(modelId, enabledTools, provider);
+    
+    log.info('Built tools for request', sanitizeForLogging({ 
+      modelId,
+      provider,
+      enabledTools,
+      availableToolCount: Object.keys(tools).length,
+      toolNames: Object.keys(tools)
+    }));
+
+    // 8. Build system prompt (optional, can add Nexus-specific context here)
     const systemPrompt = `You are a helpful AI assistant in the Nexus interface.`;
     
-    // 8. Use unified streaming service (same as regular chat)
+    // 9. Use unified streaming service (same as regular chat)
     log.info('Using unified streaming service', sanitizeForLogging({ 
       provider,
       model: modelId,
-      messagesBeforeStream: messages ? messages.length : 'undefined'
+      messagesBeforeStream: messages ? messages.length : 'undefined',
+      toolsEnabled: Object.keys(tools).length > 0
     }));
     
     // Create streaming request with callbacks
@@ -247,9 +269,11 @@ export async function POST(req: Request) {
       conversationId,
       source: 'chat',  // Use 'chat' as source type (nexus is tracked in metadata)
       systemPrompt,
+      tools,
       options: {
         reasoningEffort: body.reasoningEffort || 'medium',
-        responseMode: body.responseMode || 'standard'
+        responseMode: body.responseMode || 'standard',
+        enabledTools: enabledTools || []
       },
       callbacks: {
         onFinish: async ({ text, usage, finishReason }) => {

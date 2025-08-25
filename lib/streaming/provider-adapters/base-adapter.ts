@@ -93,6 +93,7 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
         model: enhancedConfig.model,
         messages: enhancedConfig.messages as CoreMessage[],
         system: enhancedConfig.system,
+        tools: enhancedConfig.tools,
         temperature: enhancedConfig.temperature,
         ...(enhancedConfig.experimental_telemetry && enhancedConfig.experimental_telemetry.isEnabled && {
           experimental_telemetry: {

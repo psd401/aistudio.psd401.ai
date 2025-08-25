@@ -26,12 +26,6 @@ export class OpenAIAdapter extends BaseProviderAdapter {
         throw ErrorFactories.sysConfigurationError('OpenAI API key not configured');
       }
       
-      log.debug(`Creating OpenAI model: ${modelId}`, {
-        modelId,
-        useResponsesAPI: true, // Always use Responses API
-        backgroundMode: options?.backgroundMode
-      });
-      
       const openai = createOpenAI({ apiKey });
       
       // Always use Responses API for all OpenAI models
@@ -41,20 +35,19 @@ export class OpenAIAdapter extends BaseProviderAdapter {
         backgroundMode: options?.backgroundMode || false
       });
       
-      // Return a model configured for Responses API
-      // The Responses API supports advanced reasoning with structured outputs
-      const model = openai(modelId);
+      const model = openai.responses(modelId);
       
-      // Store metadata for later use in getProviderOptions
-      // Type assertion needed for metadata storage
+      // Store metadata for later use
       const modelWithMetadata = model as typeof model & {
         __responsesAPI: boolean;
         __reasoningEffort: 'minimal' | 'low' | 'medium' | 'high';
         __backgroundMode: boolean;
+        __openai: ReturnType<typeof createOpenAI>;
       };
       modelWithMetadata.__responsesAPI = true;
       modelWithMetadata.__reasoningEffort = options?.reasoningEffort || 'medium';
       modelWithMetadata.__backgroundMode = options?.backgroundMode || false;
+      modelWithMetadata.__openai = openai;
       
       return model;
       
@@ -258,6 +251,7 @@ export class OpenAIAdapter extends BaseProviderAdapter {
         model: enhancedConfig.model,
         messages: enhancedConfig.messages as CoreMessage[],
         system: enhancedConfig.system,
+        tools: enhancedConfig.tools,
         temperature: enhancedConfig.temperature,
         onFinish: async (event) => {
           logger.info('OpenAI streamText onFinish triggered', {
