@@ -21,6 +21,12 @@ export async function GET(
     const resolvedParams = await params
     const modelId = decodeURIComponent(resolvedParams.modelId)
     
+    // Validate modelId format to prevent injection attacks
+    if (!modelId || typeof modelId !== 'string' || !/^[a-zA-Z0-9\-_.]+$/.test(modelId)) {
+      log.warn('Invalid modelId format', { modelId })
+      return NextResponse.json({ error: 'Invalid model ID format' }, { status: 400 })
+    }
+    
     log.info('Getting model capabilities', { modelId })
     
     // Get model capabilities from the server-side registry

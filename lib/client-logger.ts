@@ -32,25 +32,55 @@ function formatClientLog(level: string, message: string, context: ClientLogConte
   return `${timestamp} ${requestId}${moduleName}${level.toUpperCase()}: ${message}${metaStr}`
 }
 
+function sanitizeMetaForProduction(meta?: object): object | undefined {
+  if (!meta || process.env.NODE_ENV !== 'production') {
+    return meta
+  }
+  
+  // In production, remove potentially sensitive fields
+  const sanitized = { ...meta } as Record<string, unknown>
+  const sensitiveFields = ['password', 'apiKey', 'token', 'secret', 'key', 'auth', 'credentials']
+  
+  for (const field of sensitiveFields) {
+    if (field in sanitized) {
+      delete sanitized[field]
+    }
+  }
+  
+  return sanitized
+}
+
 function createClientLogger(context: ClientLogContext): ClientLogger {
   const isClient = typeof window !== 'undefined'
+  const isProd = process.env.NODE_ENV === 'production'
+  
+  if (isClient && isProd) {
+    // Production client-side: minimal logging to prevent information exposure
+    return {
+      info: () => {}, // No-op in production client-side
+      warn: () => {}, // No-op in production client-side  
+      error: (message: string) => {
+        // Only log critical errors in production, sanitized
+        console.error(`ERROR: ${message}`)
+      },
+      debug: () => {} // No-op in production
+    }
+  }
   
   if (isClient) {
-    // Client-side logging using console methods
+    // Development client-side logging using console methods
     return {
       info: (message: string, meta?: object) => {
-        console.log(formatClientLog('info', message, context, meta))
+        console.log(formatClientLog('info', message, context, sanitizeMetaForProduction(meta)))
       },
       warn: (message: string, meta?: object) => {
-        console.warn(formatClientLog('warn', message, context, meta))
+        console.warn(formatClientLog('warn', message, context, sanitizeMetaForProduction(meta)))
       },
       error: (message: string, meta?: object) => {
-        console.error(formatClientLog('error', message, context, meta))
+        console.error(formatClientLog('error', message, context, sanitizeMetaForProduction(meta)))
       },
       debug: (message: string, meta?: object) => {
-        if (process.env.NODE_ENV === 'development') {
-          console.debug(formatClientLog('debug', message, context, meta))
-        }
+        console.debug(formatClientLog('debug', message, context, sanitizeMetaForProduction(meta)))
       },
     }
   } else {

@@ -1,4 +1,5 @@
 import { UIMessage } from 'ai';
+import { z } from 'zod';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from '@/lib/logger';
@@ -9,6 +10,17 @@ import { buildToolsForRequest } from '@/lib/tools/tool-registry';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
+
+// Basic input validation schema - keeping it minimal to avoid breaking existing data flows
+const ChatRequestSchema = z.object({
+  messages: z.array(z.any()), // Keep flexible for UI message format
+  modelId: z.string().regex(/^[a-zA-Z0-9\-_.]+$/, 'Invalid model ID format'),
+  provider: z.string().optional(),
+  conversationId: z.string().optional(),
+  enabledTools: z.array(z.string()).optional(),
+  reasoningEffort: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
+  responseMode: z.enum(['standard', 'priority', 'flex']).optional()
+});
 
 /**
  * Nexus Chat API - AI SDK v5 Compatible
@@ -22,15 +34,35 @@ export async function POST(req: Request) {
   log.info('POST /api/nexus/chat - Processing chat request');
   
   try {
-    // 1. Parse and validate request (AI SDK format)
+    // 1. Parse and validate request with Zod schema
     const body = await req.json();
     
-    // Extract fields from the request body (AI SDK format)
-    const messages: UIMessage[] = body.messages || [];
-    const modelId = body.modelId;
-    const provider = body.provider || 'openai';
-    const existingConversationId = body.conversationId;
-    const enabledTools: string[] = body.enabledTools || [];
+    const validationResult = ChatRequestSchema.safeParse(body);
+    if (!validationResult.success) {
+      log.warn('Invalid request format', { 
+        errors: validationResult.error.issues.map(issue => ({
+          path: issue.path.join('.'),
+          message: issue.message
+        }))
+      });
+      return new Response(
+        JSON.stringify({ 
+          error: 'Invalid request format', 
+          details: validationResult.error.issues,
+          requestId 
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Extract validated fields
+    const { 
+      messages, 
+      modelId, 
+      provider = 'openai', 
+      conversationId: existingConversationId,
+      enabledTools = []
+    } = validationResult.data;
     
     log.info('Request parsed', sanitizeForLogging({
       messageCount: messages.length,
@@ -88,7 +120,7 @@ export async function POST(req: Request) {
     }));
     
     // 5. Handle conversation (create new or use existing)
-    let conversationId: string = existingConversationId;
+    let conversationId: string = existingConversationId || '';
     let conversationTitle = 'New Conversation';
     
     if (!conversationId) {
@@ -261,7 +293,7 @@ export async function POST(req: Request) {
     }
     
     const streamRequest: StreamRequest = {
-      messages: messages as UIMessage[],  // Ensure type is correct
+      messages: messages as UIMessage[], // Back to simple cast
       modelId,
       provider,
       userId: userId.toString(),
@@ -271,8 +303,8 @@ export async function POST(req: Request) {
       systemPrompt,
       tools,
       options: {
-        reasoningEffort: body.reasoningEffort || 'medium',
-        responseMode: body.responseMode || 'standard',
+        reasoningEffort: validationResult.data.reasoningEffort || 'medium',
+        responseMode: validationResult.data.responseMode || 'standard',
         enabledTools: enabledTools || []
       },
       callbacks: {
