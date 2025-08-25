@@ -33,7 +33,7 @@ import { uploadDocument } from '@/lib/aws/s3-client';
 import { saveDocument, saveDocumentChunk, batchInsertDocumentChunks } from '@/lib/db/queries/documents';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { getServerSession } from '@/lib/auth/server-session';
-import { extractTextFromDocument, chunkText, getFileTypeFromFileName } from '@/lib/document-processing';
+// Removed unused imports from '@/lib/document-processing'
 import { NextRequest } from 'next/server';
 
 // Mock dependencies
