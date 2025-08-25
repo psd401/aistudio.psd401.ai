@@ -845,6 +845,8 @@ export async function updateAIModel(id: number, updates: AIModelUpdateFields) {
   
   // Fields that need JSONB casting
   const jsonbFields = ['capabilities', 'allowed_roles', 'nexus_capabilities', 'provider_metadata'];
+  // Fields that need timestamp casting
+  const timestampFields = ['pricing_updated_at'];
   
   const updateFields = Object.keys(snakeCaseUpdates)
     .filter(key => key !== 'id')
@@ -852,6 +854,10 @@ export async function updateAIModel(id: number, updates: AIModelUpdateFields) {
       // Cast to JSONB for JSON fields
       if (jsonbFields.includes(key) && snakeCaseUpdates[key] !== null) {
         return `${key} = :param${index}::jsonb`;
+      }
+      // Cast to timestamp for timestamp fields
+      if (timestampFields.includes(key) && snakeCaseUpdates[key] !== null) {
+        return `${key} = :param${index}::timestamp`;
       }
       return `${key} = :param${index}`;
     });
