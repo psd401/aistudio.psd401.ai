@@ -87,7 +87,6 @@ test.describe('Nexus AI Tools Integration', () => {
       await page.waitForSelector('[data-testid="tool-selector"]')
       
       // Capture available tools for first model
-      const firstModelTools = await page.locator('[id^="tool-"]').count()
       
       // Select different model
       await modelSelector.click()
