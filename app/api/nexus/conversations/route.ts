@@ -1,4 +1,5 @@
 import { getServerSession } from '@/lib/auth/server-session';
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { executeSQL } from '@/lib/streaming/nexus/db-helpers';
 import { transformSnakeToCamel } from '@/lib/db/field-mapper';
@@ -39,7 +40,15 @@ export async function GET(req: Request) {
       return new Response('Unauthorized', { status: 401 });
     }
     
-    const userId = session.sub;
+    // Get current user with proper integer ID
+    const currentUser = await getCurrentUserAction();
+    if (!currentUser.isSuccess) {
+      log.error('Failed to get current user');
+      timer({ status: 'error', reason: 'user_lookup_failed' });
+      return new Response('Unauthorized', { status: 401 });
+    }
+    
+    const userId = currentUser.data.user.id;
     
     // Parse query parameters
     const url = new URL(req.url);
@@ -145,7 +154,15 @@ export async function POST(req: Request) {
       return new Response('Unauthorized', { status: 401 });
     }
     
-    const userId = session.sub;
+    // Get current user with proper integer ID
+    const currentUser = await getCurrentUserAction();
+    if (!currentUser.isSuccess) {
+      log.error('Failed to get current user');
+      timer({ status: 'error', reason: 'user_lookup_failed' });
+      return new Response('Unauthorized', { status: 401 });
+    }
+    
+    const userId = currentUser.data.user.id;
     
     // Parse request body
     const body = await req.json();
