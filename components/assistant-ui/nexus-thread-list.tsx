@@ -11,10 +11,13 @@ import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button
 import { useThreadTitles } from "@/lib/nexus/use-thread-titles";
 
 export const NexusThreadList: FC = () => {
+  // Initialize the hook at the top level to ensure it always runs
+  const { getThreadTitle } = useThreadTitles();
+  
   return (
     <ThreadListPrimitive.Root className="text-foreground flex flex-col items-stretch gap-1.5">
       <ThreadListNew />
-      <ThreadListItems />
+      <ThreadListItems getThreadTitle={getThreadTitle} />
     </ThreadListPrimitive.Root>
   );
 };
@@ -30,24 +33,23 @@ const ThreadListNew: FC = () => {
   );
 };
 
-const ThreadListItems: FC = () => {
-  return <ThreadListPrimitive.Items components={{ ThreadListItem: NexusThreadListItem }} />;
+const ThreadListItems: FC<{ getThreadTitle: (id: string) => string }> = ({ getThreadTitle }) => {
+  return <ThreadListPrimitive.Items components={{ ThreadListItem: (props) => <NexusThreadListItem {...props} getThreadTitle={getThreadTitle} /> }} />;
 };
 
-const NexusThreadListItem: FC = () => {
+const NexusThreadListItem: FC<{ getThreadTitle: (id: string) => string }> = ({ getThreadTitle }) => {
   return (
     <ThreadListItemPrimitive.Root className="data-active:bg-muted hover:bg-muted focus-visible:bg-muted focus-visible:ring-ring flex items-center gap-2 rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2">
       <ThreadListItemPrimitive.Trigger className="flex-grow px-3 py-2 text-start">
-        <NexusThreadListItemTitle />
+        <NexusThreadListItemTitle getThreadTitle={getThreadTitle} />
       </ThreadListItemPrimitive.Trigger>
       <ThreadListItemArchive />
     </ThreadListItemPrimitive.Root>
   );
 };
 
-const NexusThreadListItemTitle: FC = () => {
+const NexusThreadListItemTitle: FC<{ getThreadTitle: (id: string) => string }> = ({ getThreadTitle }) => {
   const threadItem = useThreadListItem();
-  const { getThreadTitle } = useThreadTitles();
   
   // Get the actual title from database, fallback to default
   const title = getThreadTitle(threadItem.id);
