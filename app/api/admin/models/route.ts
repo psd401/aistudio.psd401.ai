@@ -195,7 +195,19 @@ export async function POST(request: Request) {
       allowedRoles: validatedAllowedRoles || undefined,
       maxTokens: body.maxTokens ? parseInt(body.maxTokens) : undefined,
       isActive: body.active ?? true,
-      chatEnabled: body.chatEnabled ?? false
+      chatEnabled: body.chatEnabled ?? false,
+      // Pricing fields
+      inputCostPer1kTokens: body.inputCostPer1kTokens || undefined,
+      outputCostPer1kTokens: body.outputCostPer1kTokens || undefined,
+      cachedInputCostPer1kTokens: body.cachedInputCostPer1kTokens || undefined,
+      pricingUpdatedAt: body.pricingUpdatedAt ? new Date(body.pricingUpdatedAt) : undefined,
+      // Performance fields
+      averageLatencyMs: body.averageLatencyMs || undefined,
+      maxConcurrency: body.maxConcurrency || undefined,
+      supportsBatching: body.supportsBatching ?? undefined,
+      // JSONB fields - these are already objects from the frontend
+      nexusCapabilities: body.nexusCapabilities || undefined,
+      providerMetadata: body.providerMetadata || undefined
     };
 
     const model = await createAIModel(modelData);
@@ -255,6 +267,20 @@ export async function PUT(request: Request) {
     // Convert maxTokens to number if present
     if (updates.maxTokens !== undefined) {
       updates.maxTokens = updates.maxTokens ? parseInt(updates.maxTokens) : null;
+    }
+
+    // Handle JSONB fields - stringify if they're objects
+    if (updates.nexusCapabilities && typeof updates.nexusCapabilities === 'object') {
+      updates.nexusCapabilities = JSON.stringify(updates.nexusCapabilities);
+    }
+    
+    if (updates.providerMetadata && typeof updates.providerMetadata === 'object') {
+      updates.providerMetadata = JSON.stringify(updates.providerMetadata);
+    }
+
+    // Handle Date fields
+    if (updates.pricingUpdatedAt && updates.pricingUpdatedAt instanceof Date) {
+      updates.pricingUpdatedAt = updates.pricingUpdatedAt.toISOString();
     }
 
     const model = await updateAIModel(id, updates);

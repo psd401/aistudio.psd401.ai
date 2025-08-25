@@ -1,0 +1,55 @@
+'use client'
+
+import { ModelSelector } from '@/components/features/model-selector'
+import { CompactToolSelector } from '../tools/compact-tool-selector'
+import type { SelectAiModel } from '@/types'
+
+interface NexusHeaderProps {
+  selectedModel: SelectAiModel | null
+  onModelChange: (model: SelectAiModel) => void
+  models: SelectAiModel[]
+  isLoadingModels: boolean
+  enabledTools: string[]
+  onToolsChange: (tools: string[]) => void
+}
+
+export function NexusHeader({ 
+  selectedModel, 
+  onModelChange, 
+  models, 
+  isLoadingModels,
+  enabledTools,
+  onToolsChange
+}: NexusHeaderProps) {
+  return (
+    <header className="border-b border-border bg-white px-4 py-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-semibold text-foreground">
+            AI Chat
+          </h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <CompactToolSelector
+            selectedModel={selectedModel}
+            enabledTools={enabledTools}
+            onToolsChange={onToolsChange}
+          />
+          <ModelSelector
+            models={models}
+            value={selectedModel}
+            onChange={onModelChange}
+            requiredCapabilities={["chat"]}
+            placeholder="Select AI model"
+            loading={isLoadingModels}
+            showDescription={true}
+            groupByProvider={true}
+            hideRoleRestricted={true}
+            hideCapabilityMissing={true}
+            className="w-[250px]"
+          />
+        </div>
+      </div>
+    </header>
+  )
+}

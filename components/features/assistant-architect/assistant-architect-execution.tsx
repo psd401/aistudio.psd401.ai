@@ -590,13 +590,24 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                       options = parsed
                                     }
                                   } catch {
-                                    options = field.options.split(",").map(s => ({
+                                    // Type is already narrowed to string in the outer if block
+                                    const optionsStr = field.options as string
+                                    options = optionsStr.split(",").map(s => ({
                                       value: s.trim(),
                                       label: s.trim()
                                     }))
                                   }
                                 } else if (Array.isArray(field.options)) {
                                   options = field.options
+                                } else if (field.options && typeof field.options === 'object' && 'values' in field.options) {
+                                  // Handle ToolInputFieldOptions format
+                                  const optionsObj = field.options as { values?: string[] }
+                                  if (Array.isArray(optionsObj.values)) {
+                                    options = optionsObj.values.map(val => ({
+                                      label: val,
+                                      value: val
+                                    }))
+                                  }
                                 }
                                 return options.map(option => (
                                   <SelectItem key={option.value} value={option.value}>
@@ -821,9 +832,9 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                 <span className="sr-only">Copy output</span>
                               </Button>
                               <Button
-                                variant={promptResult.userFeedback === 'like' ? 'success' : 'ghost'}
+                                variant={promptResult.userFeedback === 'like' ? 'default' : 'ghost'}
                                 size="icon"
-                                className="h-7 w-7"
+                                className={`h-7 w-7 ${promptResult.userFeedback === 'like' ? 'bg-green-500/10 hover:bg-green-500/20' : ''}`}
                                 title="Like output"
                                 onClick={async () => await handleFeedback(promptResult, 'like')}
                               >
@@ -831,7 +842,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                 <span className="sr-only">Like output</span>
                               </Button>
                               <Button
-                                variant={promptResult.userFeedback === 'dislike' ? 'error' : 'ghost'}
+                                variant={promptResult.userFeedback === 'dislike' ? 'destructive' : 'ghost'}
                                 size="icon"
                                 className="h-7 w-7"
                                 title="Dislike output"

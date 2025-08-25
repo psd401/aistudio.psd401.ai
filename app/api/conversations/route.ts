@@ -4,7 +4,7 @@ import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 
-export async function GET() {
+export async function GET(request: Request) {
   const requestId = generateRequestId();
   const timer = startTimer("api.conversations");
   const log = createLogger({ requestId, route: "api.conversations" });
@@ -30,7 +30,12 @@ export async function GET() {
   const userId = currentUser.data.user.id;
 
   return withErrorHandling(async () => {
-    const query = `
+    // Parse URL parameters
+    const url = new URL(request.url);
+    const latest = url.searchParams.get('latest') === 'true';
+    const limit = latest ? 1 : undefined;
+    
+    let query = `
       SELECT c.id, c.user_id, c.title, c.created_at, c.updated_at,
              c.model_id, c.source, c.execution_id, c.context,
              am.name as model_name, am.provider as model_provider,
@@ -42,6 +47,10 @@ export async function GET() {
       ORDER BY c.updated_at DESC
     `;
     
+    if (limit) {
+      query += ` LIMIT ${limit}`;
+    }
+    
     const parameters = [
       { name: 'userId', value: { longValue: userId } },
       { name: 'source', value: { stringValue: 'chat' } }
@@ -49,7 +58,11 @@ export async function GET() {
     
     const userConversations = await executeSQL(query, parameters);
     
-    log.info("Conversations retrieved successfully", { count: userConversations.length });
+    log.info("Conversations retrieved successfully", { 
+      count: userConversations.length,
+      latest,
+      limit 
+    });
     timer({ status: "success", count: userConversations.length });
     
     return userConversations;

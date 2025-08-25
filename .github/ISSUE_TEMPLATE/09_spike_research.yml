@@ -1,0 +1,81 @@
+name: 🔬 Spike/Research
+description: Create a research or investigation task
+title: "[SPIKE] "
+labels: ["spike", "research"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🔬 Spike/Research Task
+        Use this for time-boxed research and investigation tasks.
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: Research Objective
+      description: What are we trying to learn or prove?
+    validations:
+      required: true
+
+  - type: textarea
+    id: questions
+    attributes:
+      label: Key Questions
+      description: What specific questions need answers?
+      value: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: true
+
+  - type: textarea
+    id: approach
+    attributes:
+      label: Research Approach
+      description: How will you conduct this research?
+      placeholder: |
+        - Literature review
+        - Proof of concept
+        - Benchmarking
+        - Vendor evaluation
+        - Technical prototype
+    validations:
+      required: true
+
+  - type: input
+    id: timebox
+    attributes:
+      label: Time Box
+      description: Maximum time to spend on this spike
+      placeholder: "2 days"
+    validations:
+      required: true
+
+  - type: textarea
+    id: deliverables
+    attributes:
+      label: Expected Deliverables
+      description: What will be produced?
+      value: |
+        - [ ] Technical recommendation document
+        - [ ] Proof of concept code
+        - [ ] Performance benchmarks
+        - [ ] Architecture decision record (ADR)
+        - [ ] Vendor comparison matrix
+        - [ ] Risk assessment
+    validations:
+      required: true
+
+  - type: textarea
+    id: success_criteria
+    attributes:
+      label: Success Criteria
+      description: How do we know the spike is complete?
+      placeholder: |
+        - Clear recommendation provided
+        - All questions answered
+        - Decision can be made
+    validations:
+      required: true

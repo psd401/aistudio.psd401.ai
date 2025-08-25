@@ -1,8 +1,8 @@
-import { streamText, convertToModelMessages, UIMessage } from 'ai';
+import { UIMessage } from 'ai';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
-import { createProviderModel } from './lib/provider-factory';
+import { ErrorFactories } from '@/lib/error-utils';
 import { buildSystemPrompt } from './lib/system-prompt-builder';
 import { 
   handleConversation, 
@@ -12,6 +12,8 @@ import {
 } from './lib/conversation-handler';
 import { loadExecutionContextData, buildInitialPromptForStreaming } from './lib/execution-context';
 import { getAssistantOwnerSub } from './lib/knowledge-context';
+import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
+import type { StreamRequest } from '@/lib/streaming/types';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -124,7 +126,7 @@ export async function POST(req: Request) {
       }
     }
     
-    // 6. Handle conversation (create/update)
+    // 6. Handle conversation (lazy creation for new chats)
     // Convert UIMessage to ChatMessage format    
     const chatMessages = messages.map((msg: { role: string; parts?: unknown[]; content?: string }) => ({
       role: msg.role as 'user' | 'assistant' | 'system',
@@ -138,18 +140,74 @@ export async function POST(req: Request) {
       content: msg.content
     }));
     
-    const conversationId = await handleConversation({
-      messages: chatMessages,
-      modelId: modelConfig.id,
-      conversationId: existingConversationId,
-      userId: currentUser.data.user.id,
+    log.info('Starting conversation handling', {
+      hasExistingConversation: !!existingConversationId,
+      messageCount: chatMessages.length,
       source,
-      executionId: validateExecutionId(executionId),
-      context: fullContext,
-      documentId
+      hasDocumentId: !!documentId
     });
     
-    log.info('Conversation handled', { conversationId });
+    // Lazy conversation creation - only create when needed
+    let conversationId = existingConversationId;
+    
+    // For new chats, create conversation atomically with first message
+    if (!existingConversationId) {
+      conversationId = await handleConversation({
+        messages: chatMessages,
+        modelId: modelConfig.id,
+        conversationId: undefined,
+        userId: currentUser.data.user.id,
+        source,
+        executionId: validateExecutionId(executionId),
+        context: fullContext,
+        documentId
+      });
+      
+      log.info('New conversation created', { 
+        conversationId,
+        userId: currentUser.data.user.id
+      });
+    } else {
+      // For existing conversations, just save the user message
+      await handleConversation({
+        messages: chatMessages,
+        modelId: modelConfig.id,
+        conversationId: existingConversationId,
+        userId: currentUser.data.user.id,
+        source,
+        executionId: validateExecutionId(executionId),
+        context: fullContext,
+        documentId
+      });
+      
+      log.info('Message added to existing conversation', { 
+        conversationId: existingConversationId
+      });
+    }
+    
+    // Validate conversation ID
+    if (!conversationId || conversationId <= 0) {
+      log.error('Invalid conversation ID', { 
+        conversationId,
+        existingConversationId,
+        userId: currentUser.data.user.id
+      });
+      timer({ status: 'error', reason: 'invalid_conversation_id' });
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to create or retrieve conversation',
+          details: 'Unable to process chat request.',
+          requestId
+        }),
+        { 
+          status: 500, 
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-Request-Id': requestId
+          } 
+        }
+      );
+    }
     
     // 7. Get existing conversation context if needed
     if (existingConversationId && !fullContext) {
@@ -169,8 +227,26 @@ export async function POST(req: Request) {
     }
     
     // 8. Process messages for initial assistant executions
-    // For initial executions, replace the raw JSON with the actual prompt
-    let processedMessages = messages;
+    // Normalize messages to ensure they have the correct format for AI SDK v5
+    // AI SDK v5 expects UIMessage format with parts array
+    let processedMessages = messages.map((msg: UIMessage) => {
+      // If message already has parts array, use it as-is
+      if (msg.parts && Array.isArray(msg.parts)) {
+        return msg;
+      }
+      
+      // If message has content property (legacy format), convert to parts
+      if ('content' in msg && typeof msg.content === 'string') {
+        return {
+          ...msg,
+          parts: [{ type: 'text' as const, text: msg.content }]
+        };
+      }
+      
+      // Otherwise, return as-is and let convertToModelMessages handle it
+      return msg;
+    });
+    
     let originalUserQuestion: string | undefined;
     if (source === 'assistant_execution' && executionId && !existingConversationId) {
       const validExecutionId = validateExecutionId(executionId);
@@ -178,10 +254,10 @@ export async function POST(req: Request) {
         const promptData = await buildInitialPromptForStreaming(validExecutionId);
         if (promptData) {
           // Replace the last message (which contains raw JSON) with the processed prompt
-          processedMessages = messages.slice(0, -1).concat([{
-            ...messages[messages.length - 1],
-            parts: [{ type: 'text', text: promptData.processedPrompt }]
-          }] as UIMessage[]);
+          processedMessages = processedMessages.slice(0, -1).concat([{
+            ...processedMessages[processedMessages.length - 1],
+            parts: [{ type: 'text' as const, text: promptData.processedPrompt }]
+          }]);
           
           // Extract the original user question from the inputs
           // Look for common field names that might contain the user's question
@@ -241,59 +317,101 @@ export async function POST(req: Request) {
       promptLength: systemPrompt.length 
     });
     
-    // 9. Create provider-specific model
-    const model = await createProviderModel(
-      modelConfig.provider,
-      modelConfig.model_id
-    );
-    
-    log.info('Provider model created', {
+    // 9. Use unified streaming service
+    log.info('Using unified streaming service', { 
       provider: modelConfig.provider,
       model: modelConfig.model_id
     });
     
-    // 10. Stream response using AI SDK v5 pattern
-    const result = streamText({
-      model,
-      system: systemPrompt,
-      messages: convertToModelMessages(processedMessages),
-      onFinish: async ({ text, usage, finishReason }) => {
-        log.info('Stream finished', {
-          hasText: !!text,
-          textLength: text?.length || 0,
-          hasUsage: !!usage,
-          finishReason
-        });
-        
-        // TODO: Extract reasoning content when available in AI SDK
-        const reasoning = undefined;
-        
-        // Save assistant response to database
-        await saveAssistantMessage({
-          conversationId,
-          content: text,
-          role: 'assistant',
-          modelId: modelConfig.id,
-          usage,
-          finishReason,
-          reasoningContent: reasoning
-        });
-        
-        timer({ 
-          status: 'success',
-          conversationId,
-          tokensUsed: usage?.totalTokens
-        });
+    // Create streaming request with callbacks
+    const streamRequest: StreamRequest = {
+        messages: processedMessages,
+        modelId: modelConfig.model_id,
+        provider: modelConfig.provider,
+        userId: currentUser.data.user.id.toString(),
+        sessionId: session.sub,
+        conversationId,
+        source: 'chat',
+        documentId,
+        systemPrompt,
+        options: {
+          reasoningEffort: body.reasoningEffort || 'medium',
+          responseMode: body.responseMode || 'standard'
+        },
+        callbacks: {
+          onFinish: async ({ text, usage, finishReason }) => {
+            log.info('Unified stream finished', {
+              hasText: !!text,
+              textLength: text?.length || 0,
+              hasUsage: !!usage,
+              finishReason,
+              conversationId,
+              modelId: modelConfig.id
+            });
+            
+            try {
+              // Validate conversation still exists before saving
+              if (!conversationId || conversationId <= 0) {
+                throw ErrorFactories.invalidInput('conversationId', conversationId, 'Must be a positive integer at save time');
+              }
+              
+              await saveAssistantMessage({
+                conversationId,
+                content: text,
+                role: 'assistant',
+                modelId: modelConfig.id,
+                usage,
+                finishReason,
+                reasoningContent: undefined // TODO: Extract from stream
+              });
+              
+              log.info('Assistant message saved successfully', {
+                conversationId,
+                modelId: modelConfig.id
+              });
+            } catch (saveError) {
+              log.error('Failed to save assistant message', {
+                error: saveError,
+                conversationId,
+                modelId: modelConfig.id
+              });
+              // Error is logged but not thrown to avoid breaking the stream
+              // The unified streaming service will also log this
+            }
+            
+            timer({ 
+              status: 'success',
+              conversationId,
+              tokensUsed: usage?.totalTokens
+            });
+          }
+        }
+      };
+      
+      const streamResponse = await unifiedStreamingService.stream(streamRequest);
+      
+      // Return unified streaming response
+      log.info('Returning unified streaming response', {
+        conversationId,
+        requestId,
+        hasConversationId: !!conversationId,
+        supportsReasoning: streamResponse.capabilities.supportsReasoning
+      });
+      
+      // Only send conversation ID header for new conversations
+      const responseHeaders: Record<string, string> = {
+        'X-Request-Id': requestId,
+        'X-Unified-Streaming': 'true',
+        'X-Supports-Reasoning': streamResponse.capabilities.supportsReasoning.toString()
+      };
+      
+      if (!existingConversationId) {
+        responseHeaders['X-Conversation-Id'] = conversationId.toString();
       }
-    });
-    
-    // 11. Return proper streaming response
-    return result.toUIMessageStreamResponse({
-      headers: {
-        'X-Conversation-Id': conversationId.toString(),
-        'X-Request-Id': requestId
-      }
-    });
+      
+      return streamResponse.result.toUIMessageStreamResponse({
+        headers: responseHeaders
+      });
     
   } catch (error) {
     log.error('Chat API error', { 
@@ -306,11 +424,10 @@ export async function POST(req: Request) {
     
     timer({ status: 'error' });
     
-    // Return detailed error response
+    // Return generic error response
     return new Response(
       JSON.stringify({
         error: 'Failed to process chat request',
-        details: error instanceof Error ? error.message : 'Unknown error',
         requestId
       }),
       {

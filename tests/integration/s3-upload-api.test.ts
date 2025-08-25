@@ -11,17 +11,24 @@ jest.mock('@/actions/db/get-current-user-action')
 jest.mock('@/lib/aws/s3-client')
 jest.mock('@/lib/db/queries/documents')
 jest.mock('@/lib/document-processing')
-jest.mock('@/lib/logger', () => {
-  return {
-    __esModule: true,
-    default: {
-      info: jest.fn(),
-      error: jest.fn(),
-      warn: jest.fn(),
-      debug: jest.fn()
-    }
-  }
-})
+jest.mock('@/lib/logger', () => ({
+  __esModule: true,
+  default: {
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn()
+  },
+  createLogger: jest.fn(() => ({
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn()
+  })),
+  generateRequestId: jest.fn(() => 'test-request-id'),
+  startTimer: jest.fn(() => jest.fn()),
+  sanitizeForLogging: jest.fn((data) => data)
+}))
 jest.mock('@/lib/file-validation', () => ({
   ...jest.requireActual('@/lib/file-validation'),
   getMaxFileSize: jest.fn().mockResolvedValue(10 * 1024 * 1024) // 10MB

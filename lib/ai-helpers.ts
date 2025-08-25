@@ -1,6 +1,5 @@
 import { 
   generateText, 
-  streamText, 
   generateObject,
   embed,
   embedMany,
@@ -10,13 +9,16 @@ import {
   InvalidToolInputError,
   NoSuchToolError,
   ToolCallRepairError,
-  LanguageModel
+  LanguageModel,
+  UIMessage
 } from 'ai'
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { createOpenAI } from '@ai-sdk/openai'
 import { z } from 'zod'
 import logger from "@/lib/logger"
 import { createProviderModel } from '@/app/api/chat/lib/provider-factory'
+import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service'
+import type { StreamRequest } from '@/lib/streaming/types'
 
 interface ModelConfig {
   provider: string
@@ -96,7 +98,7 @@ export async function generateCompletion(
   }
 }
 
-// Stream a text completion
+// Stream a text completion using unified streaming service
 export async function streamCompletion(
   modelConfig: ModelConfig,
   messages: CoreMessage[],
@@ -105,25 +107,80 @@ export async function streamCompletion(
   tools?: any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<StreamTextResult<any, any>> {
-  const model = await getModelClient(modelConfig);
+  logger.info('[streamCompletion] Using unified streaming service', {
+    provider: modelConfig.provider,
+    modelId: modelConfig.modelId,
+    hasTools: !!tools
+  });
   
   try {
-    const result = await streamText({
-      model,
-      messages,
-      tools,
-      maxRetries: tools ? 5 : undefined,
-      onChunk: ({ chunk }) => {
-        if (chunk.type === 'text-delta' && options?.onToken) {
-          options.onToken((chunk as { text?: string }).text || '');
+    // Convert CoreMessage to UIMessage format for unified streaming
+    const uiMessages: UIMessage[] = messages.map((msg, index) => ({
+      id: `msg-${index}`,
+      role: msg.role as 'user' | 'assistant' | 'system',
+      parts: [{
+        type: 'text',
+        text: typeof msg.content === 'string' 
+          ? msg.content 
+          : JSON.stringify(msg.content)
+      }]
+    }));
+    
+    // Create stream request for unified service
+    const streamRequest: StreamRequest = {
+      messages: uiMessages,
+      modelId: modelConfig.modelId,
+      provider: modelConfig.provider,
+      source: 'ai-helpers', // Identify the source
+      userId: 'system', // For system-level calls
+      sessionId: 'system',
+      callbacks: {
+        onProgress: (event) => {
+          if (event.type === 'token' && options?.onToken && event.text) {
+            options.onToken(event.text);
+          }
+        },
+        onFinish: async (data) => {
+          if (options?.onFinish) {
+            options.onFinish(data);
+          }
+        },
+        onError: (error) => {
+          if (options?.onError) {
+            options.onError(error);
+          }
         }
-      },
-      onFinish: options?.onFinish
-    });
-
-    return result;
+      }
+    };
+    
+    // Note: The unified streaming service doesn't directly support tools yet
+    // For now, we'll fall back to the provider's native implementation when tools are needed
+    if (tools) {
+      logger.warn('[streamCompletion] Tools not yet supported in unified streaming, using fallback');
+      const model = await getModelClient(modelConfig);
+      const { streamText } = await import('ai');
+      return streamText({
+        model,
+        messages,
+        tools,
+        maxRetries: 5,
+        onChunk: ({ chunk }) => {
+          if (chunk.type === 'text-delta' && options?.onToken) {
+            options.onToken((chunk as { text?: string }).text || '');
+          }
+        },
+        onFinish: options?.onFinish
+      });
+    }
+    
+    // Use unified streaming service for non-tool calls
+    const response = await unifiedStreamingService.stream(streamRequest);
+    // The response.result is already a StreamTextResult-compatible object
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return response.result as unknown as StreamTextResult<any, any>;
+    
   } catch (error) {
-    logger.error('[streamCompletion] Error during streaming:', error);
+    logger.error('[streamCompletion] Error during unified streaming:', error);
     throw error;
   }
 }

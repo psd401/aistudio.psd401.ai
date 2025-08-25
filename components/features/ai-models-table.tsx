@@ -8,10 +8,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
-import { IconPlus, IconEdit, IconTrash } from '@tabler/icons-react';
-import type { SelectAiModel } from '@/types';
+import { IconPlus, IconEdit, IconTrash, IconChevronRight } from '@tabler/icons-react';
+import type { SelectAiModel, NexusCapabilities, ProviderMetadata } from '@/types';
 import { MultiSelect, type MultiSelectOption } from '@/components/ui/multi-select';
 import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import {
   ColumnDef,
   flexRender,
@@ -38,7 +39,13 @@ const ModelForm = React.memo(function ModelForm({
   onCancel, 
   isEditing 
 }: ModelFormProps) {
+  const [pricingOpen, setPricingOpen] = useState(false);
+  const [performanceOpen, setPerformanceOpen] = useState(false);
+  const [nexusCapabilitiesOpen, setNexusCapabilitiesOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [jsonError, setJsonError] = useState<string | null>(null);
   
+  // Basic field handlers
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => 
     setModelData({ ...modelData, name: e.target.value });
     
@@ -62,107 +69,379 @@ const ModelForm = React.memo(function ModelForm({
     
   const handleActiveChange = (checked: boolean) => 
     setModelData({ ...modelData, active: checked });
+
+  // Pricing field handlers with validation
+  const handleInputCostChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (!value) {
+      setModelData({ ...modelData, inputCostPer1kTokens: null });
+      return;
+    }
+    const parsed = parseFloat(value);
+    if (!isNaN(parsed) && parsed >= 0 && parsed <= 1000) {
+      setModelData({ ...modelData, inputCostPer1kTokens: parsed });
+    }
+  };
     
+  const handleOutputCostChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (!value) {
+      setModelData({ ...modelData, outputCostPer1kTokens: null });
+      return;
+    }
+    const parsed = parseFloat(value);
+    if (!isNaN(parsed) && parsed >= 0 && parsed <= 1000) {
+      setModelData({ ...modelData, outputCostPer1kTokens: parsed });
+    }
+  };
+    
+  const handleCachedInputCostChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (!value) {
+      setModelData({ ...modelData, cachedInputCostPer1kTokens: null });
+      return;
+    }
+    const parsed = parseFloat(value);
+    if (!isNaN(parsed) && parsed >= 0 && parsed <= 1000) {
+      setModelData({ ...modelData, cachedInputCostPer1kTokens: parsed });
+    }
+  };
+
+  // Performance field handlers with validation
+  const handleLatencyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (!value) {
+      setModelData({ ...modelData, averageLatencyMs: null });
+      return;
+    }
+    const parsed = parseInt(value);
+    if (!isNaN(parsed) && parsed >= 0 && parsed <= 30000) {
+      setModelData({ ...modelData, averageLatencyMs: parsed });
+    }
+  };
+    
+  const handleConcurrencyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (!value) {
+      setModelData({ ...modelData, maxConcurrency: null });
+      return;
+    }
+    const parsed = parseInt(value);
+    if (!isNaN(parsed) && parsed >= 1 && parsed <= 1000) {
+      setModelData({ ...modelData, maxConcurrency: parsed });
+    }
+  };
+    
+  const handleBatchingChange = (checked: boolean) => 
+    setModelData({ ...modelData, supportsBatching: checked });
+
+  // Nexus capabilities handler
+  const handleNexusCapabilityChange = (capability: string, checked: boolean) => {
+    setModelData({ 
+      ...modelData, 
+      nexusCapabilities: { 
+        ...modelData.nexusCapabilities, 
+        [capability]: checked 
+      } 
+    });
+  };
+
+  // Provider metadata handler with validation
+  const handleProviderMetadataChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value.trim();
+    
+    // Allow empty input
+    if (!value) {
+      setModelData({ ...modelData, providerMetadata: {} });
+      setJsonError(null);
+      return;
+    }
+    
+    try {
+      const parsed = JSON.parse(value);
+      
+      // Validate that it's an object (not array or primitive)
+      if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) {
+        throw new Error('Must be a valid JSON object');
+      }
+      
+      // Basic security validation - reject common dangerous patterns
+      const jsonString = JSON.stringify(parsed);
+      if (jsonString.includes('__proto__') || jsonString.includes('constructor') || jsonString.includes('prototype')) {
+        throw new Error('Invalid JSON: contains prohibited properties');
+      }
+      
+      setModelData({ ...modelData, providerMetadata: parsed as ProviderMetadata });
+      setJsonError(null);
+    } catch (error) {
+      setJsonError(error instanceof Error ? error.message : 'Invalid JSON format');
+      // Don't update the model data on error, preserving user input
+    }
+  };
+
+  const nexusCapabilityKeys = Object.keys(modelData.nexusCapabilities || {});
     
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+    <div className="space-y-6 max-h-[70vh] overflow-y-auto">
+      {/* Basic Information Section */}
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold">Basic Information</h3>
+        
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Name</label>
+            <Input
+              value={modelData.name}
+              onChange={handleNameChange}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Provider</label>
+            <Select
+              value={modelData.provider || ''}
+              onValueChange={handleProviderChange}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a provider" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="openai">OpenAI</SelectItem>
+                <SelectItem value="azure">Azure OpenAI</SelectItem>
+                <SelectItem value="amazon-bedrock">Amazon Bedrock</SelectItem>
+                <SelectItem value="google">Google AI</SelectItem>
+                <SelectItem value="google-vertex">Google Vertex AI</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
         <div className="space-y-2">
-          <label className="text-sm font-medium">Name</label>
+          <label className="text-sm font-medium">Model ID</label>
           <Input
-            value={modelData.name}
-            onChange={handleNameChange}
+            value={modelData.modelId}
+            onChange={handleModelIdChange}
             required
           />
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium">Provider</label>
-          <Select
-            value={modelData.provider || ''}
-            onValueChange={handleProviderChange}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select a provider" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="openai">OpenAI</SelectItem>
-              <SelectItem value="azure">Azure OpenAI</SelectItem>
-              <SelectItem value="amazon-bedrock">Amazon Bedrock</SelectItem>
-              <SelectItem value="google">Google AI</SelectItem>
-              <SelectItem value="google-vertex">Google Vertex AI</SelectItem>
-            </SelectContent>
-          </Select>
+          <label className="text-sm font-medium">Description</label>
+          <Textarea
+            value={modelData.description || ''}
+            onChange={handleDescriptionChange}
+          />
         </div>
-      </div>
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Model ID</label>
-        <Input
-          value={modelData.modelId}
-          onChange={handleModelIdChange}
-          required
-        />
-      </div>
-
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Description</label>
-        <Textarea
-          value={modelData.description || ''}
-          onChange={handleDescriptionChange}
-        />
-      </div>
-
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Capabilities</label>
-        <MultiSelect
-          options={capabilityOptions}
-          value={modelData.capabilitiesList}
-          onChange={handleCapabilitiesListChange}
-          placeholder="Select capabilities"
-          allowCustom={true}
-          customPlaceholder="Add custom capability..."
-          className="w-full"
-        />
-        <p className="text-xs text-muted-foreground">
-          Select model capabilities or add custom ones
-        </p>
-      </div>
-
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Allowed Roles</label>
-        <MultiSelect
-          options={roleOptions}
-          value={modelData.allowedRoles}
-          onChange={handleRolesChange}
-          placeholder="All roles (unrestricted)"
-          className="w-full"
-        />
-        <p className="text-xs text-muted-foreground">
-          Leave empty to allow access for all roles
-        </p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Max Tokens</label>
-          <Input
-            type="number"
-            value={modelData.maxTokens?.toString() || '4096'}
-            onChange={handleMaxTokensChange}
+          <label className="text-sm font-medium">General Capabilities</label>
+          <MultiSelect
+            options={capabilityOptions}
+            value={modelData.capabilitiesList}
+            onChange={handleCapabilitiesListChange}
+            placeholder="Select capabilities"
+            allowCustom={true}
+            customPlaceholder="Add custom capability..."
+            className="w-full"
           />
+          <p className="text-xs text-muted-foreground">
+            Select model capabilities or add custom ones
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Max Tokens</label>
+            <Input
+              type="number"
+              value={modelData.maxTokens?.toString() || '4096'}
+              onChange={handleMaxTokensChange}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <Switch
+              checked={modelData.active}
+              onCheckedChange={handleActiveChange}
+            />
+            <label className="text-sm font-medium">Active</label>
+          </div>
         </div>
       </div>
 
-      <div className="flex items-center space-x-4">
-        <div className="flex items-center space-x-2">
-          <Switch
-            checked={modelData.active}
-            onCheckedChange={handleActiveChange}
+      {/* Pricing Section */}
+      <Collapsible open={pricingOpen} onOpenChange={setPricingOpen}>
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" className="flex items-center space-x-2 p-0 h-auto">
+            <IconChevronRight 
+              size={16} 
+              className={`transition-transform ${pricingOpen ? 'rotate-90' : ''}`} 
+            />
+            <span className="text-lg font-semibold">Pricing</span>
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-4 mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Input Cost per 1K tokens ($)</label>
+              <Input
+                type="number"
+                step="0.000001"
+                value={modelData.inputCostPer1kTokens?.toString() || ''}
+                onChange={handleInputCostChange}
+                placeholder="0.000000"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Output Cost per 1K tokens ($)</label>
+              <Input
+                type="number"
+                step="0.000001"
+                value={modelData.outputCostPer1kTokens?.toString() || ''}
+                onChange={handleOutputCostChange}
+                placeholder="0.000000"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Cached Input Cost per 1K tokens ($)</label>
+              <Input
+                type="number"
+                step="0.000001"
+                value={modelData.cachedInputCostPer1kTokens?.toString() || ''}
+                onChange={handleCachedInputCostChange}
+                placeholder="0.000000"
+              />
+            </div>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* Performance Section */}
+      <Collapsible open={performanceOpen} onOpenChange={setPerformanceOpen}>
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" className="flex items-center space-x-2 p-0 h-auto">
+            <IconChevronRight 
+              size={16} 
+              className={`transition-transform ${performanceOpen ? 'rotate-90' : ''}`} 
+            />
+            <span className="text-lg font-semibold">Performance</span>
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-4 mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Average Latency (ms)</label>
+              <Input
+                type="number"
+                value={modelData.averageLatencyMs?.toString() || ''}
+                onChange={handleLatencyChange}
+                placeholder="1500"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Max Concurrency</label>
+              <Input
+                type="number"
+                min="1"
+                max="100"
+                value={modelData.maxConcurrency?.toString() || ''}
+                onChange={handleConcurrencyChange}
+                placeholder="10"
+              />
+            </div>
+            <div className="flex items-center space-x-2 pt-6">
+              <Switch
+                checked={modelData.supportsBatching}
+                onCheckedChange={handleBatchingChange}
+              />
+              <label className="text-sm font-medium">Supports Batching</label>
+            </div>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* Nexus Capabilities Section */}
+      <Collapsible open={nexusCapabilitiesOpen} onOpenChange={setNexusCapabilitiesOpen}>
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" className="flex items-center space-x-2 p-0 h-auto">
+            <IconChevronRight 
+              size={16} 
+              className={`transition-transform ${nexusCapabilitiesOpen ? 'rotate-90' : ''}`} 
+            />
+            <span className="text-lg font-semibold">Nexus Capabilities</span>
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-4 mt-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            {nexusCapabilityKeys.map(capability => (
+              <div key={capability} className="flex items-center space-x-2">
+                <Switch
+                  checked={modelData.nexusCapabilities[capability] || false}
+                  onCheckedChange={(checked) => handleNexusCapabilityChange(capability, checked)}
+                />
+                <label className="text-sm font-medium capitalize">
+                  {capability.replace(/([A-Z])/g, ' $1').trim()}
+                </label>
+              </div>
+            ))}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* Access Control Section */}
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold">Access Control</h3>
+        
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Allowed Roles</label>
+          <MultiSelect
+            options={roleOptions}
+            value={modelData.allowedRoles}
+            onChange={handleRolesChange}
+            placeholder="All roles (unrestricted)"
+            className="w-full"
           />
-          <label className="text-sm font-medium">Active</label>
+          <p className="text-xs text-muted-foreground">
+            Leave empty to allow access for all roles
+          </p>
         </div>
       </div>
+
+      {/* Advanced Section */}
+      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" className="flex items-center space-x-2 p-0 h-auto">
+            <IconChevronRight 
+              size={16} 
+              className={`transition-transform ${advancedOpen ? 'rotate-90' : ''}`} 
+            />
+            <span className="text-lg font-semibold">Advanced</span>
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-4 mt-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Provider Metadata (JSON)</label>
+            <Textarea
+              value={JSON.stringify(modelData.providerMetadata, null, 2)}
+              onChange={handleProviderMetadataChange}
+              className={`font-mono text-xs ${jsonError ? 'border-red-500' : ''}`}
+              rows={6}
+              placeholder='{"max_context_length": 128000, "supports_streaming": true}'
+            />
+            {jsonError && (
+              <p className="text-xs text-red-600">
+                {jsonError}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Provider-specific configuration and metadata
+            </p>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
 
       <div className="flex space-x-2 pt-4">
         <Button onClick={onSubmit}>{isEditing ? 'Update' : 'Add'} Model</Button>
@@ -189,7 +468,34 @@ type ModelFormData = {
   active: boolean;
   allowedRoles: string[];
   capabilitiesList: string[];
+  // Pricing fields
+  inputCostPer1kTokens: number | null;
+  outputCostPer1kTokens: number | null;
+  cachedInputCostPer1kTokens: number | null;
+  // Performance fields
+  averageLatencyMs: number | null;
+  maxConcurrency: number | null;
+  supportsBatching: boolean;
+  // Capability/Metadata fields
+  nexusCapabilities: NexusCapabilities;
+  providerMetadata: ProviderMetadata;
 };
+
+const DEFAULT_NEXUS_CAPABILITIES: NexusCapabilities = {
+  canvas: false,
+  thinking: false,
+  artifacts: false,
+  grounding: false,
+  reasoning: false,
+  webSearch: false,
+  computerUse: false,
+  responsesAPI: false,
+  codeExecution: false,
+  promptCaching: false,
+  contextCaching: false,
+  workspaceTools: false,
+  codeInterpreter: false
+} as const;
 
 const emptyModel: ModelFormData = {
   name: '',
@@ -200,7 +506,18 @@ const emptyModel: ModelFormData = {
   maxTokens: 4096,
   active: true,
   allowedRoles: [],
-  capabilitiesList: []
+  capabilitiesList: [],
+  // Pricing fields
+  inputCostPer1kTokens: null,
+  outputCostPer1kTokens: null,
+  cachedInputCostPer1kTokens: null,
+  // Performance fields
+  averageLatencyMs: null,
+  maxConcurrency: null,
+  supportsBatching: false,
+  // Capability/Metadata fields
+  nexusCapabilities: { ...DEFAULT_NEXUS_CAPABILITIES },
+  providerMetadata: {}
 };
 
 // Predefined role options
@@ -320,6 +637,37 @@ export const AiModelsTable = React.memo(function AiModelsTable({
       allowedRoles,
       maxTokens: model.maxTokens || 4096,
       active: model.active,
+      // Pricing fields
+      inputCostPer1kTokens: model.inputCostPer1kTokens || null,
+      outputCostPer1kTokens: model.outputCostPer1kTokens || null,
+      cachedInputCostPer1kTokens: model.cachedInputCostPer1kTokens || null,
+      // Performance fields
+      averageLatencyMs: model.averageLatencyMs || null,
+      maxConcurrency: model.maxConcurrency || null,
+      supportsBatching: model.supportsBatching || false,
+      // Capability/Metadata fields - parse JSON strings if needed
+      nexusCapabilities: (() => {
+        if (!model.nexusCapabilities) {
+          return { ...DEFAULT_NEXUS_CAPABILITIES };
+        }
+        try {
+          return typeof model.nexusCapabilities === 'string' 
+            ? JSON.parse(model.nexusCapabilities) 
+            : model.nexusCapabilities;
+        } catch {
+          return { ...DEFAULT_NEXUS_CAPABILITIES };
+        }
+      })(),
+      providerMetadata: (() => {
+        if (!model.providerMetadata) return {};
+        try {
+          return typeof model.providerMetadata === 'string' 
+            ? JSON.parse(model.providerMetadata) 
+            : model.providerMetadata;
+        } catch {
+          return {};
+        }
+      })()
     });
   }, []);
 
@@ -484,18 +832,48 @@ export const AiModelsTable = React.memo(function AiModelsTable({
         : null,
       allowedRoles: modelData.allowedRoles.length > 0 
         ? JSON.stringify(modelData.allowedRoles) 
+        : null,
+      // Include all the new fields
+      nexusCapabilities: Object.keys(modelData.nexusCapabilities).length > 0 
+        ? modelData.nexusCapabilities 
+        : null,
+      providerMetadata: Object.keys(modelData.providerMetadata).length > 0 
+        ? modelData.providerMetadata 
         : null
     };
     
     // Remove the list fields as they're not part of the database schema
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { capabilitiesList, allowedRoles, ...dbData } = dataToSubmit;
+    const { capabilitiesList, ...dbData } = dataToSubmit;
     const finalData = {
       ...dbData,
-      capabilities: dataToSubmit.capabilities,
-      allowedRoles: dataToSubmit.allowedRoles,
       // Set chatEnabled based on whether "chat" is in capabilities
-      chatEnabled: modelData.capabilitiesList.includes('chat')
+      chatEnabled: modelData.capabilitiesList.includes('chat'),
+      // Ensure pricing fields are properly set
+      inputCostPer1kTokens: modelData.inputCostPer1kTokens,
+      outputCostPer1kTokens: modelData.outputCostPer1kTokens,
+      cachedInputCostPer1kTokens: modelData.cachedInputCostPer1kTokens,
+      pricingUpdatedAt: (() => {
+        // Check if any pricing field has actually changed from the existing model
+        if (editingModel) {
+          const pricingChanged = 
+            editingModel.inputCostPer1kTokens !== modelData.inputCostPer1kTokens ||
+            editingModel.outputCostPer1kTokens !== modelData.outputCostPer1kTokens ||
+            editingModel.cachedInputCostPer1kTokens !== modelData.cachedInputCostPer1kTokens;
+          return pricingChanged ? new Date() : editingModel.pricingUpdatedAt;
+        } else {
+          // For new models, set timestamp if any pricing field has a value (including 0)
+          const hasPricing = 
+            modelData.inputCostPer1kTokens !== null ||
+            modelData.outputCostPer1kTokens !== null ||
+            modelData.cachedInputCostPer1kTokens !== null;
+          return hasPricing ? new Date() : null;
+        }
+      })(),
+      // Performance fields
+      averageLatencyMs: modelData.averageLatencyMs,
+      maxConcurrency: modelData.maxConcurrency,
+      supportsBatching: modelData.supportsBatching
     };
     
     if (editingModel) {
@@ -543,7 +921,7 @@ export const AiModelsTable = React.memo(function AiModelsTable({
       </div>
 
       <Dialog open={showAddForm || editingModel !== null} onOpenChange={(open) => !open && handleCancel()}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[800px]">
           <DialogHeader>
             <DialogTitle>{editingModel ? 'Edit Model' : 'Add New Model'}</DialogTitle>
           </DialogHeader>

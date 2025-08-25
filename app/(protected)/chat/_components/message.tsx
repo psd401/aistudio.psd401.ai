@@ -9,7 +9,8 @@ import {
   IconBrain, 
   IconChevronDown, 
   IconChevronUp,
-  IconSparkles
+  IconSparkles,
+  IconLoader2
 } from "@tabler/icons-react"
 import { useState } from "react"
 import type { UIMessage as MessageType } from "@ai-sdk/react"
@@ -30,6 +31,7 @@ interface MessageProps {
   message: MessageType | SelectMessage
   messageId?: string
   isStreaming?: boolean
+  showLoadingState?: boolean
 }
 
 // Type guard to check if message has model information
@@ -62,7 +64,7 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
   )
 }
 
-export function Message({ message, messageId, isStreaming = false }: MessageProps) {
+export function Message({ message, messageId, isStreaming = false, showLoadingState = false }: MessageProps) {
   const { toast } = useToast()
   const [showReasoning, setShowReasoning] = useState(false)
   const isAssistant = message.role === "assistant"
@@ -93,6 +95,9 @@ export function Message({ message, messageId, isStreaming = false }: MessageProp
       }
     }
   }
+  
+  // For assistant messages: show loading state if no content and currently streaming
+  const shouldShowLoading = isAssistant && !content.trim() && showLoadingState
   
   // Check for reasoning content and parse if needed
   const reasoningContent = 'reasoningContent' in message ? 
@@ -135,6 +140,7 @@ export function Message({ message, messageId, isStreaming = false }: MessageProp
       initial={{ opacity: 0, x: isAssistant ? -20 : 20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.3 }}
+      layout
       className={cn("group flex w-full items-start gap-4 relative", {
         "justify-end": !isAssistant,
       })}
@@ -148,6 +154,7 @@ export function Message({ message, messageId, isStreaming = false }: MessageProp
       <motion.div 
         whileHover={{ scale: 1.01 }}
         transition={{ type: "spring", stiffness: 400, damping: 25 }}
+        layout
         className={cn(
           "flex flex-col w-fit rounded-2xl shadow-lg backdrop-blur-sm", 
           isAssistant
@@ -275,12 +282,26 @@ export function Message({ message, messageId, isStreaming = false }: MessageProp
             "prose prose-sm dark:prose-invert max-w-none",
             !isAssistant && "prose-invert"
           )}>
-            <CodeBlockErrorBoundary>
-              <MemoizedMarkdown
-                content={content}
-                id={uniqueId}
-                streamingBuffer={isStreaming ? { enabled: true } : undefined}
-                components={{
+            {shouldShowLoading ? (
+              /* Loading state inside the assistant bubble */
+              <div className="flex items-center gap-2 text-muted-foreground py-1">
+                <IconLoader2 className="h-4 w-4 animate-spin" />
+                <motion.span 
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="text-sm"
+                >
+                  Thinking...
+                </motion.span>
+              </div>
+            ) : (
+              <CodeBlockErrorBoundary>
+                <MemoizedMarkdown
+                  content={content}
+                  id={uniqueId}
+                  streamingBuffer={isStreaming ? { enabled: true } : undefined}
+                  components={{
                   p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
                   ul: ({ children }) => <ul className="mb-2 ml-4 list-disc">{children}</ul>,
                   ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal">{children}</ol>,
@@ -359,11 +380,12 @@ export function Message({ message, messageId, isStreaming = false }: MessageProp
                 }}
               />
             </CodeBlockErrorBoundary>
+            )}
           </div>
         </div>
 
         {/* Action Buttons (Show on Hover, ONLY for Assistant) */}
-        {isAssistant && (
+        {isAssistant && !shouldShowLoading && (
           <motion.div 
             initial={{ opacity: 0 }}
             whileHover={{ opacity: 1 }}

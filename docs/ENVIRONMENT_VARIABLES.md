@@ -43,6 +43,22 @@ This document provides a comprehensive guide to all environment variables requir
 | `EMBEDDING_GENERATOR_FUNCTION_NAME` | Lambda function for embedding generation | From ProcessingStack outputs | ❌ |
 | `MAX_FILE_SIZE_MB` | Maximum file size in MB | `100` | ❌ (defaults to 100) |
 
+### AI Provider Settings
+
+> **Important**: AI provider API keys are managed through the database-first settings system. These environment variables serve as fallbacks when database settings are not configured.
+
+| Variable | Description | Example | Required |
+|----------|-------------|---------|----------|
+| `OPENAI_API_KEY` | OpenAI API key for GPT models | `sk-...` | ❌ (fallback) |
+| `GOOGLE_API_KEY` | Google AI API key for Gemini models | Your Google AI key | ❌ (fallback) |
+| `BEDROCK_ACCESS_KEY_ID` | AWS access key for Bedrock | AWS access key | ❌ (fallback) |
+| `BEDROCK_SECRET_ACCESS_KEY` | AWS secret key for Bedrock | AWS secret key | ❌ (fallback) |
+| `BEDROCK_REGION` | AWS region for Bedrock | `us-east-1` | ❌ (fallback) |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | Your Azure key | ❌ (fallback) |
+| `AZURE_OPENAI_RESOURCE_NAME` | Azure OpenAI resource name | Your resource name | ❌ (fallback) |
+
+**Note**: In production, these settings should be managed through the admin interface at `/admin/settings`. The application checks the database first, then falls back to environment variables if not found.
+
 ### AWS SDK Variables
 
 > **Important**: AWS Amplify restricts environment variables with the `AWS_` prefix in the console. However, Amplify automatically provides `AWS_REGION` and `AWS_DEFAULT_REGION` at runtime. You only need to set `NEXT_PUBLIC_AWS_REGION` as a fallback.
@@ -89,7 +105,7 @@ aws amplify update-app \
 ### Build Process
 - The `amplify.yml` and CDK buildSpec are configured to write environment variables to a `.env` file during build
 - This ensures runtime access to these variables in the Next.js application
-- The pattern `'^AUTH_|^NEXT_PUBLIC_|^RDS_|^SQL_|^FILE_|^URL_|^DOCUMENTS_|^JOB_|^MAX_|^EMBEDDING_'` captures all required variables
+- The pattern `'^AUTH_|^NEXT_PUBLIC_|^RDS_|^SQL_|^FILE_|^URL_|^DOCUMENTS_|^JOB_|^MAX_|^EMBEDDING_|^OPENAI_|^GOOGLE_|^BEDROCK_|^AZURE_'` captures all required variables
 - AWS-prefixed variables cannot be set in the Amplify console but are provided automatically by Amplify at runtime
 
 ### AWS Credentials

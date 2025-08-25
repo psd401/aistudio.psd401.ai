@@ -1,12 +1,10 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { useChat } from "@ai-sdk/react"
 import { CompareInput } from "./compare-input"
 import { DualResponse } from "./dual-response"
 import { useToast } from "@/components/ui/use-toast"
 import { useModelsWithPersistence } from "@/lib/hooks/use-models"
-import { nanoid } from 'nanoid'
 
 export function ModelCompare() {
   // Use shared model management hooks
@@ -14,31 +12,11 @@ export function ModelCompare() {
   const model2State = useModelsWithPersistence('compareModel2', ['chat'])
   
   const [prompt, setPrompt] = useState("")
+  const [model1Response, setModel1Response] = useState("")
+  const [model2Response, setModel2Response] = useState("")
+  const [isStreaming, setIsStreaming] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
   const { toast } = useToast()
-  
-  // Use AI SDK's useChat for model 1
-  const chat1 = useChat({
-    id: 'compare-model1',
-    onError: (error) => {
-      toast({
-        title: "Model 1 Error",
-        description: error.message || "Failed to get response",
-        variant: "destructive"
-      })
-    }
-  })
-  
-  // Use AI SDK's useChat for model 2
-  const chat2 = useChat({
-    id: 'compare-model2',
-    onError: (error) => {
-      toast({
-        title: "Model 2 Error",
-        description: error.message || "Failed to get response",
-        variant: "destructive"
-      })
-    }
-  })
 
   const handleSubmit = useCallback(async () => {
     if (!model1State.selectedModel || !model2State.selectedModel) {
@@ -68,61 +46,106 @@ export function ModelCompare() {
       return
     }
 
-    // Clear previous messages
-    chat1.setMessages([])
-    chat2.setMessages([])
+    // Clear previous responses and start streaming
+    setModel1Response("")
+    setModel2Response("")
+    setIsLoading(true)
+    setIsStreaming(true)
 
-    // Create message with unique ID for both
-    const messageId = nanoid()
-    const userMessage = {
-      id: messageId,
-      role: 'user' as const,
-      parts: [{ type: 'text' as const, text: prompt.trim() }]
-    }
-
-    // Send to both models in parallel using AI SDK v2 patterns
-    await Promise.all([
-      chat1.sendMessage(userMessage, {
-        body: {
-          modelId: model1State.selectedModel.modelId,
-          source: 'model-compare'
-        }
-      }),
-      chat2.sendMessage(userMessage, {
-        body: {
-          modelId: model2State.selectedModel.modelId,
-          source: 'model-compare'
-        }
+    try {
+      const response = await fetch('/api/compare-models', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: prompt.trim(),
+          model1Id: model1State.selectedModel.modelId,
+          model2Id: model2State.selectedModel.modelId,
+          model1Name: model1State.selectedModel.name,
+          model2Name: model2State.selectedModel.name,
+        }),
       })
-    ])
-  }, [model1State.selectedModel, model2State.selectedModel, prompt, chat1, chat2, toast])
+
+      if (!response.ok) {
+        throw new Error('Failed to start comparison')
+      }
+
+      const reader = response.body?.getReader()
+      const decoder = new TextDecoder()
+
+      if (reader) {
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+
+            const chunk = decoder.decode(value)
+            const lines = chunk.split('\n')
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6))
+                  
+                  if (data.model1) {
+                    setModel1Response(prev => prev + data.model1)
+                  }
+                  
+                  if (data.model2) {
+                    setModel2Response(prev => prev + data.model2)
+                  }
+
+                  if (data.model1Error) {
+                    toast({
+                      title: "Model 1 Error",
+                      description: data.model1Error,
+                      variant: "destructive"
+                    })
+                  }
+
+                  if (data.model2Error) {
+                    toast({
+                      title: "Model 2 Error", 
+                      description: data.model2Error,
+                      variant: "destructive"
+                    })
+                  }
+
+                  if (data.done) {
+                    setIsStreaming(false)
+                    setIsLoading(false)
+                    return
+                  }
+                } catch {
+                  // Skip invalid JSON
+                }
+              }
+            }
+          }
+        } finally {
+          reader.releaseLock()
+        }
+      }
+    } catch (error) {
+      toast({
+        title: "Comparison Failed",
+        description: error instanceof Error ? error.message : "Failed to compare models",
+        variant: "destructive"
+      })
+    } finally {
+      setIsStreaming(false)
+      setIsLoading(false)
+    }
+  }, [model1State.selectedModel, model2State.selectedModel, prompt, toast])
 
   const handleNewComparison = useCallback(() => {
-    chat1.setMessages([])
-    chat2.setMessages([])
+    setModel1Response("")
+    setModel2Response("")
     setPrompt("")
-  }, [chat1, chat2])
-
-  // Extract the latest assistant message content
-  const getLatestResponse = (messages: typeof chat1.messages) => {
-    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant')
-    if (!lastAssistant) return ""
-    
-    // Handle AI SDK v2 message format
-    if ('parts' in lastAssistant && Array.isArray(lastAssistant.parts)) {
-      return lastAssistant.parts
-        .filter((part) => part.type === 'text')
-        .map((part) => 'text' in part ? part.text || '' : '')
-        .join('')
-    }
-    
-    // Fallback for legacy format
-    if ('content' in lastAssistant && typeof lastAssistant.content === 'string') {
-      return lastAssistant.content
-    }
-    
-    return ""
-  }
+    setIsStreaming(false)
+    setIsLoading(false)
+  }, [])
 
   return (
     <div className="flex h-full flex-col">
@@ -144,29 +167,33 @@ export function ModelCompare() {
           onModel1Change={model1State.setSelectedModel}
           onModel2Change={model2State.setSelectedModel}
           onSubmit={handleSubmit}
-          isLoading={chat1.status !== 'ready' || chat2.status !== 'ready'}
+          isLoading={isLoading}
           onNewComparison={handleNewComparison}
-          hasResponses={chat1.messages.length > 0 || chat2.messages.length > 0}
+          hasResponses={model1Response.length > 0 || model2Response.length > 0}
         />
         
         <div className="flex-1 overflow-hidden">
           <DualResponse
             model1={{
               model: model1State.selectedModel,
-              response: getLatestResponse(chat1.messages),
-              status: chat1.status === 'streaming' || chat1.status === 'submitted' ? 'streaming' : 
-                     chat1.error ? 'error' : 'ready',
-              error: chat1.error?.message
+              response: model1Response,
+              status: isStreaming ? 'streaming' : 'ready',
+              error: undefined
             }}
             model2={{
               model: model2State.selectedModel,
-              response: getLatestResponse(chat2.messages),
-              status: chat2.status === 'streaming' || chat2.status === 'submitted' ? 'streaming' : 
-                     chat2.error ? 'error' : 'ready',
-              error: chat2.error?.message
+              response: model2Response,
+              status: isStreaming ? 'streaming' : 'ready',
+              error: undefined
             }}
-            onStopModel1={() => chat1.stop()}
-            onStopModel2={() => chat2.stop()}
+            onStopModel1={() => {
+              setIsStreaming(false)
+              setIsLoading(false)
+            }}
+            onStopModel2={() => {
+              setIsStreaming(false)
+              setIsLoading(false)
+            }}
           />
         </div>
       </div>

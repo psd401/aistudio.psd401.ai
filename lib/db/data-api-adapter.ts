@@ -664,6 +664,10 @@ export async function getUserTools(cognitoSub: string): Promise<string[]> {
 
 // Helper function to convert camelCase to snake_case
 function toSnakeCase(str: string): string {
+  // Special handling for field names with "1k" in them
+  if (str.includes('Per1k')) {
+    str = str.replace('Per1k', 'Per_1k');
+  }
   return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
 }
 
@@ -731,7 +735,10 @@ export async function getRoles() {
 export async function getAIModels() {
   const sql = `
     SELECT id, name, provider, model_id, description, capabilities, allowed_roles,
-           max_tokens, active, chat_enabled, created_at, updated_at
+           max_tokens, active, chat_enabled, created_at, updated_at,
+           input_cost_per_1k_tokens, output_cost_per_1k_tokens, cached_input_cost_per_1k_tokens, pricing_updated_at,
+           average_latency_ms, max_concurrency, supports_batching,
+           nexus_capabilities, provider_metadata
     FROM ai_models
     ORDER BY name ASC
   `;
@@ -749,10 +756,31 @@ export async function createAIModel(modelData: {
   maxTokens?: number;
   isActive?: boolean;
   chatEnabled?: boolean;
+  inputCostPer1kTokens?: number;
+  outputCostPer1kTokens?: number;
+  cachedInputCostPer1kTokens?: number;
+  pricingUpdatedAt?: Date;
+  averageLatencyMs?: number;
+  maxConcurrency?: number;
+  supportsBatching?: boolean;
+  nexusCapabilities?: Record<string, unknown>;
+  providerMetadata?: Record<string, unknown>;
 }) {
   const sql = `
-    INSERT INTO ai_models (name, model_id, provider, description, capabilities, allowed_roles, max_tokens, active, chat_enabled, created_at, updated_at)
-    VALUES (:name, :modelId, :provider, :description, :capabilities::jsonb, :allowedRoles::jsonb, :maxTokens, :isActive, :chatEnabled, NOW(), NOW())
+    INSERT INTO ai_models (
+      name, model_id, provider, description, capabilities, allowed_roles, max_tokens, active, chat_enabled,
+      input_cost_per_1k_tokens, output_cost_per_1k_tokens, cached_input_cost_per_1k_tokens, pricing_updated_at,
+      average_latency_ms, max_concurrency, supports_batching,
+      nexus_capabilities, provider_metadata,
+      created_at, updated_at
+    )
+    VALUES (
+      :name, :modelId, :provider, :description, :capabilities::jsonb, :allowedRoles::jsonb, :maxTokens, :isActive, :chatEnabled,
+      :inputCostPer1kTokens, :outputCostPer1kTokens, :cachedInputCostPer1kTokens, :pricingUpdatedAt,
+      :averageLatencyMs, :maxConcurrency, :supportsBatching,
+      :nexusCapabilities::jsonb, :providerMetadata::jsonb,
+      NOW(), NOW()
+    )
     RETURNING *
   `;
   
@@ -765,23 +793,58 @@ export async function createAIModel(modelData: {
     createParameter('allowedRoles', modelData.allowedRoles),
     createParameter('maxTokens', modelData.maxTokens),
     createParameter('isActive', modelData.isActive ?? true),
-    createParameter('chatEnabled', modelData.chatEnabled ?? false)
+    createParameter('chatEnabled', modelData.chatEnabled ?? false),
+    createParameter('inputCostPer1kTokens', modelData.inputCostPer1kTokens),
+    createParameter('outputCostPer1kTokens', modelData.outputCostPer1kTokens),
+    createParameter('cachedInputCostPer1kTokens', modelData.cachedInputCostPer1kTokens),
+    createParameter('pricingUpdatedAt', modelData.pricingUpdatedAt ? modelData.pricingUpdatedAt.toISOString() : null),
+    createParameter('averageLatencyMs', modelData.averageLatencyMs),
+    createParameter('maxConcurrency', modelData.maxConcurrency),
+    createParameter('supportsBatching', modelData.supportsBatching),
+    createParameter('nexusCapabilities', modelData.nexusCapabilities ? JSON.stringify(modelData.nexusCapabilities) : null),
+    createParameter('providerMetadata', modelData.providerMetadata ? JSON.stringify(modelData.providerMetadata) : null)
   ];
   
   const result = await executeSQL(sql, parameters);
   return result[0];
 }
 
-export async function updateAIModel(id: number, updates: Record<string, string | number | boolean | null>) {
+interface AIModelUpdateFields {
+  name?: string;
+  modelId?: string;
+  provider?: string;
+  description?: string;
+  capabilities?: string;
+  allowedRoles?: string;
+  maxTokens?: number;
+  isActive?: boolean;
+  chatEnabled?: boolean;
+  inputCostPer1kTokens?: number;
+  outputCostPer1kTokens?: number;
+  cachedInputCostPer1kTokens?: number;
+  pricingUpdatedAt?: Date | string;
+  averageLatencyMs?: number;
+  maxConcurrency?: number;
+  supportsBatching?: boolean;
+  nexusCapabilities?: Record<string, boolean> | string;
+  providerMetadata?: Record<string, unknown> | string;
+}
+
+export async function updateAIModel(id: number, updates: AIModelUpdateFields) {
   // Convert camelCase keys to snake_case for the database
-  const snakeCaseUpdates: Record<string, string | number | boolean | null> = {};
+  const snakeCaseUpdates: Record<string, string | number | boolean> = {};
   for (const [key, value] of Object.entries(updates)) {
     const snakeKey = toSnakeCase(key);
-    snakeCaseUpdates[snakeKey] = value;
+    // Handle JSONB fields - ensure they're strings
+    if ((key === 'nexusCapabilities' || key === 'providerMetadata') && value && typeof value === 'object') {
+      snakeCaseUpdates[snakeKey] = JSON.stringify(value);
+    } else {
+      snakeCaseUpdates[snakeKey] = value;
+    }
   }
   
   // Fields that need JSONB casting
-  const jsonbFields = ['capabilities', 'allowed_roles'];
+  const jsonbFields = ['capabilities', 'allowed_roles', 'nexus_capabilities', 'provider_metadata'];
   
   const updateFields = Object.keys(snakeCaseUpdates)
     .filter(key => key !== 'id')

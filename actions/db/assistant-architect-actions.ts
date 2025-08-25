@@ -514,22 +514,109 @@ export async function deleteAssistantArchitectAction(
     const session = await getServerSession();
     if (!session || !session.sub) {
       log.warn("Unauthorized assistant architect deletion attempt")
-      return { isSuccess: false, message: "Unauthorized" }
+      timer({ status: "error" })
+      return { isSuccess: false, message: "Please sign in to delete assistants" }
     }
     
     log.debug("User authenticated", { userId: session.sub })
     
-    // Check if user has admin access
-    const hasAccess = await hasToolAccess(session.sub, "admin");
-    if (!hasAccess) {
-      return { isSuccess: false, message: "Access denied" }
+    // Parse and validate the ID
+    const idInt = parseInt(id, 10);
+    if (isNaN(idInt)) {
+      log.warn("Invalid assistant architect ID provided", { id })
+      timer({ status: "error" })
+      return { isSuccess: false, message: "Invalid assistant ID" }
     }
+    
+    // Get assistant details to check ownership and status
+    const architectResult = await executeSQL<{ user_id: number, status: string }>(`
+      SELECT user_id, status
+      FROM assistant_architects
+      WHERE id = :id
+    `, [{ name: 'id', value: { longValue: idInt } }]);
+    
+    if (!architectResult || architectResult.length === 0) {
+      log.warn("Assistant architect not found", { id })
+      timer({ status: "error" })
+      return { isSuccess: false, message: "Assistant not found" }
+    }
+    
+    const architect = architectResult[0];
+    log.debug("Assistant architect retrieved", { 
+      id,
+      status: architect.status,
+      ownerId: architect.user_id 
+    })
+    
+    // Check if the assistant can be deleted based on status
+    if (architect.status !== 'draft' && architect.status !== 'rejected') {
+      log.warn("Attempted to delete non-deletable assistant", { 
+        id,
+        status: architect.status 
+      })
+      timer({ status: "error" })
+      return { 
+        isSuccess: false, 
+        message: "Only draft or rejected assistants can be deleted" 
+      }
+    }
+    
+    // Get current user to check ownership
+    const { getCurrentUserAction } = await import("@/actions/db/get-current-user-action");
+    const currentUserResult = await getCurrentUserAction();
+    
+    if (!currentUserResult.isSuccess || !currentUserResult.data) {
+      log.error("Failed to get current user information")
+      timer({ status: "error" })
+      return { isSuccess: false, message: "Failed to verify user identity" }
+    }
+    
+    const currentUser = currentUserResult.data.user;
+    const isOwner = architect.user_id === currentUser.id;
+    
+    // Check if user has user-management or role-management access (admin privileges)
+    const hasUserManagement = await hasToolAccess(session.sub, "user-management");
+    const hasRoleManagement = await hasToolAccess(session.sub, "role-management");
+    const isAdmin = hasUserManagement || hasRoleManagement;
+    
+    log.debug("Permission check", { 
+      userId: currentUser.id,
+      assistantOwnerId: architect.user_id,
+      isOwner,
+      isAdmin,
+      hasUserManagement,
+      hasRoleManagement
+    })
+    
+    // Check permissions: owner OR admin can delete
+    if (!isOwner && !isAdmin) {
+      log.warn("Unauthorized deletion attempt", { 
+        userId: currentUser.id,
+        assistantId: id,
+        ownerId: architect.user_id 
+      })
+      timer({ status: "error" })
+      return { 
+        isSuccess: false, 
+        message: "You can only delete your own assistants" 
+      }
+    }
+    
+    // Proceed with deletion
+    log.info("Deleting assistant architect", { 
+      id,
+      deletedBy: currentUser.id,
+      isOwnerDeletion: isOwner,
+      isAdminDeletion: !isOwner && isAdmin,
+      hasUserManagement,
+      hasRoleManagement
+    })
     
     // Delete from tools table (using prompt_chain_tool_id which references assistant_architect)
     await executeSQL<never>(`
       DELETE FROM tools
       WHERE prompt_chain_tool_id = :id
-    `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
+    `, [{ name: 'id', value: { longValue: idInt } }]);
     
     // Delete from navigation_items
     await executeSQL<never>(`
@@ -539,9 +626,13 @@ export async function deleteAssistantArchitectAction(
     
     // Use the deleteAssistantArchitect function which handles all the cascade deletes properly
     const { deleteAssistantArchitect } = await import("@/lib/db/data-api-adapter");
-    await deleteAssistantArchitect(parseInt(id, 10));
+    await deleteAssistantArchitect(idInt);
 
-    log.info("Assistant architect deleted successfully", { id })
+    log.info("Assistant architect deleted successfully", { 
+      id,
+      deletedBy: currentUser.id,
+      wasOwnerDeletion: isOwner 
+    })
     timer({ status: "success", id })
 
     return {

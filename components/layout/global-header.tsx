@@ -12,12 +12,14 @@ import {
   Bell,
   Mail,
   Bug,
-  Check
+  Check,
+  X,
+  Upload
 } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Textarea } from "@/components/ui/textarea"
-import { useState } from "react"
-import { createGithubIssueAction } from "@/actions/create-github-issue-action"
+import { useState, useRef, useEffect } from "react"
+import { createFreshserviceTicketAction } from "@/actions/create-freshservice-ticket.actions"
 // ... rest of imports ...
 
 export function GlobalHeader() {
@@ -79,39 +81,256 @@ function BugReportPopover() {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
+  const [screenshot, setScreenshot] = useState<File | null>(null)
+  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState<{ url: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [consoleErrors, setConsoleErrors] = useState<string[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  
+  // Capture console errors when the popover is opened
+  interface WindowWithErrors extends Window {
+    __capturedErrors?: string[]
+  }
+
+  useEffect(() => {
+    if (open) {
+      // Check if we have any stored console errors
+      const storedErrors = (window as unknown as WindowWithErrors).__capturedErrors || []
+      setConsoleErrors(storedErrors.slice(-10)) // Keep last 10 errors
+    }
+  }, [open])
+
+  // Clean up preview URLs when component unmounts or screenshot changes
+  useEffect(() => {
+    return () => {
+      if (screenshotPreview && screenshotPreview.startsWith('blob:')) {
+        URL.revokeObjectURL(screenshotPreview)
+      }
+    }
+  }, [screenshotPreview])
+
+  const handleScreenshotChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    
+    // Define allowed MIME types explicitly (match server-side validation)
+    const ALLOWED_IMAGE_TYPES = [
+      'image/jpeg',
+      'image/jpg', 
+      'image/png',
+      'image/gif',
+      'image/webp'
+    ]
+    
+    if (file && ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      // Check file size (10MB limit)
+      const maxSize = 10 * 1024 * 1024
+      if (file.size > maxSize) {
+        setError("Screenshot must be smaller than 10MB")
+        return
+      }
+      
+      setScreenshot(file)
+      setError(null)
+      
+      // Clean up previous preview URL to prevent memory leaks
+      if (screenshotPreview && screenshotPreview.startsWith('data:')) {
+        // Data URLs don't need explicit cleanup, but object URLs would
+      }
+      
+      // Create preview URL
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setScreenshotPreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    } else if (file) {
+      setError("Only JPEG, PNG, GIF, and WebP images are supported")
+    }
+  }
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (items) {
+      // Define allowed MIME types explicitly (match server-side validation)
+      const ALLOWED_IMAGE_TYPES = [
+        'image/jpeg',
+        'image/jpg', 
+        'image/png',
+        'image/gif',
+        'image/webp'
+      ]
+      
+      for (const item of items) {
+        if (ALLOWED_IMAGE_TYPES.includes(item.type)) {
+          const file = item.getAsFile()
+          if (file) {
+            setScreenshot(file)
+            setError(null)
+            
+            // Clean up previous preview URL to prevent memory leaks
+            if (screenshotPreview && screenshotPreview.startsWith('data:')) {
+              // Data URLs don't need explicit cleanup, but object URLs would
+            }
+            
+            // Create preview URL
+            const reader = new FileReader()
+            reader.onloadend = () => {
+              setScreenshotPreview(reader.result as string)
+            }
+            reader.readAsDataURL(file)
+            break
+          }
+        }
+      }
+    }
+  }
+
+  const clearScreenshot = () => {
+    // Clean up preview URL if it's an object URL (though we're using data URLs, this is future-proofing)
+    if (screenshotPreview && screenshotPreview.startsWith('blob:')) {
+      URL.revokeObjectURL(screenshotPreview)
+    }
+    
+    setScreenshot(null)
+    setScreenshotPreview(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!title || !description) return
     setLoading(true)
     setError(null)
     setSuccess(null)
 
-    // Gather metadata
-    const metadata = [
-      '---',
-      '**Debug Info**',
-      `- Page: ${typeof window !== 'undefined' ? window.location.href : ''}`,
-      `- User Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : ''}`,
-      `- Platform: ${typeof navigator !== 'undefined' ? navigator.platform : ''}`,
-      `- Screen: ${typeof window !== 'undefined' ? `${window.screen.width}x${window.screen.height}` : ''}`,
-      `- Timestamp: ${new Date().toISOString()}`,
-      `- Locale: ${typeof navigator !== 'undefined' ? (navigator.language || (navigator.languages && navigator.languages[0]) || '') : ''}`,
-      `- Referrer: ${typeof document !== 'undefined' ? document.referrer : ''}`
-    ].join('\n')
+    // Gather enhanced troubleshooting metadata
+    const metadata = []
+    
+    // User's problem description
+    metadata.push('<strong>=== USER DESCRIPTION ===</strong>')
+    metadata.push(description)
+    metadata.push('<br>') // Extra spacing after user description
+    
+    // Browser and System Information
+    metadata.push('<br><strong>=== BROWSER & SYSTEM INFO ===</strong>')
+    if (typeof window !== 'undefined') {
+      metadata.push(`Page URL: ${window.location.href}`)
+      metadata.push(`Page Title: ${document.title}`)
+      metadata.push(`Referrer: ${document.referrer || 'Direct access'}`)
+    }
+    
+    if (typeof navigator !== 'undefined') {
+      metadata.push(`Browser: ${navigator.userAgent}`)
+      metadata.push(`Platform: ${navigator.platform}`)
+      metadata.push(`Language: ${navigator.language}`)
+      metadata.push(`Online Status: ${navigator.onLine ? 'Online' : 'Offline'}`)
+      metadata.push(`Cookies Enabled: ${navigator.cookieEnabled}`)
+      
+      // Memory info if available (Chrome)
+      interface NavigatorWithExtras {
+        deviceMemory?: number
+        hardwareConcurrency: number
+      }
+      const nav = navigator as unknown as NavigatorWithExtras
+      if (nav.deviceMemory) {
+        metadata.push(`Device Memory: ${nav.deviceMemory} GB`)
+      }
+      if (nav.hardwareConcurrency) {
+        metadata.push(`CPU Cores: ${nav.hardwareConcurrency}`)
+      }
+    }
+    
+    // Screen Information
+    metadata.push('<br><br><strong>=== DISPLAY INFO ===</strong>')
+    if (typeof window !== 'undefined') {
+      metadata.push(`Screen Resolution: ${window.screen.width}x${window.screen.height}`)
+      metadata.push(`Viewport Size: ${window.innerWidth}x${window.innerHeight}`)
+      metadata.push(`Screen Color Depth: ${window.screen.colorDepth}-bit`)
+      metadata.push(`Pixel Ratio: ${window.devicePixelRatio}`)
+    }
+    
+    // Session Information
+    metadata.push('<br><br><strong>=== SESSION INFO ===</strong>')
+    metadata.push(`Timestamp: ${new Date().toISOString()}`)
+    metadata.push(`Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`)
+    
+    // Local Storage Info (for debugging state issues)
+    if (typeof window !== 'undefined' && window.localStorage) {
+      metadata.push(`Local Storage Items: ${window.localStorage.length}`)
+      
+      // Check for auth session
+      const authSession = window.localStorage.getItem('next-auth.session-token')
+      metadata.push(`Authenticated: ${authSession ? 'Yes' : 'No'}`)
+    }
+    
+    // Performance metrics if available
+    metadata.push('<br><br><strong>=== PERFORMANCE METRICS ===</strong>')
+    interface PerformanceWithMemory extends Performance {
+      memory?: {
+        usedJSHeapSize: number
+        jsHeapSizeLimit: number
+      }
+    }
+    if (typeof window !== 'undefined' && window.performance) {
+      const perf = window.performance as PerformanceWithMemory
+      if (perf.memory) {
+        metadata.push(`JS Heap Used: ${Math.round(perf.memory.usedJSHeapSize / 1048576)} MB`)
+        metadata.push(`JS Heap Limit: ${Math.round(perf.memory.jsHeapSizeLimit / 1048576)} MB`)
+      }
+    }
+    
+    // Network Information
+    interface NavigatorWithConnection extends Navigator {
+      connection?: {
+        effectiveType?: string
+        downlink?: number
+        saveData?: boolean
+      }
+    }
+    const navWithConnection = navigator as NavigatorWithConnection
+    if (typeof navigator !== 'undefined' && navWithConnection.connection) {
+      const connection = navWithConnection.connection
+      metadata.push('<br><br><strong>=== NETWORK INFO ===</strong>')
+      metadata.push(`Connection Type: ${connection.effectiveType || 'Unknown'}`)
+      if (connection.downlink) {
+        metadata.push(`Downlink Speed: ${connection.downlink} Mbps`)
+      }
+      metadata.push(`Data Saver: ${connection.saveData ? 'Enabled' : 'Disabled'}`)
+    }
+    
+    // Console Errors (if any)
+    if (consoleErrors.length > 0) {
+      metadata.push('<br><br><strong>=== RECENT CONSOLE ERRORS ===</strong>')
+      consoleErrors.forEach((err, index) => {
+        metadata.push(`Error ${index + 1}: ${err}`)
+      })
+    }
+    
+    // Join with HTML line breaks for proper Freshservice formatting
+    const fullDescription = metadata.join('<br>')
 
-    const fullDescription = `${description}\n\n${metadata}`
+    // Prepare FormData for server action
+    const formData = new FormData()
+    formData.append('title', title)
+    formData.append('description', fullDescription)
+    
+    if (screenshot) {
+      formData.append('screenshot', screenshot)
+    }
 
-    const res = await createGithubIssueAction({ title, description: fullDescription })
+    const res = await createFreshserviceTicketAction(formData)
     setLoading(false)
     if (res.isSuccess) {
-      setSuccess({ url: res.data.html_url })
+      setSuccess({ url: res.data.ticket_url })
       setTitle("")
       setDescription("")
+      clearScreenshot()
     } else {
-      setError(res.message || "Failed to submit issue.")
+      setError(res.message || "Failed to create ticket.")
     }
   }
 
@@ -126,18 +345,10 @@ function BugReportPopover() {
         {success ? (
           <div className="flex flex-col items-center space-y-2">
             <Check className="h-8 w-8 text-green-500" />
-            <div className="text-green-700 font-semibold">Issue submitted!</div>
-            <a
-              href={success.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 underline"
-            >
-              View on GitHub
-            </a>
+            <div className="text-green-700 font-semibold">Ticket created!</div>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4" onPaste={handlePaste}>
             <div>
               <label className="block text-sm font-medium mb-1">Title</label>
               <Input
@@ -158,9 +369,61 @@ function BugReportPopover() {
                 disabled={loading}
               />
             </div>
+            
+            {/* Screenshot upload section */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Screenshot (optional)</label>
+              <div className="space-y-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={loading}
+                  className="w-full"
+                >
+                  <Upload className="h-4 w-4 mr-1" />
+                  Upload Screenshot
+                </Button>
+                
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleScreenshotChange}
+                  className="hidden"
+                />
+                
+                {screenshotPreview && (
+                  <div className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={screenshotPreview}
+                      alt="Screenshot preview"
+                      className="max-w-full h-32 object-cover rounded border"
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="absolute top-1 right-1 h-6 w-6 bg-white/80 hover:bg-white"
+                      onClick={clearScreenshot}
+                      disabled={loading}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+                
+                <div className="text-xs text-muted-foreground">
+                  Tip: You can also paste images directly (Ctrl/Cmd+V)
+                </div>
+              </div>
+            </div>
+            
             {error && <div className="text-red-600 text-sm">{error}</div>}
             <Button type="submit" disabled={loading || !title || !description}>
-              {loading ? "Submitting..." : "Submit"}
+              {loading ? "Creating ticket..." : "Create Ticket"}
             </Button>
           </form>
         )}

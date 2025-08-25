@@ -1,0 +1,277 @@
+name: 🔧 Refactor
+description: Propose code refactoring to improve maintainability, readability, or structure
+title: "[REFACTOR] "
+labels: ["refactor", "technical-debt"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🔧 Refactor Request
+        Help us improve code quality! Use this template to propose refactoring that doesn't change functionality but improves the codebase.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      options:
+        - label: This refactor maintains existing functionality
+          required: true
+        - label: I have checked for related issues
+          required: true
+        - label: Tests are in place to verify no regression
+          required: false
+
+  - type: dropdown
+    id: refactor_type
+    attributes:
+      label: Refactor Type
+      description: What kind of refactoring is this?
+      options:
+        - Code Organization (moving/restructuring files)
+        - Design Pattern Implementation
+        - Performance Optimization
+        - Code Simplification
+        - Dependency Updates
+        - Type Safety Improvements
+        - Test Refactoring
+        - Database Schema Optimization
+        - API Restructuring
+        - Configuration Management
+        - Build/Bundle Optimization
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: current_state
+    attributes:
+      label: Current Implementation
+      description: Describe the current code structure or pattern
+      placeholder: |
+        The current code has...
+        It's structured as...
+        Problems include...
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: code_examples_before
+    attributes:
+      label: Current Code Example
+      description: Show a representative example of the current implementation
+      render: typescript
+      placeholder: |
+        // Current implementation
+        function processData(data) {
+          // Complex nested logic
+          if (data) {
+            if (data.type === 'A') {
+              // Process type A
+            } else if (data.type === 'B') {
+              // Process type B
+            }
+          }
+        }
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_changes
+    attributes:
+      label: Proposed Refactoring
+      description: Describe your refactoring approach
+      placeholder: |
+        I propose to...
+        This will improve...
+        The new structure will...
+    validations:
+      required: true
+
+  - type: textarea
+    id: code_examples_after
+    attributes:
+      label: Refactored Code Example
+      description: Show how the code will look after refactoring
+      render: typescript
+      placeholder: |
+        // Refactored implementation
+        const processors = {
+          A: processTypeA,
+          B: processTypeB
+        };
+        
+        function processData(data) {
+          if (!data) return;
+          const processor = processors[data.type];
+          return processor?.(data);
+        }
+    validations:
+      required: true
+
+  - type: textarea
+    id: benefits
+    attributes:
+      label: Benefits
+      description: What improvements does this refactoring provide?
+      value: |
+        - [ ] Improved readability
+        - [ ] Better maintainability
+        - [ ] Reduced complexity
+        - [ ] Better performance
+        - [ ] Improved type safety
+        - [ ] Better testability
+        - [ ] Reduced duplication
+        - [ ] Better separation of concerns
+        - [ ] Improved scalability
+        - [ ] Other: 
+    validations:
+      required: true
+
+  - type: dropdown
+    id: complexity
+    attributes:
+      label: Refactoring Complexity
+      description: How complex is this refactoring?
+      options:
+        - Simple (< 1 day)
+        - Medium (1-3 days)
+        - Complex (3-5 days)
+        - Very Complex (> 5 days)
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected_areas
+    attributes:
+      label: Affected Areas
+      description: What parts of the codebase will be affected?
+      placeholder: |
+        - Files: src/components/UserDashboard.tsx, src/utils/userData.ts
+        - Components: UserProfile, UserSettings
+        - APIs: /api/users endpoint
+        - Tests: user.test.ts suite
+        - Documentation: API docs need updating
+    validations:
+      required: true
+
+  - type: dropdown
+    id: breaking_changes
+    attributes:
+      label: Breaking Changes
+      description: Will this refactoring introduce breaking changes?
+      options:
+        - No breaking changes
+        - Internal API changes only
+        - External API changes
+        - Database schema changes
+        - Configuration changes
+    validations:
+      required: true
+
+  - type: textarea
+    id: migration_plan
+    attributes:
+      label: Migration Plan
+      description: How will this refactoring be implemented?
+      placeholder: |
+        1. Phase 1: Create new structure alongside old
+        2. Phase 2: Migrate component by component
+        3. Phase 3: Update tests
+        4. Phase 4: Remove old code
+        5. Phase 5: Update documentation
+
+  - type: textarea
+    id: testing_strategy
+    attributes:
+      label: Testing Strategy
+      description: How will you ensure the refactoring doesn't break anything?
+      placeholder: |
+        - Existing tests should continue to pass
+        - Add new tests for refactored code
+        - Manual testing checklist
+        - Performance benchmarks before/after
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical_debt
+    attributes:
+      label: Technical Debt Addressed
+      description: What technical debt does this resolve?
+      placeholder: |
+        This refactoring addresses:
+        - TODO comments in files X, Y, Z
+        - Issue #123 about code complexity
+        - Long-standing performance issues
+        - Code review feedback from PR #456
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks and Concerns
+      description: What could go wrong with this refactoring?
+      placeholder: |
+        - Risk: May affect performance
+          Mitigation: Run benchmarks before merging
+        - Risk: Could break edge cases
+          Mitigation: Comprehensive test coverage
+
+  - type: textarea
+    id: metrics
+    attributes:
+      label: Success Metrics
+      description: How will we measure the success of this refactoring?
+      placeholder: |
+        - Code complexity score reduction (from X to Y)
+        - Test coverage improvement (from X% to Y%)
+        - Bundle size reduction (X KB)
+        - Build time improvement (X seconds)
+        - Lines of code reduction (X lines)
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternative Approaches
+      description: What other refactoring approaches were considered?
+      placeholder: |
+        Alternative 1: Complete rewrite
+        - Pros: Clean slate
+        - Cons: High risk, time consuming
+        - Why not chosen: Too risky for production code
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Any relevant links, documentation, or examples
+      placeholder: |
+        - [Martin Fowler's Refactoring Catalog](https://refactoring.com/catalog/)
+        - Similar refactoring in PR #789
+        - Design pattern documentation
+        - Team coding standards
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Refactoring Checklist
+      description: Confirm you've considered these aspects
+      options:
+        - label: No functionality changes (pure refactoring)
+        - label: All tests still pass
+        - label: No performance degradation
+        - label: Code follows team standards
+        - label: Documentation will be updated
+        - label: Backwards compatibility maintained (or migration plan provided)
+        - label: Security implications considered
+        - label: Team has been notified of changes
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Implementation
+      options:
+        - label: I am willing to implement this refactoring
+        - label: I need help with implementation
+        - label: This is a suggestion for the team to consider

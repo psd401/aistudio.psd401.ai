@@ -1,5 +1,6 @@
 # CodeQL security analysis workflow
 # Performs automated security scanning on JavaScript/TypeScript code
+# Note: This is an advanced setup. GitHub's default CodeQL setup must be disabled in repository settings.
 name: "CodeQL"
 
 on:
@@ -36,8 +37,8 @@ jobs:
       uses: github/codeql-action/init@v3
       with:
         languages: ${{ matrix.language }}
-        # Specify custom queries if needed
-        # queries: security-extended,security-and-quality
+        # Use extended security queries for better coverage
+        queries: security-extended,security-and-quality
 
     # Autobuild attempts to build any compiled languages (C/C++, C#, Go, Java, or Swift)
     # For JavaScript/TypeScript, this step is not needed but kept for completeness

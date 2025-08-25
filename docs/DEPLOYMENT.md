@@ -282,7 +282,42 @@ We experienced a catastrophic database corruption when the db-init Lambda ran SQ
 4. Verify ALL SQL files match restored database EXACTLY
 5. Only then attempt deployment
 
-## 15. First Administrator Setup
+## 15. Stack Architecture
+
+### SSM Parameter Store Integration
+The CDK infrastructure uses SSM Parameter Store for cross-stack dependencies, enabling independent deployment of individual stacks. This improves development velocity and reduces deployment costs.
+
+**SSM Parameter Naming Convention:**
+```
+/aistudio/{environment}/{resource-name}
+```
+
+**Current Parameters:**
+- `/aistudio/dev/db-cluster-arn` - Aurora cluster ARN
+- `/aistudio/dev/db-secret-arn` - Database secret ARN  
+- `/aistudio/dev/documents-bucket-name` - S3 bucket name
+- `/aistudio/prod/db-cluster-arn` - Aurora cluster ARN (prod)
+- `/aistudio/prod/db-secret-arn` - Database secret ARN (prod)
+- `/aistudio/prod/documents-bucket-name` - S3 bucket name (prod)
+
+### Independent Stack Deployment
+With SSM parameters, stacks can be deployed independently:
+
+```bash
+# Deploy only the FrontendStack after making UI changes
+npx cdk deploy AIStudio-FrontendStack-Dev
+
+# Deploy only the DatabaseStack for schema changes
+npx cdk deploy AIStudio-DatabaseStack-Dev
+
+# Deploy only AuthStack for Cognito changes
+npx cdk deploy AIStudio-AuthStack-Dev \
+  --parameters AIStudio-AuthStack-Dev:GoogleClientId=YOUR_GOOGLE_CLIENT_ID
+```
+
+Deployment time: ~3-5 minutes per stack (vs 15-20 minutes for all stacks)
+
+## 16. First Administrator Setup
 After deploying the application, the first user who signs up needs to be granted administrator privileges:
 
 1. **Sign up as the first user** through the web interface

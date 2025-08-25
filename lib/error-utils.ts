@@ -89,7 +89,7 @@ export const ErrorFactories = {
     createTypedError<DatabaseError>(
       ErrorCode.DB_QUERY_FAILED,
       `Query failed: ${error?.message || "Unknown error"}`,
-      { query, cause: error, ...details }
+      { ...details, details: { ...details?.details, query }, cause: error }
     ),
   
   dbRecordNotFound: (table: string, id: unknown, details?: Partial<DatabaseError>) =>
@@ -103,7 +103,7 @@ export const ErrorFactories = {
     createTypedError<DatabaseError>(
       ErrorCode.DB_DUPLICATE_ENTRY,
       `Duplicate entry in ${table}.${field}: ${value}`,
-      { table, details: { field, value }, ...details }
+      { ...details, details: { ...details?.details, table, field, value } }
     ),
   
   // Authentication Errors
@@ -283,6 +283,14 @@ export const ErrorFactories = {
       ErrorCode.BIZ_QUOTA_EXCEEDED,
       `Quota exceeded for ${operation}. Limit: ${limit}, Current: ${current}`,
       { operation, quota: { limit, current, resetAt }, ...details }
+    ),
+
+  // Streaming and Provider Errors
+  providerUnavailable: (provider: string, details?: Partial<ExternalServiceError>) =>
+    createTypedError<ExternalServiceError>(
+      ErrorCode.EXTERNAL_SERVICE_ERROR,
+      `Provider ${provider} is currently unavailable`,
+      { serviceName: provider, ...details }
     ),
 }
 

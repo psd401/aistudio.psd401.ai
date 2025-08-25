@@ -45,22 +45,26 @@ export function ChatInput({
 
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = "0px"
+      // Reset height to get accurate scrollHeight
+      textareaRef.current.style.height = "auto"
       const scrollHeight = textareaRef.current.scrollHeight
-      textareaRef.current.style.height = scrollHeight + "px"
+      const maxHeight = 200
+      const minHeight = 48
+      
+      // Calculate the final height
+      const finalHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight)
+      textareaRef.current.style.height = `${finalHeight}px`
     }
   }, [input])
 
   const submitMessage = useCallback(() => {
-    if (input.trim() && !disabled && !isLoading) {
+    if ((input || '').trim() && !disabled && !isLoading) {
       const syntheticEvent = {
         preventDefault: () => {},
         currentTarget: { reset: () => {} }
       } as FormEvent<HTMLFormElement>
       handleSubmit(syntheticEvent)
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "48px"
-      }
+      // Don't reset height here - let the input change effect handle it naturally
     }
   }, [input, disabled, isLoading, handleSubmit])
 
@@ -112,10 +116,10 @@ export function ChatInput({
         type="button"
         size="icon"
         variant="default"
-        disabled={input.trim().length === 0 || isLoading || disabled}
+        disabled={(input || '').trim().length === 0 || isLoading || disabled}
         className="absolute bottom-2.5 right-3 h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:bg-muted"
         aria-label={sendButtonAriaLabel}
-        aria-disabled={input.trim().length === 0 || isLoading || disabled}
+        aria-disabled={(input || '').trim().length === 0 || isLoading || disabled}
         onClick={submitMessage}
       >
         <IconSend className="h-4 w-4" />

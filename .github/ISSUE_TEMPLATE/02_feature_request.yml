@@ -1,0 +1,135 @@
+name: ✨ Feature Request
+description: Propose a new feature or capability
+title: "[FEATURE] "
+labels: ["enhancement", "needs-triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ✨ Feature Request
+        Thanks for your feature suggestion! Help us understand your needs by filling out the sections below.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      options:
+        - label: I have searched for similar feature requests
+          required: true
+        - label: This feature aligns with the project's goals
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve?
+      placeholder: |
+        I'm always frustrated when...
+        Currently, there's no way to...
+        Users are asking for...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How do you envision this feature working?
+      placeholder: |
+        The feature would allow users to...
+        It would work by...
+        The interface would show...
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_stories
+    attributes:
+      label: User Stories
+      description: Describe the feature from a user's perspective
+      value: |
+        As a [type of user]
+        I want to [perform action]
+        So that [achieve goal]
+        
+        **Acceptance Criteria:**
+        - [ ] Given [context], when [action], then [outcome]
+        - [ ] Given [context], when [action], then [outcome]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Business Priority
+      description: How important is this feature?
+      options:
+        - "🔴 Critical - Blocking major use cases"
+        - "🟠 High - Significant user impact"
+        - "🟡 Medium - Nice to have"
+        - "🟢 Low - Future consideration"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: user_impact
+    attributes:
+      label: User Impact
+      description: How many users would benefit?
+      options:
+        - All users
+        - Most users (>75%)
+        - Many users (25-75%)
+        - Some users (<25%)
+        - Enterprise users only
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternative Solutions
+      description: What alternatives have you considered?
+      placeholder: |
+        1. We could also...
+        2. Another approach would be...
+        3. Some products do this by...
+
+  - type: textarea
+    id: mockups
+    attributes:
+      label: Design Mockups
+      description: Add any mockups, wireframes, or design concepts
+      placeholder: Drag and drop images or paste Figma links
+
+  - type: textarea
+    id: technical
+    attributes:
+      label: Technical Considerations
+      description: Any technical details to consider?
+      placeholder: |
+        - API changes needed
+        - Database schema updates
+        - Performance implications
+        - Security considerations
+
+  - type: textarea
+    id: success_metrics
+    attributes:
+      label: Success Metrics
+      description: How will we measure success?
+      placeholder: |
+        - Increased user engagement by X%
+        - Reduced support tickets about Y
+        - Improved performance metric Z
+
+  - type: checkboxes
+    id: implementation
+    attributes:
+      label: Implementation
+      options:
+        - label: I am willing to implement this feature
+        - label: I can provide design assets
+        - label: I can help with testing

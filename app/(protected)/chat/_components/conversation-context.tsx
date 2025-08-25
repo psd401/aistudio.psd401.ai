@@ -5,6 +5,7 @@ import React, { createContext, useContext, useCallback, useRef } from 'react'
 interface ConversationContextType {
   refreshConversations: () => void
   registerRefreshFunction: (refreshFn: () => void) => () => void
+  triggerRefresh: () => void
 }
 
 const ConversationContext = createContext<ConversationContextType | undefined>(undefined)
@@ -28,9 +29,12 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
       refreshFunctionRef.current()
     }
   }, [])
+  
+  // Alias for triggering refresh from chat component
+  const triggerRefresh = refreshConversations
 
   return (
-    <ConversationContext.Provider value={{ refreshConversations, registerRefreshFunction }}>
+    <ConversationContext.Provider value={{ refreshConversations, registerRefreshFunction, triggerRefresh }}>
       {children}
     </ConversationContext.Provider>
   )

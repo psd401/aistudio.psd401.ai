@@ -32,7 +32,11 @@ export async function getAiModelsAction(): Promise<ActionState<SelectAiModel[]>>
     
     log.debug("Fetching AI models from database")
     const models = await executeSQL<SelectAiModel>(`
-      SELECT id, name, provider, model_id, description, capabilities, max_tokens, active, chat_enabled, created_at, updated_at
+      SELECT id, name, provider, model_id, description, capabilities, max_tokens, active, chat_enabled, 
+             created_at, updated_at, allowed_roles,
+             input_cost_per_1k_tokens, output_cost_per_1k_tokens, cached_input_cost_per_1k_tokens, pricing_updated_at,
+             average_latency_ms, max_concurrency, supports_batching,
+             nexus_capabilities, provider_metadata
       FROM ai_models
       ORDER BY name ASC
     `);
