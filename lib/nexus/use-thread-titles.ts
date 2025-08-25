@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react';
-import { useThreadList } from '@assistant-ui/react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createLogger } from '@/lib/client-logger';
 
 const log = createLogger({ moduleName: 'use-thread-titles' });
@@ -14,7 +13,6 @@ interface ThreadTitles {
  * Hook to sync thread titles from database with runtime threads
  */
 export function useThreadTitles() {
-  const threadList = useThreadList();
   const [titles, setTitles] = useState<ThreadTitles>({});
   const [isLoading, setIsLoading] = useState(false);
   
@@ -34,18 +32,25 @@ export function useThreadTitles() {
       log.info('API response received', { 
         hasConversations: !!data.conversations, 
         conversationCount: data.conversations?.length || 0,
-        sampleData: data.conversations?.slice(0, 2)
+        sampleTitles: data.conversations?.slice(0, 3).map((c: any) => ({ id: c.id, title: c.title }))
       });
       
       const newTitles: ThreadTitles = {};
       
       // Map conversation IDs to titles
-      data.conversations?.forEach((conv: { id: string; title: string }) => {
-        newTitles[conv.id] = conv.title;
-      });
+      if (data.conversations && Array.isArray(data.conversations)) {
+        data.conversations.forEach((conv: { id: string; title: string }) => {
+          if (conv.id && conv.title) {
+            newTitles[conv.id] = conv.title;
+          }
+        });
+      }
       
       setTitles(newTitles);
-      log.info('Thread titles synced', { count: Object.keys(newTitles).length });
+      log.info('Thread titles synced successfully', { 
+        count: Object.keys(newTitles).length,
+        titleSample: Object.entries(newTitles).slice(0, 3)
+      });
       
     } catch (error) {
       log.error('Failed to fetch thread titles', { 
@@ -61,9 +66,11 @@ export function useThreadTitles() {
     fetchTitles();
   }, [fetchTitles]);
   
-  // Get title for a specific thread
-  const getThreadTitle = useCallback((threadId: string) => {
-    return titles[threadId] || 'New Chat';
+  // Get title for a specific thread - memoized to prevent infinite loops
+  const getThreadTitle = useMemo(() => {
+    return (threadId: string) => {
+      return titles[threadId] || 'New Chat';
+    };
   }, [titles]);
   
   return {
