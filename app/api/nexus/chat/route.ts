@@ -18,8 +18,8 @@ const ChatRequestSchema = z.object({
   provider: z.string().optional(),
   conversationId: z.string().optional(),
   enabledTools: z.array(z.string()).optional(),
-  reasoningEffort: z.string().optional(),
-  responseMode: z.string().optional()
+  reasoningEffort: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
+  responseMode: z.enum(['standard', 'priority', 'flex']).optional()
 });
 
 /**
