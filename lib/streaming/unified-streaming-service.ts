@@ -111,6 +111,8 @@ export class UnifiedStreamingService {
         system: request.systemPrompt,
         maxTokens: request.maxTokens,
         temperature: request.temperature,
+        // Tools configuration
+        tools: request.tools,
         // Adaptive timeout based on model capabilities
         timeout: this.getAdaptiveTimeout(capabilities, request),
         // Provider-specific options

@@ -1,6 +1,7 @@
 'use client'
 
 import { ModelSelector } from '@/components/features/model-selector'
+import { CompactToolSelector } from '../tools/compact-tool-selector'
 import type { SelectAiModel } from '@/types'
 
 interface NexusHeaderProps {
@@ -8,9 +9,18 @@ interface NexusHeaderProps {
   onModelChange: (model: SelectAiModel) => void
   models: SelectAiModel[]
   isLoadingModels: boolean
+  enabledTools: string[]
+  onToolsChange: (tools: string[]) => void
 }
 
-export function NexusHeader({ selectedModel, onModelChange, models, isLoadingModels }: NexusHeaderProps) {
+export function NexusHeader({ 
+  selectedModel, 
+  onModelChange, 
+  models, 
+  isLoadingModels,
+  enabledTools,
+  onToolsChange
+}: NexusHeaderProps) {
   return (
     <header className="border-b border-border bg-white px-4 py-3">
       <div className="flex items-center justify-between">
@@ -23,6 +33,11 @@ export function NexusHeader({ selectedModel, onModelChange, models, isLoadingMod
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <CompactToolSelector
+            selectedModel={selectedModel}
+            enabledTools={enabledTools}
+            onToolsChange={onToolsChange}
+          />
           <ModelSelector
             models={models}
             value={selectedModel}
