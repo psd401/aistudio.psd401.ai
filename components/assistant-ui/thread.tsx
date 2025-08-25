@@ -7,6 +7,7 @@ import {
   ErrorPrimitive,
 } from "@assistant-ui/react";
 import type { FC } from "react";
+import { useSession } from "next-auth/react";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -76,6 +77,21 @@ const ThreadScrollToBottom: FC = () => {
 };
 
 const ThreadWelcome: FC = () => {
+  const { data: session } = useSession();
+  
+  // Extract user name with fallback
+  const getUserName = () => {
+    if (session?.user?.name) {
+      return session.user.name.split(' ')[0];
+    }
+    if (session?.user?.email) {
+      return session.user.email.split('@')[0];
+    }
+    return null;
+  };
+  
+  const userName = getUserName();
+  
   return (
     <ThreadPrimitive.Empty>
       <div className="mx-auto flex w-full max-w-[var(--thread-max-width)] flex-grow flex-col px-[var(--thread-padding-x)]">
@@ -88,7 +104,7 @@ const ThreadWelcome: FC = () => {
               transition={{ delay: 0.5 }}
               className="text-2xl font-semibold"
             >
-              Hello there!
+              Hello{userName ? ` ${userName}` : ''}!
             </motion.div>
             <motion.div
               initial={{ opacity: 0, y: 10 }}
@@ -111,24 +127,24 @@ const ThreadWelcomeSuggestions: FC = () => {
     <div className="grid w-full gap-2 sm:grid-cols-2">
       {[
         {
-          title: "What are the advantages",
-          label: "of using Assistant Cloud?",
-          action: "What are the advantages of using Assistant Cloud?",
+          title: "Help me create a lesson plan",
+          label: "for 5th grade math fractions",
+          action: "Help me create a lesson plan for 5th grade math fractions",
         },
         {
-          title: "Write code to",
-          label: `demonstrate topological sorting`,
-          action: `Write code to demonstrate topological sorting`,
+          title: "Write a parent communication",
+          label: "email about upcoming field trip",
+          action: "Write a parent communication email about upcoming field trip",
         },
         {
-          title: "Help me write an essay",
-          label: `about AI chat applications`,
-          action: `Help me write an essay about AI chat applications`,
+          title: "Generate discussion questions",
+          label: "for high school literature class",
+          action: "Generate discussion questions for high school literature class",
         },
         {
-          title: "What is the weather",
-          label: "in San Francisco?",
-          action: "What is the weather in San Francisco?",
+          title: "Create a rubric",
+          label: "for evaluating student presentations",
+          action: "Create a rubric for evaluating student presentations",
         },
       ].map((suggestedAction, index) => (
         <motion.div
