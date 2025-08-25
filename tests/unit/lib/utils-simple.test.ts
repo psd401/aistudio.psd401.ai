@@ -30,7 +30,7 @@ describe('Simple Utility Functions', () => {
   })
 
   it('should handle boolean operations', () => {
-    expect(true && true).toBe(true)
+    expect(true && false).toBe(false)
     expect(true || false).toBe(true)
     expect(!false).toBe(true)
     expect(Boolean('')).toBe(false)
