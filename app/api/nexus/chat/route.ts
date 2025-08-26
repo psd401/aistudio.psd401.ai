@@ -324,46 +324,8 @@ export async function POST(req: Request) {
       responseMode: validationResult.data.responseMode || 'standard'
     };
 
-    // If this is an image generation model, extract prompt from user message
-    if (isImageGenerationModel) {
-      const lastMessage = messages[messages.length - 1];
-      let imagePrompt = '';
-      
-      if (lastMessage && lastMessage.role === 'user') {
-        const content = lastMessage.content;
-        if (typeof content === 'string') {
-          imagePrompt = content;
-        } else if (Array.isArray(content)) {
-          // Extract text from content array
-          const textParts = content.filter(part => part.type === 'text' && part.text);
-          imagePrompt = textParts.map(part => part.text).join(' ');
-        }
-      }
-      
-      if (!imagePrompt.trim()) {
-        log.error('No prompt found for image generation', { modelId });
-        return new Response(
-          JSON.stringify({ error: 'Please provide a description for the image to generate' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-      
-      // Add image generation options
-      jobOptions = {
-        ...jobOptions,
-        imageGeneration: {
-          prompt: imagePrompt.trim(),
-          size: '1024x1024', // Default size, could be made configurable
-          style: 'natural' // Default style, could be made configurable
-        }
-      };
-      
-      log.info('Image generation job configured', sanitizeForLogging({
-        prompt: imagePrompt.substring(0, 100) + (imagePrompt.length > 100 ? '...' : ''),
-        modelId,
-        provider
-      }));
-    }
+    // Image models are conversational AI that can respond with text OR images
+    // Let the model decide when to generate images rather than forcing it
 
     const jobRequest: CreateJobRequest = {
       conversationId: conversationId, // Keep as UUID string for nexus
