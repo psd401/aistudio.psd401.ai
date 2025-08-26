@@ -1,3 +1,5 @@
+import { createLogger } from './logger';
+
 /**
  * Message conversion utilities for handling different message formats
  * between assistant-ui, AI SDK, and provider-specific formats
@@ -65,7 +67,8 @@ export function normalizeMessage(msg: AssistantUIMessage): CoreMessage {
   }
   
   // Fallback - create empty text part
-  console.warn('Message has no content or parts, creating empty text part', { msg });
+  const log = createLogger({ module: 'MessageConverter' });
+  log.warn('Message has no content or parts, creating empty text part', { msg });
   return {
     role: msg.role,
     parts: [{ type: 'text', text: '' }],

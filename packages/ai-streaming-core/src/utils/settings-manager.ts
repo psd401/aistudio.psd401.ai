@@ -1,3 +1,4 @@
+import { createLogger } from './logger';
 import type { SettingsConfig } from '../types';
 
 /**
@@ -30,7 +31,8 @@ export class SettingsManager {
       try {
         value = await this.dbQueryFunction(key);
       } catch (error) {
-        console.warn(`Failed to get setting ${key} from database:`, error);
+        const log = createLogger({ module: 'SettingsManager' });
+        log.warn('Failed to get setting from database', { key, error });
       }
     }
     

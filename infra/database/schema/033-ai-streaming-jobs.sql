@@ -1,4 +1,4 @@
--- Migration 035: AI Streaming Jobs - Bare minimum table creation
+-- Migration 033: AI Streaming Jobs - Bare minimum table creation
 
 DROP TABLE IF EXISTS ai_streaming_jobs CASCADE;
 

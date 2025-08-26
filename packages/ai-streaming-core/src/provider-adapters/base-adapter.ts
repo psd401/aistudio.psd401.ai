@@ -1,4 +1,5 @@
 import { streamText } from 'ai';
+import { createLogger } from '../utils/logger';
 import type { ProviderCapabilities, StreamConfig, StreamingCallbacks } from '../types';
 
 /**
@@ -21,8 +22,9 @@ export abstract class BaseProviderAdapter {
    * Stream with provider-specific enhancements
    */
   async streamWithEnhancements(config: StreamConfig, callbacks: StreamingCallbacks = {}): Promise<any> {
-    console.log('Starting stream with enhancements', {
-      provider: this.providerName,
+    const log = createLogger({ module: 'BaseProviderAdapter', provider: this.providerName });
+    
+    log.info('Starting stream with enhancements', {
       hasModel: !!config.model,
       messageCount: config.messages.length
     });
@@ -63,7 +65,7 @@ export abstract class BaseProviderAdapter {
       
       return result;
     } catch (error) {
-      console.error('Stream with enhancements failed:', error);
+      log.error('Stream with enhancements failed', { error });
       if (callbacks.onError) {
         callbacks.onError(error as Error);
       }

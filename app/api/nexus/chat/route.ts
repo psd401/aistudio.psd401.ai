@@ -9,36 +9,17 @@ import { jobManagementService } from '@/lib/streaming/job-management-service';
 import type { CreateJobRequest } from '@/lib/streaming/job-management-service';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { ErrorFactories } from '@/lib/error-utils';
+import { getStreamingJobsQueueUrl } from '@/lib/aws/queue-config';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
 
-// SQS client for sending jobs to worker queue
-const sqsClient = new SQSClient({});
+// SQS client for sending jobs to worker queue with explicit configuration
+const sqsClient = new SQSClient({
+  region: process.env.NEXT_PUBLIC_AWS_REGION || process.env.AWS_REGION || 'us-east-1'
+});
 
-// Get streaming jobs queue URL from environment
-const getStreamingJobsQueueUrl = () => {
-  // First try direct env var
-  if (process.env.STREAMING_JOBS_QUEUE_URL) {
-    return process.env.STREAMING_JOBS_QUEUE_URL;
-  }
-  
-  // Otherwise construct from available env vars
-  const environment = process.env.NEXT_PUBLIC_ENVIRONMENT || 'dev';
-  const region = process.env.NEXT_PUBLIC_AWS_REGION || process.env.AWS_REGION || 'us-east-1';
-  
-  // Extract account ID from RDS ARN (format: arn:aws:rds:region:account:...)
-  const rdsArn = process.env.RDS_RESOURCE_ARN;
-  if (rdsArn) {
-    const accountMatch = rdsArn.match(/:(\d{12}):/);
-    if (accountMatch) {
-      const account = accountMatch[1];
-      return `https://sqs.${region}.amazonaws.com/${account}/aistudio-${environment}-streaming-jobs-queue`;
-    }
-  }
-  
-  return '';
-};
+// Queue URL is now handled by the queue configuration service
 
 // Basic input validation schema - keeping it minimal to avoid breaking existing data flows
 const ChatRequestSchema = z.object({
@@ -391,14 +372,12 @@ export async function POST(req: Request) {
         
         log.info('Nexus job sent to SQS queue successfully', sanitizeForLogging({
           jobId,
-          queueUrl,
           messageAttributes: sqsCommand.input.MessageAttributes
         }));
       } catch (sqsError) {
         log.error('Failed to send Nexus job to SQS queue', sanitizeForLogging({
           jobId,
-          error: sqsError instanceof Error ? sqsError.message : String(sqsError),
-          queueUrl
+          error: sqsError instanceof Error ? sqsError.message : String(sqsError)
         }));
         
         // Mark job as failed if we can't queue it

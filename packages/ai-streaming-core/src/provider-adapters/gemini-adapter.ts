@@ -1,5 +1,6 @@
 import { google } from '@ai-sdk/google';
 import { BaseProviderAdapter } from './base-adapter';
+import { createLogger } from '../utils/logger';
 import type { ProviderCapabilities } from '../types';
 import type { SettingsManager } from '../utils/settings-manager';
 
@@ -19,7 +20,8 @@ export class GeminiAdapter extends BaseProviderAdapter {
   }
   
   async createModel(modelId: string, options?: any): Promise<any> {
-    console.log('Creating Google model:', modelId, { options });
+    const log = createLogger({ module: 'GeminiAdapter' });
+    log.info('Creating Google model', { modelId, options });
     
     try {
       // Get Google API key from settings manager only
@@ -37,11 +39,11 @@ export class GeminiAdapter extends BaseProviderAdapter {
       
       const model = google(modelId);
       
-      console.log('Google model created successfully:', modelId);
+      log.info('Google model created successfully', { modelId });
       return model;
       
     } catch (error) {
-      console.error('Failed to create Google model:', {
+      log.error('Failed to create Google model', {
         modelId,
         error: error instanceof Error ? error.message : String(error)
       });

@@ -1,5 +1,6 @@
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { BaseProviderAdapter } from './base-adapter';
+import { createLogger } from '../utils/logger';
 import type { ProviderCapabilities } from '../types';
 import type { SettingsManager } from '../utils/settings-manager';
 
@@ -22,8 +23,10 @@ export class ClaudeAdapter extends BaseProviderAdapter {
   
   async createModel(modelId: string, options?: any): Promise<any> {
     const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+    const log = createLogger({ module: 'ClaudeAdapter' });
     
-    console.log('Creating Bedrock model:', modelId, { 
+    log.info('Creating Bedrock model', { 
+      modelId,
       isLambda,
       region: process.env.AWS_REGION || 'us-east-1',
       thinkingBudget: options?.thinkingBudget
@@ -43,21 +46,21 @@ export class ClaudeAdapter extends BaseProviderAdapter {
       
       // Use explicit credentials for local development only
       if (!isLambda && config.accessKeyId && config.secretAccessKey) {
-        console.log('Using explicit credentials for local development');
+        log.debug('Using explicit credentials for local development');
         bedrockOptions.accessKeyId = config.accessKeyId;
         bedrockOptions.secretAccessKey = config.secretAccessKey;
       } else {
-        console.log('Using default AWS credential chain (IAM role)');
+        log.debug('Using default AWS credential chain (IAM role)');
       }
       
       const bedrock = createAmazonBedrock(bedrockOptions);
       const model = bedrock(modelId);
       
-      console.log('Bedrock model created successfully:', modelId);
+      log.info('Bedrock model created successfully', { modelId });
       return model;
       
     } catch (error) {
-      console.error('Failed to create Claude model:', {
+      log.error('Failed to create Claude model', {
         modelId,
         error: error instanceof Error ? error.message : String(error)
       });

@@ -1,5 +1,6 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { BaseProviderAdapter } from './base-adapter';
+import { createLogger } from '../utils/logger';
 import type { ProviderCapabilities } from '../types';
 import type { SettingsManager } from '../utils/settings-manager';
 
@@ -20,7 +21,8 @@ export class OpenAIAdapter extends BaseProviderAdapter {
   }
   
   async createModel(modelId: string, options?: any): Promise<any> {
-    console.log('Creating OpenAI model:', modelId, { options });
+    const log = createLogger({ module: 'OpenAIAdapter' });
+    log.info('Creating OpenAI model', { modelId, options });
     
     try {
       // Get OpenAI API key from settings manager only
@@ -36,11 +38,11 @@ export class OpenAIAdapter extends BaseProviderAdapter {
       const openai = createOpenAI({ apiKey });
       const model = openai(modelId);
       
-      console.log('OpenAI model created successfully:', modelId);
+      log.info('OpenAI model created successfully', { modelId });
       return model;
       
     } catch (error) {
-      console.error('Failed to create OpenAI model:', {
+      log.error('Failed to create OpenAI model', {
         modelId,
         error: error instanceof Error ? error.message : String(error)
       });

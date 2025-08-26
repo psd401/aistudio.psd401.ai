@@ -1,5 +1,6 @@
 import { convertToModelMessages } from 'ai';
 import { createProviderAdapter } from './provider-factory';
+import { createLogger } from './utils/logger';
 import type { SettingsManager } from './utils/settings-manager';
 import type { 
   StreamRequest, 
@@ -87,14 +88,14 @@ export class UnifiedStreamingService {
   async stream(request: StreamRequest): Promise<StreamResponse> {
     const requestId = this.generateRequestId();
     const startTime = Date.now();
+    const log = createLogger({ module: 'UnifiedStreamingService', requestId });
     
-    console.log('Starting unified stream', {
+    log.info('Starting unified stream', {
       provider: request.provider,
       modelId: request.modelId,
       source: request.source,
       userId: request.userId,
-      messageCount: request.messages?.length || 0,
-      requestId
+      messageCount: request.messages?.length || 0
     });
     
     try {
@@ -117,7 +118,7 @@ export class UnifiedStreamingService {
       try {
         convertedMessages = convertToModelMessages(processedMessages);
       } catch (conversionError) {
-        console.error('Failed to convert messages', {
+        log.error('Failed to convert messages', {
           error: (conversionError as Error).message,
           messages: JSON.stringify(processedMessages).substring(0, 500)
         });
@@ -163,9 +164,8 @@ export class UnifiedStreamingService {
               try {
                 await request.callbacks.onFinish(data);
               } catch (error) {
-                console.error('Failed to execute onFinish callback:', {
+                log.error('Failed to execute onFinish callback:', {
                   error,
-                  requestId,
                   conversationId: request.conversationId
                 });
                 // Don't rethrow to avoid breaking the stream
@@ -179,10 +179,9 @@ export class UnifiedStreamingService {
         });
       });
       
-      console.log('Stream completed successfully', {
+      log.info('Stream completed successfully', {
         provider: request.provider,
         modelId: request.modelId,
-        requestId,
         duration: Date.now() - startTime
       });
       
@@ -195,11 +194,10 @@ export class UnifiedStreamingService {
       
     } catch (error) {
       const duration = Date.now() - startTime;
-      console.error('Stream failed', {
+      log.error('Stream failed', {
         error: error instanceof Error ? error.message : String(error),
         provider: request.provider,
         modelId: request.modelId,
-        requestId,
         duration
       });
       throw error;
@@ -274,9 +272,8 @@ export class UnifiedStreamingService {
    * Handle streaming progress events
    */
   private handleProgress(event: StreamingProgress, requestId: string) {
-    // Basic progress logging
-    console.log('Stream progress', {
-      requestId,
+    const log = createLogger({ module: 'UnifiedStreamingService', requestId });
+    log.debug('Stream progress', {
       tokens: event.metadata?.tokens
     });
   }
@@ -285,8 +282,8 @@ export class UnifiedStreamingService {
    * Handle reasoning content
    */
   private handleReasoning(reasoning: string, requestId: string) {
-    console.log('Reasoning chunk received', {
-      requestId,
+    const log = createLogger({ module: 'UnifiedStreamingService', requestId });
+    log.debug('Reasoning chunk received', {
       length: reasoning.length
     });
   }
@@ -295,8 +292,8 @@ export class UnifiedStreamingService {
    * Handle thinking content
    */
   private handleThinking(thinking: string, requestId: string) {
-    console.log('Thinking chunk received', {
-      requestId,
+    const log = createLogger({ module: 'UnifiedStreamingService', requestId });
+    log.debug('Thinking chunk received', {
       length: thinking.length
     });
   }
@@ -313,8 +310,8 @@ export class UnifiedStreamingService {
     requestId: string,
     duration: number
   ) {
-    console.log('Stream finished', {
-      requestId,
+    const log = createLogger({ module: 'UnifiedStreamingService', requestId });
+    log.info('Stream finished', {
       textLength: data.text?.length || 0,
       tokensUsed: data.usage?.totalTokens || 0,
       finishReason: data.finishReason,
@@ -326,8 +323,8 @@ export class UnifiedStreamingService {
    * Handle stream errors
    */
   private handleError(error: Error, requestId: string) {
-    console.error('Stream error', {
-      requestId,
+    const log = createLogger({ module: 'UnifiedStreamingService', requestId });
+    log.error('Stream error', {
       error: error.message,
       stack: error.stack
     });

@@ -1,5 +1,6 @@
 import { createAzure } from '@ai-sdk/azure';
 import { BaseProviderAdapter } from './base-adapter';
+import { createLogger } from '../utils/logger';
 import type { ProviderCapabilities } from '../types';
 import type { SettingsManager } from '../utils/settings-manager';
 
@@ -19,7 +20,8 @@ export class AzureAdapter extends BaseProviderAdapter {
   }
   
   async createModel(modelId: string, options?: any): Promise<any> {
-    console.log('Creating Azure model:', modelId, { options });
+    const log = createLogger({ module: 'AzureAdapter' });
+    log.info('Creating Azure model', { modelId, options });
     
     try {
       // Get Azure configuration from settings manager only
@@ -41,11 +43,11 @@ export class AzureAdapter extends BaseProviderAdapter {
       
       const model = azure(modelId);
       
-      console.log('Azure model created successfully:', modelId);
+      log.info('Azure model created successfully', { modelId });
       return model;
       
     } catch (error) {
-      console.error('Failed to create Azure model:', {
+      log.error('Failed to create Azure model', {
         modelId,
         error: error instanceof Error ? error.message : String(error)
       });
