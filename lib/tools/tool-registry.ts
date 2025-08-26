@@ -17,6 +17,7 @@ export interface ModelCapabilities {
   responsesAPI: boolean
   promptCaching: boolean
   contextCaching: boolean
+  imageGeneration: boolean
 }
 
 // Define a basic tool type to avoid 'any'
@@ -44,7 +45,7 @@ export interface ToolConfig {
   requiredCapabilities: (keyof ModelCapabilities)[]
   displayName: string
   description: string
-  category: 'search' | 'code' | 'analysis' | 'creative'
+  category: 'search' | 'code' | 'analysis' | 'creative' | 'media'
 }
 
 /**
@@ -67,6 +68,14 @@ const TOOL_REGISTRY: Record<string, ToolConfig> = {
     displayName: 'Code Interpreter',
     description: 'Execute code and perform data analysis',
     category: 'code'
+  },
+  generateImage: {
+    name: 'generateImage',
+    tool: createPlaceholderTool('Generate images from text descriptions using AI'),
+    requiredCapabilities: ['imageGeneration'],
+    displayName: 'Image Generation',
+    description: 'Generate images from text descriptions using AI models like GPT-Image-1, DALL-E 3, and Imagen 4',
+    category: 'media'
   }
 }
 

@@ -10,12 +10,20 @@ export interface NexusJobResponse {
   partialContent?: string
   responseData?: {
     text: string
+    type?: 'text' | 'image'
+    image?: string // Base64 image data for image generation
+    mediaType?: string // MIME type for images
+    prompt?: string // Original prompt for image generation
+    size?: string // Image size
+    style?: string // Image style
+    model?: string // Model used for generation
     usage?: {
       promptTokens: number
       completionTokens: number
       totalTokens: number
     }
     finishReason: string
+    metadata?: Record<string, unknown> // Additional metadata
   }
   errorMessage?: string
   pollingInterval: number
@@ -161,19 +169,49 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
             // Handle job completion
             if (jobData.status === 'completed') {
               if (jobData.responseData) {
-                const finalText = jobData.responseData.text || jobData.partialContent || 'Response completed.'
-                
-                log.info('Job completed successfully', { 
-                  jobId, 
-                  textLength: finalText.length,
-                  usage: jobData.responseData.usage
-                })
+                // Handle image generation responses
+                if (jobData.responseData.type === 'image' && jobData.responseData.image) {
+                  const { image, mediaType, prompt, size, model } = jobData.responseData
+                  const dataUrl = `data:${mediaType || 'image/png'};base64,${image}`
+                  
+                  log.info('Image generation job completed', { 
+                    jobId, 
+                    prompt: prompt?.substring(0, 50) + (prompt && prompt.length > 50 ? '...' : ''),
+                    size,
+                    model,
+                    imageSize: image.length
+                  })
 
-                yield {
-                  content: [{ 
-                    type: 'text' as const, 
-                    text: finalText 
-                  }],
+                  yield {
+                    content: [
+                      // Show the image
+                      { 
+                        type: 'image' as const, 
+                        image: dataUrl
+                      },
+                      // Add text description
+                      {
+                        type: 'text' as const,
+                        text: `Generated image: "${prompt}" (${size})`
+                      }
+                    ],
+                  }
+                } else {
+                  // Handle regular text responses
+                  const finalText = jobData.responseData.text || jobData.partialContent || 'Response completed.'
+                  
+                  log.info('Text job completed successfully', { 
+                    jobId, 
+                    textLength: finalText.length,
+                    usage: jobData.responseData.usage
+                  })
+
+                  yield {
+                    content: [{ 
+                      type: 'text' as const, 
+                      text: finalText 
+                    }],
+                  }
                 }
               }
               return // Job completed successfully

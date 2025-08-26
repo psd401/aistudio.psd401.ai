@@ -103,30 +103,45 @@ export async function POST(req: Request) {
     
     // 4. Get model configuration from database
     const modelResult = await executeSQL(
-      `SELECT id, provider, model_id 
+      `SELECT id, provider, model_id, nexus_capabilities, chat_enabled
        FROM ai_models 
        WHERE model_id = :modelId 
        AND active = true 
-       AND chat_enabled = true
        LIMIT 1`,
       [{ name: 'modelId', value: { stringValue: modelId } }]
     );
     
     if (modelResult.length === 0) {
-      log.error('Model not found or not enabled for chat', { modelId });
+      log.error('Model not found', { modelId });
       return new Response(
-        JSON.stringify({ error: 'Selected model not found or not enabled for chat' }),
+        JSON.stringify({ error: 'Selected model not found' }),
         { status: 404, headers: { 'Content-Type': 'application/json' } }
       );
     }
     
     const modelConfig = modelResult[0];
     const dbModelId = modelConfig.id as number;
+    const capabilities = typeof modelConfig.nexusCapabilities === 'string' 
+      ? JSON.parse(modelConfig.nexusCapabilities) 
+      : modelConfig.nexusCapabilities;
+    const isImageGenerationModel = capabilities?.imageGeneration === true;
+    const isChatEnabled = modelConfig.chatEnabled || modelConfig.chat_enabled;
+    
+    // Image generation models don't need chat_enabled=true since they work differently
+    if (!isImageGenerationModel && !isChatEnabled) {
+      log.error('Model not enabled for chat', { modelId, isChatEnabled });
+      return new Response(
+        JSON.stringify({ error: 'Selected model not enabled for chat' }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
     
     log.info('Model configured', sanitizeForLogging({
       provider: modelConfig.provider,
       modelId: modelConfig.model_id,
-      dbId: dbModelId
+      dbId: dbModelId,
+      isImageGeneration: isImageGenerationModel,
+      isChatEnabled
     }));
     
     // 5. Handle conversation (create new or use existing)
@@ -303,6 +318,52 @@ export async function POST(req: Request) {
     }
     
     // Prepare job creation request for Nexus
+    let jobOptions: CreateJobRequest['options'] = {
+      reasoningEffort: validationResult.data.reasoningEffort || 'medium',
+      responseMode: validationResult.data.responseMode || 'standard'
+    };
+
+    // If this is an image generation model, extract prompt from user message
+    if (isImageGenerationModel) {
+      const lastMessage = messages[messages.length - 1];
+      let imagePrompt = '';
+      
+      if (lastMessage && lastMessage.role === 'user') {
+        const content = lastMessage.content;
+        if (typeof content === 'string') {
+          imagePrompt = content;
+        } else if (Array.isArray(content)) {
+          // Extract text from content array
+          const textParts = content.filter(part => part.type === 'text' && part.text);
+          imagePrompt = textParts.map(part => part.text).join(' ');
+        }
+      }
+      
+      if (!imagePrompt.trim()) {
+        log.error('No prompt found for image generation', { modelId });
+        return new Response(
+          JSON.stringify({ error: 'Please provide a description for the image to generate' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      // Add image generation options
+      jobOptions = {
+        ...jobOptions,
+        imageGeneration: {
+          prompt: imagePrompt.trim(),
+          size: '1024x1024', // Default size, could be made configurable
+          style: 'natural' // Default style, could be made configurable
+        }
+      };
+      
+      log.info('Image generation job configured', sanitizeForLogging({
+        prompt: imagePrompt.substring(0, 100) + (imagePrompt.length > 100 ? '...' : ''),
+        modelId,
+        provider
+      }));
+    }
+
     const jobRequest: CreateJobRequest = {
       conversationId: conversationId, // Keep as UUID string for nexus
       userId: userId,
@@ -311,10 +372,7 @@ export async function POST(req: Request) {
       provider: provider,
       modelIdString: modelId,
       systemPrompt,
-      options: {
-        reasoningEffort: validationResult.data.reasoningEffort || 'medium',
-        responseMode: validationResult.data.responseMode || 'standard'
-      },
+      options: jobOptions,
       maxTokens: undefined,
       temperature: undefined,
       tools,

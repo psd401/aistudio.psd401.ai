@@ -69,6 +69,11 @@ export interface StreamingJob {
       responseMode?: 'standard' | 'flex' | 'priority';
       backgroundMode?: boolean;
       thinkingBudget?: number;
+      imageGeneration?: {
+        prompt: string;
+        size?: '1024x1024' | '1792x1024' | '1024x1792' | '1536x1024' | '1024x1536';
+        style?: 'natural' | 'vivid';
+      };
     };
     maxTokens?: number;
     temperature?: number;
@@ -76,6 +81,13 @@ export interface StreamingJob {
   };
   responseData?: {
     text: string;
+    type?: 'text' | 'image';
+    image?: string; // Base64 image data for image generation
+    mediaType?: string; // MIME type for images
+    prompt?: string; // Original prompt for image generation
+    size?: string; // Image size
+    style?: string; // Image style
+    model?: string; // Model used for generation
     usage?: {
       promptTokens: number;
       completionTokens: number;
@@ -84,6 +96,7 @@ export interface StreamingJob {
       totalCost?: number;
     };
     finishReason: string;
+    metadata?: Record<string, unknown>; // Additional metadata
   };
   partialContent?: string;
   progressInfo?: {
