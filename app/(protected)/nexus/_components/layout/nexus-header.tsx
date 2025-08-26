@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { ModelSelector } from '@/components/features/model-selector'
 import { CompactToolSelector } from '../tools/compact-tool-selector'
 import type { SelectAiModel } from '@/types'
@@ -25,9 +26,21 @@ export function NexusHeader({
     <header className="border-b border-border bg-white px-4 py-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-semibold text-foreground">
-            AI Chat
-          </h1>
+          <Image
+            src="/assistant_logos/image16.png"
+            alt="Nexus"
+            width={40}
+            height={40}
+            className="rounded-md"
+          />
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">
+              Nexus
+            </h1>
+            <p className="text-sm text-muted-foreground font-light">
+              Your central hub for exploring the power of AI
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <CompactToolSelector
