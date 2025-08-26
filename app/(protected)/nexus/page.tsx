@@ -1,7 +1,6 @@
 'use client'
 
-import { AssistantRuntimeProvider } from '@assistant-ui/react'
-import { useChatRuntime, AssistantChatTransport } from '@assistant-ui/react-ai-sdk'
+import { AssistantRuntimeProvider, useLocalRuntime } from '@assistant-ui/react'
 import { Thread } from '@/components/assistant-ui/thread'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
@@ -13,6 +12,7 @@ import { WebSearchUI } from './_components/tools/web-search-ui'
 import { CodeInterpreterUI } from './_components/tools/code-interpreter-ui'
 import { useModelsWithPersistence } from '@/lib/hooks/use-models'
 import { createNexusAttachmentAdapter } from '@/lib/nexus/attachment-adapters'
+import { createNexusPollingAdapter } from '@/lib/nexus/nexus-polling-adapter'
 import type { SelectAiModel } from '@/types'
 import { createLogger } from '@/lib/client-logger'
 
@@ -71,25 +71,41 @@ export default function NexusPage() {
     }
   }, [session, sessionStatus, router])
 
-  // Create transport that updates when model changes
-  const transport = useMemo(() => {
-    return new AssistantChatTransport({
-      api: '/api/nexus/chat',
-      body: () => ({
-        modelId: selectedModel?.modelId,
-        provider: selectedModel?.provider,
+  // Create the Nexus polling adapter that handles the universal polling architecture
+  const pollingAdapter = useMemo(() => {
+    if (!selectedModel) return null;
+    
+    return createNexusPollingAdapter({
+      apiUrl: '/api/nexus/chat',
+      bodyFn: () => ({
+        modelId: selectedModel.modelId,
+        provider: selectedModel.provider,
         enabledTools: enabledToolsRef.current
       })
     });
-  }, [selectedModel?.modelId, selectedModel?.provider]);
+  }, [selectedModel]);
 
-  // Use the transport with the runtime and attachment adapters
-  const runtime = useChatRuntime({ 
-    transport,
-    adapters: {
-      attachments: createNexusAttachmentAdapter(),
+  // Fallback adapter for when no model is selected
+  const fallbackAdapter = useMemo(() => ({
+    async run() {
+      return {
+        content: [{ 
+          type: 'text' as const, 
+          text: 'Please select a model to start chatting.' 
+        }]
+      }
     }
-  })
+  }), [])
+
+  // Use LocalRuntime with our custom polling adapter
+  const runtime = useLocalRuntime(
+    pollingAdapter || fallbackAdapter,
+    {
+      adapters: {
+        attachments: createNexusAttachmentAdapter(),
+      }
+    }
+  )
   
   // Show loading state while checking authentication
   if (sessionStatus === 'loading') {

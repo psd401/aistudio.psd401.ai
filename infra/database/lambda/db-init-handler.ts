@@ -50,7 +50,8 @@ const MIGRATION_FILES = [
   '029-ai-models-nexus-enhancements.sql',
   '030-nexus-provider-metrics.sql',
   '031-nexus-messages.sql',
-  '032-remove-nexus-provider-constraint.sql'
+  '032-remove-nexus-provider-constraint.sql',
+  '033-ai-streaming-jobs.sql'
   // ADD NEW MIGRATIONS HERE - they will run once and be tracked
 ];
 
