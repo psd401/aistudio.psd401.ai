@@ -122,7 +122,18 @@ export async function POST(req: Request) {
     const modelConfig = modelResult[0];
     const dbModelId = modelConfig.id as number;
     const capabilities = typeof modelConfig.nexusCapabilities === 'string' 
-      ? JSON.parse(modelConfig.nexusCapabilities) 
+      ? (() => {
+          try {
+            return JSON.parse(modelConfig.nexusCapabilities);
+          } catch (error) {
+            log.error('Failed to parse nexus capabilities', { 
+              modelId, 
+              capabilities: modelConfig.nexusCapabilities,
+              error: error instanceof Error ? error.message : String(error)
+            });
+            return null;
+          }
+        })()
       : modelConfig.nexusCapabilities;
     const isImageGenerationModel = capabilities?.imageGeneration === true;
     const isChatEnabled = modelConfig.chatEnabled || modelConfig.chat_enabled;
@@ -336,11 +347,28 @@ export async function POST(req: Request) {
         }).content;
         
         if (typeof messageContent === 'string') {
-          imagePrompt = messageContent;
+          imagePrompt = messageContent.trim();
         } else if (Array.isArray(messageContent)) {
           const textPart = messageContent.find(part => part.type === 'text' && part.text);
-          imagePrompt = textPart?.text || '';
+          imagePrompt = (textPart?.text || '').trim();
         }
+      }
+
+      // Validate prompt length (typical AI image models have limits)
+      if (imagePrompt.length > 4000) {
+        log.warn('Image prompt too long, truncating', { 
+          originalLength: imagePrompt.length,
+          modelId 
+        });
+        imagePrompt = imagePrompt.substring(0, 4000);
+      }
+
+      if (imagePrompt.length === 0) {
+        log.error('Empty image generation prompt');
+        return new Response(
+          JSON.stringify({ error: 'Image generation requires a text prompt' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
       }
       
       // Set image generation options for the worker
