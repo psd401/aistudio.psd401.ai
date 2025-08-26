@@ -87,9 +87,10 @@ export async function GET(
     }
     
     // 6. Generate presigned URL for the image (valid for 1 hour)
+    // Note: Frontend uses DOCUMENTS_BUCKET_NAME, Lambdas use DOCUMENTS_BUCKET
     const bucketName = process.env.DOCUMENTS_BUCKET_NAME || process.env.DOCUMENTS_BUCKET;
     if (!bucketName) {
-      log.error('S3 bucket name not configured');
+      log.error('S3 bucket name not configured - missing DOCUMENTS_BUCKET_NAME or DOCUMENTS_BUCKET');
       return new Response('Internal Server Error', { status: 500 });
     }
     

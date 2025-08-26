@@ -191,11 +191,6 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
                       { 
                         type: 'image' as const, 
                         image: imageUrl
-                      },
-                      // Add text description
-                      {
-                        type: 'text' as const,
-                        text: `Generated image: "${prompt}" (${size})`
                       }
                     ],
                   }
