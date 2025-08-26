@@ -18,7 +18,7 @@ const dynamoClient = new DynamoDBClient({});
 const sqsClient = new SQSClient({});
 const textractClient = new TextractClient({});
 
-const DOCUMENTS_BUCKET = process.env.DOCUMENTS_BUCKET!;
+const DOCUMENTS_BUCKET = process.env.DOCUMENTS_BUCKET_NAME!;
 const JOB_STATUS_TABLE = process.env.JOB_STATUS_TABLE!;
 const DATABASE_RESOURCE_ARN = process.env.DATABASE_RESOURCE_ARN!;
 const DATABASE_SECRET_ARN = process.env.DATABASE_SECRET_ARN!;
