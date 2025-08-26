@@ -1,7 +1,8 @@
 import { createOpenAI } from '@ai-sdk/openai';
+import { experimental_generateImage as generateImage } from 'ai';
 import { BaseProviderAdapter } from './base-adapter';
 import { createLogger } from '../utils/logger';
-import type { ProviderCapabilities } from '../types';
+import type { ProviderCapabilities, StreamConfig, StreamingCallbacks } from '../types';
 import type { SettingsManager } from '../utils/settings-manager';
 
 /**
@@ -36,6 +37,15 @@ export class OpenAIAdapter extends BaseProviderAdapter {
       }
       
       const openai = createOpenAI({ apiKey });
+      
+      // For gpt-image-1, use the image model
+      if (modelId === 'gpt-image-1') {
+        log.info('Creating OpenAI image model for gpt-image-1');
+        const model = openai.image(modelId);
+        return model;
+      }
+      
+      // Regular models use default provider method
       const model = openai(modelId);
       
       log.info('OpenAI model created successfully', { modelId });
@@ -43,6 +53,36 @@ export class OpenAIAdapter extends BaseProviderAdapter {
       
     } catch (error) {
       log.error('Failed to create OpenAI model', {
+        modelId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  }
+  
+  async createImageModel(modelId: string, options?: any): Promise<any> {
+    const log = createLogger({ module: 'OpenAIAdapter' });
+    log.info('Creating OpenAI image model', { modelId, options });
+    
+    try {
+      // Get OpenAI API key from settings manager only
+      if (!this.settingsManager) {
+        throw new Error('Settings manager not configured');
+      }
+      
+      const apiKey = await this.settingsManager.getSetting('OPENAI_API_KEY');
+      if (!apiKey) {
+        throw new Error('OpenAI API key not configured');
+      }
+      
+      const openai = createOpenAI({ apiKey });
+      const imageModel = openai.image(modelId);
+      
+      log.info('OpenAI image model created successfully', { modelId });
+      return imageModel;
+      
+    } catch (error) {
+      log.error('Failed to create OpenAI image model', {
         modelId,
         error: error instanceof Error ? error.message : String(error)
       });
@@ -146,7 +186,9 @@ export class OpenAIAdapter extends BaseProviderAdapter {
       'gpt-4*', 
       'gpt-3.5*',
       'gpt-35*',
-      'o1*'
+      'o1*',
+      'gpt-image-1',
+      'dall-e-*'
     ]);
   }
 }

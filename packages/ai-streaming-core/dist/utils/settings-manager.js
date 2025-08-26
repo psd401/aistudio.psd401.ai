@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.settingsManager = exports.SettingsManager = void 0;
 exports.createSettingsManager = createSettingsManager;
+const logger_1 = require("./logger");
 /**
  * Settings manager with caching and environment fallback
  * Works in both Next.js and Lambda environments
@@ -29,7 +30,8 @@ class SettingsManager {
                 value = await this.dbQueryFunction(key);
             }
             catch (error) {
-                console.warn(`Failed to get setting ${key} from database:`, error);
+                const log = (0, logger_1.createLogger)({ module: 'SettingsManager' });
+                log.warn('Failed to get setting from database', { key, error });
             }
         }
         // Fallback to environment variable

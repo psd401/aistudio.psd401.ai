@@ -103,30 +103,56 @@ export async function POST(req: Request) {
     
     // 4. Get model configuration from database
     const modelResult = await executeSQL(
-      `SELECT id, provider, model_id 
+      `SELECT id, provider, model_id, nexus_capabilities, chat_enabled
        FROM ai_models 
        WHERE model_id = :modelId 
        AND active = true 
-       AND chat_enabled = true
        LIMIT 1`,
       [{ name: 'modelId', value: { stringValue: modelId } }]
     );
     
     if (modelResult.length === 0) {
-      log.error('Model not found or not enabled for chat', { modelId });
+      log.error('Model not found', { modelId });
       return new Response(
-        JSON.stringify({ error: 'Selected model not found or not enabled for chat' }),
+        JSON.stringify({ error: 'Selected model not found' }),
         { status: 404, headers: { 'Content-Type': 'application/json' } }
       );
     }
     
     const modelConfig = modelResult[0];
     const dbModelId = modelConfig.id as number;
+    const capabilities = typeof modelConfig.nexusCapabilities === 'string' 
+      ? (() => {
+          try {
+            return JSON.parse(modelConfig.nexusCapabilities);
+          } catch (error) {
+            log.error('Failed to parse nexus capabilities', { 
+              modelId, 
+              capabilities: modelConfig.nexusCapabilities,
+              error: error instanceof Error ? error.message : String(error)
+            });
+            return null;
+          }
+        })()
+      : modelConfig.nexusCapabilities;
+    const isImageGenerationModel = capabilities?.imageGeneration === true;
+    const isChatEnabled = modelConfig.chatEnabled || modelConfig.chat_enabled;
+    
+    // Image generation models don't need chat_enabled=true since they work differently
+    if (!isImageGenerationModel && !isChatEnabled) {
+      log.error('Model not enabled for chat', { modelId, isChatEnabled });
+      return new Response(
+        JSON.stringify({ error: 'Selected model not enabled for chat' }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
     
     log.info('Model configured', sanitizeForLogging({
       provider: modelConfig.provider,
       modelId: modelConfig.model_id,
-      dbId: dbModelId
+      dbId: dbModelId,
+      isImageGeneration: isImageGenerationModel,
+      isChatEnabled
     }));
     
     // 5. Handle conversation (create new or use existing)
@@ -154,7 +180,8 @@ export async function POST(req: Request) {
         
         // Generate a concise title (max 100 chars)
         if (messageText) {
-          conversationTitle = messageText.slice(0, 100).trim();
+          // Remove newlines and extra whitespace for header compatibility
+          conversationTitle = messageText.replace(/\s+/g, ' ').slice(0, 100).trim();
           if (messageText.length > 100) {
             conversationTitle += '...';
           }
@@ -214,13 +241,12 @@ export async function POST(req: Request) {
               userContent += (userContent ? ' ' : '') + part.text;
               serializableParts.push({ type: 'text', text: part.text });
             } else if (part.type === 'image' && part.image) {
-              // Store truncated reference only - NOT the full base64 data
+              // Store only boolean flag - no image data or prefixes
               serializableParts.push({ 
                 type: 'image',
-                // Only store metadata, not the actual image data
                 metadata: {
-                  hasImage: true,
-                  prefix: part.image.substring(0, 50) // Just enough to identify type
+                  hasImage: true
+                  // No image data or prefixes stored for security/memory reasons
                 }
               });
             }
@@ -303,6 +329,64 @@ export async function POST(req: Request) {
     }
     
     // Prepare job creation request for Nexus
+    let jobOptions: CreateJobRequest['options'] = {
+      reasoningEffort: validationResult.data.reasoningEffort || 'medium',
+      responseMode: validationResult.data.responseMode || 'standard'
+    };
+
+    // For gpt-image-1, set up image generation options
+    if (modelId === 'gpt-image-1' && isImageGenerationModel) {
+      // Extract prompt from the last user message for image generation
+      const lastMessage = messages[messages.length - 1];
+      let imagePrompt = '';
+      
+      if (lastMessage && lastMessage.role === 'user') {
+        const messageContent = (lastMessage as UIMessage & { 
+          content?: string | Array<{ type: string; text?: string }> 
+        }).content;
+        
+        if (typeof messageContent === 'string') {
+          imagePrompt = messageContent.trim();
+        } else if (Array.isArray(messageContent)) {
+          const textPart = messageContent.find(part => part.type === 'text' && part.text);
+          imagePrompt = (textPart?.text || '').trim();
+        }
+      }
+
+      // Validate prompt length (typical AI image models have limits)
+      if (imagePrompt.length > 4000) {
+        log.warn('Image prompt too long, truncating', { 
+          originalLength: imagePrompt.length,
+          modelId 
+        });
+        imagePrompt = imagePrompt.substring(0, 4000);
+      }
+
+      if (imagePrompt.length === 0) {
+        log.error('Empty image generation prompt');
+        return new Response(
+          JSON.stringify({ error: 'Image generation requires a text prompt' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      // Set image generation options for the worker
+      jobOptions = {
+        ...jobOptions,
+        imageGeneration: {
+          prompt: imagePrompt,
+          size: '1024x1024', // Default size
+          style: 'natural' // Default style
+        }
+      };
+      
+      log.info('Image generation job configured', sanitizeForLogging({
+        modelId,
+        promptLength: imagePrompt.length,
+        size: jobOptions.imageGeneration?.size
+      }));
+    }
+
     const jobRequest: CreateJobRequest = {
       conversationId: conversationId, // Keep as UUID string for nexus
       userId: userId,
@@ -311,10 +395,7 @@ export async function POST(req: Request) {
       provider: provider,
       modelIdString: modelId,
       systemPrompt,
-      options: {
-        reasoningEffort: validationResult.data.reasoningEffort || 'medium',
-        responseMode: validationResult.data.responseMode || 'standard'
-      },
+      options: jobOptions,
       maxTokens: undefined,
       temperature: undefined,
       tools,
@@ -429,8 +510,8 @@ export async function POST(req: Request) {
     log.error('Nexus chat API error', { 
       error: error instanceof Error ? {
         message: error.message,
-        name: error.name,
-        stack: error.stack
+        name: error.name
+        // Stack traces removed for security - internal paths not exposed in logs
       } : String(error)
     });
     

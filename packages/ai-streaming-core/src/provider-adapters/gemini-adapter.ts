@@ -1,4 +1,4 @@
-import { google } from '@ai-sdk/google';
+import { google, createGoogleGenerativeAI } from '@ai-sdk/google';
 import { BaseProviderAdapter } from './base-adapter';
 import { createLogger } from '../utils/logger';
 import type { ProviderCapabilities } from '../types';
@@ -44,6 +44,36 @@ export class GeminiAdapter extends BaseProviderAdapter {
       
     } catch (error) {
       log.error('Failed to create Google model', {
+        modelId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  }
+  
+  async createImageModel(modelId: string, options?: any): Promise<any> {
+    const log = createLogger({ module: 'GeminiAdapter' });
+    log.info('Creating Google image model', { modelId, options });
+    
+    try {
+      // Get Google API key from settings manager only
+      if (!this.settingsManager) {
+        throw new Error('Settings manager not configured');
+      }
+      
+      const apiKey = await this.settingsManager.getSetting('GOOGLE_GENERATIVE_AI_API_KEY');
+      if (!apiKey) {
+        throw new Error('Google API key not configured');
+      }
+      
+      const google = createGoogleGenerativeAI({ apiKey });
+      const imageModel = google.image(modelId);
+      
+      log.info('Google image model created successfully', { modelId });
+      return imageModel;
+      
+    } catch (error) {
+      log.error('Failed to create Google image model', {
         modelId,
         error: error instanceof Error ? error.message : String(error)
       });

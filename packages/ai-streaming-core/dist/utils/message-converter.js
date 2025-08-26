@@ -1,8 +1,4 @@
 "use strict";
-/**
- * Message conversion utilities for handling different message formats
- * between assistant-ui, AI SDK, and provider-specific formats
- */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.convertAssistantUIMessages = convertAssistantUIMessages;
 exports.normalizeMessage = normalizeMessage;
@@ -10,6 +6,7 @@ exports.extractTextContent = extractTextContent;
 exports.hasAttachments = hasAttachments;
 exports.validateMessage = validateMessage;
 exports.validateMessages = validateMessages;
+const logger_1 = require("./logger");
 /**
  * Convert assistant-ui messages to AI SDK CoreMessage format
  */
@@ -45,7 +42,8 @@ function normalizeMessage(msg) {
         };
     }
     // Fallback - create empty text part
-    console.warn('Message has no content or parts, creating empty text part', { msg });
+    const log = (0, logger_1.createLogger)({ module: 'MessageConverter' });
+    log.warn('Message has no content or parts, creating empty text part', { msg });
     return {
         role: msg.role,
         parts: [{ type: 'text', text: '' }],
