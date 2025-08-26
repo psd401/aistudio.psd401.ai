@@ -23,6 +23,13 @@ export interface JobPollingResponse {
   };
   responseData?: {
     text: string;
+    type?: 'text' | 'image';
+    image?: string; // Base64 image data for image generation
+    mediaType?: string; // MIME type for images
+    prompt?: string; // Original prompt for image generation
+    size?: string; // Image size
+    style?: string; // Image style
+    model?: string; // Model used for generation
     usage?: {
       promptTokens: number;
       completionTokens: number;
@@ -31,6 +38,7 @@ export interface JobPollingResponse {
       totalCost?: number;
     };
     finishReason: string;
+    metadata?: Record<string, unknown>; // Additional metadata
   };
   errorMessage?: string;
   pollingInterval: number;

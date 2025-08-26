@@ -1,4 +1,4 @@
-import { streamText } from 'ai';
+import { streamText, experimental_generateImage } from 'ai';
 import { createLogger } from '../utils/logger';
 import type { ProviderCapabilities, StreamConfig, StreamingCallbacks } from '../types';
 
@@ -12,6 +12,11 @@ export abstract class BaseProviderAdapter {
    * Create model instance for the provider
    */
   abstract createModel(modelId: string, options?: any): Promise<any>;
+  
+  /**
+   * Create image model instance for the provider
+   */
+  abstract createImageModel(modelId: string, options?: any): Promise<any>;
   
   /**
    * Get provider capabilities for a specific model
@@ -66,6 +71,51 @@ export abstract class BaseProviderAdapter {
       return result;
     } catch (error) {
       log.error('Stream with enhancements failed', { error });
+      if (callbacks.onError) {
+        callbacks.onError(error as Error);
+      }
+      throw error;
+    }
+  }
+  
+  /**
+   * Generate image using provider-specific enhancements
+   */
+  async generateImageWithEnhancements(config: {
+    model: any;
+    prompt: string;
+    size?: string;
+    style?: string;
+    providerOptions?: Record<string, any>;
+  }, callbacks: { onError?: (error: Error) => void } = {}): Promise<any> {
+    const log = createLogger({ module: 'BaseProviderAdapter', provider: this.providerName });
+    
+    log.info('Starting image generation with enhancements', {
+      hasModel: !!config.model,
+      prompt: config.prompt.substring(0, 100) + (config.prompt.length > 100 ? '...' : ''),
+      size: config.size,
+      style: config.style
+    });
+    
+    try {
+      // Generate image with AI SDK
+      const generateOptions: any = {
+        model: config.model,
+        prompt: config.prompt,
+        ...(config.size && { size: config.size }),
+        ...(config.providerOptions && { providerOptions: config.providerOptions })
+      };
+      
+      const result = await experimental_generateImage(generateOptions);
+      
+      log.info('Image generation completed', {
+        hasImage: !!result.image,
+        mediaType: result.image?.mediaType
+      });
+      
+      return result;
+    } catch (error) {
+      log.error('Image generation failed', { error });
       if (callbacks.onError) {
         callbacks.onError(error as Error);
       }

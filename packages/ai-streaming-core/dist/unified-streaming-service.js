@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.UnifiedStreamingService = void 0;
 const ai_1 = require("ai");
 const provider_factory_1 = require("./provider-factory");
+const logger_1 = require("./utils/logger");
 /**
  * Circuit breaker for provider reliability
  */
@@ -72,13 +73,13 @@ class UnifiedStreamingService {
     async stream(request) {
         const requestId = this.generateRequestId();
         const startTime = Date.now();
-        console.log('Starting unified stream', {
+        const log = (0, logger_1.createLogger)({ module: 'UnifiedStreamingService', requestId });
+        log.info('Starting unified stream', {
             provider: request.provider,
             modelId: request.modelId,
             source: request.source,
             userId: request.userId,
-            messageCount: request.messages?.length || 0,
-            requestId
+            messageCount: request.messages?.length || 0
         });
         try {
             // 1. Get provider adapter and capabilities  
@@ -97,7 +98,7 @@ class UnifiedStreamingService {
                 convertedMessages = (0, ai_1.convertToModelMessages)(processedMessages);
             }
             catch (conversionError) {
-                console.error('Failed to convert messages', {
+                log.error('Failed to convert messages', {
                     error: conversionError.message,
                     messages: JSON.stringify(processedMessages).substring(0, 500)
                 });
@@ -106,13 +107,16 @@ class UnifiedStreamingService {
             // 4. Create model
             const model = await adapter.createModel(request.modelId, request.options);
             // 5. Configure streaming
+            let tools = request.tools;
+            // For gpt-image-1, we need to pass tools in the options to the Responses API
+            // The tools array should be passed to the createModel call instead
             const config = {
                 model,
                 messages: convertedMessages,
                 system: request.systemPrompt,
                 maxTokens: request.maxTokens || request.options?.maxTokens,
                 temperature: request.temperature || request.options?.temperature,
-                tools: request.tools,
+                tools,
                 timeout: this.getAdaptiveTimeout(capabilities, request),
                 providerOptions: adapter.getProviderOptions(request.modelId, request.options)
             };
@@ -140,9 +144,8 @@ class UnifiedStreamingService {
                                 await request.callbacks.onFinish(data);
                             }
                             catch (error) {
-                                console.error('Failed to execute onFinish callback:', {
+                                log.error('Failed to execute onFinish callback:', {
                                     error,
-                                    requestId,
                                     conversationId: request.conversationId
                                 });
                                 // Don't rethrow to avoid breaking the stream
@@ -155,10 +158,9 @@ class UnifiedStreamingService {
                     }
                 });
             });
-            console.log('Stream completed successfully', {
+            log.info('Stream completed successfully', {
                 provider: request.provider,
                 modelId: request.modelId,
-                requestId,
                 duration: Date.now() - startTime
             });
             return {
@@ -170,11 +172,84 @@ class UnifiedStreamingService {
         }
         catch (error) {
             const duration = Date.now() - startTime;
-            console.error('Stream failed', {
+            log.error('Stream failed', {
                 error: error instanceof Error ? error.message : String(error),
                 provider: request.provider,
                 modelId: request.modelId,
-                requestId,
+                duration
+            });
+            throw error;
+        }
+    }
+    /**
+     * Generate image using unified provider system
+     */
+    async generateImage(request) {
+        const requestId = this.generateRequestId();
+        const startTime = Date.now();
+        const log = (0, logger_1.createLogger)({ module: 'UnifiedStreamingService', requestId });
+        log.info('Starting image generation', {
+            provider: request.provider,
+            modelId: request.modelId,
+            source: request.source || 'unknown',
+            userId: request.userId,
+            prompt: request.prompt.substring(0, 100) + (request.prompt.length > 100 ? '...' : ''),
+            size: request.size,
+            style: request.style
+        });
+        try {
+            // 1. Validate request
+            if (!request.prompt || typeof request.prompt !== 'string' || request.prompt.trim().length === 0) {
+                throw new Error('Image generation prompt is required');
+            }
+            // 2. Get circuit breaker
+            const circuitBreaker = this.getCircuitBreaker(request.provider);
+            // 3. Create provider adapter
+            const adapter = (0, provider_factory_1.createProviderAdapter)(request.provider, this.settingsManager);
+            // 4. Create image model
+            const imageModel = await adapter.createImageModel(request.modelId, request.options);
+            // 5. Configure generation options
+            const generateConfig = {
+                model: imageModel,
+                prompt: request.prompt.trim(),
+                ...(request.size && { size: request.size }),
+                ...(request.style && { style: request.style }),
+                providerOptions: adapter.getProviderOptions(request.modelId, request.options)
+            };
+            // 6. Execute image generation with circuit breaker
+            const result = await circuitBreaker.execute(async () => {
+                return await adapter.generateImageWithEnhancements(generateConfig, {
+                    onError: (error) => {
+                        this.handleError(error, requestId);
+                    }
+                });
+            });
+            const duration = Date.now() - startTime;
+            log.info('Image generation completed', {
+                provider: request.provider,
+                modelId: request.modelId,
+                duration,
+                hasImage: !!result.image,
+                imageType: result.image?.mediaType
+            });
+            return {
+                image: result.image,
+                metadata: {
+                    provider: request.provider,
+                    model: request.modelId,
+                    prompt: request.prompt,
+                    size: request.size,
+                    style: request.style,
+                    generatedAt: new Date().toISOString()
+                }
+            };
+        }
+        catch (error) {
+            const duration = Date.now() - startTime;
+            log.error('Image generation failed', {
+                provider: request.provider,
+                modelId: request.modelId,
+                error: error.message,
                 duration
             });
             throw error;
@@ -240,9 +315,8 @@ class UnifiedStreamingService {
      * Handle streaming progress events
      */
     handleProgress(event, requestId) {
-        // Basic progress logging
-        console.log('Stream progress', {
-            requestId,
+        const log = (0, logger_1.createLogger)({ module: 'UnifiedStreamingService', requestId });
+        log.debug('Stream progress', {
             tokens: event.metadata?.tokens
         });
     }
@@ -250,8 +324,8 @@ class UnifiedStreamingService {
      * Handle reasoning content
      */
     handleReasoning(reasoning, requestId) {
-        console.log('Reasoning chunk received', {
-            requestId,
+        const log = (0, logger_1.createLogger)({ module: 'UnifiedStreamingService', requestId });
+        log.debug('Reasoning chunk received', {
             length: reasoning.length
         });
     }
@@ -259,8 +333,8 @@ class UnifiedStreamingService {
      * Handle thinking content
      */
     handleThinking(thinking, requestId) {
-        console.log('Thinking chunk received', {
-            requestId,
+        const log = (0, logger_1.createLogger)({ module: 'UnifiedStreamingService', requestId });
+        log.debug('Thinking chunk received', {
             length: thinking.length
         });
     }
@@ -268,8 +342,8 @@ class UnifiedStreamingService {
      * Handle stream completion
      */
     handleFinish(data, requestId, duration) {
-        console.log('Stream finished', {
-            requestId,
+        const log = (0, logger_1.createLogger)({ module: 'UnifiedStreamingService', requestId });
+        log.info('Stream finished', {
             textLength: data.text?.length || 0,
             tokensUsed: data.usage?.totalTokens || 0,
             finishReason: data.finishReason,
@@ -280,8 +354,8 @@ class UnifiedStreamingService {
      * Handle stream errors
      */
     handleError(error, requestId) {
-        console.error('Stream error', {
-            requestId,
+        const log = (0, logger_1.createLogger)({ module: 'UnifiedStreamingService', requestId });
+        log.error('Stream error', {
             error: error.message,
             stack: error.stack
         });

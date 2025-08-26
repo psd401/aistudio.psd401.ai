@@ -145,7 +145,7 @@ export class ProcessingStack extends cdk.Stack {
       memorySize: 3008, // 3GB (adjusted to force update)
       environment: {
         NODE_OPTIONS: '--enable-source-maps',
-        DOCUMENTS_BUCKET: documentsBucket.bucketName,
+        DOCUMENTS_BUCKET_NAME: documentsBucket.bucketName,
         JOB_STATUS_TABLE: this.jobStatusTable.tableName,
         DATABASE_RESOURCE_ARN: databaseResourceArn,
         DATABASE_SECRET_ARN: databaseSecretArn,
@@ -230,6 +230,7 @@ export class ProcessingStack extends cdk.Stack {
         DATABASE_NAME: 'aistudio',
         ENVIRONMENT: props.environment,
         STREAMING_QUEUE_URL: this.streamingJobsQueue.queueUrl,
+        DOCUMENTS_BUCKET_NAME: documentsBucket.bucketName,
       },
       // No layer needed - uses shared package with built-in dependencies
       // Higher concurrency for processing all requests
@@ -238,6 +239,7 @@ export class ProcessingStack extends cdk.Stack {
 
     // Grant permissions
     documentsBucket.grantRead(fileProcessor);
+    documentsBucket.grantWrite(this.streamingJobsWorker);
     this.jobStatusTable.grantReadWriteData(fileProcessor);
     this.jobStatusTable.grantReadWriteData(urlProcessor);
     this.embeddingQueue.grantSendMessages(fileProcessor);

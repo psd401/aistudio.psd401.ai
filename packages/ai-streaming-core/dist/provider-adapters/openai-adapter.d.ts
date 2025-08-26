@@ -13,6 +13,7 @@ export declare class OpenAIAdapter extends BaseProviderAdapter {
     private settingsManager?;
     constructor(settingsManager?: SettingsManager);
     createModel(modelId: string, options?: any): Promise<any>;
+    createImageModel(modelId: string, options?: any): Promise<any>;
     getCapabilities(modelId: string): ProviderCapabilities;
     getProviderOptions(modelId: string, options?: any): Record<string, any>;
     supportsModel(modelId: string): boolean;

@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ClaudeAdapter = void 0;
 const amazon_bedrock_1 = require("@ai-sdk/amazon-bedrock");
 const base_adapter_1 = require("./base-adapter");
+const logger_1 = require("../utils/logger");
 /**
  * Claude provider adapter (via Amazon Bedrock) with support for:
  * - Claude 4 with thinking capabilities
@@ -20,7 +21,9 @@ class ClaudeAdapter extends base_adapter_1.BaseProviderAdapter {
     }
     async createModel(modelId, options) {
         const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
-        console.log('Creating Bedrock model:', modelId, {
+        const log = (0, logger_1.createLogger)({ module: 'ClaudeAdapter' });
+        log.info('Creating Bedrock model', {
+            modelId,
             isLambda,
             region: process.env.AWS_REGION || 'us-east-1',
             thinkingBudget: options?.thinkingBudget
@@ -37,25 +40,28 @@ class ClaudeAdapter extends base_adapter_1.BaseProviderAdapter {
             };
             // Use explicit credentials for local development only
             if (!isLambda && config.accessKeyId && config.secretAccessKey) {
-                console.log('Using explicit credentials for local development');
+                log.debug('Using explicit credentials for local development');
                 bedrockOptions.accessKeyId = config.accessKeyId;
                 bedrockOptions.secretAccessKey = config.secretAccessKey;
             }
             else {
-                console.log('Using default AWS credential chain (IAM role)');
+                log.debug('Using default AWS credential chain (IAM role)');
             }
             const bedrock = (0, amazon_bedrock_1.createAmazonBedrock)(bedrockOptions);
             const model = bedrock(modelId);
-            console.log('Bedrock model created successfully:', modelId);
+            log.info('Bedrock model created successfully', { modelId });
             return model;
         }
         catch (error) {
-            console.error('Failed to create Claude model:', {
+            log.error('Failed to create Claude model', {
                 modelId,
                 error: error instanceof Error ? error.message : String(error)
             });
             throw error;
         }
+    }
+    async createImageModel(modelId, options) {
+        throw new Error('Image generation not supported by Claude/Bedrock provider');
     }
     getCapabilities(modelId) {
         // Claude 4 models with thinking capabilities (including v1 Bedrock models)

@@ -10,12 +10,20 @@ export interface NexusJobResponse {
   partialContent?: string
   responseData?: {
     text: string
+    type?: 'text' | 'image'
+    s3Key?: string // S3 key for generated images (secure access via API)
+    mediaType?: string // MIME type for images
+    prompt?: string // Original prompt for image generation
+    size?: string // Image size
+    style?: string // Image style
+    model?: string // Model used for generation
     usage?: {
       promptTokens: number
       completionTokens: number
       totalTokens: number
     }
     finishReason: string
+    metadata?: Record<string, unknown> // Additional metadata
   }
   errorMessage?: string
   pollingInterval: number
@@ -161,19 +169,47 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
             // Handle job completion
             if (jobData.status === 'completed') {
               if (jobData.responseData) {
-                const finalText = jobData.responseData.text || jobData.partialContent || 'Response completed.'
-                
-                log.info('Job completed successfully', { 
-                  jobId, 
-                  textLength: finalText.length,
-                  usage: jobData.responseData.usage
-                })
+                // Handle image generation responses
+                if (jobData.responseData.type === 'image' && jobData.responseData.s3Key) {
+                  const { s3Key, prompt, size, model } = jobData.responseData
+                  
+                  // Convert S3 key to secure API URL
+                  const imageUrl = `/api/images/${s3Key}`
+                  
+                  log.info('Image generation job completed', { 
+                    jobId, 
+                    prompt: prompt?.substring(0, 50) + (prompt && prompt.length > 50 ? '...' : ''),
+                    size,
+                    model,
+                    s3Key,
+                    imageUrl
+                  })
 
-                yield {
-                  content: [{ 
-                    type: 'text' as const, 
-                    text: finalText 
-                  }],
+                  yield {
+                    content: [
+                      // Show the image using secure API URL
+                      { 
+                        type: 'image' as const, 
+                        image: imageUrl
+                      }
+                    ],
+                  }
+                } else {
+                  // Handle regular text responses
+                  const finalText = jobData.responseData.text || jobData.partialContent || 'Response completed.'
+                  
+                  log.info('Text job completed successfully', { 
+                    jobId, 
+                    textLength: finalText.length,
+                    usage: jobData.responseData.usage
+                  })
+
+                  yield {
+                    content: [{ 
+                      type: 'text' as const, 
+                      text: finalText 
+                    }],
+                  }
                 }
               }
               return // Job completed successfully
