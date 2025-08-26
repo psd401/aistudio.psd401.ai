@@ -169,7 +169,8 @@ export async function POST(req: Request) {
         
         // Generate a concise title (max 100 chars)
         if (messageText) {
-          conversationTitle = messageText.slice(0, 100).trim();
+          // Remove newlines and extra whitespace for header compatibility
+          conversationTitle = messageText.replace(/\s+/g, ' ').slice(0, 100).trim();
           if (messageText.length > 100) {
             conversationTitle += '...';
           }
