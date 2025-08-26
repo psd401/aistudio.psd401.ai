@@ -42,6 +42,15 @@ Document upload and processing system with S3 integration.
 #### [features/EMBEDDING_SYSTEM.md](./features/EMBEDDING_SYSTEM.md)
 Vector embedding and semantic search implementation.
 
+#### Universal Polling Architecture (NEW)
+**Critical system** - Enables long-running AI requests beyond AWS Amplify's 30-second timeout:
+
+- **[features/universal-polling-architecture.md](./features/universal-polling-architecture.md)** - System architecture, request flow, and design decisions
+- **[features/ai-streaming-core-package.md](./features/ai-streaming-core-package.md)** - Shared package structure, provider adapters, and message processing  
+- **[features/polling-api-integration.md](./features/polling-api-integration.md)** - Client integration patterns and API endpoints
+- **[operations/streaming-infrastructure.md](./operations/streaming-infrastructure.md)** - Infrastructure setup, monitoring, and operations
+- **[guides/adding-ai-providers.md](./guides/adding-ai-providers.md)** - Step-by-step provider integration guide
+
 ### Operations
 
 #### [operations/OPERATIONS.md](./operations/OPERATIONS.md)
@@ -51,14 +60,16 @@ Operational procedures, monitoring, and maintenance guidelines.
 
 ### For New Developers
 1. Start with [ARCHITECTURE.md](./ARCHITECTURE.md) to understand the system
-2. Review [ENVIRONMENT_VARIABLES.md](./ENVIRONMENT_VARIABLES.md) for setup
-3. Follow [guides/TYPESCRIPT.md](./guides/TYPESCRIPT.md) for code standards
-4. Reference [guides/LOGGING.md](./guides/LOGGING.md) for logging patterns
+2. **NEW:** Review [features/universal-polling-architecture.md](./features/universal-polling-architecture.md) for the critical streaming system
+3. Review [ENVIRONMENT_VARIABLES.md](./ENVIRONMENT_VARIABLES.md) for setup
+4. Follow [guides/TYPESCRIPT.md](./guides/TYPESCRIPT.md) for code standards
+5. Reference [guides/LOGGING.md](./guides/LOGGING.md) for logging patterns
 
 ### For DevOps/Infrastructure
 1. Follow [DEPLOYMENT.md](./DEPLOYMENT.md) for initial deployment
-2. Review [operations/OPERATIONS.md](./operations/OPERATIONS.md) for maintenance
-3. Check [ARCHITECTURE.md](./ARCHITECTURE.md#infrastructure) for infrastructure details
+2. **NEW:** Study [operations/streaming-infrastructure.md](./operations/streaming-infrastructure.md) for polling architecture operations
+3. Review [operations/OPERATIONS.md](./operations/OPERATIONS.md) for maintenance
+4. Check [ARCHITECTURE.md](./ARCHITECTURE.md#infrastructure) for infrastructure details
 
 ### For Testing
 1. Read [guides/TESTING.md](./guides/TESTING.md) for testing strategies
@@ -79,6 +90,12 @@ Every operation gets a unique request ID for end-to-end tracing. See [guides/LOG
 ### Settings Management
 Database-first configuration with environment fallback. See [ARCHITECTURE.md#settings-management](./ARCHITECTURE.md#settings-management).
 
+### Universal Polling Architecture (NEW)
+Asynchronous AI request processing beyond AWS Amplify's 30-second timeout. See [features/universal-polling-architecture.md](./features/universal-polling-architecture.md).
+
+### AI Streaming Core Package (NEW)
+Shared provider abstraction for consistent AI integration. See [features/ai-streaming-core-package.md](./features/ai-streaming-core-package.md).
+
 ## 🔧 Common Tasks
 
 ### Adding a New Feature
@@ -87,6 +104,13 @@ Database-first configuration with environment fallback. See [ARCHITECTURE.md#set
 3. Build UI components
 4. Add E2E tests
 5. Update documentation
+
+### Adding a New AI Provider (NEW)
+1. Follow [guides/adding-ai-providers.md](./guides/adding-ai-providers.md)
+2. Create provider adapter extending BaseProviderAdapter
+3. Add to provider factory and database models
+4. Test with real API and update monitoring
+5. Deploy and verify in staging environment
 
 ### Debugging Production Issues
 1. Use request ID to trace through CloudWatch logs

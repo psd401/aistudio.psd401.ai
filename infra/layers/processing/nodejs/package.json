@@ -10,9 +10,7 @@
     "marked": "^11.2.0",
     "node-fetch": "^3.3.2",
     "pdf-parse": "^1.1.1",
-    "xlsx": "^0.18.5",
-    "openai": "^4.28.0",
-    "@aws-sdk/client-bedrock-runtime": "^3.499.0"
+    "xlsx": "^0.18.5"
   },
   "main": "index.js",
   "scripts": {

@@ -1,0 +1,32 @@
+{
+  "name": "@aistudio/streaming-core",
+  "version": "1.0.0",
+  "description": "Shared AI streaming core for Next.js app and Lambda functions",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "test": "echo 'No tests yet'",
+    "lint": "eslint src/**/*.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ai": "^5.0.23",
+    "@ai-sdk/openai": "^2.0.20",
+    "@ai-sdk/google": "^2.0.8",
+    "@ai-sdk/amazon-bedrock": "^3.0.10",
+    "@ai-sdk/azure": "^2.0.20"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": ["ai", "streaming", "providers", "openai", "bedrock", "google", "azure"],
+  "author": "AI Studio",
+  "license": "MIT"
+}
