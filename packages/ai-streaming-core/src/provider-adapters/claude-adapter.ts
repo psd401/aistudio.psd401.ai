@@ -68,6 +68,10 @@ export class ClaudeAdapter extends BaseProviderAdapter {
     }
   }
   
+  async createImageModel(modelId: string, options?: any): Promise<any> {
+    throw new Error('Image generation not supported by Claude/Bedrock provider');
+  }
+  
   getCapabilities(modelId: string): ProviderCapabilities {
     // Claude 4 models with thinking capabilities (including v1 Bedrock models)
     if (this.matchesPattern(modelId, [

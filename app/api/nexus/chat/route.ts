@@ -324,8 +324,41 @@ export async function POST(req: Request) {
       responseMode: validationResult.data.responseMode || 'standard'
     };
 
-    // Image models are conversational AI that can respond with text OR images
-    // Let the model decide when to generate images rather than forcing it
+    // For gpt-image-1, set up image generation options
+    if (modelId === 'gpt-image-1' && isImageGenerationModel) {
+      // Extract prompt from the last user message for image generation
+      const lastMessage = messages[messages.length - 1];
+      let imagePrompt = '';
+      
+      if (lastMessage && lastMessage.role === 'user') {
+        const messageContent = (lastMessage as UIMessage & { 
+          content?: string | Array<{ type: string; text?: string }> 
+        }).content;
+        
+        if (typeof messageContent === 'string') {
+          imagePrompt = messageContent;
+        } else if (Array.isArray(messageContent)) {
+          const textPart = messageContent.find(part => part.type === 'text' && part.text);
+          imagePrompt = textPart?.text || '';
+        }
+      }
+      
+      // Set image generation options for the worker
+      jobOptions = {
+        ...jobOptions,
+        imageGeneration: {
+          prompt: imagePrompt,
+          size: '1024x1024', // Default size
+          style: 'natural' // Default style
+        }
+      };
+      
+      log.info('Image generation job configured', sanitizeForLogging({
+        modelId,
+        promptLength: imagePrompt.length,
+        size: jobOptions.imageGeneration?.size
+      }));
+    }
 
     const jobRequest: CreateJobRequest = {
       conversationId: conversationId, // Keep as UUID string for nexus

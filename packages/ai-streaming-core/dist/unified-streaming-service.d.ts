@@ -20,6 +20,29 @@ export declare class UnifiedStreamingService {
      */
     stream(request: StreamRequest): Promise<StreamResponse>;
     /**
+     * Generate image using unified provider system
+     */
+    generateImage(request: {
+        provider: string;
+        modelId: string;
+        prompt: string;
+        size?: string;
+        style?: string;
+        options?: any;
+        userId?: string;
+        source?: string;
+    }): Promise<{
+        image: any;
+        metadata: {
+            provider: string;
+            model: string;
+            prompt: string;
+            size?: string;
+            style?: string;
+            generatedAt: string;
+        };
+    }>;
+    /**
      * Preprocess messages to ensure correct format for AI SDK
      */
     private preprocessMessages;

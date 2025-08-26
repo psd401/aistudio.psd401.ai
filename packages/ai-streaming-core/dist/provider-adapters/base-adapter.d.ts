@@ -9,6 +9,10 @@ export declare abstract class BaseProviderAdapter {
      */
     abstract createModel(modelId: string, options?: any): Promise<any>;
     /**
+     * Create image model instance for the provider
+     */
+    abstract createImageModel(modelId: string, options?: any): Promise<any>;
+    /**
      * Get provider capabilities for a specific model
      */
     abstract getCapabilities(modelId: string): ProviderCapabilities;
@@ -16,6 +20,18 @@ export declare abstract class BaseProviderAdapter {
      * Stream with provider-specific enhancements
      */
     streamWithEnhancements(config: StreamConfig, callbacks?: StreamingCallbacks): Promise<any>;
+    /**
+     * Generate image using provider-specific enhancements
+     */
+    generateImageWithEnhancements(config: {
+        model: any;
+        prompt: string;
+        size?: string;
+        style?: string;
+        providerOptions?: Record<string, any>;
+    }, callbacks?: {
+        onError?: (error: Error) => void;
+    }): Promise<any>;
     /**
      * Check if model ID matches any of the given patterns
      */

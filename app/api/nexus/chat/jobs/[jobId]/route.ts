@@ -13,6 +13,7 @@ import type { UniversalPollingStatus } from '@/lib/streaming/job-management-serv
  * AWS Amplify's 30-second timeout limitation.
  */
 
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ jobId: string }> }

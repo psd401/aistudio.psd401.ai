@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.BaseProviderAdapter = void 0;
 const ai_1 = require("ai");
+const logger_1 = require("../utils/logger");
 /**
  * Base provider adapter with common functionality
  */
@@ -10,8 +11,8 @@ class BaseProviderAdapter {
      * Stream with provider-specific enhancements
      */
     async streamWithEnhancements(config, callbacks = {}) {
-        console.log('Starting stream with enhancements', {
-            provider: this.providerName,
+        const log = (0, logger_1.createLogger)({ module: 'BaseProviderAdapter', provider: this.providerName });
+        log.info('Starting stream with enhancements', {
             hasModel: !!config.model,
             messageCount: config.messages.length
         });
@@ -49,7 +50,41 @@ class BaseProviderAdapter {
             return result;
         }
         catch (error) {
-            console.error('Stream with enhancements failed:', error);
+            log.error('Stream with enhancements failed', { error });
+            if (callbacks.onError) {
+                callbacks.onError(error);
+            }
+            throw error;
+        }
+    }
+    /**
+     * Generate image using provider-specific enhancements
+     */
+    async generateImageWithEnhancements(config, callbacks = {}) {
+        const log = (0, logger_1.createLogger)({ module: 'BaseProviderAdapter', provider: this.providerName });
+        log.info('Starting image generation with enhancements', {
+            hasModel: !!config.model,
+            prompt: config.prompt.substring(0, 100) + (config.prompt.length > 100 ? '...' : ''),
+            size: config.size,
+            style: config.style
+        });
+        try {
+            // Generate image with AI SDK
+            const generateOptions = {
+                model: config.model,
+                prompt: config.prompt,
+                ...(config.size && { size: config.size }),
+                ...(config.providerOptions && { providerOptions: config.providerOptions })
+            };
+            const result = await (0, ai_1.experimental_generateImage)(generateOptions);
+            log.info('Image generation completed', {
+                hasImage: !!result.image,
+                mediaType: result.image?.mediaType
+            });
+            return result;
+        }
+        catch (error) {
+            log.error('Image generation failed', { error });
             if (callbacks.onError) {
                 callbacks.onError(error);
             }

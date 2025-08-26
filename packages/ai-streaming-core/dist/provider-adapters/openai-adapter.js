@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.OpenAIAdapter = void 0;
 const openai_1 = require("@ai-sdk/openai");
 const base_adapter_1 = require("./base-adapter");
+const logger_1 = require("../utils/logger");
 /**
  * OpenAI provider adapter with support for:
  * - GPT-4, GPT-4 Turbo, GPT-3.5 Turbo
@@ -18,7 +19,8 @@ class OpenAIAdapter extends base_adapter_1.BaseProviderAdapter {
         this.settingsManager = settingsManager;
     }
     async createModel(modelId, options) {
-        console.log('Creating OpenAI model:', modelId, { options });
+        const log = (0, logger_1.createLogger)({ module: 'OpenAIAdapter' });
+        log.info('Creating OpenAI model', { modelId, options });
         try {
             // Get OpenAI API key from settings manager only
             if (!this.settingsManager) {
@@ -29,12 +31,44 @@ class OpenAIAdapter extends base_adapter_1.BaseProviderAdapter {
                 throw new Error('OpenAI API key not configured');
             }
             const openai = (0, openai_1.createOpenAI)({ apiKey });
+            // For gpt-image-1, use the image model
+            if (modelId === 'gpt-image-1') {
+                log.info('Creating OpenAI image model for gpt-image-1');
+                const model = openai.image(modelId);
+                return model;
+            }
+            // Regular models use default provider method
             const model = openai(modelId);
-            console.log('OpenAI model created successfully:', modelId);
+            log.info('OpenAI model created successfully', { modelId });
             return model;
         }
         catch (error) {
-            console.error('Failed to create OpenAI model:', {
+            log.error('Failed to create OpenAI model', {
+                modelId,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            throw error;
+        }
+    }
+    async createImageModel(modelId, options) {
+        const log = (0, logger_1.createLogger)({ module: 'OpenAIAdapter' });
+        log.info('Creating OpenAI image model', { modelId, options });
+        try {
+            // Get OpenAI API key from settings manager only
+            if (!this.settingsManager) {
+                throw new Error('Settings manager not configured');
+            }
+            const apiKey = await this.settingsManager.getSetting('OPENAI_API_KEY');
+            if (!apiKey) {
+                throw new Error('OpenAI API key not configured');
+            }
+            const openai = (0, openai_1.createOpenAI)({ apiKey });
+            const imageModel = openai.image(modelId);
+            log.info('OpenAI image model created successfully', { modelId });
+            return imageModel;
+        }
+        catch (error) {
+            log.error('Failed to create OpenAI image model', {
                 modelId,
                 error: error instanceof Error ? error.message : String(error)
             });
@@ -128,7 +162,9 @@ class OpenAIAdapter extends base_adapter_1.BaseProviderAdapter {
             'gpt-4*',
             'gpt-3.5*',
             'gpt-35*',
-            'o1*'
+            'o1*',
+            'gpt-image-1',
+            'dall-e-*'
         ]);
     }
 }

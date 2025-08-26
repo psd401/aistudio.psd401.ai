@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.GeminiAdapter = void 0;
 const google_1 = require("@ai-sdk/google");
 const base_adapter_1 = require("./base-adapter");
+const logger_1 = require("../utils/logger");
 /**
  * Google Gemini provider adapter with support for:
  * - Gemini 2.0 Flash
@@ -17,7 +18,8 @@ class GeminiAdapter extends base_adapter_1.BaseProviderAdapter {
         this.settingsManager = settingsManager;
     }
     async createModel(modelId, options) {
-        console.log('Creating Google model:', modelId, { options });
+        const log = (0, logger_1.createLogger)({ module: 'GeminiAdapter' });
+        log.info('Creating Google model', { modelId, options });
         try {
             // Get Google API key from settings manager only
             if (!this.settingsManager) {
@@ -30,11 +32,36 @@ class GeminiAdapter extends base_adapter_1.BaseProviderAdapter {
             // Set API key for Google SDK
             process.env.GOOGLE_GENERATIVE_AI_API_KEY = googleApiKey;
             const model = (0, google_1.google)(modelId);
-            console.log('Google model created successfully:', modelId);
+            log.info('Google model created successfully', { modelId });
             return model;
         }
         catch (error) {
-            console.error('Failed to create Google model:', {
+            log.error('Failed to create Google model', {
+                modelId,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            throw error;
+        }
+    }
+    async createImageModel(modelId, options) {
+        const log = (0, logger_1.createLogger)({ module: 'GeminiAdapter' });
+        log.info('Creating Google image model', { modelId, options });
+        try {
+            // Get Google API key from settings manager only
+            if (!this.settingsManager) {
+                throw new Error('Settings manager not configured');
+            }
+            const apiKey = await this.settingsManager.getSetting('GOOGLE_GENERATIVE_AI_API_KEY');
+            if (!apiKey) {
+                throw new Error('Google API key not configured');
+            }
+            const google = (0, google_1.createGoogleGenerativeAI)({ apiKey });
+            const imageModel = google.image(modelId);
+            log.info('Google image model created successfully', { modelId });
+            return imageModel;
+        }
+        catch (error) {
+            log.error('Failed to create Google image model', {
                 modelId,
                 error: error instanceof Error ? error.message : String(error)
             });

@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AzureAdapter = void 0;
 const azure_1 = require("@ai-sdk/azure");
 const base_adapter_1 = require("./base-adapter");
+const logger_1 = require("../utils/logger");
 /**
  * Azure OpenAI provider adapter with support for:
  * - GPT-4, GPT-4 Turbo, GPT-3.5 Turbo via Azure
@@ -17,7 +18,8 @@ class AzureAdapter extends base_adapter_1.BaseProviderAdapter {
         this.settingsManager = settingsManager;
     }
     async createModel(modelId, options) {
-        console.log('Creating Azure model:', modelId, { options });
+        const log = (0, logger_1.createLogger)({ module: 'AzureAdapter' });
+        log.info('Creating Azure model', { modelId, options });
         try {
             // Get Azure configuration from settings manager only
             if (!this.settingsManager) {
@@ -33,16 +35,19 @@ class AzureAdapter extends base_adapter_1.BaseProviderAdapter {
                 baseURL: azureBaseURL
             });
             const model = azure(modelId);
-            console.log('Azure model created successfully:', modelId);
+            log.info('Azure model created successfully', { modelId });
             return model;
         }
         catch (error) {
-            console.error('Failed to create Azure model:', {
+            log.error('Failed to create Azure model', {
                 modelId,
                 error: error instanceof Error ? error.message : String(error)
             });
             throw error;
         }
+    }
+    async createImageModel(modelId, options) {
+        throw new Error('Image generation not supported by Azure provider in this implementation');
     }
     getCapabilities(modelId) {
         // GPT-4 models via Azure

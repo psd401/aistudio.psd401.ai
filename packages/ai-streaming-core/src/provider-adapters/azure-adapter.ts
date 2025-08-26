@@ -55,6 +55,10 @@ export class AzureAdapter extends BaseProviderAdapter {
     }
   }
   
+  async createImageModel(modelId: string, options?: any): Promise<any> {
+    throw new Error('Image generation not supported by Azure provider in this implementation');
+  }
+  
   getCapabilities(modelId: string): ProviderCapabilities {
     // GPT-4 models via Azure
     if (this.matchesPattern(modelId, ['gpt-4*'])) {
