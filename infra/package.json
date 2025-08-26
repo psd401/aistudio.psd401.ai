@@ -13,16 +13,16 @@
     "cdk": "cdk"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.11",
+    "@tailwindcss/postcss": "^4.1.12",
     "@types/cheerio": "^0.22.35",
     "@types/jest": "^30.0.0",
-    "@types/node": "24.1.0",
+    "@types/node": "24.3.0",
     "@types/pdf-parse": "^1.1.5",
     "aws-cdk": "2.1025.0",
     "jest": "^30.0.5",
-    "ts-jest": "^29.4.0",
+    "ts-jest": "^29.4.1",
     "ts-node": "^10.9.2",
-    "typescript": "~5.8.3"
+    "typescript": "~5.9.2"
   },
   "dependencies": {
     "@aws-cdk/aws-amplify-alpha": "^2.209.0-alpha.0",
@@ -33,14 +33,14 @@
     "@aws-cdk/aws-route53": "^1.203.0",
     "@aws-cdk/aws-s3": "^1.203.0",
     "@aws-cdk/aws-secretsmanager": "^1.203.0",
-    "@aws-sdk/client-dynamodb": "^3.848.0",
-    "@types/node-fetch": "^2.6.12",
+    "@aws-sdk/client-dynamodb": "^3.873.0",
+    "@types/node-fetch": "^2.6.13",
     "aws-cdk-lib": "^2.212.0",
     "cheerio": "^1.1.2",
     "constructs": "^10.0.0",
     "csv-parse": "^6.1.0",
-    "mammoth": "^1.9.1",
-    "marked": "^16.1.1",
+    "mammoth": "^1.10.0",
+    "marked": "^16.2.0",
     "node-fetch": "^3.3.2",
     "pdf-parse": "^1.1.1",
     "xlsx": "^0.18.5"
