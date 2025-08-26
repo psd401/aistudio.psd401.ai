@@ -230,6 +230,7 @@ export class ProcessingStack extends cdk.Stack {
         DATABASE_NAME: 'aistudio',
         ENVIRONMENT: props.environment,
         STREAMING_QUEUE_URL: this.streamingJobsQueue.queueUrl,
+        DOCUMENTS_BUCKET: documentsBucket.bucketName,
       },
       // No layer needed - uses shared package with built-in dependencies
       // Higher concurrency for processing all requests
@@ -238,6 +239,7 @@ export class ProcessingStack extends cdk.Stack {
 
     // Grant permissions
     documentsBucket.grantRead(fileProcessor);
+    documentsBucket.grantWrite(this.streamingJobsWorker);
     this.jobStatusTable.grantReadWriteData(fileProcessor);
     this.jobStatusTable.grantReadWriteData(urlProcessor);
     this.embeddingQueue.grantSendMessages(fileProcessor);
