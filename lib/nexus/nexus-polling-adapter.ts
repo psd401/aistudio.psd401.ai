@@ -11,7 +11,7 @@ export interface NexusJobResponse {
   responseData?: {
     text: string
     type?: 'text' | 'image'
-    imageUrl?: string // S3 URL for generated images
+    s3Key?: string // S3 key for generated images (secure access via API)
     mediaType?: string // MIME type for images
     prompt?: string // Original prompt for image generation
     size?: string // Image size
@@ -170,20 +170,24 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
             if (jobData.status === 'completed') {
               if (jobData.responseData) {
                 // Handle image generation responses
-                if (jobData.responseData.type === 'image' && jobData.responseData.imageUrl) {
-                  const { imageUrl, prompt, size, model } = jobData.responseData
+                if (jobData.responseData.type === 'image' && jobData.responseData.s3Key) {
+                  const { s3Key, prompt, size, model } = jobData.responseData
+                  
+                  // Convert S3 key to secure API URL
+                  const imageUrl = `/api/images/${s3Key}`
                   
                   log.info('Image generation job completed', { 
                     jobId, 
                     prompt: prompt?.substring(0, 50) + (prompt && prompt.length > 50 ? '...' : ''),
                     size,
                     model,
+                    s3Key,
                     imageUrl
                   })
 
                   yield {
                     content: [
-                      // Show the image using S3 URL
+                      // Show the image using secure API URL
                       { 
                         type: 'image' as const, 
                         image: imageUrl
