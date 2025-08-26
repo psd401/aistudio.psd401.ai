@@ -83,8 +83,9 @@ export class UniversalPollingAdapter {
     try {
       while (!combinedSignal.aborted) {
         try {
-          // Poll job status
-          const response = await fetch(`/api/chat/jobs/${jobId}`, {
+          // Poll job status - determine correct endpoint based on context
+          const pollingEndpoint = `/api/nexus/chat/jobs/${jobId}`;
+          const response = await fetch(pollingEndpoint, {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
@@ -238,8 +239,9 @@ export class UniversalPollingAdapter {
         this.activePollers.delete(jobId);
       }
       
-      // Cancel on server
-      const response = await fetch(`/api/chat/jobs/${jobId}`, {
+      // Cancel on server - determine correct endpoint based on context
+      const cancelEndpoint = `/api/nexus/chat/jobs/${jobId}`;
+      const response = await fetch(cancelEndpoint, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
@@ -276,7 +278,8 @@ export class UniversalPollingAdapter {
     log.debug('Getting job status', { jobId });
     
     try {
-      const response = await fetch(`/api/chat/jobs/${jobId}`, {
+      const statusEndpoint = `/api/nexus/chat/jobs/${jobId}`;
+      const response = await fetch(statusEndpoint, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -412,8 +415,8 @@ export const createUniversalPollingChatModelAdapter = () => {
       });
       
       try {
-        // 1. Create job via /api/chat
-        const chatResponse = await fetch('/api/chat', {
+        // 1. Create job via /api/nexus/chat
+        const chatResponse = await fetch('/api/nexus/chat', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

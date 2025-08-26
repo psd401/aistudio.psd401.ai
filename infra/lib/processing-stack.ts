@@ -117,7 +117,7 @@ export class ProcessingStack extends cdk.Stack {
         maxReceiveCount: 3,
       },
       // Higher throughput settings for universal polling
-      receiveMessageWaitTimeSeconds: 20, // Long polling
+      receiveMessageWaitTime: cdk.Duration.seconds(20), // Long polling
     });
 
     // IAM Role for Textract to publish to SNS
@@ -231,7 +231,7 @@ export class ProcessingStack extends cdk.Stack {
         ENVIRONMENT: props.environment,
         STREAMING_QUEUE_URL: this.streamingJobsQueue.queueUrl,
       },
-      layers: [processingLayer],
+      // No layer needed - uses shared package with built-in dependencies
       // Higher concurrency for processing all requests
       reservedConcurrentExecutions: props.environment === 'prod' ? 20 : 10,
     });

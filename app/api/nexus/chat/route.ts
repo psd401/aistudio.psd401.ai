@@ -3,18 +3,47 @@ import { z } from 'zod';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from '@/lib/logger';
-import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
-import type { StreamRequest } from '@/lib/streaming/types';
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { buildToolsForRequest } from '@/lib/tools/tool-registry';
+import { jobManagementService } from '@/lib/streaming/job-management-service';
+import type { CreateJobRequest } from '@/lib/streaming/job-management-service';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { ErrorFactories } from '@/lib/error-utils';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
 
+// SQS client for sending jobs to worker queue
+const sqsClient = new SQSClient({});
+
+// Get streaming jobs queue URL from environment
+const getStreamingJobsQueueUrl = () => {
+  // First try direct env var
+  if (process.env.STREAMING_JOBS_QUEUE_URL) {
+    return process.env.STREAMING_JOBS_QUEUE_URL;
+  }
+  
+  // Otherwise construct from available env vars
+  const environment = process.env.NEXT_PUBLIC_ENVIRONMENT || 'dev';
+  const region = process.env.NEXT_PUBLIC_AWS_REGION || process.env.AWS_REGION || 'us-east-1';
+  
+  // Extract account ID from RDS ARN (format: arn:aws:rds:region:account:...)
+  const rdsArn = process.env.RDS_RESOURCE_ARN;
+  if (rdsArn) {
+    const accountMatch = rdsArn.match(/:(\d{12}):/);
+    if (accountMatch) {
+      const account = accountMatch[1];
+      return `https://sqs.${region}.amazonaws.com/${account}/aistudio-${environment}-streaming-jobs-queue`;
+    }
+  }
+  
+  return '';
+};
+
 // Basic input validation schema - keeping it minimal to avoid breaking existing data flows
 const ChatRequestSchema = z.object({
   messages: z.array(z.any()), // Keep flexible for UI message format
-  modelId: z.string().regex(/^[a-zA-Z0-9\-_.]+$/, 'Invalid model ID format'),
+  modelId: z.string(),
   provider: z.string().optional(),
   conversationId: z.string().optional(),
   enabledTools: z.array(z.string()).optional(),
@@ -270,18 +299,18 @@ export async function POST(req: Request) {
     // 8. Build system prompt (optional, can add Nexus-specific context here)
     const systemPrompt = `You are a helpful AI assistant in the Nexus interface.`;
     
-    // 9. Use unified streaming service (same as regular chat)
-    log.info('Using unified streaming service', sanitizeForLogging({ 
+    // 9. Universal Polling Architecture - Create streaming job for all Nexus requests
+    log.info('Creating streaming job for universal polling architecture', sanitizeForLogging({ 
       provider,
       model: modelId,
-      messagesBeforeStream: messages ? messages.length : 'undefined',
+      conversationId,
+      userId,
       toolsEnabled: Object.keys(tools).length > 0
     }));
     
-    // Create streaming request with callbacks
-    // Validate messages before creating request
+    // Validate messages before creating job
     if (!messages || !Array.isArray(messages)) {
-      log.error('Messages invalid before streaming', sanitizeForLogging({
+      log.error('Messages invalid before job creation', sanitizeForLogging({
         messagesProvided: !!messages,
         isArray: Array.isArray(messages),
         type: typeof messages
@@ -292,116 +321,128 @@ export async function POST(req: Request) {
       );
     }
     
-    const streamRequest: StreamRequest = {
-      messages: messages as UIMessage[], // Back to simple cast
-      modelId,
-      provider,
-      userId: userId.toString(),
-      sessionId: session.sub,
-      conversationId,
-      source: 'chat',  // Use 'chat' as source type (nexus is tracked in metadata)
+    // Prepare job creation request for Nexus
+    const jobRequest: CreateJobRequest = {
+      conversationId: conversationId, // Keep as UUID string for nexus
+      userId: userId,
+      modelId: dbModelId,
+      messages: messages as UIMessage[],
+      provider: provider,
+      modelIdString: modelId,
       systemPrompt,
-      tools,
       options: {
         reasoningEffort: validationResult.data.reasoningEffort || 'medium',
-        responseMode: validationResult.data.responseMode || 'standard',
-        enabledTools: enabledTools || []
+        responseMode: validationResult.data.responseMode || 'standard'
       },
-      callbacks: {
-        onFinish: async ({ text, usage, finishReason }) => {
-          log.info('Stream finished, saving assistant message', sanitizeForLogging({
-            hasText: !!text,
-            textLength: text?.length || 0,
-            hasUsage: !!usage,
-            finishReason,
-            conversationId
-          }));
-          
-          try {
-            // Save assistant message to nexus_messages
-            await executeSQL(
-              `INSERT INTO nexus_messages (
-                conversation_id, role, content, 
-                model_id, token_usage, finish_reason,
-                metadata, created_at
-              ) VALUES (
-                :conversationId::uuid, :role, :content,
-                :modelId, :tokenUsage::jsonb, :finishReason,
-                :metadata::jsonb, NOW()
-              )`,
-              [
-                { name: 'conversationId', value: { stringValue: conversationId } },
-                { name: 'role', value: { stringValue: 'assistant' } },
-                { name: 'content', value: { stringValue: text || '' } },
-                { name: 'modelId', value: { longValue: dbModelId } },
-                { name: 'tokenUsage', value: { stringValue: JSON.stringify(usage || {}) } },
-                { name: 'finishReason', value: { stringValue: finishReason || 'stop' } },
-                { name: 'metadata', value: { stringValue: JSON.stringify({}) } }
-              ]
-            );
-            
-            // Update conversation statistics
-            const totalTokens = usage?.totalTokens || 0;
-            await executeSQL(
-              `UPDATE nexus_conversations 
-               SET last_message_at = NOW(), 
-                   message_count = message_count + 1,
-                   total_tokens = total_tokens + :tokens,
-                   updated_at = NOW()
-               WHERE id = :conversationId::uuid`,
-              [
-                { name: 'conversationId', value: { stringValue: conversationId } },
-                { name: 'tokens', value: { longValue: totalTokens } }
-              ]
-            );
-            
-            log.info('Assistant message saved successfully', sanitizeForLogging({
-              conversationId
-            }));
-          } catch (saveError) {
-            log.error('Failed to save assistant message', sanitizeForLogging({
-              error: saveError instanceof Error ? saveError.message : String(saveError),
-              conversationId
-            }));
-            // Error is logged but not thrown to avoid breaking the stream
-          }
-          
-          timer({ 
-            status: 'success',
-            conversationId,
-            tokensUsed: usage?.totalTokens
-          });
-        }
-      }
+      maxTokens: undefined,
+      temperature: undefined,
+      tools,
+      source: 'nexus',
+      sessionId: session.sub
     };
     
-    log.info('About to call streaming service', sanitizeForLogging({
-      hasStreamRequest: !!streamRequest,
-      hasMessages: !!streamRequest.messages,
-      messageCount: streamRequest.messages?.length
-    }));
+    // Create the streaming job in database
+    const jobId = await jobManagementService.createJob(jobRequest);
     
-    const streamResponse = await unifiedStreamingService.stream(streamRequest);
-    
-    // Return unified streaming response
-    log.info('Returning unified streaming response', sanitizeForLogging({
+    log.info('Nexus streaming job created successfully', sanitizeForLogging({
+      jobId,
       conversationId,
-      requestId
+      requestId,
+      provider,
+      modelId
     }));
     
-    // Send conversation ID and title headers for new conversations
+    // Send job to SQS queue for worker processing
+    const queueUrl = getStreamingJobsQueueUrl();
+    if (queueUrl) {
+      try {
+        const sqsCommand = new SendMessageCommand({
+          QueueUrl: queueUrl,
+          MessageBody: jobId,
+          MessageAttributes: {
+            jobType: {
+              DataType: 'String',
+              StringValue: 'ai-streaming-nexus'
+            },
+            provider: {
+              DataType: 'String',
+              StringValue: provider
+            },
+            modelId: {
+              DataType: 'String',
+              StringValue: modelId
+            },
+            conversationId: {
+              DataType: 'String',
+              StringValue: conversationId
+            },
+            userId: {
+              DataType: 'Number',
+              StringValue: userId.toString()
+            },
+            source: {
+              DataType: 'String',
+              StringValue: 'nexus'
+            }
+          }
+        });
+        
+        await sqsClient.send(sqsCommand);
+        
+        log.info('Nexus job sent to SQS queue successfully', sanitizeForLogging({
+          jobId,
+          queueUrl,
+          messageAttributes: sqsCommand.input.MessageAttributes
+        }));
+      } catch (sqsError) {
+        log.error('Failed to send Nexus job to SQS queue', sanitizeForLogging({
+          jobId,
+          error: sqsError instanceof Error ? sqsError.message : String(sqsError),
+          queueUrl
+        }));
+        
+        // Mark job as failed if we can't queue it
+        try {
+          await jobManagementService.failJob(jobId, `Failed to queue job: ${sqsError}`);
+        } catch (failError) {
+          log.error('Failed to mark job as failed', { jobId, error: failError });
+        }
+        
+        throw ErrorFactories.externalServiceError('SQS', new Error('Failed to queue streaming job for processing'));
+      }
+    } else {
+      log.warn('No SQS queue URL configured for Nexus, job created but not queued', { jobId });
+    }
+    
+    // Return job information for client polling
     const responseHeaders: Record<string, string> = {
       'X-Request-Id': requestId,
-      'X-Unified-Streaming': 'true'
+      'X-Job-Id': jobId,
+      'X-Universal-Polling': 'true',
+      'Content-Type': 'application/json'
     };
     
     if (!existingConversationId && conversationId) {
       responseHeaders['X-Conversation-Id'] = conversationId;
-      // Also send the title so the client can update the thread metadata
       responseHeaders['X-Conversation-Title'] = conversationTitle || 'New Conversation';
     }
     
-    return streamResponse.result.toUIMessageStreamResponse({
+    timer({ 
+      status: 'success',
+      jobId,
+      conversationId,
+      operation: 'job_created'
+    });
+    
+    return new Response(JSON.stringify({
+      jobId,
+      conversationId,
+      status: 'pending',
+      message: 'Nexus streaming job created successfully. Use the job ID to poll for results.',
+      requestId,
+      ...(conversationTitle && !existingConversationId ? { title: conversationTitle } : {})
+    }), {
+      status: 202, // Accepted - processing asynchronously
       headers: responseHeaders
     });
     

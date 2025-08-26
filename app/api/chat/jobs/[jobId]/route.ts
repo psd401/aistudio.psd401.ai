@@ -2,7 +2,7 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { jobManagementService } from '@/lib/streaming/job-management-service';
-import type { JobStatus } from '@/lib/streaming/job-management-service';
+import type { UniversalPollingStatus } from '@/lib/streaming/job-management-service';
 
 /**
  * Job Polling API Endpoint
@@ -104,7 +104,7 @@ export async function GET(
       createdAt: job.createdAt.toISOString(),
       startedAt: job.startedAt?.toISOString(),
       completedAt: job.completedAt?.toISOString(),
-      expiresAt: job.expiresAt.toISOString(),
+      expiresAt: job.expiresAt?.toISOString(),
       
       // Progressive content (always include for streaming updates)
       partialContent: job.partialContent || '',
@@ -256,7 +256,7 @@ export async function DELETE(
     }
     
     // 5. Check if job can be cancelled
-    const cancellableStates: JobStatus[] = ['pending', 'processing', 'streaming'];
+    const cancellableStates: UniversalPollingStatus[] = ['pending', 'processing', 'streaming'];
     if (!cancellableStates.includes(job.status)) {
       log.info('Job not in cancellable state', { 
         jobId, 

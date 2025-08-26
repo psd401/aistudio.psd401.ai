@@ -5,37 +5,18 @@ import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { ErrorFactories } from '@/lib/error-utils';
 import { buildSystemPrompt } from './lib/system-prompt-builder';
 import { 
-  handleConversation,
+  handleConversation, 
+  saveAssistantMessage, 
   getModelConfig,
   getConversationContext 
 } from './lib/conversation-handler';
 import { loadExecutionContextData, buildInitialPromptForStreaming } from './lib/execution-context';
 import { getAssistantOwnerSub } from './lib/knowledge-context';
-import { jobManagementService } from '@/lib/streaming/job-management-service';
-import type { CreateJobRequest } from '@/lib/streaming/job-management-service';
-import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
+import type { StreamRequest } from '@/lib/streaming/types';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
-
-// SQS client for sending jobs to worker queue
-const sqsClient = new SQSClient({});
-
-// Get streaming jobs queue URL from environment
-const getStreamingJobsQueueUrl = () => {
-  // In production, this would be set by CDK outputs or SSM Parameter Store
-  // For now, we'll construct it based on environment
-  const environment = process.env.NEXT_PUBLIC_ENVIRONMENT || 'dev';
-  const region = process.env.AWS_REGION || 'us-east-1';
-  const account = process.env.AWS_ACCOUNT_ID;
-  
-  if (account) {
-    return `https://sqs.${region}.amazonaws.com/${account}/aistudio-${environment}-streaming-jobs-queue`;
-  }
-  
-  // Fallback - would be replaced with actual queue URL from infrastructure
-  return process.env.STREAMING_JOBS_QUEUE_URL || '';
-};
 
 /**
  * Main chat API route following AI SDK v5 patterns
@@ -336,132 +317,101 @@ export async function POST(req: Request) {
       promptLength: systemPrompt.length 
     });
     
-    // 9. Universal Polling Architecture - Create streaming job for all requests
-    log.info('Creating streaming job for universal polling architecture', { 
+    // 9. Use unified streaming service
+    log.info('Using unified streaming service', { 
       provider: modelConfig.provider,
-      model: modelConfig.model_id,
-      conversationId,
-      userId: currentUser.data.user.id
+      model: modelConfig.model_id
     });
     
-    // Prepare job creation request
-    const jobRequest: CreateJobRequest = {
-      conversationId,
-      userId: currentUser.data.user.id,
-      modelId: modelConfig.id,
-      messages: processedMessages,
-      provider: modelConfig.provider,
-      modelIdString: modelConfig.model_id,
-      systemPrompt,
-      options: {
-        reasoningEffort: body.reasoningEffort || 'medium',
-        responseMode: body.responseMode || 'standard'
-      },
-      maxTokens: undefined,
-      temperature: undefined,
-      tools: undefined,
-      source: 'chat',
-      sessionId: session.sub
-    };
-    
-    // Create the streaming job in database
-    const jobId = await jobManagementService.createJob(jobRequest);
-    
-    log.info('Streaming job created successfully', {
-      jobId,
-      conversationId,
-      requestId,
-      provider: modelConfig.provider,
-      modelId: modelConfig.model_id
-    });
-    
-    // Send job to SQS queue for worker processing
-    const queueUrl = getStreamingJobsQueueUrl();
-    if (queueUrl) {
-      try {
-        const sqsCommand = new SendMessageCommand({
-          QueueUrl: queueUrl,
-          MessageBody: jobId,
-          MessageAttributes: {
-            jobType: {
-              DataType: 'String',
-              StringValue: 'ai-streaming'
-            },
-            provider: {
-              DataType: 'String',
-              StringValue: modelConfig.provider
-            },
-            modelId: {
-              DataType: 'String',
-              StringValue: modelConfig.model_id
-            },
-            conversationId: {
-              DataType: 'Number',
-              StringValue: conversationId.toString()
-            },
-            userId: {
-              DataType: 'Number', 
-              StringValue: currentUser.data.user.id.toString()
+    // Create streaming request with callbacks
+    const streamRequest: StreamRequest = {
+        messages: processedMessages,
+        modelId: modelConfig.model_id,
+        provider: modelConfig.provider,
+        userId: currentUser.data.user.id.toString(),
+        sessionId: session.sub,
+        conversationId,
+        source: 'chat',
+        documentId,
+        systemPrompt,
+        options: {
+          reasoningEffort: body.reasoningEffort || 'medium',
+          responseMode: body.responseMode || 'standard'
+        },
+        callbacks: {
+          onFinish: async ({ text, usage, finishReason }) => {
+            log.info('Unified stream finished', {
+              hasText: !!text,
+              textLength: text?.length || 0,
+              hasUsage: !!usage,
+              finishReason,
+              conversationId,
+              modelId: modelConfig.id
+            });
+            
+            try {
+              // Validate conversation still exists before saving
+              if (!conversationId || conversationId <= 0) {
+                throw ErrorFactories.invalidInput('conversationId', conversationId, 'Must be a positive integer at save time');
+              }
+              
+              await saveAssistantMessage({
+                conversationId,
+                content: text,
+                role: 'assistant',
+                modelId: modelConfig.id,
+                usage,
+                finishReason,
+                reasoningContent: undefined // TODO: Extract from stream
+              });
+              
+              log.info('Assistant message saved successfully', {
+                conversationId,
+                modelId: modelConfig.id
+              });
+            } catch (saveError) {
+              log.error('Failed to save assistant message', {
+                error: saveError,
+                conversationId,
+                modelId: modelConfig.id
+              });
+              // Error is logged but not thrown to avoid breaking the stream
+              // The unified streaming service will also log this
             }
+            
+            timer({ 
+              status: 'success',
+              conversationId,
+              tokensUsed: usage?.totalTokens
+            });
           }
-        });
-        
-        await sqsClient.send(sqsCommand);
-        
-        log.info('Job sent to SQS queue successfully', {
-          jobId,
-          queueUrl,
-          messageAttributes: sqsCommand.input.MessageAttributes
-        });
-      } catch (sqsError) {
-        log.error('Failed to send job to SQS queue', {
-          jobId,
-          error: sqsError,
-          queueUrl
-        });
-        
-        // Mark job as failed if we can't queue it
-        try {
-          await jobManagementService.failJob(jobId, `Failed to queue job: ${sqsError}`);
-        } catch (failError) {
-          log.error('Failed to mark job as failed', { jobId, error: failError });
         }
-        
-        throw ErrorFactories.externalServiceError('SQS', new Error('Failed to queue streaming job for processing'));
+      };
+      
+      const streamResponse = await unifiedStreamingService.stream(streamRequest);
+      
+      // Return unified streaming response
+      log.info('Returning unified streaming response', {
+        conversationId,
+        requestId,
+        hasConversationId: !!conversationId,
+        supportsReasoning: streamResponse.capabilities.supportsReasoning
+      });
+      
+      // Only send conversation ID header for new conversations
+      const responseHeaders: Record<string, string> = {
+        'X-Request-Id': requestId,
+        'X-Unified-Streaming': 'true',
+        'X-Supports-Reasoning': streamResponse.capabilities.supportsReasoning.toString()
+      };
+      
+      if (!existingConversationId) {
+        responseHeaders['X-Conversation-Id'] = conversationId.toString();
       }
-    } else {
-      log.warn('No SQS queue URL configured, job created but not queued', { jobId });
-    }
-    
-    // Return job information for client polling
-    const responseHeaders: Record<string, string> = {
-      'X-Request-Id': requestId,
-      'X-Job-Id': jobId,
-      'X-Universal-Polling': 'true',
-      'Content-Type': 'application/json'
-    };
-    
-    if (!existingConversationId) {
-      responseHeaders['X-Conversation-Id'] = conversationId.toString();
-    }
-    
-    timer({ 
-      status: 'success',
-      jobId,
-      conversationId,
-      operation: 'job_created'
-    });
-    
-    return new Response(JSON.stringify({
-      jobId,
-      conversationId,
-      status: 'pending',
-      message: 'Streaming job created successfully. Use the job ID to poll for results.',
-      requestId
-    }), {
-      status: 202, // Accepted - processing asynchronously
-      headers: responseHeaders
-    });
+      
+      return streamResponse.result.toUIMessageStreamResponse({
+        headers: responseHeaders
+      });
     
   } catch (error) {
     log.error('Chat API error', { 

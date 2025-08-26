@@ -6,19 +6,59 @@ import type { UIMessage } from 'ai';
 const log = createLogger({ module: 'job-management-service' });
 
 /**
- * Job status enum matching database schema
+ * Job status enum matching existing database schema
+ * Maps to existing job_status enum: pending, running, completed, failed
  */
-export type JobStatus = 'pending' | 'processing' | 'streaming' | 'completed' | 'failed' | 'cancelled';
+export type JobStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+/**
+ * Internal status mapping for universal polling
+ */
+export type UniversalPollingStatus = 'pending' | 'processing' | 'streaming' | 'completed' | 'failed' | 'cancelled';
+
+/**
+ * Map universal polling statuses to database enum values
+ */
+export function mapToDatabaseStatus(status: UniversalPollingStatus): JobStatus {
+  switch (status) {
+    case 'pending': return 'pending';
+    case 'processing':
+    case 'streaming': return 'running';
+    case 'completed': return 'completed';
+    case 'failed':
+    case 'cancelled': return 'failed';
+    default: return 'failed';
+  }
+}
+
+/**
+ * Map database status to universal polling status
+ */
+export function mapFromDatabaseStatus(dbStatus: JobStatus, errorMessage?: string): UniversalPollingStatus {
+  switch (dbStatus) {
+    case 'pending': return 'pending';
+    case 'running': return 'processing'; // Default to processing, can be updated to streaming
+    case 'completed': return 'completed';
+    case 'failed': 
+      // Check if this was a cancellation
+      if (errorMessage?.includes('cancelled') || errorMessage?.includes('cancel')) {
+        return 'cancelled';
+      }
+      return 'failed';
+    default: return 'failed';
+  }
+}
 
 /**
  * AI Streaming Job structure
  */
 export interface StreamingJob {
   id: string;
-  conversationId: number;
+  conversationId: string; // Always stored as text - can be integer (legacy) or UUID (nexus)
+  nexusConversationId?: string; // For nexus-specific conversation ID
   userId: number;
   modelId: number;
-  status: JobStatus;
+  status: UniversalPollingStatus;
   requestData: {
     messages: UIMessage[];
     modelId: string;
@@ -46,7 +86,7 @@ export interface StreamingJob {
     finishReason: string;
   };
   partialContent?: string;
-  progressInfo: {
+  progressInfo?: {
     tokensStreamed?: number;
     completionPercentage?: number;
     currentPhase?: string;
@@ -56,7 +96,7 @@ export interface StreamingJob {
   createdAt: Date;
   startedAt?: Date;
   completedAt?: Date;
-  expiresAt: Date;
+  expiresAt?: Date;
   source?: string;
   sessionId?: string;
   requestId?: string;
@@ -66,7 +106,7 @@ export interface StreamingJob {
  * Request to create a streaming job
  */
 export interface CreateJobRequest {
-  conversationId: number;
+  conversationId: string | number; // Support both legacy (number) and nexus (UUID string)
   userId: number;
   modelId: number;
   messages: UIMessage[];
@@ -101,9 +141,18 @@ export class JobManagementService {
    */
   async createJob(request: CreateJobRequest): Promise<string> {
     const requestId = generateRequestId();
+    
+    // Determine conversation type
+    const conversationIdStr = String(request.conversationId);
+    const isUuid = conversationIdStr.length === 36 && conversationIdStr.includes('-');
+    const isNexus = request.source === 'nexus' || isUuid;
+    
     log.info('Creating streaming job', {
       userId: request.userId,
       conversationId: request.conversationId,
+      conversationIdStr,
+      isNexus,
+      isUuid,
       provider: request.provider,
       modelId: request.modelId,
       messageCount: request.messages.length,
@@ -130,32 +179,19 @@ export class JobManagementService {
           user_id,
           model_id,
           status,
-          request_data,
-          progress_info,
-          source,
-          session_id,
-          request_id,
-          expires_at
+          request_data
         ) VALUES (
           :conversation_id,
           :user_id,
           :model_id,
           'pending',
-          :request_data,
-          '{}',
-          :source,
-          :session_id,
-          :request_id,
-          NOW() + INTERVAL '2 hours'
+          :request_data::jsonb
         ) RETURNING id
       `, [
-        { name: 'conversation_id', value: { longValue: request.conversationId } },
+        { name: 'conversation_id', value: { stringValue: conversationIdStr } },
         { name: 'user_id', value: { longValue: request.userId } },
         { name: 'model_id', value: { longValue: request.modelId } },
-        { name: 'request_data', value: { stringValue: JSON.stringify(requestData) } },
-        { name: 'source', value: { stringValue: request.source || 'chat' } },
-        { name: 'session_id', value: request.sessionId ? { stringValue: request.sessionId } : { isNull: true } },
-        { name: 'request_id', value: { stringValue: requestId } }
+        { name: 'request_data', value: { stringValue: JSON.stringify(requestData) } }
       ]);
 
       // Extract job ID from result
@@ -198,17 +234,11 @@ export class JobManagementService {
           request_data,
           response_data,
           partial_content,
-          progress_info,
           error_message,
           created_at,
-          started_at,
-          completed_at,
-          expires_at,
-          source,
-          session_id,
-          request_id
+          completed_at
         FROM ai_streaming_jobs
-        WHERE id = :job_id
+        WHERE id = :job_id::uuid
       `, [
         { name: 'job_id', value: { stringValue: jobId } }
       ]);
@@ -219,24 +249,25 @@ export class JobManagementService {
 
       const row = transformSnakeToCamel<Record<string, unknown>>(result[0]);
       
+      const conversationId = row.conversationId as string;
+      const isUuid = conversationId.length === 36 && conversationId.includes('-');
+      
       return {
         id: row.id as string,
-        conversationId: row.conversationId as number,
+        conversationId,
+        nexusConversationId: isUuid ? conversationId : undefined,
         userId: row.userId as number,
         modelId: row.modelId as number,
-        status: row.status as JobStatus,
+        status: mapFromDatabaseStatus(row.status as JobStatus, row.errorMessage as string),
         requestData: typeof row.requestData === 'string' ? JSON.parse(row.requestData) : row.requestData as StreamingJob['requestData'],
         responseData: row.responseData ? (typeof row.responseData === 'string' ? JSON.parse(row.responseData) : row.responseData as StreamingJob['responseData']) : undefined,
         partialContent: row.partialContent as string | undefined,
-        progressInfo: row.progressInfo ? (typeof row.progressInfo === 'string' ? JSON.parse(row.progressInfo) : row.progressInfo as StreamingJob['progressInfo']) : {},
+        progressInfo: {},
         errorMessage: row.errorMessage as string | undefined,
         createdAt: new Date(row.createdAt as string),
         startedAt: row.startedAt ? new Date(row.startedAt as string) : undefined,
         completedAt: row.completedAt ? new Date(row.completedAt as string) : undefined,
-        expiresAt: new Date(row.expiresAt as string),
-        source: row.source as string | undefined,
-        sessionId: row.sessionId as string | undefined,
-        requestId: row.requestId as string | undefined
+        expiresAt: row.expiresAt ? new Date(row.expiresAt as string) : undefined
       };
     } catch (error) {
       log.error('Failed to get job', { jobId, error });
@@ -253,6 +284,8 @@ export class JobManagementService {
         SELECT 
           id,
           conversation_id,
+          nexus_conversation_id,
+          legacy_conversation_id,
           user_id,
           model_id,
           status,
@@ -281,10 +314,12 @@ export class JobManagementService {
         const transformed = transformSnakeToCamel<Record<string, unknown>>(row);
         return {
           id: transformed.id as string,
-          conversationId: transformed.conversationId as number,
+          conversationId: transformed.conversationId as string,
+          nexusConversationId: transformed.nexusConversationId as string | undefined,
+          legacyConversationId: transformed.legacyConversationId as number | undefined,
           userId: transformed.userId as number,
           modelId: transformed.modelId as number,
-          status: transformed.status as JobStatus,
+          status: mapFromDatabaseStatus(transformed.status as JobStatus, transformed.errorMessage as string),
           requestData: typeof transformed.requestData === 'string' ? JSON.parse(transformed.requestData) : transformed.requestData as StreamingJob['requestData'],
           responseData: transformed.responseData ? (typeof transformed.responseData === 'string' ? JSON.parse(transformed.responseData) : transformed.responseData as StreamingJob['responseData']) : undefined,
           partialContent: transformed.partialContent as string | undefined,
@@ -310,7 +345,7 @@ export class JobManagementService {
    */
   async updateJobStatus(
     jobId: string, 
-    status: JobStatus, 
+    status: UniversalPollingStatus, 
     progressUpdate?: JobProgressUpdate,
     errorMessage?: string
   ): Promise<boolean> {
@@ -322,6 +357,9 @@ export class JobManagementService {
     });
 
     try {
+      const dbStatus = mapToDatabaseStatus(status);
+      const finalErrorMessage = status === 'cancelled' ? `Job cancelled by user${errorMessage ? ': ' + errorMessage : ''}` : errorMessage;
+      
       const result = await executeSQL(`
         SELECT update_job_status(
           :job_id::uuid,
@@ -332,10 +370,10 @@ export class JobManagementService {
         ) as success
       `, [
         { name: 'job_id', value: { stringValue: jobId } },
-        { name: 'status', value: { stringValue: status } },
+        { name: 'status', value: { stringValue: dbStatus } },
         { name: 'partial_content', value: progressUpdate?.partialContent ? { stringValue: progressUpdate.partialContent } : { isNull: true } },
         { name: 'progress_info', value: progressUpdate?.progressInfo ? { stringValue: JSON.stringify(progressUpdate.progressInfo) } : { isNull: true } },
-        { name: 'error_message', value: errorMessage ? { stringValue: errorMessage } : { isNull: true } }
+        { name: 'error_message', value: finalErrorMessage ? { stringValue: finalErrorMessage } : { isNull: true } }
       ]);
 
       const success = result?.[0]?.success as boolean || false;
@@ -371,7 +409,7 @@ export class JobManagementService {
           response_data = :response_data,
           partial_content = COALESCE(:final_content, partial_content),
           completed_at = NOW()
-        WHERE id = :job_id
+        WHERE id = :job_id::uuid
         RETURNING id
       `, [
         { name: 'job_id', value: { stringValue: jobId } },
@@ -407,7 +445,7 @@ export class JobManagementService {
           status = 'failed',
           error_message = :error_message,
           completed_at = NOW()
-        WHERE id = :job_id
+        WHERE id = :job_id::uuid
         RETURNING id
       `, [
         { name: 'job_id', value: { stringValue: jobId } },
@@ -439,10 +477,11 @@ export class JobManagementService {
       const result = await executeSQL(`
         UPDATE ai_streaming_jobs 
         SET 
-          status = 'cancelled',
+          status = 'failed',
+          error_message = 'Job cancelled by user',
           completed_at = NOW()
-        WHERE id = :job_id 
-          AND status IN ('pending', 'processing', 'streaming')
+        WHERE id = :job_id::uuid 
+          AND status IN ('pending', 'running')
         RETURNING id
       `, [
         { name: 'job_id', value: { stringValue: jobId } }
@@ -472,6 +511,8 @@ export class JobManagementService {
         SELECT 
           id,
           conversation_id,
+          nexus_conversation_id,
+          legacy_conversation_id,
           user_id,
           model_id,
           status,
@@ -500,10 +541,12 @@ export class JobManagementService {
         const transformed = transformSnakeToCamel<Record<string, unknown>>(row);
         return {
           id: transformed.id as string,
-          conversationId: transformed.conversationId as number,
+          conversationId: transformed.conversationId as string,
+          nexusConversationId: transformed.nexusConversationId as string | undefined,
+          legacyConversationId: transformed.legacyConversationId as number | undefined,
           userId: transformed.userId as number,
           modelId: transformed.modelId as number,
-          status: transformed.status as JobStatus,
+          status: mapFromDatabaseStatus(transformed.status as JobStatus, transformed.errorMessage as string),
           requestData: typeof transformed.requestData === 'string' ? JSON.parse(transformed.requestData) : transformed.requestData as StreamingJob['requestData'],
           responseData: transformed.responseData ? (typeof transformed.responseData === 'string' ? JSON.parse(transformed.responseData) : transformed.responseData as StreamingJob['responseData']) : undefined,
           partialContent: transformed.partialContent as string | undefined,
@@ -553,7 +596,7 @@ export class JobManagementService {
   /**
    * Get optimal polling interval for a model based on database metadata
    */
-  async getOptimalPollingInterval(modelId: number, status: JobStatus): Promise<number> {
+  async getOptimalPollingInterval(modelId: number, status: UniversalPollingStatus): Promise<number> {
     try {
       // Get model capabilities from database
       const result = await executeSQL(`
@@ -591,6 +634,10 @@ export class JobManagementService {
           return baseInterval * 2; // Slower while initializing
         case 'streaming':
           return baseInterval; // Normal polling during streaming
+        case 'completed':
+        case 'failed':
+        case 'cancelled':
+          return baseInterval * 3; // Slower for terminal states
         default:
           return baseInterval;
       }
