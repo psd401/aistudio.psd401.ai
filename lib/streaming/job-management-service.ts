@@ -272,8 +272,28 @@ export class JobManagementService {
         userId: row.userId as number,
         modelId: row.modelId as number,
         status: mapFromDatabaseStatus(row.status as JobStatus, row.errorMessage as string),
-        requestData: typeof row.requestData === 'string' ? JSON.parse(row.requestData) : row.requestData as StreamingJob['requestData'],
-        responseData: row.responseData ? (typeof row.responseData === 'string' ? JSON.parse(row.responseData) : row.responseData as StreamingJob['responseData']) : undefined,
+        requestData: typeof row.requestData === 'string' ? (() => {
+          try {
+            return JSON.parse(row.requestData);
+          } catch (error) {
+            log.error('Failed to parse request data', {
+              jobId: row.id,
+              error: error instanceof Error ? error.message : String(error)
+            });
+            return null;
+          }
+        })() : row.requestData as StreamingJob['requestData'],
+        responseData: row.responseData ? (typeof row.responseData === 'string' ? (() => {
+          try {
+            return JSON.parse(row.responseData);
+          } catch (error) {
+            log.error('Failed to parse response data', {
+              jobId: row.id,
+              error: error instanceof Error ? error.message : String(error)
+            });
+            return null;
+          }
+        })() : row.responseData as StreamingJob['responseData']) : undefined,
         partialContent: row.partialContent as string | undefined,
         progressInfo: {},
         errorMessage: row.errorMessage as string | undefined,

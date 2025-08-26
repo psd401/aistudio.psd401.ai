@@ -241,13 +241,12 @@ export async function POST(req: Request) {
               userContent += (userContent ? ' ' : '') + part.text;
               serializableParts.push({ type: 'text', text: part.text });
             } else if (part.type === 'image' && part.image) {
-              // Store truncated reference only - NOT the full base64 data
+              // Store only boolean flag - no image data or prefixes
               serializableParts.push({ 
                 type: 'image',
-                // Only store metadata, not the actual image data
                 metadata: {
-                  hasImage: true,
-                  prefix: part.image.substring(0, 50) // Just enough to identify type
+                  hasImage: true
+                  // No image data or prefixes stored for security/memory reasons
                 }
               });
             }
@@ -511,8 +510,8 @@ export async function POST(req: Request) {
     log.error('Nexus chat API error', { 
       error: error instanceof Error ? {
         message: error.message,
-        name: error.name,
-        stack: error.stack
+        name: error.name
+        // Stack traces removed for security - internal paths not exposed in logs
       } : String(error)
     });
     
