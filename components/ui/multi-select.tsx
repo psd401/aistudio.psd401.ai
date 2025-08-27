@@ -102,7 +102,7 @@ export function MultiSelect({
   ];
 
   return (
-    <Popover open={isOpen} onOpenChange={setIsOpen}>
+    <Popover open={isOpen} onOpenChange={setIsOpen} modal={true}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -131,13 +131,14 @@ export function MultiSelect({
         </Button>
       </PopoverTrigger>
       <PopoverContent 
-        className="w-[320px] p-4 max-h-[400px] overflow-hidden flex flex-col" 
+        className="w-[320px] p-4 max-h-[400px] overflow-hidden flex flex-col z-[60]" 
         align="start" 
         alignOffset={-5}
         side="bottom"
         sideOffset={5}
         collisionPadding={10}
-        avoidCollisions={true}>
+        avoidCollisions={true}
+        forceMount>
         <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
           <div className="flex-1 overflow-hidden flex flex-col">
             <div className="flex items-center justify-between mb-3 flex-shrink-0">

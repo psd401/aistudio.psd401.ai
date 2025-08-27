@@ -69,6 +69,9 @@ const ModelForm = React.memo(function ModelForm({
     
   const handleActiveChange = (checked: boolean) => 
     setModelData({ ...modelData, active: checked });
+    
+  const handleChatEnabledChange = (checked: boolean) => 
+    setModelData({ ...modelData, chatEnabled: checked });
 
   // Pricing field handlers with validation
   const handleInputCostChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -269,6 +272,13 @@ const ModelForm = React.memo(function ModelForm({
             />
             <label className="text-sm font-medium">Active</label>
           </div>
+          <div className="flex items-center space-x-2">
+            <Switch
+              checked={modelData.chatEnabled}
+              onCheckedChange={handleChatEnabledChange}
+            />
+            <label className="text-sm font-medium">Chat Enabled</label>
+          </div>
         </div>
       </div>
 
@@ -466,6 +476,7 @@ type ModelFormData = {
   capabilities: string;
   maxTokens: number;
   active: boolean;
+  chatEnabled: boolean;
   allowedRoles: string[];
   capabilitiesList: string[];
   // Pricing fields
@@ -505,6 +516,7 @@ const emptyModel: ModelFormData = {
   capabilities: '',
   maxTokens: 4096,
   active: true,
+  chatEnabled: false,
   allowedRoles: [],
   capabilitiesList: [],
   // Pricing fields
@@ -637,6 +649,7 @@ export const AiModelsTable = React.memo(function AiModelsTable({
       allowedRoles,
       maxTokens: model.maxTokens || 4096,
       active: model.active,
+      chatEnabled: model.chatEnabled || false,
       // Pricing fields
       inputCostPer1kTokens: model.inputCostPer1kTokens || null,
       outputCostPer1kTokens: model.outputCostPer1kTokens || null,
@@ -847,8 +860,8 @@ export const AiModelsTable = React.memo(function AiModelsTable({
     const { capabilitiesList, ...dbData } = dataToSubmit;
     const finalData = {
       ...dbData,
-      // Set chatEnabled based on whether "chat" is in capabilities
-      chatEnabled: modelData.capabilitiesList.includes('chat'),
+      // Use explicit chatEnabled value (maintains backward compatibility by defaulting to capability-based inference)
+      chatEnabled: modelData.chatEnabled,
       // Ensure pricing fields are properly set
       inputCostPer1kTokens: modelData.inputCostPer1kTokens,
       outputCostPer1kTokens: modelData.outputCostPer1kTokens,
