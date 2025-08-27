@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -24,12 +24,22 @@ import {
 } from '@tanstack/react-table';
 import { IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-react';
 
+// Type definitions for API responses
+interface RoleData {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+
 interface ModelFormProps {
   modelData: ModelFormData;
   setModelData: (data: ModelFormData) => void;
   onSubmit: () => void;
   onCancel: () => void;
   isEditing: boolean;
+  roleOptions: MultiSelectOption[];
+  roleLoading?: boolean;
 }
 
 const ModelForm = React.memo(function ModelForm({ 
@@ -37,7 +47,9 @@ const ModelForm = React.memo(function ModelForm({
   setModelData, 
   onSubmit, 
   onCancel, 
-  isEditing 
+  isEditing,
+  roleOptions,
+  roleLoading = false
 }: ModelFormProps) {
   const [pricingOpen, setPricingOpen] = useState(false);
   const [performanceOpen, setPerformanceOpen] = useState(false);
@@ -406,12 +418,18 @@ const ModelForm = React.memo(function ModelForm({
         <h3 className="text-lg font-semibold">Access Control</h3>
         
         <div className="space-y-2">
-          <label className="text-sm font-medium">Allowed Roles</label>
+          <label className="text-sm font-medium">
+            Allowed Roles
+            {roleLoading && (
+              <span className="ml-2 text-xs text-muted-foreground">(Loading...)</span>
+            )}
+          </label>
           <MultiSelect
             options={roleOptions}
             value={modelData.allowedRoles}
             onChange={handleRolesChange}
-            placeholder="All roles (unrestricted)"
+            placeholder={roleLoading ? "Loading roles..." : "All roles (unrestricted)"}
+            disabled={roleLoading}
             className="w-full"
           />
           <p className="text-xs text-muted-foreground">
@@ -532,8 +550,8 @@ const emptyModel: ModelFormData = {
   providerMetadata: {}
 };
 
-// Predefined role options
-const roleOptions: MultiSelectOption[] = [
+// Fallback role options used when API fails
+const fallbackRoleOptions: MultiSelectOption[] = [
   { value: 'administrator', label: 'Administrator', description: 'Full system access' },
   { value: 'staff', label: 'Staff', description: 'Staff member access' },
   { value: 'student', label: 'Student', description: 'Basic user access' },
@@ -561,6 +579,48 @@ export const AiModelsTable = React.memo(function AiModelsTable({
   const [editingModel, setEditingModel] = useState<SelectAiModel | null>(null);
   const [modelData, setModelData] = useState<ModelFormData>(emptyModel);
   const [sorting, setSorting] = useState<SortingState>([]);
+  
+  // Dynamic role loading state
+  const [roleOptions, setRoleOptions] = useState<MultiSelectOption[]>(fallbackRoleOptions);
+  const [roleLoading, setRoleLoading] = useState(true);
+
+  // Fetch roles from API on component mount
+  useEffect(() => {
+    const fetchRoles = async () => {
+      try {
+        setRoleLoading(true);
+        
+        const response = await fetch('/api/admin/roles');
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.isSuccess) {
+          throw new Error(data.message || 'Failed to fetch roles');
+        }
+        
+        // Transform role data to MultiSelectOption format
+        const dynamicRoleOptions: MultiSelectOption[] = data.data.map((role: RoleData) => ({
+          value: role.name,
+          label: role.name,
+          description: role.description || 'User role'
+        }));
+        
+        setRoleOptions(dynamicRoleOptions);
+      } catch (error) {
+        console.error('Failed to fetch roles:', error);
+        // Keep fallback options on error
+        setRoleOptions(fallbackRoleOptions);
+      } finally {
+        setRoleLoading(false);
+      }
+    };
+
+    fetchRoles();
+  }, []);
   
   // Memoized column header component to prevent recreation on each render
   const SortableColumnHeader = useCallback(({
@@ -944,6 +1004,8 @@ export const AiModelsTable = React.memo(function AiModelsTable({
             onSubmit={handleSubmit}
             onCancel={handleCancel}
             isEditing={!!editingModel}
+            roleOptions={roleOptions}
+            roleLoading={roleLoading}
           />
         </DialogContent>
       </Dialog>
