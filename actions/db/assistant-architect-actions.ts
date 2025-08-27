@@ -55,6 +55,85 @@ async function getCurrentUserId(): Promise<number | null> {
   return null;
 }
 
+// Input validation and sanitization function for Assistant Architect
+function validateAssistantArchitectInputs(inputs: Record<string, unknown>): Record<string, unknown> {
+  const validated: Record<string, unknown> = {};
+  const MAX_INPUT_LENGTH = 10000; // Maximum length for string inputs
+  const MAX_INPUTS = 50; // Maximum number of inputs
+  
+  // Check maximum number of inputs to prevent resource exhaustion
+  const inputKeys = Object.keys(inputs);
+  if (inputKeys.length > MAX_INPUTS) {
+    throw ErrorFactories.validationFailed([{
+      field: 'inputs',
+      message: `Too many inputs provided (${inputKeys.length}). Maximum allowed: ${MAX_INPUTS}`
+    }]);
+  }
+  
+  for (const [key, value] of Object.entries(inputs)) {
+    // Validate key format (alphanumeric, underscores, hyphens only)
+    if (!/^[a-zA-Z0-9_-]+$/.test(key)) {
+      throw ErrorFactories.validationFailed([{
+        field: key,
+        message: 'Invalid input field name format. Only alphanumeric characters, underscores, and hyphens are allowed.'
+      }]);
+    }
+    
+    // Validate key length
+    if (key.length > 100) {
+      throw ErrorFactories.validationFailed([{
+        field: key,
+        message: 'Input field name too long. Maximum length: 100 characters.'
+      }]);
+    }
+    
+    // Validate and sanitize values based on type
+    if (typeof value === 'string') {
+      // Limit string length to prevent resource exhaustion
+      const sanitizedValue = value.slice(0, MAX_INPUT_LENGTH);
+      validated[key] = sanitizedValue;
+    } else if (typeof value === 'number') {
+      // Ensure number is finite and within reasonable bounds
+      if (!isFinite(value) || value > Number.MAX_SAFE_INTEGER || value < Number.MIN_SAFE_INTEGER) {
+        throw ErrorFactories.validationFailed([{
+          field: key,
+          message: 'Invalid number value.'
+        }]);
+      }
+      validated[key] = value;
+    } else if (typeof value === 'boolean') {
+      validated[key] = value;
+    } else if (value === null || value === undefined) {
+      validated[key] = null;
+    } else if (Array.isArray(value)) {
+      // Handle arrays by converting to JSON string and limiting length
+      const jsonString = JSON.stringify(value);
+      if (jsonString.length > MAX_INPUT_LENGTH) {
+        throw ErrorFactories.validationFailed([{
+          field: key,
+          message: `Array value too large. Maximum serialized length: ${MAX_INPUT_LENGTH} characters.`
+        }]);
+      }
+      validated[key] = jsonString.slice(0, MAX_INPUT_LENGTH);
+    } else if (typeof value === 'object') {
+      // Handle objects by converting to JSON string and limiting length
+      const jsonString = JSON.stringify(value);
+      if (jsonString.length > MAX_INPUT_LENGTH) {
+        throw ErrorFactories.validationFailed([{
+          field: key,
+          message: `Object value too large. Maximum serialized length: ${MAX_INPUT_LENGTH} characters.`
+        }]);
+      }
+      validated[key] = jsonString.slice(0, MAX_INPUT_LENGTH);
+    } else {
+      // Convert unknown types to string safely
+      validated[key] = String(value).slice(0, MAX_INPUT_LENGTH);
+    }
+  }
+  
+  return validated;
+}
+
 // The missing function needed by page.tsx
 export async function getAssistantArchitectAction(
   id: string
@@ -1766,6 +1845,13 @@ export async function executeAssistantArchitectAction({
       throw ErrorFactories.authzToolAccessDenied("assistant-architect")
     }
 
+    // Validate and sanitize inputs before processing
+    const validatedInputs = validateAssistantArchitectInputs(inputs);
+    log.info("Inputs validated successfully", { 
+      inputCount: Object.keys(validatedInputs).length,
+      inputKeys: Object.keys(validatedInputs)
+    });
+
     // Create the execution record immediately so we can return the ID
     const executionResult = await executeSQL<{ id: number }>(
       `INSERT INTO tool_executions (assistant_architect_id, user_id, input_data, status, started_at)
@@ -1774,7 +1860,7 @@ export async function executeAssistantArchitectAction({
       [
         { name: 'toolId', value: { longValue: parseInt(String(toolId), 10) } },
         { name: 'userId', value: { longValue: currentUser.data.user.id } },
-        { name: 'inputData', value: { stringValue: JSON.stringify(inputs) } },
+        { name: 'inputData', value: { stringValue: JSON.stringify(validatedInputs) } },
         { name: 'status', value: { stringValue: 'pending' } }
       ]
     );
@@ -1863,7 +1949,7 @@ export async function executeAssistantArchitectAction({
               action: 'execute_assistant_architect',
               toolId: String(toolId),
               executionId,
-              inputs,
+              inputs: validatedInputs,
               toolName: tool.name,
               prompts: tool.prompts?.map(p => ({
                 id: p.id,

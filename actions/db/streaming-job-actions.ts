@@ -10,10 +10,10 @@ import {
 import {
   createLogger,
   generateRequestId,
-  startTimer,
-  sanitizeForLogging
+  startTimer
 } from "@/lib/logger"
 import { jobManagementService, type StreamingJob } from "@/lib/streaming/job-management-service"
+import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 
 export async function getStreamingJobAction(jobId: string): Promise<ActionState<StreamingJob | null>> {
   const requestId = generateRequestId()
@@ -29,13 +29,31 @@ export async function getStreamingJobAction(jobId: string): Promise<ActionState<
       throw ErrorFactories.authNoSession()
     }
     
-    log.debug("User authenticated", { userId: session.sub })
+    // Get current user to access database user ID
+    const currentUser = await getCurrentUserAction()
+    if (!currentUser.isSuccess || !currentUser.data) {
+      log.error("User not found in database")
+      throw ErrorFactories.dbRecordNotFound("users", session.sub)
+    }
+    
+    log.debug("User authenticated", { userId: session.sub, dbUserId: currentUser.data.user.id })
     
     const job = await jobManagementService.getJob(jobId)
     
     if (!job) {
       log.warn("Streaming job not found", { jobId })
       return createSuccess(null, "Job not found")
+    }
+    
+    // Authorization check: Verify job belongs to current user
+    if (job.userId !== currentUser.data.user.id) {
+      log.warn("User attempted to access job they don't own", { 
+        cognitoUserId: session.sub,
+        dbUserId: currentUser.data.user.id,
+        jobUserId: job.userId, 
+        jobId 
+      })
+      throw ErrorFactories.authzResourceNotFound("streaming job", jobId)
     }
 
     log.info("Streaming job retrieved successfully", {
@@ -72,7 +90,32 @@ export async function cancelStreamingJobAction(jobId: string): Promise<ActionSta
       throw ErrorFactories.authNoSession()
     }
     
-    log.debug("User authenticated", { userId: session.sub })
+    // Get current user to access database user ID
+    const currentUser = await getCurrentUserAction()
+    if (!currentUser.isSuccess || !currentUser.data) {
+      log.error("User not found in database")
+      throw ErrorFactories.dbRecordNotFound("users", session.sub)
+    }
+    
+    log.debug("User authenticated", { userId: session.sub, dbUserId: currentUser.data.user.id })
+    
+    // Get job first to verify ownership before cancelling
+    const job = await jobManagementService.getJob(jobId)
+    if (!job) {
+      log.warn("Streaming job not found for cancellation", { jobId })
+      return createSuccess(false, "Job not found")
+    }
+    
+    // Authorization check: Verify job belongs to current user
+    if (job.userId !== currentUser.data.user.id) {
+      log.warn("User attempted to cancel job they don't own", { 
+        cognitoUserId: session.sub,
+        dbUserId: currentUser.data.user.id,
+        jobUserId: job.userId, 
+        jobId 
+      })
+      throw ErrorFactories.authzResourceNotFound("streaming job", jobId)
+    }
     
     const success = await jobManagementService.cancelJob(jobId)
     

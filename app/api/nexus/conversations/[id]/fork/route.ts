@@ -15,11 +15,11 @@ interface ForkRequest {
  */
 export async function POST(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const requestId = generateRequestId();
   const timer = startTimer('nexus.conversation.fork');
-  const originalConversationId = params.id;
+  const { id: originalConversationId } = await params;
   const log = createLogger({ 
     requestId, 
     route: 'nexus.conversation.fork',

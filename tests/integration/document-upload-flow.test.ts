@@ -4,8 +4,8 @@ import '@testing-library/jest-dom';
 
 // Add polyfills for Node.js test environment
 import { TextEncoder, TextDecoder } from 'util';
-global.TextEncoder = TextEncoder;
-global.TextDecoder = TextDecoder as any;
+(global as any).TextEncoder = TextEncoder;
+(global as any).TextDecoder = TextDecoder;
 
 // Mock AI SDK FIRST - very important for module loading order
 jest.mock('ai', () => {
