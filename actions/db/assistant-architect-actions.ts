@@ -14,12 +14,11 @@ import {
   type SelectTool,
   type SelectAiModel
 } from "@/types/db-types"
-import { CoreMessage } from "ai"
+// CoreMessage import removed - AI completion now handled by Lambda workers
 import { transformSnakeToCamel } from '@/lib/db/field-mapper'
 import { parseRepositoryIds, serializeRepositoryIds } from "@/lib/utils/repository-utils"
 
 import { createJobAction, updateJobAction, getJobAction } from "@/actions/db/jobs-actions";
-import { generateCompletion } from "@/lib/ai-helpers";
 import { createError, handleError, createSuccess, ErrorFactories } from "@/lib/error-utils";
 import { generateToolIdentifier } from "@/lib/utils";
 import { ActionState, ErrorLevel } from "@/types";
@@ -35,7 +34,7 @@ import {
 import { getServerSession } from "@/lib/auth/server-session";
 import { executeSQL, checkUserRoleByCognitoSub, hasToolAccess, type FormattedRow } from "@/lib/db/data-api-adapter";
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action";
-import { RDSDataClient, BeginTransactionCommand, ExecuteStatementCommand, CommitTransactionCommand, RollbackTransactionCommand, SqlParameter } from "@aws-sdk/client-rds-data";
+import { SqlParameter } from "@aws-sdk/client-rds-data";
 
 // Type for raw database result rows
 type RawDbRow = Record<string, string | number | boolean | null | Uint8Array | { arrayValue?: { stringValues?: string[] } }>;
@@ -54,6 +53,85 @@ async function getCurrentUserId(): Promise<number | null> {
     return currentUser.data.user.id;
   }
   return null;
+}
+
+// Input validation and sanitization function for Assistant Architect
+function validateAssistantArchitectInputs(inputs: Record<string, unknown>): Record<string, unknown> {
+  const validated: Record<string, unknown> = {};
+  const MAX_INPUT_LENGTH = 10000; // Maximum length for string inputs
+  const MAX_INPUTS = 50; // Maximum number of inputs
+  
+  // Check maximum number of inputs to prevent resource exhaustion
+  const inputKeys = Object.keys(inputs);
+  if (inputKeys.length > MAX_INPUTS) {
+    throw ErrorFactories.validationFailed([{
+      field: 'inputs',
+      message: `Too many inputs provided (${inputKeys.length}). Maximum allowed: ${MAX_INPUTS}`
+    }]);
+  }
+  
+  for (const [key, value] of Object.entries(inputs)) {
+    // Validate key format (alphanumeric, underscores, hyphens only)
+    if (!/^[a-zA-Z0-9_-]+$/.test(key)) {
+      throw ErrorFactories.validationFailed([{
+        field: key,
+        message: 'Invalid input field name format. Only alphanumeric characters, underscores, and hyphens are allowed.'
+      }]);
+    }
+    
+    // Validate key length
+    if (key.length > 100) {
+      throw ErrorFactories.validationFailed([{
+        field: key,
+        message: 'Input field name too long. Maximum length: 100 characters.'
+      }]);
+    }
+    
+    // Validate and sanitize values based on type
+    if (typeof value === 'string') {
+      // Limit string length to prevent resource exhaustion
+      const sanitizedValue = value.slice(0, MAX_INPUT_LENGTH);
+      validated[key] = sanitizedValue;
+    } else if (typeof value === 'number') {
+      // Ensure number is finite and within reasonable bounds
+      if (!isFinite(value) || value > Number.MAX_SAFE_INTEGER || value < Number.MIN_SAFE_INTEGER) {
+        throw ErrorFactories.validationFailed([{
+          field: key,
+          message: 'Invalid number value.'
+        }]);
+      }
+      validated[key] = value;
+    } else if (typeof value === 'boolean') {
+      validated[key] = value;
+    } else if (value === null || value === undefined) {
+      validated[key] = null;
+    } else if (Array.isArray(value)) {
+      // Handle arrays by converting to JSON string and limiting length
+      const jsonString = JSON.stringify(value);
+      if (jsonString.length > MAX_INPUT_LENGTH) {
+        throw ErrorFactories.validationFailed([{
+          field: key,
+          message: `Array value too large. Maximum serialized length: ${MAX_INPUT_LENGTH} characters.`
+        }]);
+      }
+      validated[key] = jsonString.slice(0, MAX_INPUT_LENGTH);
+    } else if (typeof value === 'object') {
+      // Handle objects by converting to JSON string and limiting length
+      const jsonString = JSON.stringify(value);
+      if (jsonString.length > MAX_INPUT_LENGTH) {
+        throw ErrorFactories.validationFailed([{
+          field: key,
+          message: `Object value too large. Maximum serialized length: ${MAX_INPUT_LENGTH} characters.`
+        }]);
+      }
+      validated[key] = jsonString.slice(0, MAX_INPUT_LENGTH);
+    } else {
+      // Convert unknown types to string safely
+      validated[key] = String(value).slice(0, MAX_INPUT_LENGTH);
+    }
+  }
+  
+  return validated;
 }
 
 // The missing function needed by page.tsx
@@ -1692,17 +1770,8 @@ export async function rejectAssistantArchitectAction(
   }
 }
 
-// Define a type for the prompt execution result structure
-interface PromptExecutionResult {
-  promptId: number;
-  status: "completed" | "failed";
-  input: Record<string, unknown>; // Input data specific to this prompt
-  output?: string; // Output from AI
-  error?: string; // Error message if failed
-  startTime: Date;
-  endTime: Date;
-  executionTimeMs?: number;
-}
+// Legacy PromptExecutionResult interface removed - now handled by Lambda workers
+// Results are stored in prompt_results table and streamed via universal polling
 
 // Add a function to decode HTML entities and remove escapes for variable placeholders
 function decodePromptVariables(content: string): string {
@@ -1733,57 +1802,55 @@ export async function executeAssistantArchitectAction({
 }: {
   toolId: number | string
   inputs: Record<string, unknown>
-}): Promise<ActionState<{ jobId: number; executionId?: number }>> {
+}): Promise<ActionState<{ jobId: string; executionId?: number }>> {
   const requestId = generateRequestId()
   const timer = startTimer("executeAssistantArchitect")
   const log = createLogger({ requestId, action: "executeAssistantArchitect" })
   
-  log.info(`[EXEC] Started for tool ${toolId}`);
+  log.info("Started Assistant Architect execution using Lambda polling architecture", { toolId });
   
   try {
     const session = await getServerSession();
     if (!session?.sub) {
-      throw createError("Unauthorized", {
-        code: "UNAUTHORIZED",
-        level: ErrorLevel.WARN
-      });
+      log.warn("Unauthorized assistant architect execution attempt")
+      throw ErrorFactories.authNoSession()
     }
 
     // Get the current user's database ID
     const currentUser = await getCurrentUserAction();
     if (!currentUser.isSuccess) {
-      throw createError("User not found", {
-        code: "UNAUTHORIZED",
-        level: ErrorLevel.WARN
-      });
+      log.error("User not found in database")
+      throw ErrorFactories.dbRecordNotFound("users", session.sub)
     }
 
     // First get the tool to check if it exists and user has access
     const toolResult = await getAssistantArchitectByIdAction(String(toolId))
     if (!toolResult.isSuccess || !toolResult.data) {
-      throw createError("Tool not found", {
-        code: "NOT_FOUND",
-        level: ErrorLevel.ERROR,
-        details: { toolId }
-      });
+      log.error("Assistant Architect tool not found", { toolId })
+      throw ErrorFactories.dbRecordNotFound("assistant_architects", String(toolId))
     }
     const tool = toolResult.data;
     
-    // Create a job to track this execution
-    const jobResult = await createJobAction({
-      type: "assistant_architect_execution",
-      status: "pending",
-      input: JSON.stringify({ toolId, inputs }),
-      userId: currentUser.data.user.id
+    log.info("Tool retrieved successfully", { 
+      toolId, 
+      toolName: tool.name,
+      promptCount: tool.prompts?.length || 0,
+      inputFieldCount: tool.inputFields?.length || 0
     });
 
-    if (!jobResult.isSuccess) {
-      throw createError("Failed to create execution job", {
-        code: "INTERNAL_ERROR",
-        level: ErrorLevel.ERROR,
-        details: { toolId }
-      });
+    // Check if user has access to this tool
+    const hasAccess = await hasToolAccess(session.sub, "assistant-architect");
+    if (!hasAccess) {
+      log.warn("User does not have access to assistant architect tools")
+      throw ErrorFactories.authzToolAccessDenied("assistant-architect")
     }
+
+    // Validate and sanitize inputs before processing
+    const validatedInputs = validateAssistantArchitectInputs(inputs);
+    log.info("Inputs validated successfully", { 
+      inputCount: Object.keys(validatedInputs).length,
+      inputKeys: Object.keys(validatedInputs)
+    });
 
     // Create the execution record immediately so we can return the ID
     const executionResult = await executeSQL<{ id: number }>(
@@ -1793,252 +1860,227 @@ export async function executeAssistantArchitectAction({
       [
         { name: 'toolId', value: { longValue: parseInt(String(toolId), 10) } },
         { name: 'userId', value: { longValue: currentUser.data.user.id } },
-        { name: 'inputData', value: { stringValue: JSON.stringify(inputs) } },
+        { name: 'inputData', value: { stringValue: JSON.stringify(validatedInputs) } },
         { name: 'status', value: { stringValue: 'pending' } }
       ]
     );
 
     const executionId = executionResult[0]?.id as number;
+    
+    log.info("Execution record created", { executionId });
 
-    // Get the model identifier for the first prompt directly from database
-    let modelIdentifier: string | undefined;
-    const modelQueryRaw = await executeSQL(
-      `SELECT am.model_id 
-       FROM chain_prompts cp
-       JOIN ai_models am ON cp.model_id = am.id
-       WHERE cp.assistant_architect_id = :toolId
-       ORDER BY cp.position ASC
-       LIMIT 1`,
-      [{ name: 'toolId', value: { longValue: parseInt(String(toolId), 10) } }]
-    );
-    if (modelQueryRaw.length > 0) {
-      // Transform snake_case to camelCase
-      const transformed = transformSnakeToCamel<{ modelId: string }>(modelQueryRaw[0]);
-      modelIdentifier = transformed.modelId;
-      log.info("Found model for tool", { 
-        toolId, 
-        modelIdentifier
-      });
-    } else {
-      log.warn("No model found for tool", { toolId });
+    // Get the first model for the job (required for job creation)
+    let modelId: number | undefined;
+    let modelIdString: string | undefined;
+    let provider: string | undefined;
+    
+    if (tool.prompts && tool.prompts.length > 0) {
+      const firstPrompt = tool.prompts.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
+      
+      const modelQueryRaw = await executeSQL(
+        `SELECT id, provider, model_id 
+         FROM ai_models 
+         WHERE id = :modelId AND active = true`,
+        [{ name: 'modelId', value: { longValue: firstPrompt.modelId || 0 } }]
+      );
+      
+      if (modelQueryRaw.length > 0) {
+        const modelData = transformSnakeToCamel<{ id: number; provider: string; modelId: string }>(modelQueryRaw[0]);
+        modelId = modelData.id;
+        modelIdString = modelData.modelId;
+        provider = modelData.provider;
+        
+        log.info("Found model for assistant architect", { 
+          modelId, 
+          modelIdString,
+          provider
+        });
+      }
     }
 
-    // Background execution is disabled - streaming is handled via /api/chat with executionId
-    // The frontend uses useChat hook which streams through the main chat endpoint
+    if (!modelId || !modelIdString || !provider) {
+      log.error("No valid model found for assistant architect tool", { toolId });
+      throw ErrorFactories.validationFailed([{ 
+        field: "modelId", 
+        message: "No valid model configured for this assistant architect" 
+      }]);
+    }
 
-    log.info("Assistant architect execution created for streaming", { jobId: jobResult.data.id, executionId, modelIdentifier })
-    timer({ status: "success", jobId: jobResult.data.id, executionId })
+    // Build repository IDs for knowledge context
+    let repositoryIds: number[] = [];
+    if (tool.prompts && tool.prompts.length > 0) {
+      for (const prompt of tool.prompts) {
+        if (prompt.repositoryIds) {
+          const promptRepoIds = parseRepositoryIds(prompt.repositoryIds);
+          repositoryIds = [...repositoryIds, ...promptRepoIds];
+        }
+      }
+      // Remove duplicates
+      repositoryIds = Array.from(new Set(repositoryIds));
+    }
+    
+    log.info("Repository IDs collected for knowledge context", { repositoryIds });
+
+    // Use jobManagementService to create streaming job with assistant architect context
+    const { jobManagementService } = await import('@/lib/streaming/job-management-service');
+    const { getStreamingJobsQueueUrl } = await import('@/lib/aws/queue-config');
+    const { SQSClient, SendMessageCommand } = await import('@aws-sdk/client-sqs');
+
+    // Create job request for assistant architect execution
+    const jobRequest = {
+      conversationId: `assistant-architect-${executionId}`, // Unique conversation ID for this execution
+      userId: currentUser.data.user.id,
+      modelId: modelId,
+      messages: [
+        {
+          id: `assistant-architect-start-${Date.now()}`,
+          role: 'system' as const,
+          parts: [{ 
+            type: 'text' as const, 
+            text: 'Assistant Architect execution initiated' 
+          }]
+        },
+        {
+          id: `assistant-architect-user-${Date.now()}`,
+          role: 'user' as const,
+          parts: [{ 
+            type: 'text' as const, 
+            text: JSON.stringify({
+              action: 'execute_assistant_architect',
+              toolId: String(toolId),
+              executionId,
+              inputs: validatedInputs,
+              toolName: tool.name,
+              prompts: tool.prompts?.map(p => ({
+                id: p.id,
+                name: p.name,
+                content: p.content,
+                systemContext: p.systemContext,
+                modelId: p.modelId,
+                position: p.position,
+                inputMapping: p.inputMapping,
+                repositoryIds: p.repositoryIds ? parseRepositoryIds(p.repositoryIds) : undefined
+              })) || [],
+              repositoryIds
+            })
+          }]
+        }
+      ],
+      provider: provider,
+      modelIdString: modelIdString,
+      systemPrompt: `You are executing an Assistant Architect tool. Process each prompt in sequence, applying variable substitution and knowledge context as needed.`,
+      options: {
+        responseMode: 'standard' as const,
+        reasoningEffort: 'medium' as const
+      },
+      source: 'assistant-architect',
+      sessionId: session.sub
+    };
+
+    // Create the streaming job
+    const streamingJobId = await jobManagementService.createJob(jobRequest);
+    
+    log.info("Streaming job created for assistant architect", { 
+      streamingJobId, 
+      executionId,
+      toolId 
+    });
+
+    // Send job to SQS queue for Lambda worker processing
+    const sqsClient = new SQSClient({
+      region: process.env.NEXT_PUBLIC_AWS_REGION || process.env.AWS_REGION || 'us-east-1'
+    });
+
+    const queueUrl = getStreamingJobsQueueUrl();
+    if (queueUrl) {
+      try {
+        const sqsCommand = new SendMessageCommand({
+          QueueUrl: queueUrl,
+          MessageBody: streamingJobId,
+          MessageAttributes: {
+            jobType: {
+              DataType: 'String',
+              StringValue: 'ai-streaming-assistant-architect'
+            },
+            provider: {
+              DataType: 'String',
+              StringValue: provider
+            },
+            modelId: {
+              DataType: 'String',
+              StringValue: modelIdString
+            },
+            toolId: {
+              DataType: 'String',
+              StringValue: String(toolId)
+            },
+            executionId: {
+              DataType: 'String',
+              StringValue: String(executionId)
+            },
+            userId: {
+              DataType: 'Number',
+              StringValue: currentUser.data.user.id.toString()
+            },
+            source: {
+              DataType: 'String',
+              StringValue: 'assistant-architect'
+            }
+          }
+        });
+        
+        await sqsClient.send(sqsCommand);
+        
+        log.info("Assistant architect job sent to SQS queue successfully", {
+          streamingJobId,
+          executionId,
+          toolId
+        });
+      } catch (sqsError) {
+        log.error("Failed to send assistant architect job to SQS queue", {
+          streamingJobId,
+          executionId,
+          error: sqsError instanceof Error ? sqsError.message : String(sqsError)
+        });
+        
+        // Mark job as failed if we can't queue it
+        try {
+          await jobManagementService.failJob(streamingJobId, `Failed to queue assistant architect job: ${sqsError}`);
+        } catch (failError) {
+          log.error("Failed to mark job as failed", { streamingJobId, error: failError });
+        }
+        
+        throw ErrorFactories.externalServiceError('SQS', new Error('Failed to queue assistant architect job for processing'));
+      }
+    } else {
+      log.warn("No SQS queue URL configured, job created but not queued", { streamingJobId });
+    }
+
+    log.info("Assistant architect execution migrated to Lambda architecture successfully", { 
+      jobId: streamingJobId, 
+      executionId 
+    })
+    timer({ status: "success", jobId: streamingJobId, executionId })
 
     return createSuccess({ 
-      jobId: jobResult.data.id, 
-      executionId, 
-      modelId: modelIdentifier || undefined 
-    }, "Execution started");
+      jobId: streamingJobId, // Return streaming job ID for universal polling
+      executionId 
+    }, "Assistant Architect execution started using Lambda architecture");
   } catch (error) {
     timer({ status: "error" })
     return handleError(error, "Failed to execute assistant architect", {
-      context: "executeAssistantArchitectAction"
+      context: "executeAssistantArchitect",
+      requestId,
+      operation: "executeAssistantArchitect"
     });
   }
 }
 
-async function executeAssistantArchitectJob(
-  jobId: string,
-  tool: ArchitectWithRelations,
-  inputs: Record<string, unknown>,
-  providedExecutionId?: number
-) {
-  const executionStartTime = new Date();
-  const results: PromptExecutionResult[] = [];
-  let executionId: number | null = providedExecutionId || null;
-  
-  const rdsDataClient = new RDSDataClient({ region: process.env.AWS_REGION || 'us-east-1' });
-  const dataApiConfig = {
-    resourceArn: process.env.RDS_RESOURCE_ARN!,
-    secretArn: process.env.RDS_SECRET_ARN!,
-    database: process.env.RDS_DATABASE_NAME || 'aistudio',
-  };
-
-  const beginTransactionCmd = new BeginTransactionCommand(dataApiConfig);
-  const { transactionId } = await rdsDataClient.send(beginTransactionCmd);
-
-  if (!transactionId) {
-    await updateJobAction(jobId, { status: "failed", error: "Failed to start a database transaction." });
-    return;
-  }
-  
-  try {
-    await updateJobAction(jobId, { status: "running" });
-
-    // Get the job to find the user ID
-    const jobResult = await getJobAction(jobId);
-    if (!jobResult.isSuccess || !jobResult.data) {
-      throw ErrorFactories.dbRecordNotFound("jobs", jobId);
-    }
-    
-    // If we already have an executionId, update it. Otherwise create a new one.
-    if (providedExecutionId) {
-      // Update existing execution
-      const updateExecutionSql = `
-        UPDATE tool_executions 
-        SET status = :status::execution_status, started_at = :startedAt::timestamp
-        WHERE id = :executionId
-      `;
-      await rdsDataClient.send(new ExecuteStatementCommand({
-        ...dataApiConfig,
-        sql: updateExecutionSql,
-        parameters: [
-          { name: 'executionId', value: { longValue: providedExecutionId } },
-          { name: 'status', value: { stringValue: 'running' } },
-          { name: 'startedAt', value: { stringValue: executionStartTime.toISOString().slice(0, 19).replace('T', ' ') } },
-        ],
-        transactionId,
-      }));
-    } else {
-      // Create new execution (for backward compatibility)
-      const insertExecutionSql = `
-        INSERT INTO tool_executions (assistant_architect_id, user_id, input_data, status, started_at)
-        VALUES (:toolId, :userId, :inputData::jsonb, :status::execution_status, :startedAt::timestamp)
-        RETURNING id
-      `;
-      const executionResult = await rdsDataClient.send(new ExecuteStatementCommand({
-        ...dataApiConfig,
-        sql: insertExecutionSql,
-        parameters: [
-          { name: 'toolId', value: { longValue: typeof tool.id === 'string' ? parseInt(tool.id, 10) : tool.id } },
-          { name: 'userId', value: { longValue: jobResult.data.userId } },
-          { name: 'inputData', value: { stringValue: JSON.stringify(inputs) } },
-          { name: 'status', value: { stringValue: 'running' } },
-          { name: 'startedAt', value: { stringValue: executionStartTime.toISOString().slice(0, 19).replace('T', ' ') } }
-        ],
-        transactionId,
-      }));
-      
-      if (!executionResult.records || executionResult.records.length === 0) {
-        throw ErrorFactories.dbQueryFailed("INSERT INTO tool_executions", new Error("No execution ID returned"));
-      }
-      executionId = executionResult.records[0][0].longValue as number;
-    }
-
-    const prompts = tool.prompts?.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)) || [];
-    for (const prompt of prompts) {
-      const promptStartTime = new Date();
-      const promptInputData: Record<string, any> = { ...inputs };
-      
-      // Map outputs from previous prompts
-      for (const prevResult of results) {
-        const prevPrompt = tool.prompts?.find(p => p.id === prevResult.promptId);
-        if (prevPrompt) {
-          promptInputData[slugify(prevPrompt.name)] = prevResult.output;
-        }
-      }
-
-      // Map inputs based on inputMapping
-      if (prompt.inputMapping) {
-        for (const [key, value] of Object.entries(prompt.inputMapping as Record<string, string>)) {
-          if (value.startsWith("input.")) {
-            const inputName = value.substring(6);
-            promptInputData[key] = inputs[inputName];
-          } else { // It's a prompt output mapping
-             const matchingPrompt = tool.prompts?.find(p => String(p.id) === String(value));
-             if (matchingPrompt) {
-                const prevResult = results.find(r => r.promptId === matchingPrompt.id);
-                if (prevResult) {
-                    promptInputData[key] = prevResult.output;
-                }
-             }
-          }
-        }
-      }
-      
-      let newPromptResultId: number | null = null;
-      
-      try {
-        const insertPromptResultResult = await rdsDataClient.send(new ExecuteStatementCommand({ ...dataApiConfig, 
-            sql: `INSERT INTO prompt_results (execution_id, prompt_id, input_data, status, started_at)
-                  VALUES (:executionId, :promptId, :inputData::jsonb, 'pending'::execution_status, :startedAt::timestamp)
-                  RETURNING id`,
-            parameters: [
-                { name: 'executionId', value: { longValue: executionId! } },
-                { name: 'promptId', value: { longValue: typeof prompt.id === 'string' ? parseInt(prompt.id, 10) : prompt.id } },
-                { name: 'inputData', value: { stringValue: JSON.stringify(promptInputData) } },
-                { name: 'startedAt', value: { stringValue: promptStartTime.toISOString().slice(0, 19).replace('T', ' ') } },
-            ],
-            transactionId
-        }));
-        
-        if (!insertPromptResultResult.records || insertPromptResultResult.records.length === 0) {
-          throw ErrorFactories.dbQueryFailed("INSERT INTO prompt_results", new Error("No prompt result ID returned"));
-        }
-        newPromptResultId = Number((insertPromptResultResult.records?.[0]?.[0] as { longValue?: number })?.longValue);
-        
-        if (!prompt.modelId) throw ErrorFactories.validationFailed([{ field: "modelId", message: "No model ID specified for prompt" }]);
-        const modelId = typeof prompt.modelId === 'string' ? parseInt(prompt.modelId, 10) : prompt.modelId;
-        const modelRecord = (await executeSQL<RawDbRow>('SELECT model_id, provider FROM ai_models WHERE id = :id', [{name: 'id', value: {longValue: modelId}}]))[0];
-        if (!modelRecord) throw ErrorFactories.dbRecordNotFound("ai_models", String(modelId));
-
-        const messages: CoreMessage[] = [
-          {
-            role: 'system',
-            content: prompt.systemContext || 'You are a helpful AI assistant.'
-          },
-          {
-            role: 'user',
-            content: decodePromptVariables(prompt.content).replace(/\${([\w-]+)}/g, (_match: string, key: string) => {
-              const value = promptInputData[key]
-              return value !== undefined ? String(value) : `[Missing value for ${key}]`
-            }).trim() || "Please provide input for this prompt."
-          }
-        ];
-
-        const output = await generateCompletion({ provider: String(modelRecord.provider), modelId: String(modelRecord.model_id) }, messages);
-
-        await rdsDataClient.send(new ExecuteStatementCommand({ ...dataApiConfig,
-            sql: `UPDATE prompt_results SET status = 'completed'::execution_status, output_data = :output, completed_at = :completedAt::timestamp, execution_time_ms = :execTime WHERE id = :id`,
-            parameters: [
-                { name: 'output', value: { stringValue: output } },
-                { name: 'completedAt', value: { stringValue: new Date().toISOString().slice(0, 19).replace('T', ' ') } },
-                { name: 'execTime', value: { longValue: new Date().getTime() - promptStartTime.getTime() } },
-                { name: 'id', value: { longValue: newPromptResultId! } }
-            ],
-            transactionId
-        }));
-        results.push({ promptId: prompt.id, status: "completed", input: promptInputData, output, startTime: promptStartTime, endTime: new Date(), executionTimeMs: 0 });
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : 'Unknown prompt error';
-        if (newPromptResultId) {
-          await rdsDataClient.send(new ExecuteStatementCommand({ ...dataApiConfig,
-              sql: `UPDATE prompt_results SET status = 'failed'::execution_status, error_message = :errorMsg, completed_at = :completedAt::timestamp WHERE id = :id`,
-              parameters: [
-                  { name: 'errorMsg', value: { stringValue: errorMsg } },
-                  { name: 'completedAt', value: { stringValue: new Date().toISOString().slice(0, 19).replace('T', ' ') } },
-                  { name: 'id', value: { longValue: newPromptResultId! } }
-            ],
-            transactionId
-          }));
-        }
-        results.push({ promptId: prompt.id, status: "failed", input: promptInputData, error: errorMsg, startTime: promptStartTime, endTime: new Date() });
-      }
-    }
-
-    const finalStatus = results.some(r => r.status === "failed") ? "failed" : "completed";
-    await rdsDataClient.send(new ExecuteStatementCommand({ ...dataApiConfig, 
-        sql: `UPDATE tool_executions SET status = :status::execution_status, completed_at = :completedAt::timestamp WHERE id = :id`,
-        parameters: [
-            { name: 'status', value: { stringValue: finalStatus } },
-            { name: 'completedAt', value: { stringValue: new Date().toISOString().slice(0, 19).replace('T', ' ') } },
-            { name: 'id', value: { longValue: executionId! } }
-        ],
-        transactionId
-    }));
-    await rdsDataClient.send(new CommitTransactionCommand({ ...dataApiConfig, transactionId }));
-    await updateJobAction(jobId, { status: finalStatus, output: JSON.stringify({ executionId, results }) });
-  } catch (error) {
-    await rdsDataClient.send(new RollbackTransactionCommand({ ...dataApiConfig, transactionId }));
-    const errorMsg = error instanceof Error ? error.message : "Unknown job error";
-    await updateJobAction(jobId, { status: "failed", error: errorMsg, output: JSON.stringify({ executionId, results }) });
-  }
-}
+// Note: executeAssistantArchitectJob function has been deprecated and removed.
+// Assistant Architect execution now uses the Lambda-based polling architecture
+// with streaming job processing in SQS workers. The complex transaction-based
+// local execution has been replaced with job queuing for better scalability
+// and reliability.
 
 // For the public view, get only approved tools
 export async function getApprovedAssistantArchitectsAction(): Promise<

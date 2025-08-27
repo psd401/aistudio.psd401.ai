@@ -19,8 +19,9 @@ import { useState, useEffect, useCallback, memo } from "react"
 import { useToast } from "@/components/ui/use-toast"
 import { executeAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
 import { getJobAction } from "@/actions/db/jobs-actions"
+import { getStreamingJobAction, cancelStreamingJobAction } from "@/actions/db/streaming-job-actions"
 import { SelectJob, SelectToolInputField } from "@/types/db-types"
-import { ExecutionResultDetails, JobOutput, JobPromptResult } from "@/types/assistant-architect-types"
+import { ExecutionResultDetails } from "@/types/assistant-architect-types"
 import { Loader2, Bot, Terminal, AlertCircle, ChevronDown, ChevronRight, Copy, ThumbsUp, ThumbsDown, Sparkles, X } from "lucide-react"
 import { MemoizedMarkdown } from "@/components/ui/memoized-markdown"
 import { ErrorBoundary } from "@/components/error-boundary"
@@ -31,10 +32,7 @@ import { ChatErrorBoundary } from "./chat-error-boundary"
 import Image from "next/image"
 import PdfUploadButton from "@/components/ui/pdf-upload-button"
 import { updatePromptResultAction } from "@/actions/db/assistant-architect-actions"
-import { useChat } from '@ai-sdk/react'
-import { nanoid } from 'nanoid'
-
-const generateRequestId = () => nanoid()
+import { type StreamingJob } from "@/lib/streaming/job-management-service"
 
 interface AssistantArchitectExecutionProps {
   tool: AssistantArchitectWithRelations
@@ -74,11 +72,14 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   const { toast } = useToast()
   const [isPolling, setIsPolling] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
+  const [streamingJob, setStreamingJob] = useState<StreamingJob | null>(null)
   const [results, setResults] = useState<ExtendedExecutionResultDetails | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [expandedPrompts, setExpandedPrompts] = useState<Record<string, boolean>>({})
   const [conversationId, setConversationId] = useState<number | null>(null)
   const [executionId, setExecutionId] = useState<number | null>(null)
+  const [jobStatus, setJobStatus] = useState<'pending' | 'processing' | 'streaming' | 'completed' | 'failed' | 'cancelled'>('pending')
+  const [partialContent, setPartialContent] = useState<string>('')
 
   // Define base types for fields first
   const stringSchema = z.string();
@@ -117,51 +118,17 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
     }, {})
   })
 
-  // Use AI SDK's useChat hook - exactly like /chat and model-compare do
-  const { 
-    messages,
-    sendMessage,
-    status,
-    stop,
-    setMessages
-  } = useChat({
-    onFinish: () => {
-      // Update results when streaming is complete
-      if (executionId) {
-        setResults(prev => {
-          if (!prev) return null
-          return {
-            ...prev,
-            status: 'completed',
-            completedAt: new Date(),
-            // For streaming display, we don't need promptResults since we're using messages directly
-            promptResults: []
-          }
-        })
-      }
-      
-      toast({
-        title: "Execution Completed",
-        description: "Assistant response completed successfully"
-      })
-    },
-    onError: (error) => {
-      setError(error.message)
-      toast({
-        title: "Execution Error",
-        description: error.message,
-        variant: "destructive"
-      })
-    }
-  })
+  // Universal Polling Architecture - No local streaming, all via job polling
 
   const onSubmit = useCallback(async (values: z.infer<typeof formSchema>) => {
     // Only clear results if we're not already processing
-    if (status !== 'streaming' && status !== 'submitted' && !isPolling) {
+    if (jobStatus !== 'streaming' && jobStatus !== 'processing' && !isPolling) {
       // Don't clear results if we already have completed results - user might be using chat
       if (!results || results.status !== 'completed') {
         setResults(null)
         setError(null)
+        setPartialContent('')
+        setStreamingJob(null)
       } else {
         // If we have completed results, confirm before re-running
         const confirmRerun = window.confirm("You have existing results. Do you want to run the assistant again? This will clear your current results and chat.")
@@ -170,6 +137,8 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         }
         setResults(null)
         setError(null)
+        setPartialContent('')
+        setStreamingJob(null)
         setConversationId(null) // Reset conversation when re-running
       }
     } else {
@@ -184,57 +153,24 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
 
       if (result.isSuccess && result.data?.jobId) {
         setJobId(String(result.data.jobId))
+        setExecutionId(result.data.executionId || null)
+        setJobStatus('pending')
+        setIsPolling(true)
         
-        // Check if we have executionId for streaming support
-        const supportsStreaming = !!result.data?.executionId
-        
-        if (supportsStreaming && result.data?.executionId) {
-          // Store execution context
-          setExecutionId(result.data.executionId)
-          
-          // Initialize results structure for streaming
-          const initialResults: ExtendedExecutionResultDetails = {
-            id: result.data.executionId,
-            toolId: tool.id,
-            userId: 'current',
-            status: 'running',
-            inputData: values,
-            startedAt: new Date(),
-            completedAt: null,
-            errorMessage: null,
-            assistantArchitectId: tool.id,
-            promptResults: [] // Will be populated by streaming
-          }
-          setResults(initialResults)
-          
-          // Clear previous messages
-          setMessages([])
-          
-          // Use the model ID returned from the action
-          const modelIdentifier = (result.data as { modelId?: string })?.modelId;
-          
-          if (!modelIdentifier) {
-            setError('No model configured for this tool');
-            return;
-          }
-          
-          // Start streaming using AI SDK's useChat - exactly like /chat does
-          await sendMessage({
-            id: generateRequestId(),
-            role: 'user' as const,
-            parts: [{ type: 'text' as const, text: JSON.stringify(values) }]
-          }, {
-            body: {
-              modelId: modelIdentifier,
-              executionId: result.data.executionId,
-              source: 'assistant_execution'
-            }
-          })
-          
-        } else {
-          // Use polling for older executions without executionId
-          setIsPolling(true)
+        // Initialize results structure for job tracking
+        const initialResults: ExtendedExecutionResultDetails = {
+          id: result.data.executionId || result.data.jobId,
+          toolId: tool.id,
+          userId: 'current',
+          status: 'running',
+          inputData: values,
+          startedAt: new Date(),
+          completedAt: null,
+          errorMessage: null,
+          assistantArchitectId: tool.id,
+          promptResults: [] // Will be populated by polling
         }
+        setResults(initialResults)
         
         toast({ title: "Execution Started", description: "The tool is now running" })
       } else {
@@ -255,198 +191,178 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         variant: "destructive"
       })
     }
-  }, [status, isPolling, tool.id, results, toast, sendMessage, setMessages])
+  }, [jobStatus, isPolling, tool.id, results, toast])
 
-  // Helper to parse JSON safely for legacy polling
-  const safeJsonParse = useCallback((jsonString: string | null | undefined): Record<string, unknown> | null => {
-    if (!jsonString) return null;
-    try {
-      return JSON.parse(jsonString) as Record<string, unknown>;
-    } catch {
-      if (typeof jsonString === 'string') {
-        return { value: jsonString };
-      }
-      return null;
-    }
-  }, [])
 
-  // Legacy polling for old executions without streaming support
+  // Universal Polling Architecture - Poll streaming job status
   useEffect(() => {
-    if (!isPolling) return // Exit early if not polling
+    if (!isPolling || !jobId) return
     
     const abortController = new AbortController()
     let intervalId: NodeJS.Timeout | null = null
     let retryCount = 0
     const MAX_RETRIES = 120
-    const BACKOFF_THRESHOLD = 20
-    let currentInterval = 3000
 
-    async function pollJob() {
+    async function pollStreamingJob() {
       if (!jobId || abortController.signal.aborted) return
       
       try {
-        const result = await getJobAction(jobId)
-        // Check if request was aborted before updating state
+        // Try to get streaming job first (for new assistant architect executions)
+        const streamingJobResult = await getStreamingJobAction(jobId)
+        let job: StreamingJob | null = null
+        
+        if (streamingJobResult.isSuccess && streamingJobResult.data) {
+          // Use the streaming job data
+          job = streamingJobResult.data
+        } else {
+          // Fall back to legacy job structure for backward compatibility
+          const legacyJobResult = await getJobAction(jobId)
+          if (!legacyJobResult.isSuccess) {
+            retryCount++
+            return
+          }
+          
+          // Convert legacy job to streaming job format
+          const legacyJob = legacyJobResult.data as SelectJob
+          job = {
+            id: jobId,
+            conversationId: String(legacyJob.id),
+            userId: legacyJob.userId,
+            modelId: 1, // Default model ID
+            status: legacyJob.status === 'pending' ? 'pending' : 
+                   legacyJob.status === 'running' ? 'processing' :
+                   legacyJob.status === 'completed' ? 'completed' : 'failed',
+            requestData: { messages: [], modelId: '', provider: '' },
+            partialContent: undefined, // Legacy jobs don't have partial content
+            responseData: legacyJob.output ? {
+              text: legacyJob.output,
+              finishReason: 'stop'
+            } : undefined,
+            errorMessage: legacyJob.error || undefined,
+            createdAt: new Date(legacyJob.createdAt),
+            completedAt: legacyJob.updatedAt ? new Date(legacyJob.updatedAt) : undefined
+          }
+        }
+        
         if (abortController.signal.aborted) return
         retryCount++
 
-        if (result.isSuccess && result.data) {
-          const job = result.data as SelectJob
+        if (job) {
+          setStreamingJob(job)
+          setJobStatus(job.status)
+          
+          // Update partial content if available
+          if (job.partialContent) {
+            setPartialContent(job.partialContent)
+          }
 
-          if (job.status === "completed" || job.status === "failed") {
+          // Handle completed or failed jobs
+          if (job.status === 'completed' || job.status === 'failed') {
             setIsPolling(false)
 
-            // Try to extract error from job output first, then fall back to job.error
-            const outputData = safeJsonParse(job.output) as JobOutput | null;
-            const inputData = safeJsonParse(job.input);
-            
-            // Check for errors in the output data
-            let jobError = job.error;
-            if (!jobError && outputData && outputData.results && outputData.results.length > 0) {
-              const failedResult = outputData.results.find(r => r.status === 'failed');
-              if (failedResult && failedResult.error) {
-                jobError = failedResult.error;
-              }
-            }
-            
-            // Final fallback if still no error message
-            if (!jobError && job.status === "failed") {
-              jobError = "Execution failed without a specific error message";
-            }
-            
-            if (jobError) {
-              setError(jobError)
-            }
-
-            if (outputData) {
-              const promptResultsForState: ExtendedPromptResult[] = outputData.results.map((res: JobPromptResult) => ({
-                id: res.promptId + "_" + outputData.executionId,
-                executionId: outputData.executionId,
-                promptId: typeof res.promptId === 'number' ? res.promptId : parseInt(res.promptId),
-                inputData: res.input,
-                outputData: res.output || '',
-                status: res.status as "pending" | "completed" | "failed",
-                startedAt: new Date(res.startTime),
-                completedAt: res.endTime ? new Date(res.endTime) : null,
-                executionTimeMs: res.executionTimeMs || 0,
-                errorMessage: res.error || (res.status === 'failed' ? 'Prompt execution failed' : null),
-                userFeedback: res.userFeedback
-              }));
-
-              // Initialize expandedPrompts with all collapsed except the last one
-              if (promptResultsForState.length > 0) {
-                const lastPromptId = promptResultsForState[promptResultsForState.length - 1].id;
-                const newExpandedPrompts = promptResultsForState.reduce((acc, prompt) => {
-                  acc[prompt.id] = prompt.id === lastPromptId;
-                  return acc;
-                }, {} as Record<string, boolean>);
-                setExpandedPrompts(newExpandedPrompts);
-              }
-
-              setResults({
-                id: outputData.executionId,
-                toolId: tool?.id || 0,
+            // For completed jobs with response data, create final results
+            if (job.status === 'completed' && job.responseData) {
+              const finalResults: ExtendedExecutionResultDetails = {
+                id: executionId || job.id,
+                toolId: tool.id,
                 userId: job.userId,
-                status: job.status,
-                inputData: inputData || {},
-                startedAt: new Date(job.createdAt),
-                completedAt: new Date(job.updatedAt),
-                errorMessage: jobError,
-                assistantArchitectId: tool?.id,
-                promptResults: promptResultsForState
+                status: 'completed',
+                inputData: results?.inputData || {},
+                startedAt: job.createdAt,
+                completedAt: job.completedAt || new Date(),
+                errorMessage: null,
+                assistantArchitectId: tool.id,
+                promptResults: [] // Assistant architect jobs don't use traditional prompt results
+              }
+              setResults(finalResults)
+              
+              toast({
+                title: "Execution Completed",
+                description: "Assistant architect execution completed successfully"
               })
             } else if (job.status === 'failed') {
-              setResults({
-                id: jobId,
-                toolId: tool?.id || 0,
-                userId: job.userId,
-                status: job.status,
-                inputData: inputData || {},
-                startedAt: new Date(job.createdAt),
-                completedAt: new Date(job.updatedAt),
-                errorMessage: jobError || "Execution failed, and output data was not available.",
-                assistantArchitectId: tool?.id,
-                promptResults: []
+              const errorMessage = job.errorMessage || "Execution failed"
+              setError(errorMessage)
+              
+              setResults(prev => prev ? {
+                ...prev,
+                status: 'failed',
+                errorMessage,
+                completedAt: job.completedAt || new Date()
+              } : null)
+
+              toast({
+                title: "Execution Failed",
+                description: errorMessage,
+                variant: "destructive"
               })
             }
-
-            toast({
-              title: "Execution Finished",
-              description: `Status: ${job.status}${jobError ? ` - ${jobError}` : ""}`,
-              variant: job.status === "completed" ? "default" : "destructive"
-            })
 
             if (intervalId) {
               clearInterval(intervalId)
             }
           }
         } else {
-           retryCount++
+          // Job not found, increment retry count
+          retryCount++
         }
-      } catch {
+      } catch (error) {
         retryCount++
+        console.error('Polling error:', error)
       }
 
+      // Timeout handling
       if (retryCount >= MAX_RETRIES) {
         setIsPolling(false)
+        setJobStatus('failed')
         const timeoutError = "The execution took too long to complete"
         setError(timeoutError)
-         if (results) {
-            setResults(prev => prev ? {...prev, status: 'failed', errorMessage: timeoutError} : null);
-         } else {
-             const formValues = form.getValues();
-             const inputData = Object.entries(formValues).reduce((acc, [key, value]) => {
-               acc[key] = value;
-               return acc;
-             }, {} as Record<string, unknown>);
-             
-             setResults({
-                 id: jobId || 'unknown',
-                 toolId: tool?.id || 0,
-                 userId: 'unknown',
-                 status: 'failed',
-                 inputData,
-                 startedAt: new Date(),
-                 completedAt: new Date(),
-                 errorMessage: timeoutError,
-                 assistantArchitectId: tool?.id,
-                 promptResults: [],
-             });
-         }
+        
+        setResults(prev => prev ? {
+          ...prev,
+          status: 'failed',
+          errorMessage: timeoutError,
+          completedAt: new Date()
+        } : null)
+
         toast({
           title: "Execution Timeout",
           description: timeoutError,
           variant: "destructive"
         })
+        
         if (intervalId) {
           clearInterval(intervalId)
         }
         return
       }
-
-      if (retryCount > BACKOFF_THRESHOLD && currentInterval === 3000) {
-         currentInterval = 5000
-         if (intervalId) {
-           clearInterval(intervalId)
-           intervalId = null // Clear reference to prevent accumulation
-         }
-         intervalId = setInterval(pollJob, currentInterval)
-       }
     }
 
-    if (isPolling) {
-      pollJob();
-      intervalId = setInterval(pollJob, currentInterval)
+    // Use fixed polling intervals for now (could be made adaptive with server actions)
+    const getPollingInterval = () => {
+      switch (jobStatus) {
+        case 'pending':
+          return 2000 // 2 seconds while waiting to start
+        case 'processing':
+          return 3000 // 3 seconds while processing  
+        case 'streaming':
+          return 1500 // 1.5 seconds while streaming
+        default:
+          return 2000 // Default 2 second interval
+      }
     }
+
+    const interval = getPollingInterval()
+    pollStreamingJob()
+    intervalId = setInterval(pollStreamingJob, interval)
 
     return () => {
-      // Cleanup polling on unmount
-      abortController.abort() // Cancel any pending operations
+      abortController.abort()
       if (intervalId) {
         clearInterval(intervalId)
       }
     }
-  }, [isPolling, jobId, tool.id, toast, form, results, safeJsonParse])
+  }, [isPolling, jobId, jobStatus, streamingJob, tool.id, executionId, results, toast])
 
   const togglePromptExpand = useCallback((promptResultId: string) => {
     setExpandedPrompts(prev => ({
@@ -572,11 +488,11 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                         <Textarea
                           placeholder="Enter your answer..."
                           {...formField}
-                          value={formField.value ?? ""}
+                          value={typeof formField.value === 'string' ? formField.value : ''}
                           className="bg-muted"
                         />
                         ) : field.fieldType === "select" || field.fieldType === "multi_select" ? (
-                          <Select onValueChange={formField.onChange} defaultValue={formField.value ?? undefined}>
+                          <Select onValueChange={formField.onChange} defaultValue={typeof formField.value === 'string' ? formField.value : undefined}>
                             <SelectTrigger className="bg-muted">
                               <SelectValue placeholder={`Select ${field.label || field.name}...`} />
                             </SelectTrigger>
@@ -621,14 +537,14 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                           <PdfUploadButton
                             label="Upload PDF"
                             onMarkdown={doc => formField.onChange(doc)}
-                            disabled={status === 'streaming' || status === 'submitted'}
+                            disabled={jobStatus === 'streaming' || jobStatus === 'processing' || isPolling}
                             className="w-full"
                           />
                         ) : (
                         <Input
                           placeholder="Enter your answer..."
                           {...formField}
-                          value={formField.value ?? ""}
+                          value={typeof formField.value === 'string' ? formField.value : ''}
                           className="bg-muted"
                         />
                         )}
@@ -639,23 +555,45 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                 />
               ))}
               <div className="flex gap-2">
-                <Button type="submit" disabled={status === 'streaming' || status === 'submitted' || isPolling}>
-                  {(status === 'streaming' || status === 'submitted' || isPolling) ? (
+                <Button type="submit" disabled={jobStatus === 'streaming' || jobStatus === 'processing' || isPolling}>
+                  {(jobStatus === 'streaming' || jobStatus === 'processing' || isPolling) ? (
                   <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Running...</>
                   ) : (
                   <><Sparkles className="mr-2 h-4 w-4" /> Generate</>
                   )}
                 </Button>
-                {(status === 'streaming' || status === 'submitted') && (
+                {(jobStatus === 'streaming' || jobStatus === 'processing') && (
                   <Button 
                     type="button" 
                     variant="outline" 
-                    onClick={() => {
-                      stop()
-                      toast({ 
-                        title: "Execution Cancelled", 
-                        description: "The execution has been stopped" 
-                      })
+                    onClick={async () => {
+                      if (jobId) {
+                        try {
+                          const cancelResult = await cancelStreamingJobAction(jobId)
+                          if (cancelResult.isSuccess) {
+                            setJobStatus('cancelled')
+                            setIsPolling(false)
+                            toast({ 
+                              title: "Execution Cancelled", 
+                              description: "The execution has been cancelled" 
+                            })
+                          } else {
+                            // Fallback to just stopping local polling
+                            setJobStatus('cancelled')
+                            setIsPolling(false)
+                            toast({ 
+                              title: "Execution Stopped", 
+                              description: "Local polling stopped - job may continue on server" 
+                            })
+                          }
+                        } catch {
+                          toast({
+                            title: "Cancel Failed",
+                            description: "Failed to cancel execution",
+                            variant: "destructive"
+                          })
+                        }
+                      }
                     }}
                   >
                     <X className="mr-2 h-4 w-4" /> Cancel
@@ -666,25 +604,27 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         </Form>
       </div>
 
-      {(status === 'streaming' || status === 'submitted' || results || messages.length > 0) && (
+      {(jobStatus !== 'pending' || results || partialContent) && (
         <div className="border rounded-lg p-4 space-y-4 max-w-full">
           <div className="flex items-center justify-between">
             <div className={`text-sm font-medium ${
-              status === 'streaming' || status === 'submitted' ? 'text-blue-600' : 
-              results?.status === 'completed' || messages.some(m => m.role === 'assistant') ? 'text-green-600' : 
-              results?.status === 'failed' || error ? 'text-red-600' : 
+              jobStatus === 'streaming' || jobStatus === 'processing' ? 'text-blue-600' : 
+              jobStatus === 'completed' || results?.status === 'completed' ? 'text-green-600' : 
+              jobStatus === 'failed' || results?.status === 'failed' || error ? 'text-red-600' : 
+              jobStatus === 'cancelled' ? 'text-orange-600' :
               'text-muted-foreground'
             }`}>
               Status: {
-                status === 'streaming' ? 'Streaming response...' :
-                status === 'submitted' ? 'Processing...' :
-                results?.status === 'completed' || messages.some(m => m.role === 'assistant') ? 'Completed' :
-                results?.status === 'failed' ? 'Failed' :
+                jobStatus === 'streaming' ? 'Streaming response...' :
+                jobStatus === 'processing' ? 'Processing...' :
+                jobStatus === 'completed' || results?.status === 'completed' ? 'Completed' :
+                jobStatus === 'failed' || results?.status === 'failed' ? 'Failed' :
+                jobStatus === 'cancelled' ? 'Cancelled' :
                 error ? 'Error' :
                 'Ready'
               }
             </div>
-            {(status === 'streaming' || status === 'submitted') && (
+            {(jobStatus === 'streaming' || jobStatus === 'processing') && (
               <div className="text-sm text-muted-foreground flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
               </div>
@@ -693,22 +633,24 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
 
           <ErrorBoundary>
             <div className="space-y-6">
-              {/* Show streaming messages directly from useChat */}
-              {(status === 'streaming' || status === 'submitted' || messages.length > 0) && (
+              {/* Show streaming job progress and partial content */}
+              {(jobStatus === 'streaming' || jobStatus === 'processing' || partialContent || (streamingJob && streamingJob.responseData)) && (
                 <div className="space-y-3 p-4 border rounded-md bg-card shadow-sm">
                   <div className="flex items-center justify-between text-sm font-medium mb-2">
                     <div className="flex items-center text-muted-foreground">
                       <Terminal className="h-4 w-4 mr-2" />
-                      <span className="font-semibold text-foreground">AI Response</span>
+                      <span className="font-semibold text-foreground">Assistant Response</span>
                     </div>
-                    {(status === 'streaming' || status === 'submitted') && (
+                    {(jobStatus === 'streaming' || jobStatus === 'processing') && (
                       <div className="flex items-center gap-2">
                         <div className="flex space-x-1">
                           <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
                           <div className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: '75ms' }} />
                           <div className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
                         </div>
-                        <span className="text-xs text-muted-foreground">Streaming...</span>
+                        <span className="text-xs text-muted-foreground">
+                          {jobStatus === 'processing' ? 'Processing...' : 'Streaming...'}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -724,23 +666,28 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                       <div className="prose prose-sm dark:prose-invert max-w-none">
                         <div className="markdown-output">
                           <MemoizedMarkdown 
-                            id={`streaming-${executionId || 'unknown'}`}
+                            id={`job-${jobId || 'unknown'}`}
                             content={(() => {
-                            const assistantMsg = messages.find(m => m.role === 'assistant');
-                            if (!assistantMsg) return "Waiting for response...";
-                            // Handle AI SDK v2 message format
-                            if ('parts' in assistantMsg && Array.isArray(assistantMsg.parts)) {
-                              return assistantMsg.parts
-                                .filter(part => part.type === 'text')
-                                .map(part => part.text || '')
-                                .join('');
-                            }
-                            // Fallback to content if available
-                            return (assistantMsg as { content?: string }).content || "Waiting for response...";
-                          })()} />
+                              // Show final response data if completed
+                              if (streamingJob?.responseData && streamingJob.status === 'completed') {
+                                return streamingJob.responseData.text || "Response completed"
+                              }
+                              // Show partial content during streaming
+                              if (partialContent) {
+                                return partialContent
+                              }
+                              // Show waiting state
+                              if (jobStatus === 'processing') {
+                                return "Processing your request..."
+                              }
+                              if (jobStatus === 'streaming') {
+                                return "Waiting for response..."
+                              }
+                              return "Starting execution..."
+                            })()} />
                         </div>
                       </div>
-                      {messages.find(m => m.role === 'assistant') && (
+                      {(partialContent || (streamingJob?.responseData && streamingJob.status === 'completed')) && (
                         <div className="flex items-center gap-2 justify-end mt-4">
                           <Button
                             variant="ghost"
@@ -748,18 +695,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                             className="h-7 w-7"
                             title="Copy output"
                             onClick={() => {
-                              const assistantMsg = messages.find(m => m.role === 'assistant');
-                              let content = "";
-                              if (assistantMsg) {
-                                if ('parts' in assistantMsg && Array.isArray(assistantMsg.parts)) {
-                                  content = assistantMsg.parts
-                                    .filter(part => part.type === 'text')
-                                    .map(part => part.text || '')
-                                    .join('');
-                                } else {
-                                  content = (assistantMsg as { content?: string }).content || "";
-                                }
-                              }
+                              const content = streamingJob?.responseData?.text || partialContent || ""
                               copyToClipboard(content);
                             }}
                           >
@@ -773,8 +709,8 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                 </div>
               )}
               
-              {/* Show final results when available from polling */}
-              {results?.promptResults && results.promptResults.length > 0 && status !== 'streaming' && status !== 'submitted' && (
+              {/* Show final results when available from legacy polling (for backward compatibility) */}
+              {results?.promptResults && results.promptResults.length > 0 && jobStatus !== 'streaming' && jobStatus !== 'processing' && (
                 <div className="space-y-6">
                   {results.promptResults.map((promptResult: ExtendedPromptResult, index: number) => (
                     <div key={promptResult.id} className="space-y-3 p-4 border rounded-md bg-card shadow-sm">
@@ -861,7 +797,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
               )}
               
               {/* Chat section for completed executions */}
-              {(results?.status === "completed" || conversationId !== null) && (
+              {((results?.status === "completed" || jobStatus === 'completed') || conversationId !== null) && (
                 <div className="mt-8">
                   <ChatErrorBoundary>
                     <AssistantArchitectChat

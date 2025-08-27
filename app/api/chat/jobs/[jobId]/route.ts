@@ -15,13 +15,13 @@ import type { UniversalPollingStatus } from '@/lib/streaming/job-management-serv
 
 export async function GET(
   req: Request,
-  { params }: { params: { jobId: string } }
+  { params }: { params: Promise<{ jobId: string }> }
 ) {
   const requestId = generateRequestId();
   const timer = startTimer('api.chat.jobs.poll');
   const log = createLogger({ requestId, route: 'api.chat.jobs.poll' });
   
-  const { jobId } = params;
+  const { jobId } = await params;
   
   log.info('Polling job status', { jobId });
   
@@ -190,13 +190,13 @@ export async function GET(
 
 export async function DELETE(
   req: Request,
-  { params }: { params: { jobId: string } }
+  { params }: { params: Promise<{ jobId: string }> }
 ) {
   const requestId = generateRequestId();
   const timer = startTimer('api.chat.jobs.cancel');
   const log = createLogger({ requestId, route: 'api.chat.jobs.cancel' });
   
-  const { jobId } = params;
+  const { jobId } = await params;
   
   log.info('Cancelling job', { jobId });
   

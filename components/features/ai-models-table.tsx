@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -24,12 +24,22 @@ import {
 } from '@tanstack/react-table';
 import { IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-react';
 
+// Type definitions for API responses
+interface RoleData {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+
 interface ModelFormProps {
   modelData: ModelFormData;
   setModelData: (data: ModelFormData) => void;
   onSubmit: () => void;
   onCancel: () => void;
   isEditing: boolean;
+  roleOptions: MultiSelectOption[];
+  roleLoading?: boolean;
 }
 
 const ModelForm = React.memo(function ModelForm({ 
@@ -37,7 +47,9 @@ const ModelForm = React.memo(function ModelForm({
   setModelData, 
   onSubmit, 
   onCancel, 
-  isEditing 
+  isEditing,
+  roleOptions,
+  roleLoading = false
 }: ModelFormProps) {
   const [pricingOpen, setPricingOpen] = useState(false);
   const [performanceOpen, setPerformanceOpen] = useState(false);
@@ -406,12 +418,18 @@ const ModelForm = React.memo(function ModelForm({
         <h3 className="text-lg font-semibold">Access Control</h3>
         
         <div className="space-y-2">
-          <label className="text-sm font-medium">Allowed Roles</label>
+          <label className="text-sm font-medium">
+            Allowed Roles
+            {roleLoading && (
+              <span className="ml-2 text-xs text-muted-foreground">(Loading...)</span>
+            )}
+          </label>
           <MultiSelect
             options={roleOptions}
             value={modelData.allowedRoles}
             onChange={handleRolesChange}
-            placeholder="All roles (unrestricted)"
+            placeholder={roleLoading ? "Loading roles..." : "All roles (unrestricted)"}
+            disabled={roleLoading}
             className="w-full"
           />
           <p className="text-xs text-muted-foreground">
@@ -532,8 +550,8 @@ const emptyModel: ModelFormData = {
   providerMetadata: {}
 };
 
-// Predefined role options
-const roleOptions: MultiSelectOption[] = [
+// Fallback role options used when API fails
+const fallbackRoleOptions: MultiSelectOption[] = [
   { value: 'administrator', label: 'Administrator', description: 'Full system access' },
   { value: 'staff', label: 'Staff', description: 'Staff member access' },
   { value: 'student', label: 'Student', description: 'Basic user access' },
@@ -561,6 +579,105 @@ export const AiModelsTable = React.memo(function AiModelsTable({
   const [editingModel, setEditingModel] = useState<SelectAiModel | null>(null);
   const [modelData, setModelData] = useState<ModelFormData>(emptyModel);
   const [sorting, setSorting] = useState<SortingState>([]);
+  
+  // Dynamic role loading state
+  const [roleOptions, setRoleOptions] = useState<MultiSelectOption[]>(fallbackRoleOptions);
+  const [roleLoading, setRoleLoading] = useState(true);
+
+  // Fetch roles from API on component mount
+  useEffect(() => {
+    let isCancelled = false;
+    const controller = new AbortController();
+    
+    const fetchRoles = async () => {
+      try {
+        if (isCancelled) return;
+        setRoleLoading(true);
+        
+        // Add timeout to prevent indefinite hanging
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+        
+        const response = await fetch('/api/admin/roles', {
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        // Handle authentication failures silently
+        if (response.status === 401 || response.status === 403) {
+          // User shouldn't be here if not authenticated, fall back silently
+          if (!isCancelled) {
+            setRoleOptions(fallbackRoleOptions);
+          }
+          return;
+        }
+        
+        if (!response.ok) {
+          // Generic network error, fall back silently
+          if (!isCancelled) {
+            setRoleOptions(fallbackRoleOptions);
+          }
+          return;
+        }
+        
+        const data = await response.json();
+        
+        if (!data.isSuccess) {
+          // API error, fall back silently
+          if (!isCancelled) {
+            setRoleOptions(fallbackRoleOptions);
+          }
+          return;
+        }
+        
+        // Validate API response structure for type safety
+        if (!Array.isArray(data.data)) {
+          // Invalid response format, fall back silently
+          if (!isCancelled) {
+            setRoleOptions(fallbackRoleOptions);
+          }
+          return;
+        }
+        
+        // Transform role data to MultiSelectOption format with type validation
+        const dynamicRoleOptions: MultiSelectOption[] = data.data
+          .filter((role: unknown): role is RoleData => {
+            return role != null && 
+                   typeof role === 'object' && 
+                   'id' in role && 
+                   'name' in role &&
+                   typeof (role as RoleData).name === 'string';
+          })
+          .map((role: RoleData) => ({
+            value: role.name,
+            label: role.name,
+            description: role.description || 'User role'
+          }));
+        
+        if (!isCancelled) {
+          setRoleOptions(dynamicRoleOptions.length > 0 ? dynamicRoleOptions : fallbackRoleOptions);
+        }
+      } catch (error) {
+        // Silent error handling per CLAUDE.md standards - no console logging
+        // Fall back to hardcoded roles for graceful degradation
+        if (!isCancelled && (error as Error).name !== 'AbortError') {
+          setRoleOptions(fallbackRoleOptions);
+        }
+      } finally {
+        if (!isCancelled) {
+          setRoleLoading(false);
+        }
+      }
+    };
+
+    fetchRoles();
+    
+    // Cleanup function to prevent memory leaks
+    return () => {
+      isCancelled = true;
+      controller.abort();
+    };
+  }, []);
   
   // Memoized column header component to prevent recreation on each render
   const SortableColumnHeader = useCallback(({
@@ -944,6 +1061,8 @@ export const AiModelsTable = React.memo(function AiModelsTable({
             onSubmit={handleSubmit}
             onCancel={handleCancel}
             isEditing={!!editingModel}
+            roleOptions={roleOptions}
+            roleLoading={roleLoading}
           />
         </DialogContent>
       </Dialog>

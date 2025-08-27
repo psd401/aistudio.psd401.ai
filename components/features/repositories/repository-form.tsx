@@ -30,7 +30,7 @@ import { useToast } from "@/components/ui/use-toast"
 const formSchema = z.object({
   name: z.string().min(1, "Name is required").max(100),
   description: z.string().max(500).optional(),
-  isPublic: z.boolean().default(false),
+  isPublic: z.boolean(),
 })
 
 type FormData = z.infer<typeof formSchema>

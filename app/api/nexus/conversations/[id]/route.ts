@@ -27,11 +27,11 @@ interface ConversationDetail {
  */
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const requestId = generateRequestId();
   const timer = startTimer('nexus.conversation.get');
-  const conversationId = params.id;
+  const { id: conversationId } = await params;
   const log = createLogger({ 
     requestId, 
     route: 'nexus.conversation.get',
@@ -130,11 +130,11 @@ export async function GET(
  */
 export async function PATCH(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const requestId = generateRequestId();
   const timer = startTimer('nexus.conversation.update');
-  const conversationId = params.id;
+  const { id: conversationId } = await params;
   const log = createLogger({ 
     requestId, 
     route: 'nexus.conversation.update',
@@ -269,11 +269,11 @@ export async function PATCH(
  */
 export async function DELETE(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const requestId = generateRequestId();
   const timer = startTimer('nexus.conversation.delete');
-  const conversationId = params.id;
+  const { id: conversationId } = await params;
   const log = createLogger({ 
     requestId, 
     route: 'nexus.conversation.delete',
