@@ -29,8 +29,40 @@ describe('Compare API', () => {
     })
 
     it('should validate input parameters', async () => {
-      // This test would verify that invalid inputs are rejected with proper error messages
-      expect(true).toBe(true) // Placeholder
+      // Test the Zod validation schema
+      const { z } = await import('zod')
+      
+      const CompareRequestSchema = z.object({
+        prompt: z.string().min(1, 'Prompt is required').max(10000, 'Prompt too long'),
+        model1Id: z.string().min(1, 'Model 1 ID is required'),
+        model2Id: z.string().min(1, 'Model 2 ID is required'),
+        model1Name: z.string().optional(),
+        model2Name: z.string().optional()
+      })
+
+      // Test missing prompt
+      const invalidRequest1 = { model1Id: 'gpt-4', model2Id: 'claude-3' }
+      const result1 = CompareRequestSchema.safeParse(invalidRequest1)
+      expect(result1.success).toBe(false)
+      
+      // Test empty prompt
+      const invalidRequest2 = { prompt: '', model1Id: 'gpt-4', model2Id: 'claude-3' }
+      const result2 = CompareRequestSchema.safeParse(invalidRequest2)
+      expect(result2.success).toBe(false)
+      
+      // Test missing model IDs
+      const invalidRequest3 = { prompt: 'test prompt' }
+      const result3 = CompareRequestSchema.safeParse(invalidRequest3)
+      expect(result3.success).toBe(false)
+      
+      // Test valid request
+      const validRequest = { 
+        prompt: 'Compare these models', 
+        model1Id: 'gpt-4', 
+        model2Id: 'claude-3' 
+      }
+      const result4 = CompareRequestSchema.safeParse(validRequest)
+      expect(result4.success).toBe(true)
     })
 
     it('should create two jobs for valid requests', async () => {

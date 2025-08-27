@@ -94,8 +94,8 @@ export async function GET(
     const conversationId = job.conversationId;
     
     // For compare jobs, conversation_id should be a comparison record ID (numeric string)
-    const comparisonId = parseInt(conversationId);
-    if (isNaN(comparisonId)) {
+    const comparisonId = parseInt(conversationId, 10);
+    if (isNaN(comparisonId) || comparisonId <= 0) {
       log.warn('Job conversation ID is not a comparison ID', { 
         jobId,
         conversationId,
@@ -344,8 +344,8 @@ export async function DELETE(
     const conversationId = job.conversationId;
     
     // For compare jobs, conversation_id should be a comparison record ID (numeric string)
-    const comparisonId = parseInt(conversationId);
-    if (isNaN(comparisonId)) {
+    const comparisonId = parseInt(conversationId, 10);
+    if (isNaN(comparisonId) || comparisonId <= 0) {
       log.warn('Job conversation ID is not a comparison ID', { 
         jobId,
         conversationId,

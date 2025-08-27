@@ -3,6 +3,7 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from '@/lib/logger';
 import { executeSQL } from '@/lib/db/data-api-adapter';
+import { transformSnakeToCamel } from '@/lib/db/field-mapper';
 import { jobManagementService } from '@/lib/streaming/job-management-service';
 import type { CreateJobRequest } from '@/lib/streaming/job-management-service';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
@@ -18,6 +19,15 @@ export const maxDuration = 30;
 const sqsClient = new SQSClient({
   region: process.env.NEXT_PUBLIC_AWS_REGION || process.env.AWS_REGION || 'us-east-1'
 });
+
+// Type definition for database model rows
+interface ModelRow {
+  id: number;
+  provider: string;
+  modelId: string;
+  name: string;
+  chatEnabled: boolean;
+}
 
 // Input validation schema for compare requests
 const CompareRequestSchema = z.object({
@@ -99,7 +109,7 @@ export async function POST(req: Request) {
     // 5. Validate both models exist and are active
     log.debug('Querying for models', { model1Id, model2Id });
     
-    const modelsResult = await executeSQL(
+    const modelsResultRaw = await executeSQL(
       `SELECT id, provider, model_id, name, chat_enabled
        FROM ai_models 
        WHERE model_id IN (:model1Id, :model2Id) 
@@ -109,19 +119,18 @@ export async function POST(req: Request) {
         { name: 'model2Id', value: { stringValue: model2Id } }
       ]
     );
+
+    // Transform snake_case fields to camelCase using field mapper utility
+    const modelsResult = modelsResultRaw.map(row => transformSnakeToCamel<ModelRow>(row));
     
     log.debug('Database query results', { 
       foundCount: modelsResult.length,
       foundModels: modelsResult.map(m => ({ 
         id: m.id, 
-        model_id: m.model_id,
-        modelId: 'modelId' in m ? (m as Record<string, unknown>).modelId : undefined,
+        modelId: m.modelId,
         name: m.name, 
         provider: m.provider,
-        chat_enabled: m.chat_enabled,
-        chatEnabled: 'chatEnabled' in m ? (m as Record<string, unknown>).chatEnabled : undefined,
-        // Show all fields to debug
-        allFields: Object.keys(m)
+        chatEnabled: m.chatEnabled
       }))
     });
     
@@ -138,14 +147,14 @@ export async function POST(req: Request) {
         model1Id, 
         model2Id,
         foundCount: modelsResult.length,
-        foundModelIds: modelsResult.map(m => String('modelId' in m ? (m as Record<string, unknown>).modelId : m.model_id))
+        foundModelIds: modelsResult.map(m => String(m.modelId))
       });
       return new Response(
         JSON.stringify({ 
           error: 'One or both selected models not found',
           details: {
             requested: [model1Id, model2Id],
-            found: modelsResult.map(m => String(m.model_id))
+            found: modelsResult.map(m => String(m.modelId))
           }
         }),
         { status: 404, headers: { 'Content-Type': 'application/json' } }
@@ -154,14 +163,14 @@ export async function POST(req: Request) {
     
     // Use String() to ensure type consistency for comparison
     // Note: field mapping converts model_id to modelId
-    const model1Config = modelsResult.find(m => String('modelId' in m ? (m as Record<string, unknown>).modelId : m.model_id) === String(model1Id));
-    const model2Config = modelsResult.find(m => String('modelId' in m ? (m as Record<string, unknown>).modelId : m.model_id) === String(model2Id));
+    const model1Config = modelsResult.find(m => String(m.modelId) === String(model1Id));
+    const model2Config = modelsResult.find(m => String(m.modelId) === String(model2Id));
     
     if (!model1Config || !model2Config) {
       log.error('Model configuration mismatch after type conversion', {
         model1Id: String(model1Id),
         model2Id: String(model2Id),
-        foundModelIds: modelsResult.map(m => String('modelId' in m ? (m as Record<string, unknown>).modelId : m.model_id)),
+        foundModelIds: modelsResult.map(m => String(m.modelId)),
         model1Found: !!model1Config,
         model2Found: !!model2Config
       });
@@ -170,7 +179,7 @@ export async function POST(req: Request) {
           error: 'Model configuration error - found models but failed to match',
           details: {
             requested: [String(model1Id), String(model2Id)],
-            found: modelsResult.map(m => String(m.model_id))
+            found: modelsResult.map(m => String(m.modelId))
           }
         }),
         { status: 500, headers: { 'Content-Type': 'application/json' } }
@@ -178,13 +187,10 @@ export async function POST(req: Request) {
     }
     
     // Check if models are enabled for chat  
-    const model1Enabled = 'chatEnabled' in model1Config ? (model1Config as Record<string, unknown>).chatEnabled : model1Config.chat_enabled;
-    const model2Enabled = 'chatEnabled' in model2Config ? (model2Config as Record<string, unknown>).chatEnabled : model2Config.chat_enabled;
-    
-    if (!model1Enabled || !model2Enabled) {
+    if (!model1Config.chatEnabled || !model2Config.chatEnabled) {
       log.error('One or both models not enabled for chat', { 
-        model1Enabled,
-        model2Enabled
+        model1Enabled: model1Config.chatEnabled,
+        model2Enabled: model2Config.chatEnabled
       });
       return new Response(
         JSON.stringify({ error: 'One or both models not enabled for chat' }),
@@ -195,11 +201,11 @@ export async function POST(req: Request) {
     log.info('Both models validated', sanitizeForLogging({
       model1: { 
         provider: String(model1Config.provider), 
-        modelId: String('modelId' in model1Config ? (model1Config as Record<string, unknown>).modelId : model1Config.model_id)
+        modelId: String(model1Config.modelId)
       },
       model2: { 
         provider: String(model2Config.provider), 
-        modelId: String('modelId' in model2Config ? (model2Config as Record<string, unknown>).modelId : model2Config.model_id)
+        modelId: String(model2Config.modelId)
       }
     }));
     
@@ -247,7 +253,7 @@ export async function POST(req: Request) {
       modelId: Number(model1Config.id),
       messages,
       provider: String(model1Config.provider),
-      modelIdString: String('modelId' in model1Config ? (model1Config as Record<string, unknown>).modelId : model1Config.model_id),
+      modelIdString: String(model1Config.modelId),
       systemPrompt: 'You are a helpful AI assistant. Please provide a clear and concise response.',
       options: {
         reasoningEffort: 'medium',
@@ -263,7 +269,7 @@ export async function POST(req: Request) {
       modelId: Number(model2Config.id),
       messages,
       provider: String(model2Config.provider),
-      modelIdString: String('modelId' in model2Config ? (model2Config as Record<string, unknown>).modelId : model2Config.model_id),
+      modelIdString: String(model2Config.modelId),
       systemPrompt: 'You are a helpful AI assistant. Please provide a clear and concise response.',
       options: {
         reasoningEffort: 'medium',
@@ -296,7 +302,7 @@ export async function POST(req: Request) {
             MessageAttributes: {
               jobType: { DataType: 'String', StringValue: 'ai-streaming-compare' },
               provider: { DataType: 'String', StringValue: String(model1Config.provider) },
-              modelId: { DataType: 'String', StringValue: String('modelId' in model1Config ? (model1Config as Record<string, unknown>).modelId : model1Config.model_id) },
+              modelId: { DataType: 'String', StringValue: String(model1Config.modelId) },
               userId: { DataType: 'Number', StringValue: userId.toString() },
               source: { DataType: 'String', StringValue: 'compare' },
               comparisonId: { DataType: 'Number', StringValue: comparisonId.toString() }
@@ -308,7 +314,7 @@ export async function POST(req: Request) {
             MessageAttributes: {
               jobType: { DataType: 'String', StringValue: 'ai-streaming-compare' },
               provider: { DataType: 'String', StringValue: String(model2Config.provider) },
-              modelId: { DataType: 'String', StringValue: String('modelId' in model2Config ? (model2Config as Record<string, unknown>).modelId : model2Config.model_id) },
+              modelId: { DataType: 'String', StringValue: String(model2Config.modelId) },
               userId: { DataType: 'Number', StringValue: userId.toString() },
               source: { DataType: 'String', StringValue: 'compare' },
               comparisonId: { DataType: 'Number', StringValue: comparisonId.toString() }
