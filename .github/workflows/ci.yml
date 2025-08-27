@@ -32,7 +32,7 @@ jobs:
         cache: 'npm'
     
     - name: Install dependencies
-      run: npm ci
+      run: npm ci --legacy-peer-deps
     
     - name: Run linter
       run: npm run lint
@@ -78,8 +78,8 @@ jobs:
     
     - name: Install dependencies
       run: |
-        npm ci
-        cd infra && npm ci
+        npm ci --legacy-peer-deps
+        cd infra && npm ci --legacy-peer-deps
     
     - name: Install CDK CLI
       run: npm install -g aws-cdk@2
