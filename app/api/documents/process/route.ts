@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     const validation = ProcessDocumentRequestSchema.safeParse(body)
 
     if (!validation.success) {
-      const errorMessage = validation.error.errors.map(e => e.message).join(', ')
+      const errorMessage = validation.error.issues.map((e: { message: string }) => e.message).join(', ')
       log.warn("Validation error", { error: errorMessage });
       timer({ status: "error", reason: "validation_error" });
       return { isSuccess: false, message: errorMessage }

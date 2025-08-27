@@ -488,11 +488,11 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                         <Textarea
                           placeholder="Enter your answer..."
                           {...formField}
-                          value={formField.value ?? ""}
+                          value={typeof formField.value === 'string' ? formField.value : ''}
                           className="bg-muted"
                         />
                         ) : field.fieldType === "select" || field.fieldType === "multi_select" ? (
-                          <Select onValueChange={formField.onChange} defaultValue={formField.value ?? undefined}>
+                          <Select onValueChange={formField.onChange} defaultValue={typeof formField.value === 'string' ? formField.value : undefined}>
                             <SelectTrigger className="bg-muted">
                               <SelectValue placeholder={`Select ${field.label || field.name}...`} />
                             </SelectTrigger>
@@ -544,7 +544,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                         <Input
                           placeholder="Enter your answer..."
                           {...formField}
-                          value={formField.value ?? ""}
+                          value={typeof formField.value === 'string' ? formField.value : ''}
                           className="bg-muted"
                         />
                         )}

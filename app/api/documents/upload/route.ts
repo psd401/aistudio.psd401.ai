@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
 
     const validatedFile = FileSchema.safeParse({ file });
     if (!validatedFile.success) {
-      const errorMessage = validatedFile.error.errors.map((error) => error.message).join(', ');
+      const errorMessage = validatedFile.error.issues.map((error: { message: string }) => error.message).join(', ');
       log.warn('File validation error:', errorMessage);
       timer({ status: "error", reason: "validation_error" });
       return new NextResponse(
