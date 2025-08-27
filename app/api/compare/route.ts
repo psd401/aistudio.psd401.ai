@@ -97,6 +97,8 @@ export async function POST(req: Request) {
     const userId = currentUser.data.user.id;
     
     // 5. Validate both models exist and are active
+    log.debug('Querying for models', { model1Id, model2Id });
+    
     const modelsResult = await executeSQL(
       `SELECT id, provider, model_id, name, chat_enabled
        FROM ai_models 
@@ -108,34 +110,81 @@ export async function POST(req: Request) {
       ]
     );
     
-    if (modelsResult.length !== 2) {
-      log.error('One or both models not found', { 
-        model1Id, 
-        model2Id,
-        foundCount: modelsResult.length 
-      });
+    log.debug('Database query results', { 
+      foundCount: modelsResult.length,
+      foundModels: modelsResult.map(m => ({ 
+        id: m.id, 
+        model_id: m.model_id,
+        modelId: 'modelId' in m ? (m as Record<string, unknown>).modelId : undefined,
+        name: m.name, 
+        provider: m.provider,
+        chat_enabled: m.chat_enabled,
+        chatEnabled: 'chatEnabled' in m ? (m as Record<string, unknown>).chatEnabled : undefined,
+        // Show all fields to debug
+        allFields: Object.keys(m)
+      }))
+    });
+    
+    if (modelsResult.length === 0) {
+      log.error('No models found', { model1Id, model2Id });
       return new Response(
-        JSON.stringify({ error: 'One or both selected models not found' }),
+        JSON.stringify({ error: 'No models found with the provided IDs' }),
         { status: 404, headers: { 'Content-Type': 'application/json' } }
       );
     }
     
-    const model1Config = modelsResult.find(m => m.model_id === model1Id);
-    const model2Config = modelsResult.find(m => m.model_id === model2Id);
+    if (modelsResult.length !== 2) {
+      log.error('Incomplete model set found', { 
+        model1Id, 
+        model2Id,
+        foundCount: modelsResult.length,
+        foundModelIds: modelsResult.map(m => String('modelId' in m ? (m as Record<string, unknown>).modelId : m.model_id))
+      });
+      return new Response(
+        JSON.stringify({ 
+          error: 'One or both selected models not found',
+          details: {
+            requested: [model1Id, model2Id],
+            found: modelsResult.map(m => String(m.model_id))
+          }
+        }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Use String() to ensure type consistency for comparison
+    // Note: field mapping converts model_id to modelId
+    const model1Config = modelsResult.find(m => String('modelId' in m ? (m as Record<string, unknown>).modelId : m.model_id) === String(model1Id));
+    const model2Config = modelsResult.find(m => String('modelId' in m ? (m as Record<string, unknown>).modelId : m.model_id) === String(model2Id));
     
     if (!model1Config || !model2Config) {
-      log.error('Model configuration mismatch');
+      log.error('Model configuration mismatch after type conversion', {
+        model1Id: String(model1Id),
+        model2Id: String(model2Id),
+        foundModelIds: modelsResult.map(m => String('modelId' in m ? (m as Record<string, unknown>).modelId : m.model_id)),
+        model1Found: !!model1Config,
+        model2Found: !!model2Config
+      });
       return new Response(
-        JSON.stringify({ error: 'Model configuration error' }),
+        JSON.stringify({ 
+          error: 'Model configuration error - found models but failed to match',
+          details: {
+            requested: [String(model1Id), String(model2Id)],
+            found: modelsResult.map(m => String(m.model_id))
+          }
+        }),
         { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
     }
     
-    // Check if models are enabled for chat
-    if (!model1Config.chat_enabled || !model2Config.chat_enabled) {
+    // Check if models are enabled for chat  
+    const model1Enabled = 'chatEnabled' in model1Config ? (model1Config as Record<string, unknown>).chatEnabled : model1Config.chat_enabled;
+    const model2Enabled = 'chatEnabled' in model2Config ? (model2Config as Record<string, unknown>).chatEnabled : model2Config.chat_enabled;
+    
+    if (!model1Enabled || !model2Enabled) {
       log.error('One or both models not enabled for chat', { 
-        model1Enabled: model1Config.chat_enabled,
-        model2Enabled: model2Config.chat_enabled
+        model1Enabled,
+        model2Enabled
       });
       return new Response(
         JSON.stringify({ error: 'One or both models not enabled for chat' }),
@@ -144,8 +193,14 @@ export async function POST(req: Request) {
     }
     
     log.info('Both models validated', sanitizeForLogging({
-      model1: { provider: String(model1Config.provider), modelId: String(model1Config.model_id) },
-      model2: { provider: String(model2Config.provider), modelId: String(model2Config.model_id) }
+      model1: { 
+        provider: String(model1Config.provider), 
+        modelId: String('modelId' in model1Config ? (model1Config as Record<string, unknown>).modelId : model1Config.model_id)
+      },
+      model2: { 
+        provider: String(model2Config.provider), 
+        modelId: String('modelId' in model2Config ? (model2Config as Record<string, unknown>).modelId : model2Config.model_id)
+      }
     }));
     
     // 6. Create comparison record for tracking
@@ -192,7 +247,7 @@ export async function POST(req: Request) {
       modelId: Number(model1Config.id),
       messages,
       provider: String(model1Config.provider),
-      modelIdString: String(model1Config.model_id),
+      modelIdString: String('modelId' in model1Config ? (model1Config as Record<string, unknown>).modelId : model1Config.model_id),
       systemPrompt: 'You are a helpful AI assistant. Please provide a clear and concise response.',
       options: {
         reasoningEffort: 'medium',
@@ -208,7 +263,7 @@ export async function POST(req: Request) {
       modelId: Number(model2Config.id),
       messages,
       provider: String(model2Config.provider),
-      modelIdString: String(model2Config.model_id),
+      modelIdString: String('modelId' in model2Config ? (model2Config as Record<string, unknown>).modelId : model2Config.model_id),
       systemPrompt: 'You are a helpful AI assistant. Please provide a clear and concise response.',
       options: {
         reasoningEffort: 'medium',
@@ -241,7 +296,7 @@ export async function POST(req: Request) {
             MessageAttributes: {
               jobType: { DataType: 'String', StringValue: 'ai-streaming-compare' },
               provider: { DataType: 'String', StringValue: String(model1Config.provider) },
-              modelId: { DataType: 'String', StringValue: String(model1Config.model_id) },
+              modelId: { DataType: 'String', StringValue: String('modelId' in model1Config ? (model1Config as Record<string, unknown>).modelId : model1Config.model_id) },
               userId: { DataType: 'Number', StringValue: userId.toString() },
               source: { DataType: 'String', StringValue: 'compare' },
               comparisonId: { DataType: 'Number', StringValue: comparisonId.toString() }
@@ -253,7 +308,7 @@ export async function POST(req: Request) {
             MessageAttributes: {
               jobType: { DataType: 'String', StringValue: 'ai-streaming-compare' },
               provider: { DataType: 'String', StringValue: String(model2Config.provider) },
-              modelId: { DataType: 'String', StringValue: String(model2Config.model_id) },
+              modelId: { DataType: 'String', StringValue: String('modelId' in model2Config ? (model2Config as Record<string, unknown>).modelId : model2Config.model_id) },
               userId: { DataType: 'Number', StringValue: userId.toString() },
               source: { DataType: 'String', StringValue: 'compare' },
               comparisonId: { DataType: 'Number', StringValue: comparisonId.toString() }

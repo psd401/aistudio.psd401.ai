@@ -4,6 +4,7 @@ import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { jobManagementService } from '@/lib/streaming/job-management-service';
 import type { UniversalPollingStatus } from '@/lib/streaming/job-management-service';
 import { hasToolAccess } from '@/utils/roles';
+import { executeSQL } from '@/lib/db/data-api-adapter';
 
 /**
  * Compare Job Polling API Endpoint
@@ -89,12 +90,45 @@ export async function GET(
       });
     }
     
-    // 6. Verify job is from compare source
-    if (job.source !== 'compare') {
-      log.warn('Job is not a compare job', { 
-        jobId, 
-        actualSource: job.source,
-        expectedSource: 'compare'
+    // 6. Verify job is from compare - check if conversation_id corresponds to a model_comparison
+    const conversationId = job.conversationId;
+    
+    // For compare jobs, conversation_id should be a comparison record ID (numeric string)
+    const comparisonId = parseInt(conversationId);
+    if (isNaN(comparisonId)) {
+      log.warn('Job conversation ID is not a comparison ID', { 
+        jobId,
+        conversationId,
+        expectedType: 'numeric string (comparison ID)'
+      });
+      timer({ status: 'error', reason: 'invalid_job_type' });
+      return new Response(JSON.stringify({
+        error: 'Job is not a model comparison job',
+        jobId,
+        requestId
+      }), {
+        status: 400,
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Request-Id': requestId 
+        }
+      });
+    }
+    
+    // Verify the comparison record exists and belongs to the user
+    const comparisonCheck = await executeSQL(
+      'SELECT id FROM model_comparisons WHERE id = :id AND user_id = :userId',
+      [
+        { name: 'id', value: { longValue: comparisonId } },
+        { name: 'userId', value: { longValue: currentUser.data.user.id } }
+      ]
+    );
+    
+    if (comparisonCheck.length === 0) {
+      log.warn('Job does not correspond to a valid comparison', { 
+        jobId,
+        comparisonId,
+        userId: currentUser.data.user.id
       });
       timer({ status: 'error', reason: 'invalid_job_type' });
       return new Response(JSON.stringify({
@@ -306,11 +340,44 @@ export async function DELETE(
       });
     }
     
-    // 6. Verify job source
-    if (job.source !== 'compare') {
-      log.warn('Job is not a compare job', { 
-        jobId, 
-        actualSource: job.source 
+    // 6. Verify job is from compare - check if conversation_id corresponds to a model_comparison
+    const conversationId = job.conversationId;
+    
+    // For compare jobs, conversation_id should be a comparison record ID (numeric string)
+    const comparisonId = parseInt(conversationId);
+    if (isNaN(comparisonId)) {
+      log.warn('Job conversation ID is not a comparison ID', { 
+        jobId,
+        conversationId,
+        expectedType: 'numeric string (comparison ID)'
+      });
+      return new Response(JSON.stringify({
+        error: 'Job is not a model comparison job',
+        jobId,
+        requestId
+      }), {
+        status: 400,
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Request-Id': requestId 
+        }
+      });
+    }
+    
+    // Verify the comparison record exists and belongs to the user
+    const comparisonCheck = await executeSQL(
+      'SELECT id FROM model_comparisons WHERE id = :id AND user_id = :userId',
+      [
+        { name: 'id', value: { longValue: comparisonId } },
+        { name: 'userId', value: { longValue: currentUser.data.user.id } }
+      ]
+    );
+    
+    if (comparisonCheck.length === 0) {
+      log.warn('Job does not correspond to a valid comparison', { 
+        jobId,
+        comparisonId,
+        userId: currentUser.data.user.id
       });
       return new Response(JSON.stringify({
         error: 'Job is not a model comparison job',
