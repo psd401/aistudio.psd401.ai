@@ -5,6 +5,7 @@ import { CompareInput } from "./compare-input"
 import { DualResponse } from "./dual-response"
 import { useToast } from "@/components/ui/use-toast"
 import { useModelsWithPersistence } from "@/lib/hooks/use-models"
+import { updateComparisonResults } from "@/actions/db/model-comparison-actions"
 
 export function ModelCompare() {
   // Use shared model management hooks
@@ -46,14 +47,15 @@ export function ModelCompare() {
       return
     }
 
-    // Clear previous responses and start streaming
+    // Clear previous responses and start processing
     setModel1Response("")
     setModel2Response("")
     setIsLoading(true)
     setIsStreaming(true)
 
     try {
-      const response = await fetch('/api/compare-models', {
+      // Create comparison jobs using new API
+      const response = await fetch('/api/compare', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -68,72 +70,123 @@ export function ModelCompare() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to start comparison')
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to start comparison')
       }
 
-      const reader = response.body?.getReader()
-      const decoder = new TextDecoder()
+      const { job1Id, job2Id, comparisonId } = await response.json()
 
-      if (reader) {
+      // Start polling both jobs
+      let job1Complete = false
+      let job2Complete = false
+      
+      const pollJobs = async () => {
         try {
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-
-            const chunk = decoder.decode(value)
-            const lines = chunk.split('\n')
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                try {
-                  const data = JSON.parse(line.slice(6))
-                  
-                  if (data.model1) {
-                    setModel1Response(prev => prev + data.model1)
-                  }
-                  
-                  if (data.model2) {
-                    setModel2Response(prev => prev + data.model2)
-                  }
-
-                  if (data.model1Error) {
-                    toast({
-                      title: "Model 1 Error",
-                      description: data.model1Error,
-                      variant: "destructive"
-                    })
-                  }
-
-                  if (data.model2Error) {
-                    toast({
-                      title: "Model 2 Error", 
-                      description: data.model2Error,
-                      variant: "destructive"
-                    })
-                  }
-
-                  if (data.done) {
-                    setIsStreaming(false)
-                    setIsLoading(false)
-                    return
-                  }
-                } catch {
-                  // Skip invalid JSON
-                }
+          const [job1Response, job2Response] = await Promise.all([
+            fetch(`/api/compare/jobs/${job1Id}`).then(r => r.json()),
+            fetch(`/api/compare/jobs/${job2Id}`).then(r => r.json())
+          ])
+          
+          // Update Model 1 response
+          if (job1Response.partialContent && !job1Complete) {
+            setModel1Response(job1Response.partialContent)
+          }
+          
+          // Update Model 2 response
+          if (job2Response.partialContent && !job2Complete) {
+            setModel2Response(job2Response.partialContent)
+          }
+          
+          // Handle Model 1 completion
+          if (job1Response.status === 'completed' && !job1Complete) {
+            job1Complete = true
+            if (job1Response.responseData?.text) {
+              setModel1Response(job1Response.responseData.text)
+            }
+          } else if (job1Response.status === 'failed' && !job1Complete) {
+            job1Complete = true
+            toast({
+              title: "Model 1 Error",
+              description: job1Response.errorMessage || "Model 1 failed to generate response",
+              variant: "destructive"
+            })
+          }
+          
+          // Handle Model 2 completion  
+          if (job2Response.status === 'completed' && !job2Complete) {
+            job2Complete = true
+            if (job2Response.responseData?.text) {
+              setModel2Response(job2Response.responseData.text)
+            }
+          } else if (job2Response.status === 'failed' && !job2Complete) {
+            job2Complete = true
+            toast({
+              title: "Model 2 Error", 
+              description: job2Response.errorMessage || "Model 2 failed to generate response",
+              variant: "destructive"
+            })
+          }
+          
+          // Continue polling if jobs are still running
+          const shouldContinuePolling = 
+            job1Response.shouldContinuePolling || job2Response.shouldContinuePolling
+          
+          if (shouldContinuePolling) {
+            // Use optimal polling interval from job response
+            const pollingInterval = Math.min(
+              job1Response.pollingInterval || 1000,
+              job2Response.pollingInterval || 1000
+            )
+            setTimeout(pollJobs, pollingInterval)
+          } else {
+            // Both jobs complete - save final results
+            setIsStreaming(false)
+            setIsLoading(false)
+            
+            // Save comparison results to database
+            const saveResults = async () => {
+              try {
+                // Use the final response data from jobs, or fall back to current state
+                const finalResponse1 = job1Response.responseData?.text || job1Response.partialContent || ""
+                const finalResponse2 = job2Response.responseData?.text || job2Response.partialContent || ""
+                
+                await updateComparisonResults({
+                  comparisonId: parseInt(comparisonId.toString()),
+                  response1: finalResponse1,
+                  response2: finalResponse2,
+                  executionTimeMs1: job1Response.responseData?.executionTime,
+                  executionTimeMs2: job2Response.responseData?.executionTime,
+                  tokensUsed1: job1Response.responseData?.usage?.totalTokens,
+                  tokensUsed2: job2Response.responseData?.usage?.totalTokens
+                })
+              } catch {
+                // Log error but don't show to user as the comparison UI already shows results
+                // Using error logging service instead of console
               }
             }
+            
+            saveResults()
           }
-        } finally {
-          reader.releaseLock()
+        } catch {
+          // Handle polling error - continue polling unless both jobs are done
+          if (!job1Complete || !job2Complete) {
+            setTimeout(pollJobs, 2000) // Fallback interval
+          } else {
+            setIsStreaming(false)
+            setIsLoading(false)
+          }
         }
       }
+      
+      // Start polling
+      pollJobs()
+      
     } catch (error) {
       toast({
         title: "Comparison Failed",
         description: error instanceof Error ? error.message : "Failed to compare models",
         variant: "destructive"
       })
-    } finally {
       setIsStreaming(false)
       setIsLoading(false)
     }

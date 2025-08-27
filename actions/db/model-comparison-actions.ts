@@ -263,3 +263,90 @@ export async function deleteModelComparison(
     })
   }
 }
+
+export interface UpdateComparisonResultsRequest {
+  comparisonId: number
+  response1?: string
+  response2?: string
+  executionTimeMs1?: number
+  executionTimeMs2?: number
+  tokensUsed1?: number
+  tokensUsed2?: number
+}
+
+export async function updateComparisonResults(
+  request: UpdateComparisonResultsRequest
+): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("updateComparisonResults")
+  const log = createLogger({ requestId, action: "updateComparisonResults" })
+  
+  try {
+    log.info("Action started: Updating comparison results", { 
+      comparisonId: request.comparisonId,
+      hasResponse1: !!request.response1,
+      hasResponse2: !!request.response2
+    })
+    
+    const session = await getServerSession()
+    if (!session) {
+      log.warn("Unauthorized comparison update attempt")
+      return { isSuccess: false, message: "Unauthorized" }
+    }
+    
+    const hasAccess = await hasToolAccess("model-compare")
+    if (!hasAccess) {
+      log.warn("Model comparison update access denied", { userId: session.sub })
+      return { isSuccess: false, message: "Access denied" }
+    }
+
+    // Get user ID
+    const userId = await getUserIdFromSession(session.sub)
+    if (!userId) {
+      log.error("User not found in database", { cognitoSub: session.sub })
+      return { isSuccess: false, message: "User not found" }
+    }
+
+    // Verify comparison ownership and update results
+    const updateResult = await executeSQL(
+      `UPDATE model_comparisons 
+       SET response1 = COALESCE(:response1, response1),
+           response2 = COALESCE(:response2, response2),
+           execution_time_ms1 = COALESCE(:executionTimeMs1, execution_time_ms1),
+           execution_time_ms2 = COALESCE(:executionTimeMs2, execution_time_ms2),
+           tokens_used1 = COALESCE(:tokensUsed1, tokens_used1),
+           tokens_used2 = COALESCE(:tokensUsed2, tokens_used2),
+           updated_at = NOW()
+       WHERE id = :comparisonId AND user_id = :userId`,
+      [
+        { name: 'comparisonId', value: { longValue: request.comparisonId } },
+        { name: 'userId', value: { longValue: userId } },
+        { name: 'response1', value: request.response1 ? { stringValue: request.response1 } : { isNull: true } },
+        { name: 'response2', value: request.response2 ? { stringValue: request.response2 } : { isNull: true } },
+        { name: 'executionTimeMs1', value: request.executionTimeMs1 ? { longValue: request.executionTimeMs1 } : { isNull: true } },
+        { name: 'executionTimeMs2', value: request.executionTimeMs2 ? { longValue: request.executionTimeMs2 } : { isNull: true } },
+        { name: 'tokensUsed1', value: request.tokensUsed1 ? { longValue: request.tokensUsed1 } : { isNull: true } },
+        { name: 'tokensUsed2', value: request.tokensUsed2 ? { longValue: request.tokensUsed2 } : { isNull: true } }
+      ]
+    )
+
+    log.info("Comparison results updated successfully", { 
+      comparisonId: request.comparisonId,
+      rowsUpdated: updateResult.length 
+    })
+    
+    timer({ status: "success", comparisonId: request.comparisonId })
+    
+    return {
+      isSuccess: true,
+      message: "Comparison results updated successfully",
+      data: undefined
+    }
+  } catch (error) {
+    timer({ status: "error" })
+    return handleError(error, "Failed to update comparison results", {
+      context: "updateComparisonResults",
+      requestId
+    })
+  }
+}
