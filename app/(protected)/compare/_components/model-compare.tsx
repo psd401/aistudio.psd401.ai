@@ -6,7 +6,6 @@ import { DualResponse } from "./dual-response"
 import { useToast } from "@/components/ui/use-toast"
 import { useModelsWithPersistence } from "@/lib/hooks/use-models"
 import { updateComparisonResults } from "@/actions/db/model-comparison-actions"
-import { createLogger, generateRequestId } from "@/lib/logger"
 
 export function ModelCompare() {
   // Use shared model management hooks
@@ -161,26 +160,18 @@ export function ModelCompare() {
                   tokensUsed2: job2Response.responseData?.usage?.totalTokens
                 })
               } catch (error) {
-                const requestId = generateRequestId()
-                const log = createLogger({ requestId, component: 'ModelCompare' })
-                log.error('Failed to save comparison results to database', {
-                  comparisonId,
-                  error: error instanceof Error ? error.message : String(error),
-                  hasJob1Response: !!job1Response.responseData,
-                  hasJob2Response: !!job2Response.responseData
-                })
+                // Log error to console for debugging - server logging happens in the action
+                console.error('Failed to save comparison results:', error)
               }
             }
             
             saveResults()
           }
         } catch (error) {
-          const requestId = generateRequestId()
-          const log = createLogger({ requestId, component: 'ModelCompare' })
-          log.error('Failed to poll job status', {
+          // Log error to console for debugging
+          console.error('Failed to poll job status:', error, {
             job1Id,
             job2Id,
-            error: error instanceof Error ? error.message : String(error),
             job1Complete,
             job2Complete
           })
