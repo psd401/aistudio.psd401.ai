@@ -586,40 +586,97 @@ export const AiModelsTable = React.memo(function AiModelsTable({
 
   // Fetch roles from API on component mount
   useEffect(() => {
+    let isCancelled = false;
+    const controller = new AbortController();
+    
     const fetchRoles = async () => {
       try {
+        if (isCancelled) return;
         setRoleLoading(true);
         
-        const response = await fetch('/api/admin/roles');
+        // Add timeout to prevent indefinite hanging
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+        
+        const response = await fetch('/api/admin/roles', {
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        // Handle authentication failures silently
+        if (response.status === 401 || response.status === 403) {
+          // User shouldn't be here if not authenticated, fall back silently
+          if (!isCancelled) {
+            setRoleOptions(fallbackRoleOptions);
+          }
+          return;
+        }
         
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          // Generic network error, fall back silently
+          if (!isCancelled) {
+            setRoleOptions(fallbackRoleOptions);
+          }
+          return;
         }
         
         const data = await response.json();
         
         if (!data.isSuccess) {
-          throw new Error(data.message || 'Failed to fetch roles');
+          // API error, fall back silently
+          if (!isCancelled) {
+            setRoleOptions(fallbackRoleOptions);
+          }
+          return;
         }
         
-        // Transform role data to MultiSelectOption format
-        const dynamicRoleOptions: MultiSelectOption[] = data.data.map((role: RoleData) => ({
-          value: role.name,
-          label: role.name,
-          description: role.description || 'User role'
-        }));
+        // Validate API response structure for type safety
+        if (!Array.isArray(data.data)) {
+          // Invalid response format, fall back silently
+          if (!isCancelled) {
+            setRoleOptions(fallbackRoleOptions);
+          }
+          return;
+        }
         
-        setRoleOptions(dynamicRoleOptions);
+        // Transform role data to MultiSelectOption format with type validation
+        const dynamicRoleOptions: MultiSelectOption[] = data.data
+          .filter((role: unknown): role is RoleData => {
+            return role != null && 
+                   typeof role === 'object' && 
+                   'id' in role && 
+                   'name' in role &&
+                   typeof (role as RoleData).name === 'string';
+          })
+          .map((role: RoleData) => ({
+            value: role.name,
+            label: role.name,
+            description: role.description || 'User role'
+          }));
+        
+        if (!isCancelled) {
+          setRoleOptions(dynamicRoleOptions.length > 0 ? dynamicRoleOptions : fallbackRoleOptions);
+        }
       } catch (error) {
-        console.error('Failed to fetch roles:', error);
-        // Keep fallback options on error
-        setRoleOptions(fallbackRoleOptions);
+        // Silent error handling per CLAUDE.md standards - no console logging
+        // Fall back to hardcoded roles for graceful degradation
+        if (!isCancelled && (error as Error).name !== 'AbortError') {
+          setRoleOptions(fallbackRoleOptions);
+        }
       } finally {
-        setRoleLoading(false);
+        if (!isCancelled) {
+          setRoleLoading(false);
+        }
       }
     };
 
     fetchRoles();
+    
+    // Cleanup function to prevent memory leaks
+    return () => {
+      isCancelled = true;
+      controller.abort();
+    };
   }, []);
   
   // Memoized column header component to prevent recreation on each render

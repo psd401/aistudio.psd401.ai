@@ -159,22 +159,17 @@ export function ModelCompare() {
                   tokensUsed1: job1Response.responseData?.usage?.totalTokens,
                   tokensUsed2: job2Response.responseData?.usage?.totalTokens
                 })
-              } catch (error) {
-                // Log error to console for debugging - server logging happens in the action
-                console.error('Failed to save comparison results:', error)
+              } catch {
+                // Silent error handling - server logging happens in the action
+                // Comparison save failure is non-critical, don't block UI
               }
             }
             
             saveResults()
           }
-        } catch (error) {
-          // Log error to console for debugging
-          console.error('Failed to poll job status:', error, {
-            job1Id,
-            job2Id,
-            job1Complete,
-            job2Complete
-          })
+        } catch {
+          // Silent error handling for polling failures
+          // Server-side logging handles detailed error tracking
           
           // Handle polling error - continue polling unless both jobs are done
           if (!job1Complete || !job2Complete) {
