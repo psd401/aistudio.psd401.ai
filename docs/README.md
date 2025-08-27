@@ -50,6 +50,7 @@ Vector embedding and semantic search implementation.
 - **[features/polling-api-integration.md](./features/polling-api-integration.md)** - Client integration patterns and API endpoints
 - **[operations/streaming-infrastructure.md](./operations/streaming-infrastructure.md)** - Infrastructure setup, monitoring, and operations
 - **[guides/adding-ai-providers.md](./guides/adding-ai-providers.md)** - Step-by-step provider integration guide
+- **[ASSISTANT_ARCHITECT_LAMBDA_DEPLOYMENT.md](./ASSISTANT_ARCHITECT_LAMBDA_DEPLOYMENT.md)** - **CRITICAL:** Special deployment guide for Lambda workers with local dependencies
 
 ### Operations
 
@@ -122,6 +123,12 @@ Shared provider abstraction for consistent AI integration. See [features/ai-stre
 2. Run `npm run lint` and `npm run typecheck`
 3. Deploy with CDK: `npx cdk deploy`
 4. Monitor CloudWatch for errors
+
+### Deploying Lambda Workers (Special Cases)
+For Lambda functions with local dependencies (like streaming-jobs-worker):
+1. **IMPORTANT:** Follow [ASSISTANT_ARCHITECT_LAMBDA_DEPLOYMENT.md](./ASSISTANT_ARCHITECT_LAMBDA_DEPLOYMENT.md) for complete build process
+2. Build and copy dependencies before CDK deployment
+3. Commit build artifacts to ensure consistent deployments
 
 ## 📁 Archive
 
