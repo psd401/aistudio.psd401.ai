@@ -51,7 +51,7 @@ class GeminiAdapter extends base_adapter_1.BaseProviderAdapter {
             if (!this.settingsManager) {
                 throw new Error('Settings manager not configured');
             }
-            const apiKey = await this.settingsManager.getSetting('GOOGLE_GENERATIVE_AI_API_KEY');
+            const apiKey = await this.settingsManager.getSetting('GOOGLE_API_KEY');
             if (!apiKey) {
                 throw new Error('Google API key not configured');
             }
@@ -69,6 +69,20 @@ class GeminiAdapter extends base_adapter_1.BaseProviderAdapter {
         }
     }
     getCapabilities(modelId) {
+        // Gemini 2.5 Flash (including image models)
+        if (this.matchesPattern(modelId, ['gemini-2.5*', 'models/gemini-2.5*'])) {
+            return {
+                supportsReasoning: false,
+                supportsThinking: false,
+                supportedResponseModes: ['standard'],
+                supportsBackgroundMode: false,
+                supportedTools: [],
+                typicalLatencyMs: 2000,
+                maxTimeoutMs: 60000, // 1 minute
+                costPerInputToken: 0.00000125,
+                costPerOutputToken: 0.00000375
+            };
+        }
         // Gemini 2.0 Flash
         if (this.matchesPattern(modelId, ['gemini-2.0*', 'models/gemini-2.0*'])) {
             return {

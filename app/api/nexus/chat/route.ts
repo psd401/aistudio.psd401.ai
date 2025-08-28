@@ -334,8 +334,8 @@ export async function POST(req: Request) {
       responseMode: validationResult.data.responseMode || 'standard'
     };
 
-    // For gpt-image-1, set up image generation options
-    if (modelId === 'gpt-image-1' && isImageGenerationModel) {
+    // For any image generation model, set up image generation options
+    if (isImageGenerationModel) {
       // Extract prompt from the last user message for image generation
       const lastMessage = messages[messages.length - 1];
       let imagePrompt = '';
