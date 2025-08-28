@@ -82,83 +82,8 @@ export class GeminiAdapter extends BaseProviderAdapter {
   }
   
   getCapabilities(modelId: string): ProviderCapabilities {
-    // Gemini 2.5 Flash (including image models)
-    if (this.matchesPattern(modelId, ['gemini-2.5*', 'models/gemini-2.5*'])) {
-      return {
-        supportsReasoning: false,
-        supportsThinking: false,
-        supportedResponseModes: ['standard'],
-        supportsBackgroundMode: false,
-        supportedTools: [],
-        typicalLatencyMs: 2000,
-        maxTimeoutMs: 60000, // 1 minute
-        costPerInputToken: 0.00000125,
-        costPerOutputToken: 0.00000375
-      };
-    }
-    
-    // Gemini 2.0 Flash
-    if (this.matchesPattern(modelId, ['gemini-2.0*', 'models/gemini-2.0*'])) {
-      return {
-        supportsReasoning: false,
-        supportsThinking: false,
-        supportedResponseModes: ['standard'],
-        supportsBackgroundMode: false,
-        supportedTools: [],
-        typicalLatencyMs: 1500,
-        maxTimeoutMs: 60000, // 1 minute
-        costPerInputToken: 0.00000125,
-        costPerOutputToken: 0.00000375
-      };
-    }
-    
-    // Gemini 1.5 Pro
-    if (this.matchesPattern(modelId, ['gemini-1.5-pro*', 'models/gemini-1.5-pro*'])) {
-      return {
-        supportsReasoning: false,
-        supportsThinking: false,
-        supportedResponseModes: ['standard'],
-        supportsBackgroundMode: false,
-        supportedTools: [],
-        typicalLatencyMs: 2000,
-        maxTimeoutMs: 60000, // 1 minute
-        costPerInputToken: 0.00000125,
-        costPerOutputToken: 0.00000375
-      };
-    }
-    
-    // Gemini 1.5 Flash
-    if (this.matchesPattern(modelId, ['gemini-1.5-flash*', 'models/gemini-1.5-flash*'])) {
-      return {
-        supportsReasoning: false,
-        supportsThinking: false,
-        supportedResponseModes: ['standard'],
-        supportsBackgroundMode: false,
-        supportedTools: [],
-        typicalLatencyMs: 1000,
-        maxTimeoutMs: 30000, // 30 seconds
-        costPerInputToken: 0.000000075,
-        costPerOutputToken: 0.0000003
-      };
-    }
-    
-    // Gemini 1.0 Pro
-    if (this.matchesPattern(modelId, ['gemini-pro*', 'gemini-1.0-pro*', 'models/gemini-pro*'])) {
-      return {
-        supportsReasoning: false,
-        supportsThinking: false,
-        supportedResponseModes: ['standard'],
-        supportsBackgroundMode: false,
-        supportedTools: [],
-        typicalLatencyMs: 2500,
-        maxTimeoutMs: 60000, // 1 minute
-        costPerInputToken: 0.0000005,
-        costPerOutputToken: 0.0000015
-      };
-    }
-    
-    // Default capabilities for unknown Gemini models
-    return {
+    // Base capabilities shared by all Gemini models
+    const baseCapabilities: ProviderCapabilities = {
       supportsReasoning: false,
       supportsThinking: false,
       supportedResponseModes: ['standard'],
@@ -167,6 +92,58 @@ export class GeminiAdapter extends BaseProviderAdapter {
       typicalLatencyMs: 2000,
       maxTimeoutMs: 60000
     };
+
+    // Gemini 2.5 Flash (including image models) - same as 1.5 Pro pricing/latency
+    if (this.matchesPattern(modelId, ['gemini-2.5*', 'models/gemini-2.5*'])) {
+      return {
+        ...baseCapabilities,
+        costPerInputToken: 0.00000125,
+        costPerOutputToken: 0.00000375
+      };
+    }
+    
+    // Gemini 2.0 Flash - faster latency
+    if (this.matchesPattern(modelId, ['gemini-2.0*', 'models/gemini-2.0*'])) {
+      return {
+        ...baseCapabilities,
+        typicalLatencyMs: 1500,
+        costPerInputToken: 0.00000125,
+        costPerOutputToken: 0.00000375
+      };
+    }
+    
+    // Gemini 1.5 Pro - standard capabilities
+    if (this.matchesPattern(modelId, ['gemini-1.5-pro*', 'models/gemini-1.5-pro*'])) {
+      return {
+        ...baseCapabilities,
+        costPerInputToken: 0.00000125,
+        costPerOutputToken: 0.00000375
+      };
+    }
+    
+    // Gemini 1.5 Flash - faster, cheaper
+    if (this.matchesPattern(modelId, ['gemini-1.5-flash*', 'models/gemini-1.5-flash*'])) {
+      return {
+        ...baseCapabilities,
+        typicalLatencyMs: 1000,
+        maxTimeoutMs: 30000, // 30 seconds
+        costPerInputToken: 0.000000075,
+        costPerOutputToken: 0.0000003
+      };
+    }
+    
+    // Gemini 1.0 Pro - slower, cheaper
+    if (this.matchesPattern(modelId, ['gemini-pro*', 'gemini-1.0-pro*', 'models/gemini-pro*'])) {
+      return {
+        ...baseCapabilities,
+        typicalLatencyMs: 2500,
+        costPerInputToken: 0.0000005,
+        costPerOutputToken: 0.0000015
+      };
+    }
+    
+    // Default capabilities for unknown Gemini models
+    return baseCapabilities;
   }
   
   getProviderOptions(modelId: string, options?: any): Record<string, any> {
