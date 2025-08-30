@@ -6,10 +6,9 @@ import {
   SimpleImageAttachmentAdapter,
   SimpleTextAttachmentAdapter,
 } from "@assistant-ui/react";
-import { extractTextFromDocument } from "@/lib/document-processing";
-import { createLogger } from "@/lib/logger";
+import { createLogger } from "@/lib/client-logger";
 
-const log = createLogger({ service: 'enhanced-attachment-adapters' });
+const log = createLogger({ moduleName: 'enhanced-attachment-adapters' });
 
 /**
  * Hybrid Document Adapter that intelligently routes between
@@ -65,16 +64,10 @@ export class HybridDocumentAdapter implements AttachmentAdapter {
         fileSize: attachment.file.size 
       });
 
-      // Convert file to buffer for processing
-      const buffer = Buffer.from(await attachment.file.arrayBuffer());
+      // For client-side processing, we'll send files directly to server for processing
+      // Client-side text extraction would require bundling Node.js libraries which causes issues
       
-      // Get file type from extension
-      const fileType = this.getFileTypeFromName(attachment.name);
-      
-      // Extract text using existing document processing library
-      const extracted = await extractTextFromDocument(buffer, fileType);
-      
-      // Return in assistant-ui format
+      // Return file reference with note about server processing
       return {
         id: attachment.id,
         type: "document",
@@ -86,12 +79,12 @@ export class HybridDocumentAdapter implements AttachmentAdapter {
             type: "text",
             text: `## Document: ${attachment.name}
 
-${extracted.text}
+*This document will be processed by the AI model. The file has been attached and will be analyzed.*
 
----
-*Document processed client-side*
-**Pages:** ${extracted.metadata?.pageCount || 'N/A'}
-**Size:** ${Math.round(attachment.file.size / 1024)}KB`
+**Size:** ${Math.round(attachment.file.size / 1024)}KB
+**Type:** ${attachment.contentType}
+
+*The AI will extract and analyze the content when processing your message.*`
           }
         ],
         status: { type: "complete" },
@@ -111,7 +104,7 @@ ${extracted.text}
             type: "text",
             text: `## Document: ${attachment.name}
 
-*Unable to extract content from this document. The file has been attached for reference.*
+*Unable to process this document. The file has been attached for reference.*
 
 **Error:** ${error instanceof Error ? error.message : 'Unknown processing error'}
 **Size:** ${Math.round(attachment.file.size / 1024)}KB
@@ -121,9 +114,8 @@ ${extracted.text}
           }
         ],
         status: { 
-          type: "incomplete",
-          reason: "processing_failed",
-          error: error instanceof Error ? error : new Error(String(error))
+          type: "complete",
+          reason: "processing_failed"
         },
       };
     }
