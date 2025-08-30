@@ -241,14 +241,15 @@ export async function POST(req: Request) {
               userContent += (userContent ? ' ' : '') + part.text;
               serializableParts.push({ type: 'text', text: part.text });
             } else if (part.type === 'image' && part.image) {
-              // Store only boolean flag - no image data or prefixes
+              // Store only boolean flag in database for security/memory reasons
               serializableParts.push({ 
                 type: 'image',
                 metadata: {
                   hasImage: true
-                  // No image data or prefixes stored for security/memory reasons
+                  // No image data stored in database for security/memory reasons
                 }
               });
+              // NOTE: Original messages with full image data are preserved for job worker
             }
           });
         }
@@ -326,6 +327,17 @@ export async function POST(req: Request) {
         JSON.stringify({ error: 'Invalid messages array' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
+    }
+
+    // Log attachment data being passed to job worker for debugging
+    const lastMessageForJob = messages[messages.length - 1];
+    if (lastMessageForJob?.content && Array.isArray(lastMessageForJob.content)) {
+      const attachmentParts = lastMessageForJob.content.filter(part => part.type === 'image');
+      log.info('Attachment data being passed to job worker', sanitizeForLogging({
+        attachmentCount: attachmentParts.length,
+        hasImageData: attachmentParts.some(part => !!part.image),
+        imageDataLengths: attachmentParts.map(part => part.image?.length || 0)
+      }));
     }
     
     // Prepare job creation request for Nexus
