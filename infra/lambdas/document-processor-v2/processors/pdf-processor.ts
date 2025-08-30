@@ -363,21 +363,32 @@ export class PDFProcessor implements DocumentProcessor {
       // Import helpers at runtime to avoid bundling issues
       const { generateCompletion } = await import('@/lib/ai-helpers');
       const { executeSQL } = await import('@/lib/db/data-api-adapter');
+      const { getSetting } = await import('@/lib/settings-manager');
       
-      // Use the same model ID as the existing PDF-to-markdown functionality
-      const PDF_TO_MARKDOWN_MODEL_ID = 20;
+      // Get the model ID from settings instead of hardcoding
+      const pdfProcessingModelIdStr = await getSetting('PDF_PROCESSING_MODEL_ID');
+      
+      if (!pdfProcessingModelIdStr) {
+        throw new Error('PDF_PROCESSING_MODEL_ID setting not configured. Please add this setting to specify which model to use for PDF processing.');
+      }
+      
+      const PDF_PROCESSING_MODEL_ID = parseInt(pdfProcessingModelIdStr, 10);
+      
+      if (isNaN(PDF_PROCESSING_MODEL_ID)) {
+        throw new Error(`Invalid PDF_PROCESSING_MODEL_ID setting value: ${pdfProcessingModelIdStr}. Must be a valid model ID number.`);
+      }
       
       // Get model config from database (same pattern as existing pdf-to-markdown)
       const modelResult = await executeSQL(`
         SELECT id, name, provider, model_id, description, capabilities, max_tokens, active, chat_enabled
         FROM ai_models
         WHERE id = :modelId AND active = true
-      `, [{ name: 'modelId', value: { longValue: PDF_TO_MARKDOWN_MODEL_ID } }]);
+      `, [{ name: 'modelId', value: { longValue: PDF_PROCESSING_MODEL_ID } }]);
       
       const model = modelResult && modelResult.length > 0 ? modelResult[0] : null;
       
       if (!model) {
-        throw new Error(`Active model with ID ${PDF_TO_MARKDOWN_MODEL_ID} not found in database`);
+        throw new Error(`Active model with ID ${PDF_PROCESSING_MODEL_ID} not found in database`);
       }
       
       console.log(`Using model from settings: ${model.name} (${model.provider}/${model.modelId})`);
