@@ -81,6 +81,23 @@ export async function POST(req: Request) {
       hasConversationId: !!existingConversationId,
       enabledTools
     }));
+
+    // Debug: Log the raw message structure to see what assistant-ui is sending
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      log.info('Raw message structure from assistant-ui', sanitizeForLogging({
+        messageRole: lastMessage.role,
+        contentType: typeof lastMessage.content,
+        contentIsArray: Array.isArray(lastMessage.content),
+        contentLength: Array.isArray(lastMessage.content) ? lastMessage.content.length : 0,
+        contentTypes: Array.isArray(lastMessage.content) 
+          ? lastMessage.content.map((part: any) => part.type) 
+          : [],
+        hasImageParts: Array.isArray(lastMessage.content) 
+          ? lastMessage.content.some((part: any) => part.type === 'image')
+          : false
+      }));
+    }
     
     // 2. Authenticate user
     const session = await getServerSession();
