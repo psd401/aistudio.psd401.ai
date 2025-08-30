@@ -221,15 +221,18 @@ export class PDFAttachmentAdapter implements AttachmentAdapter {
  * Creates a composite adapter combining all attachment adapters for Nexus
  * Includes:
  * - Vision-capable image adapter (for AI models with vision)
- * - Hybrid document adapter (intelligent client/server processing)
+ * - Simple image adapter (for display-only)
  * - Simple text adapter (for text files)
+ * - PDF adapter (for document processing - basic implementation)
  * 
- * @deprecated Use createEnhancedNexusAttachmentAdapter from enhanced-attachment-adapters
- * This function is maintained for backward compatibility but will be removed in a future version.
+ * @deprecated This function has been replaced by createEnhancedNexusAttachmentAdapter
+ * Use import { createEnhancedNexusAttachmentAdapter } from '@/lib/nexus/enhanced-attachment-adapters'
  */
 export function createNexusAttachmentAdapter() {
-  // Import the enhanced adapters dynamically to avoid circular dependencies
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { createEnhancedNexusAttachmentAdapter } = require('./enhanced-attachment-adapters');
-  return createEnhancedNexusAttachmentAdapter();
+  return new CompositeAttachmentAdapter([
+    new VisionImageAdapter(),           // For vision-capable models
+    new SimpleImageAttachmentAdapter(), // For display-only images
+    new SimpleTextAttachmentAdapter(),  // For text files
+    new PDFAttachmentAdapter(),         // For PDF documents (placeholder implementation)
+  ]);
 }

@@ -39,7 +39,7 @@ export class HybridDocumentAdapter implements AttachmentAdapter {
       file,
       status: { 
         type: "running",
-        reason: "preparing",
+        reason: "uploading",
         progress: 0
       },
     };
@@ -76,7 +76,7 @@ export class HybridDocumentAdapter implements AttachmentAdapter {
         file: attachment.file,
         content: [
           {
-            type: "text",
+            type: "text" as const,
             text: `## Document: ${attachment.name}
 
 *This document will be processed by the AI model. The file has been attached and will be analyzed.*
@@ -101,7 +101,7 @@ export class HybridDocumentAdapter implements AttachmentAdapter {
         file: attachment.file,
         content: [
           {
-            type: "text",
+            type: "text" as const,
             text: `## Document: ${attachment.name}
 
 *Unable to process this document. The file has been attached for reference.*
@@ -114,8 +114,7 @@ export class HybridDocumentAdapter implements AttachmentAdapter {
           }
         ],
         status: { 
-          type: "complete",
-          reason: "processing_failed"
+          type: "complete"
         },
       };
     }
@@ -160,7 +159,7 @@ export class HybridDocumentAdapter implements AttachmentAdapter {
         contentType: attachment.contentType,
         file: attachment.file,
         content: [{
-          type: "text",
+          type: "text" as const,
           text: `## Document: ${attachment.name}
 
 *Server processing failed. The document could not be processed.*
