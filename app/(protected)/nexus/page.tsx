@@ -11,7 +11,7 @@ import { ConversationPanel } from './_components/conversation-panel'
 import { WebSearchUI } from './_components/tools/web-search-ui'
 import { CodeInterpreterUI } from './_components/tools/code-interpreter-ui'
 import { useModelsWithPersistence } from '@/lib/hooks/use-models'
-import { createNexusAttachmentAdapter } from '@/lib/nexus/attachment-adapters'
+import { createEnhancedNexusAttachmentAdapter } from '@/lib/nexus/enhanced-attachment-adapters'
 import { createNexusPollingAdapter } from '@/lib/nexus/nexus-polling-adapter'
 import type { SelectAiModel } from '@/types'
 import { createLogger } from '@/lib/client-logger'
@@ -102,7 +102,7 @@ export default function NexusPage() {
     pollingAdapter || fallbackAdapter,
     {
       adapters: {
-        attachments: createNexusAttachmentAdapter(),
+        attachments: createEnhancedNexusAttachmentAdapter(),
       }
     }
   )
