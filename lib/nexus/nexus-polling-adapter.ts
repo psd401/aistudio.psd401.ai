@@ -3,49 +3,6 @@ import { createLogger } from '@/lib/client-logger'
 
 const log = createLogger({ moduleName: 'nexus-polling-adapter' })
 
-/**
- * Helper function to preserve attachment content in messages
- * This ensures image and document attachments reach the API correctly
- */
-function preserveAttachmentContent(messages: readonly ThreadMessage[]): readonly ThreadMessage[] {
-  try {
-    // For text-only messages, return as-is (zero impact on existing functionality)
-    const hasAttachments = messages.some(msg => 
-      Array.isArray(msg.content) && 
-      msg.content.some((part: any) => part.type === 'image' || part.type === 'file' || part.type === 'document')
-    );
-    
-    if (!hasAttachments) {
-      return messages; // No changes for text-only conversations
-    }
-    
-    // Log for debugging
-    console.log('preserveAttachmentContent: Processing messages with attachments', {
-      messageCount: messages.length,
-      hasAttachments
-    });
-    
-    // Only process messages that have attachments - create new array to avoid mutations
-    return messages.map(msg => {
-      if (!Array.isArray(msg.content)) {
-        return msg; // Keep text messages unchanged
-      }
-      
-      // Create new content array to avoid mutations
-      const enhancedContent = msg.content.map((part: any) => ({ ...part }));
-      
-      console.log('Message content parts:', enhancedContent.map(p => p.type));
-      
-      return {
-        ...msg,
-        content: enhancedContent
-      };
-    });
-  } catch (error) {
-    console.error('Error in preserveAttachmentContent, returning original messages:', error);
-    return messages; // Safe fallback - return original messages
-  }
-}
 
 export interface NexusJobResponse {
   jobId: string
@@ -121,7 +78,7 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            messages: preserveAttachmentContent(messages),
+            messages,
             ...bodyFn()
           }),
           signal: abortSignal,
