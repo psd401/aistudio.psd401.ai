@@ -35,6 +35,11 @@ export class PDFProcessor implements DocumentProcessor {
         handler: this.extractWithTextract.bind(this),
         condition: () => this.config.enableOCR // Only if OCR is enabled
       },
+      { 
+        name: 'vision-llm', 
+        handler: this.extractWithVisionLLM.bind(this),
+        condition: () => this.config.convertToMarkdown // Use Vision LLM for markdown conversion
+      },
     ];
     
     let extractedContent: any = null;
@@ -349,5 +354,87 @@ export class PDFProcessor implements DocumentProcessor {
     
     console.log(`Created ${chunks.length} chunks from PDF text`);
     return chunks;
+  }
+
+  private async extractWithVisionLLM(buffer: Buffer, fileName: string, jobId: string): Promise<any> {
+    console.log(`Processing PDF with Vision LLM via settings manager: ${fileName}`);
+    
+    try {
+      // Import helpers at runtime to avoid bundling issues
+      const { generateCompletion } = await import('@/lib/ai-helpers');
+      const { executeSQL } = await import('@/lib/db/data-api-adapter');
+      
+      // Use the same model ID as the existing PDF-to-markdown functionality
+      const PDF_TO_MARKDOWN_MODEL_ID = 20;
+      
+      // Get model config from database (same pattern as existing pdf-to-markdown)
+      const modelResult = await executeSQL(`
+        SELECT id, name, provider, model_id, description, capabilities, max_tokens, active, chat_enabled
+        FROM ai_models
+        WHERE id = :modelId AND active = true
+      `, [{ name: 'modelId', value: { longValue: PDF_TO_MARKDOWN_MODEL_ID } }]);
+      
+      const model = modelResult && modelResult.length > 0 ? modelResult[0] : null;
+      
+      if (!model) {
+        throw new Error(`Active model with ID ${PDF_TO_MARKDOWN_MODEL_ID} not found in database`);
+      }
+      
+      console.log(`Using model from settings: ${model.name} (${model.provider}/${model.modelId})`);
+      
+      // System prompt for the LLM (same as assistant architect)
+      const systemPrompt = `You are an expert document parser. Given a PDF file, extract ALL text and describe every image or graphic in context. Return a single, well-structured markdown document that preserves the logical order and hierarchy of the original. For images/graphics, insert a markdown image block with a description, e.g. ![Description of image]. Do not skip any content. Output only markdown.`;
+      
+      // Prepare messages for the LLM (same pattern as assistant architect)
+      const messages = [
+        {
+          role: 'user' as const,
+          content: [
+            { type: 'text' as const, text: systemPrompt },
+            { type: 'file' as const, data: buffer, mediaType: 'application/pdf' }
+          ]
+        }
+      ];
+      
+      console.log('Calling Vision LLM via generateCompletion with settings manager model...');
+      const startTime = Date.now();
+      
+      // Call the LLM using the existing generateCompletion helper (uses settings manager)
+      const markdown = await generateCompletion(
+        { provider: model.provider as string, modelId: model.modelId as string },
+        messages
+      );
+      
+      const processingTime = Date.now() - startTime;
+      console.log(`Vision LLM processing completed in ${processingTime}ms, result length: ${markdown?.length || 0}`);
+      
+      if (!markdown || markdown.trim().length === 0) {
+        throw new Error('No markdown content generated from Vision LLM');
+      }
+      
+      // Parse the markdown to extract plain text for the text field
+      const plainText = markdown
+        .replace(/[#*_`[\]()]/g, '') // Remove markdown formatting
+        .replace(/!\[.*?\]\(.*?\)/g, '') // Remove image references
+        .replace(/\n{3,}/g, '\n\n') // Clean up excessive newlines
+        .trim();
+      
+      return {
+        text: plainText,
+        markdown: markdown, // Return both plain text and markdown
+        confidence: 1.0, // Vision models don't provide confidence scores
+        pageCount: 1, // We don't know exact page count from this method
+        metadata: {
+          extractionMethod: 'vision-llm',
+          processingTime,
+          modelUsed: `${model.provider}/${model.modelId}`,
+          modelName: model.name,
+        }
+      };
+      
+    } catch (error) {
+      console.error('Vision LLM extraction failed:', error);
+      throw new Error(`Vision LLM extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 }
