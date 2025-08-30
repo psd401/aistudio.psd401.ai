@@ -128,7 +128,7 @@ export class DocumentProcessingStack extends cdk.Stack {
     // High-memory queue for large files (50MB+)
     this.highMemoryQueue = new sqs.Queue(this, 'HighMemoryQueue', {
       queueName: `AIStudio-DocumentProcessing-HighMemory-${environment}`,
-      visibilityTimeout: cdk.Duration.minutes(30), // 30 minutes for large file processing
+      visibilityTimeout: cdk.Duration.minutes(15), // Match Lambda timeout
       receiveMessageWaitTime: cdk.Duration.seconds(20),
       deadLetterQueue: {
         queue: this.processingDLQ,
@@ -263,7 +263,7 @@ export class DocumentProcessingStack extends cdk.Stack {
       handler: 'index.handler',
       code: lambda.Code.fromAsset('lambdas/document-processor-v2'),
       memorySize: 10240, // 10GB for large file processing
-      timeout: cdk.Duration.minutes(30),
+      timeout: cdk.Duration.minutes(15), // Lambda max timeout is 15 minutes
       role: processorRole,
       environment: {
         DOCUMENTS_BUCKET_NAME: this.documentsBucket.bucketName,
