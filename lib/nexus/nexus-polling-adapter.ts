@@ -1,8 +1,7 @@
-import type { ChatModelAdapter, ThreadMessage } from '@assistant-ui/react'
+import type { ChatModelAdapter } from '@assistant-ui/react'
 import { createLogger } from '@/lib/client-logger'
 
 const log = createLogger({ moduleName: 'nexus-polling-adapter' })
-
 
 export interface NexusJobResponse {
   jobId: string

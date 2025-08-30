@@ -347,9 +347,9 @@ export async function POST(req: Request) {
     }
 
     // Log attachment data being passed to job worker for debugging
-    const lastMessageForJob = messages[messages.length - 1];
-    if (lastMessageForJob?.content && Array.isArray(lastMessageForJob.content)) {
-      const attachmentParts = lastMessageForJob.content.filter(part => part.type === 'image');
+    const lastMessageForWorker = messagesForWorker[messagesForWorker.length - 1];
+    if (lastMessageForWorker?.content && Array.isArray(lastMessageForWorker.content)) {
+      const attachmentParts = lastMessageForWorker.content.filter(part => part.type === 'image');
       log.info('Attachment data being passed to job worker', sanitizeForLogging({
         attachmentCount: attachmentParts.length,
         hasImageData: attachmentParts.some(part => !!part.image),
@@ -416,11 +416,22 @@ export async function POST(req: Request) {
       }));
     }
 
+    // Create version with image data for job worker (NOT for database)
+    const messagesForWorker = messages.map(msg => {
+      if (Array.isArray(msg.content)) {
+        return {
+          ...msg,
+          content: msg.content // Preserve ALL content including images for worker
+        };
+      }
+      return msg;
+    }) as UIMessage[];
+
     const jobRequest: CreateJobRequest = {
       conversationId: conversationId, // Keep as UUID string for nexus
       userId: userId,
       modelId: dbModelId,
-      messages: messages as UIMessage[],
+      messages: messagesForWorker, // Pass full messages with images to worker
       provider: provider,
       modelIdString: modelId,
       systemPrompt,
