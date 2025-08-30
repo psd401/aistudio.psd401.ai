@@ -452,6 +452,12 @@ export class VisionImageAdapter implements AttachmentAdapter {
   accept = "image/jpeg,image/png,image/webp,image/gif";
 
   async add({ file }: { file: File }): Promise<PendingAttachment> {
+    console.log('VisionImageAdapter.add() called', {
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type
+    });
+
     // Validate file size (20MB limit for most LLMs)
     const maxSize = 20 * 1024 * 1024; // 20MB
     if (file.size > maxSize) {
@@ -463,6 +469,8 @@ export class VisionImageAdapter implements AttachmentAdapter {
     if (!isValidImage) {
       throw new Error("Invalid image file format");
     }
+
+    console.log('VisionImageAdapter.add() validation passed');
 
     // Return pending attachment while processing
     return {
@@ -482,6 +490,14 @@ export class VisionImageAdapter implements AttachmentAdapter {
   async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
     // Convert image to base64 data URL
     const base64 = await this.fileToBase64DataURL(attachment.file);
+
+    console.log('VisionImageAdapter.send() called', {
+      attachmentId: attachment.id,
+      fileName: attachment.name,
+      fileSize: attachment.file.size,
+      base64Length: base64.length,
+      base64Preview: base64.substring(0, 50) + '...'
+    });
 
     // Return in assistant-ui format with image content
     return {
