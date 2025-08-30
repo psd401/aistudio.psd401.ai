@@ -387,11 +387,35 @@ export async function POST(req: Request) {
       }));
     }
 
+    // Create lightweight messages for database (text + metadata only)
+    const databaseMessages = messages.map(msg => {
+      if (Array.isArray(msg.content)) {
+        return {
+          ...msg,
+          content: msg.content.map(part => {
+            if (part.type === 'image') {
+              // Store only metadata in database version
+              return {
+                type: 'text' as const,
+                text: `[Image: ${part.name || 'Uploaded image'}]`
+              };
+            }
+            return part; // Keep text and other parts as-is
+          })
+        };
+      }
+      return msg;
+    }) as UIMessage[];
+
+    // Create full messages for worker (includes complete attachment data)
+    const workerMessages = messages as UIMessage[];
+
     const jobRequest: CreateJobRequest = {
       conversationId: conversationId, // Keep as UUID string for nexus
       userId: userId,
       modelId: dbModelId,
-      messages: messages as UIMessage[],
+      messages: databaseMessages, // Lightweight for database
+      workerMessages: workerMessages, // Full data for worker
       provider: provider,
       modelIdString: modelId,
       systemPrompt,

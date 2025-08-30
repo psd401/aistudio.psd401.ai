@@ -5,6 +5,7 @@ import type { UIMessage } from 'ai';
 
 const log = createLogger({ module: 'job-management-service' });
 
+
 /**
  * Job status enum matching existing database schema
  * Maps to existing job_status enum: pending, running, completed, failed
@@ -122,7 +123,8 @@ export interface CreateJobRequest {
   conversationId: string | number; // Support both legacy (number) and nexus (UUID string)
   userId: number;
   modelId: number;
-  messages: UIMessage[];
+  messages: UIMessage[]; // Lightweight messages for database (text + metadata only)
+  workerMessages?: UIMessage[]; // Full messages for worker (text + complete attachment data)
   provider: string;
   modelIdString: string;
   systemPrompt?: string;
@@ -174,9 +176,9 @@ export class JobManagementService {
     });
 
     try {
-      // Prepare request data
+      // Prepare request data for database (lightweight - no large attachments)
       const requestData = {
-        messages: request.messages,
+        messages: request.messages, // Lightweight messages for database storage
         modelId: request.modelIdString,
         provider: request.provider,
         systemPrompt: request.systemPrompt,
@@ -185,6 +187,11 @@ export class JobManagementService {
         temperature: request.temperature,
         tools: request.tools
       };
+
+      // Add worker messages directly for small attachments (images)
+      if (request.workerMessages) {
+        requestData.workerMessages = request.workerMessages;
+      }
 
       const result = await executeSQL(`
         INSERT INTO ai_streaming_jobs (
@@ -274,7 +281,15 @@ export class JobManagementService {
         status: mapFromDatabaseStatus(row.status as JobStatus, row.errorMessage as string),
         requestData: typeof row.requestData === 'string' ? (() => {
           try {
-            return JSON.parse(row.requestData);
+            const parsedData = JSON.parse(row.requestData);
+            // Use worker messages for Lambda processing if available
+            if (parsedData.workerMessages) {
+              return {
+                ...parsedData,
+                messages: parsedData.workerMessages
+              };
+            }
+            return parsedData;
           } catch (error) {
             log.error('Failed to parse request data', {
               jobId: row.id,
