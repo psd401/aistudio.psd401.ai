@@ -5,9 +5,6 @@ import type { UIMessage } from 'ai';
 
 const log = createLogger({ module: 'job-management-service' });
 
-// Simple in-memory cache for worker messages (temporary storage)
-const workerMessagesCache = new Map<string, UIMessage[]>();
-
 
 /**
  * Job status enum matching existing database schema
@@ -126,8 +123,7 @@ export interface CreateJobRequest {
   conversationId: string | number; // Support both legacy (number) and nexus (UUID string)
   userId: number;
   modelId: number;
-  messages: UIMessage[]; // Lightweight messages for database (text + metadata only)
-  workerMessages?: UIMessage[]; // Full messages for worker (text + complete attachment data)
+  messages: UIMessage[]; // Lightweight messages (attachments stored in S3)
   provider: string;
   modelIdString: string;
   systemPrompt?: string;
@@ -179,9 +175,9 @@ export class JobManagementService {
     });
 
     try {
-      // Prepare request data for database (lightweight - no large attachments)
+      // Prepare request data for database (lightweight messages only - NO attachments)
       const requestData = {
-        messages: request.messages, // Lightweight messages for database storage only
+        messages: request.messages, // These should be lightweight messages (attachments already in S3)
         modelId: request.modelIdString,
         provider: request.provider,
         systemPrompt: request.systemPrompt,
@@ -193,12 +189,8 @@ export class JobManagementService {
 
       // Generate job ID first
       const pendingJobId = crypto.randomUUID();
-      
-      // Store worker messages separately for SQS transmission (not in database)
-      workerMessagesCache.set(pendingJobId, request.workerMessages || request.messages);
 
-
-      const result = await executeSQL(`
+      await executeSQL(`
         INSERT INTO ai_streaming_jobs (
           id,
           conversation_id,
@@ -691,17 +683,6 @@ export class JobManagementService {
     }
   }
 
-  /**
-   * Get worker messages for Lambda processing
-   */
-  getWorkerMessages(jobId: string): UIMessage[] | null {
-    const messages = workerMessagesCache.get(jobId);
-    if (messages) {
-      // Clean up cache after retrieval
-      workerMessagesCache.delete(jobId);
-    }
-    return messages || null;
-  }
 }
 
 // Singleton instance

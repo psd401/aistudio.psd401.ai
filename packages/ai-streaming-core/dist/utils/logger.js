@@ -17,9 +17,32 @@ class SilentLogger {
     debug() { }
 }
 /**
- * Global logger instance - defaults to silent to avoid console violations
+ * Console logger implementation for Lambda environment
  */
-let globalLogger = new SilentLogger();
+class ConsoleLogger {
+    info(message, meta) {
+        // eslint-disable-next-line no-console
+        console.log(`[INFO] ${message}`, meta ? JSON.stringify(meta) : '');
+    }
+    error(message, meta) {
+        // eslint-disable-next-line no-console
+        console.error(`[ERROR] ${message}`, meta ? JSON.stringify(meta) : '');
+    }
+    warn(message, meta) {
+        // eslint-disable-next-line no-console
+        console.warn(`[WARN] ${message}`, meta ? JSON.stringify(meta) : '');
+    }
+    debug(message, meta) {
+        // eslint-disable-next-line no-console
+        console.log(`[DEBUG] ${message}`, meta ? JSON.stringify(meta) : '');
+    }
+}
+/**
+ * Global logger instance - uses console in Lambda, silent otherwise
+ */
+let globalLogger = process.env.AWS_LAMBDA_FUNCTION_NAME
+    ? new ConsoleLogger()
+    : new SilentLogger();
 /**
  * Set the global logger (for dependency injection from main app)
  */
@@ -30,8 +53,21 @@ function setGlobalLogger(logger) {
  * Create a logger instance
  */
 function createLogger(context = {}) {
-    // Return the global logger (silent by default)
-    return globalLogger;
+    // Create a contextualized logger that merges context into all log calls
+    return {
+        info(message, meta) {
+            globalLogger.info(message, { ...context, ...meta });
+        },
+        error(message, meta) {
+            globalLogger.error(message, { ...context, ...meta });
+        },
+        warn(message, meta) {
+            globalLogger.warn(message, { ...context, ...meta });
+        },
+        debug(message, meta) {
+            globalLogger.debug(message, { ...context, ...meta });
+        }
+    };
 }
 /**
  * Generate a simple request ID

@@ -31,28 +31,29 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
+const mockJobParams = {
+  fileName: 'test-document.pdf',
+  fileSize: 1024 * 1024, // 1MB
+  fileType: 'application/pdf',
+  purpose: 'chat' as const,
+  userId: 'user-123',
+  processingOptions: {
+    extractText: true,
+    convertToMarkdown: false,
+    extractImages: false,
+    generateEmbeddings: false,
+    ocrEnabled: true,
+  },
+};
+
 describe('Document Job Service', () => {
-  const mockJobParams = {
-    fileName: 'test-document.pdf',
-    fileSize: 1024 * 1024, // 1MB
-    fileType: 'application/pdf',
-    purpose: 'chat' as const,
-    userId: 'user-123',
-    processingOptions: {
-      extractText: true,
-      convertToMarkdown: false,
-      extractImages: false,
-      generateEmbeddings: false,
-      ocrEnabled: true,
-    },
-  };
 
   describe('createDocumentJob', () => {
     it('should create a document job with valid parameters', async () => {
       // Mock DynamoDB client
-      const mockSend = jest.fn().mockResolvedValue({});
+      const mockSend = ((jest.fn() as any) as any).mockResolvedValue({});
       const { DynamoDBClient, PutItemCommand } = require('@aws-sdk/client-dynamodb');
-      DynamoDBClient.mockImplementation(() => ({ send: mockSend }));
+      (DynamoDBClient as jest.Mock).mockImplementation(() => ({ send: mockSend }));
 
       const job = await createDocumentJob(mockJobParams);
 
@@ -70,9 +71,9 @@ describe('Document Job Service', () => {
     });
 
     it('should handle DynamoDB errors gracefully', async () => {
-      const mockSend = jest.fn().mockRejectedValue(new Error('DynamoDB error'));
+      const mockSend = (jest.fn() as any).mockRejectedValue(new Error('DynamoDB error'));
       const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-      DynamoDBClient.mockImplementation(() => ({ send: mockSend }));
+      (DynamoDBClient as jest.Mock).mockImplementation(() => ({ send: mockSend }));
 
       await expect(createDocumentJob(mockJobParams)).rejects.toThrow('Failed to create document job');
     });
@@ -80,9 +81,9 @@ describe('Document Job Service', () => {
 
   describe('updateJobStatus', () => {
     it('should update job status successfully', async () => {
-      const mockSend = jest.fn().mockResolvedValue({});
+      const mockSend = ((jest.fn() as any) as any).mockResolvedValue({});
       const { DynamoDBClient, PutItemCommand } = require('@aws-sdk/client-dynamodb');
-      DynamoDBClient.mockImplementation(() => ({ send: mockSend }));
+      (DynamoDBClient as jest.Mock).mockImplementation(() => ({ send: mockSend }));
 
       await updateJobStatus('job-123', 'processing', {
         progress: 50,
@@ -104,11 +105,11 @@ describe('Document Job Service', () => {
         result: { S: JSON.stringify({ text: 'Extracted text' }) },
       };
 
-      const mockSend = jest.fn().mockResolvedValue({
+      const mockSend = ((jest.fn() as any) as any).mockResolvedValue({
         Items: [mockJobData],
       });
       const { DynamoDBClient, QueryCommand } = require('@aws-sdk/client-dynamodb');
-      DynamoDBClient.mockImplementation(() => ({ send: mockSend }));
+      (DynamoDBClient as jest.Mock).mockImplementation(() => ({ send: mockSend }));
 
       const job = await getJobStatus('job-123', 'user-123');
 
@@ -119,9 +120,9 @@ describe('Document Job Service', () => {
     });
 
     it('should return null for non-existent job', async () => {
-      const mockSend = jest.fn().mockResolvedValue({ Items: [] });
+      const mockSend = ((jest.fn() as any) as any).mockResolvedValue({ Items: [] });
       const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-      DynamoDBClient.mockImplementation(() => ({ send: mockSend }));
+      (DynamoDBClient as jest.Mock).mockImplementation(() => ({ send: mockSend }));
 
       const job = await getJobStatus('non-existent-job', 'user-123');
 
@@ -133,7 +134,7 @@ describe('Document Job Service', () => {
 describe('Document Upload Service', () => {
   describe('generatePresignedUrl', () => {
     it('should generate a single presigned URL for small files', async () => {
-      const mockGetSignedUrl = jest.fn().mockResolvedValue('https://presigned-url.com');
+      const mockGetSignedUrl = ((jest.fn() as any) as any).mockResolvedValue('https://presigned-url.com');
       jest.doMock('@aws-sdk/s3-request-presigner', () => ({
         getSignedUrl: mockGetSignedUrl,
       }));
@@ -148,7 +149,7 @@ describe('Document Upload Service', () => {
 
   describe('generateMultipartUrls', () => {
     it('should generate multipart URLs for large files', async () => {
-      const mockSend = jest.fn()
+      const mockSend = (jest.fn() as any)
         .mockResolvedValueOnce({ UploadId: 'multipart-upload-id' })
         .mockResolvedValue('https://part-1-url.com')
         .mockResolvedValue('https://part-2-url.com');
@@ -156,7 +157,7 @@ describe('Document Upload Service', () => {
       const { S3Client, CreateMultipartUploadCommand } = require('@aws-sdk/client-s3');
       S3Client.mockImplementation(() => ({ send: mockSend }));
 
-      const mockGetSignedUrl = jest.fn()
+      const mockGetSignedUrl = (jest.fn() as any)
         .mockResolvedValueOnce('https://part-1-url.com')
         .mockResolvedValueOnce('https://part-2-url.com');
       jest.doMock('@aws-sdk/s3-request-presigner', () => ({
@@ -175,7 +176,7 @@ describe('Document Upload Service', () => {
 describe('Lambda Trigger Service', () => {
   describe('sendToProcessingQueue', () => {
     it('should send message to standard queue for small files', async () => {
-      const mockSend = jest.fn().mockResolvedValue({});
+      const mockSend = ((jest.fn() as any) as any).mockResolvedValue({});
       const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
       SQSClient.mockImplementation(() => ({ send: mockSend }));
 
@@ -202,7 +203,7 @@ describe('Lambda Trigger Service', () => {
     });
 
     it('should send message to high-memory queue for large files', async () => {
-      const mockSend = jest.fn().mockResolvedValue({});
+      const mockSend = ((jest.fn() as any) as any).mockResolvedValue({});
       const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
       SQSClient.mockImplementation(() => ({ send: mockSend }));
 
@@ -233,24 +234,24 @@ describe('Lambda Trigger Service', () => {
 describe('Integration Tests', () => {
   it('should handle complete document upload workflow', async () => {
     // Mock all AWS services
-    const mockDynamoSend = jest.fn().mockResolvedValue({});
-    const mockS3Send = jest.fn().mockResolvedValue({ UploadId: 'upload-123' });
-    const mockSQSSend = jest.fn().mockResolvedValue({});
+    const mockDynamoSend = ((jest.fn() as any) as any).mockResolvedValue({});
+    const mockS3Send = ((jest.fn() as any) as any).mockResolvedValue({ UploadId: 'upload-123' });
+    const mockSQSSend = ((jest.fn() as any) as any).mockResolvedValue({});
 
     const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
     const { S3Client } = require('@aws-sdk/client-s3');
     const { SQSClient } = require('@aws-sdk/client-sqs');
 
-    DynamoDBClient.mockImplementation(() => ({ send: mockDynamoSend }));
-    S3Client.mockImplementation(() => ({ send: mockS3Send }));
-    SQSClient.mockImplementation(() => ({ send: mockSQSSend }));
+    (DynamoDBClient as jest.Mock).mockImplementation(() => ({ send: mockDynamoSend }));
+    (S3Client as jest.Mock).mockImplementation(() => ({ send: mockS3Send }));
+    (SQSClient as jest.Mock).mockImplementation(() => ({ send: mockSQSSend }));
 
     // 1. Create job
     const job = await createDocumentJob(mockJobParams);
     expect(job.status).toBe('pending');
 
     // 2. Generate upload URL
-    const mockGetSignedUrl = jest.fn().mockResolvedValue('https://upload-url.com');
+    const mockGetSignedUrl = ((jest.fn() as any) as any).mockResolvedValue('https://upload-url.com');
     jest.doMock('@aws-sdk/s3-request-presigner', () => ({
       getSignedUrl: mockGetSignedUrl,
     }));

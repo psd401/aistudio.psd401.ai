@@ -351,6 +351,9 @@ export async function POST(req: Request) {
         } else if (Array.isArray(messageContent)) {
           const textPart = messageContent.find(part => part.type === 'text' && part.text);
           imagePrompt = (textPart?.text || '').trim();
+        } else if (lastMessage.parts && Array.isArray(lastMessage.parts)) {
+          const textPart = lastMessage.parts.find(part => part.type === 'text' && part.text);
+          imagePrompt = (textPart?.text || '').trim();
         }
       }
 
@@ -388,18 +391,50 @@ export async function POST(req: Request) {
       }));
     }
 
+    // Convert messages to AI SDK v5 format (parts array) before processing attachments
+    const messagesWithParts: UIMessage[] = messages.map(message => {
+      // If message already has parts, use as-is
+      if (message.parts) {
+        return message;
+      }
+      
+      // Convert legacy content format to parts format
+      const messageContent = (message as UIMessage & { 
+        content?: string | Array<{ type: string; text?: string; image?: string }> 
+      }).content;
+      
+      if (typeof messageContent === 'string') {
+        // Simple string content
+        return {
+          ...message,
+          parts: [{ type: 'text', text: messageContent }]
+        };
+      } else if (Array.isArray(messageContent)) {
+        // Content parts array - convert to parts format
+        return {
+          ...message,
+          parts: messageContent
+        };
+      } else {
+        // No content, create empty parts
+        return {
+          ...message,
+          parts: []
+        };
+      }
+    });
+
     // Process messages to store attachments in S3 and create lightweight versions
     const { lightweightMessages, attachmentReferences } = await processMessagesWithAttachments(
       conversationId,
-      messages as any[]
+      messagesWithParts
     );
 
     const jobRequest: CreateJobRequest = {
       conversationId: conversationId, // Keep as UUID string for nexus
       userId: userId,
       modelId: dbModelId,
-      messages: lightweightMessages as UIMessage[], // Lightweight for database
-      workerMessages: messages as UIMessage[], // Full data for worker
+      messages: lightweightMessages as UIMessage[], // Lightweight messages (attachments in S3)
       provider: provider,
       modelIdString: modelId,
       systemPrompt,
@@ -431,7 +466,8 @@ export async function POST(req: Request) {
           MessageBody: JSON.stringify({
             jobId,
             hasAttachments: attachmentReferences.length > 0,
-            attachmentCount: attachmentReferences.length
+            attachmentCount: attachmentReferences.length,
+            attachmentReferences: attachmentReferences // S3 metadata for reconstruction
           }),
           MessageAttributes: {
             jobType: {

@@ -127,7 +127,10 @@ class GeminiAdapter extends base_adapter_1.BaseProviderAdapter {
         return baseCapabilities;
     }
     getProviderOptions(modelId, options) {
-        // Google models don't have special provider options currently
+        // Google models don't currently support special provider options like reasoning effort
+        // Log parameters for debugging but return empty options
+        const log = (0, logger_1.createLogger)({ module: 'GeminiAdapter' });
+        log.debug('Getting provider options', { modelId, hasOptions: !!options });
         return {};
     }
     supportsModel(modelId) {

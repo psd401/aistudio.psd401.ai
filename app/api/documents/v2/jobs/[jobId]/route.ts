@@ -14,7 +14,7 @@ export async function GET(
   try {
     // Authentication
     const session = await getServerSession();
-    if (!session?.userId) {
+    if (!session?.sub) {
       log.warn('Unauthorized request');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -23,10 +23,10 @@ export async function GET(
     const jobId = resolvedParams.jobId;
     
     // Get job with user ID for security
-    const job = await getJobStatus(jobId, session.userId);
+    const job = await getJobStatus(jobId, session.sub);
     
     if (!job) {
-      log.warn('Job not found', { jobId, userId: session.userId });
+      log.warn('Job not found', { jobId, userId: session.sub });
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
     
@@ -37,8 +37,8 @@ export async function GET(
         result = await fetchResultFromS3(job.resultS3Key);
       } catch (error) {
         log.error('Failed to fetch result from S3', { error, jobId, s3Key: job.resultS3Key });
-        // Continue with null result rather than failing the request
-        result = null;
+        // Continue with undefined result rather than failing the request
+        result = undefined;
       }
     }
     

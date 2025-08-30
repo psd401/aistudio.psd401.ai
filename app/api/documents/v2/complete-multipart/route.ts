@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   
   try {
     const session = await getServerSession();
-    if (!session?.userId) {
+    if (!session?.sub) {
       log.warn('Unauthorized request');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -38,9 +38,9 @@ export async function POST(req: NextRequest) {
     });
     
     // Get job details to verify ownership
-    const job = await getJobStatus(jobId, session.userId);
+    const job = await getJobStatus(jobId, session.sub);
     if (!job) {
-      log.warn('Job not found for multipart completion', { jobId, userId: session.userId });
+      log.warn('Job not found for multipart completion', { jobId, userId: session.sub });
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
     
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
       fileName: job.fileName,
       fileSize: job.fileSize,
       fileType: job.fileType,
-      userId: session.userId,
+      userId: session.sub,
       processingOptions: job.processingOptions,
     });
     
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { 
           error: 'Invalid request data',
-          details: error.errors.map(e => `${e.path.join('.')}: ${e.message}`)
+          details: error.issues.map((e) => `${e.path.join('.')}: ${e.message}`)
         },
         { status: 400 }
       );

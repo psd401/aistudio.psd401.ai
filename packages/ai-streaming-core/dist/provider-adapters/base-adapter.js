@@ -28,7 +28,7 @@ class BaseProviderAdapter {
                 onFinish: async (finishResult) => {
                     if (callbacks.onFinish) {
                         await callbacks.onFinish({
-                            text: finishResult.text,
+                            text: finishResult.text || '',
                             usage: {
                                 promptTokens: finishResult.usage?.promptTokens || 0,
                                 completionTokens: finishResult.usage?.completionTokens || 0,
@@ -37,7 +37,7 @@ class BaseProviderAdapter {
                                     reasoningTokens: finishResult.experimental_providerMetadata.openai.reasoningTokens
                                 })
                             },
-                            finishReason: finishResult.finishReason
+                            finishReason: finishResult.finishReason || 'unknown'
                         });
                     }
                 }
@@ -104,13 +104,17 @@ class BaseProviderAdapter {
      * Get provider-specific options for streaming
      */
     getProviderOptions(modelId, options) {
+        // Base implementation - override in subclasses to use modelId and options
+        const log = (0, logger_1.createLogger)({ module: 'BaseProviderAdapter' });
+        log.debug('Getting provider options', { modelId, hasOptions: !!options });
         return {};
     }
     /**
      * Check if this adapter supports the given model
      */
     supportsModel(modelId) {
-        return true; // Base implementation - override in subclasses
+        // Base implementation accepts all models - override in subclasses to filter by modelId
+        return !!modelId; // Return false for empty/null modelId, true otherwise
     }
 }
 exports.BaseProviderAdapter = BaseProviderAdapter;

@@ -176,9 +176,7 @@ export class HybridDocumentAdapter implements AttachmentAdapter {
 Please try re-uploading or contact support if the issue persists.`
         }],
         status: { 
-          type: "incomplete",
-          reason: "server_error",
-          error: error instanceof Error ? error : new Error(String(error))
+          type: "complete"
         },
       };
     }
@@ -210,11 +208,11 @@ Please try re-uploading or contact support if the issue persists.`
     return response.json();
   }
 
-  private async uploadToS3(file: File, session: any) {
-    if (session.uploadMethod === 'multipart') {
+  private async uploadToS3(file: File, session: { uploadMethod?: string; uploadUrl?: string; partUrls?: { uploadUrl: string }[]; uploadId?: string; jobId?: string }) {
+    if (session.uploadMethod === 'multipart' && session.partUrls && session.uploadId && session.jobId) {
       // Handle multipart upload for very large files
-      await this.multipartUpload(file, session);
-    } else {
+      await this.multipartUpload(file, { partUrls: session.partUrls, uploadId: session.uploadId, jobId: session.jobId });
+    } else if (session.uploadUrl) {
       // Direct upload for medium files
       const response = await fetch(session.uploadUrl, {
         method: 'PUT',
@@ -227,10 +225,12 @@ Please try re-uploading or contact support if the issue persists.`
       if (!response.ok) {
         throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
       }
+    } else {
+      throw new Error('Invalid session: missing uploadUrl for direct upload or required multipart data');
     }
   }
 
-  private async multipartUpload(file: File, session: any) {
+  private async multipartUpload(file: File, session: { partUrls: { uploadUrl: string }[]; uploadId: string; jobId: string }) {
     const partSize = 5 * 1024 * 1024; // 5MB chunks
     const parts = [];
     
@@ -270,7 +270,7 @@ Please try re-uploading or contact support if the issue persists.`
     }
   }
 
-  private async confirmUpload(session: any) {
+  private async confirmUpload(session: { uploadId: string; jobId: string }) {
     const response = await fetch('/api/documents/v2/confirm-upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -306,7 +306,7 @@ Please try re-uploading or contact support if the issue persists.`
         
         if (result.markdown) {
           content.push({
-            type: 'text',
+            type: 'text' as const,
             text: `## Document: ${fileName}
 
 ${result.markdown}
@@ -319,7 +319,7 @@ ${result.pageCount ? `**Pages:** ${result.pageCount}` : ''}`
           });
         } else if (result.text) {
           content.push({
-            type: 'text',
+            type: 'text' as const,
             text: `## Document: ${fileName}
 
 ${result.text}
@@ -332,7 +332,7 @@ ${result.pageCount ? `**Pages:** ${result.pageCount}` : ''}`
           });
         } else {
           content.push({
-            type: 'text',
+            type: 'text' as const,
             text: `## Document: ${fileName}
 
 *Document processed but no text content was extracted.*
@@ -349,7 +349,7 @@ This might be because:
         // Add images if extracted
         if (result.images && result.images.length > 0) {
           content.push({
-            type: 'text',
+            type: 'text' as const,
             text: `\n**Extracted Images:** ${result.images.length} image(s) found`
           });
         }
@@ -452,7 +452,7 @@ export class VisionImageAdapter implements AttachmentAdapter {
   accept = "image/jpeg,image/png,image/webp,image/gif";
 
   async add({ file }: { file: File }): Promise<PendingAttachment> {
-    console.log('VisionImageAdapter.add() called', {
+    log.info('VisionImageAdapter.add() called', {
       fileName: file.name,
       fileSize: file.size,
       fileType: file.type
@@ -470,7 +470,7 @@ export class VisionImageAdapter implements AttachmentAdapter {
       throw new Error("Invalid image file format");
     }
 
-    console.log('VisionImageAdapter.add() validation passed');
+    log.info('VisionImageAdapter.add() validation passed');
 
     // Return pending attachment while processing
     return {
@@ -491,7 +491,7 @@ export class VisionImageAdapter implements AttachmentAdapter {
     // Convert image to base64 data URL
     const base64 = await this.fileToBase64DataURL(attachment.file);
 
-    console.log('VisionImageAdapter.send() called', {
+    log.info('VisionImageAdapter.send() called', {
       attachmentId: attachment.id,
       fileName: attachment.name,
       fileSize: attachment.file.size,

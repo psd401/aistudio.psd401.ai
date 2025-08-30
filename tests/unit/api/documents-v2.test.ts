@@ -181,7 +181,7 @@ describe('Documents v2 API Routes', () => {
       });
 
       const request = new NextRequest('http://localhost:3000/api/documents/v2/jobs/job-123');
-      const response = await getJobStatus(request, { params: { jobId: 'job-123' } });
+      const response = await getJobStatus(request, { params: Promise.resolve({ jobId: 'job-123' }) });
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -198,7 +198,7 @@ describe('Documents v2 API Routes', () => {
       getJobStatusService.mockResolvedValue(null);
 
       const request = new NextRequest('http://localhost:3000/api/documents/v2/jobs/non-existent');
-      const response = await getJobStatus(request, { params: { jobId: 'non-existent' } });
+      const response = await getJobStatus(request, { params: Promise.resolve({ jobId: 'non-existent' }) });
 
       expect(response.status).toBe(404);
     });
@@ -208,7 +208,7 @@ describe('Documents v2 API Routes', () => {
       getServerSession.mockResolvedValue(null);
 
       const request = new NextRequest('http://localhost:3000/api/documents/v2/jobs/job-123');
-      const response = await getJobStatus(request, { params: { jobId: 'job-123' } });
+      const response = await getJobStatus(request, { params: Promise.resolve({ jobId: 'job-123' }) });
 
       expect(response.status).toBe(401);
     });

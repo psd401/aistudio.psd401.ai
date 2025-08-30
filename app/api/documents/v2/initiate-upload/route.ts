@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
   try {
     // Authentication
     const session = await getServerSession();
-    if (!session?.userId) {
+    if (!session?.sub) {
       log.warn('Unauthorized request');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
       fileSize,
       fileType,
       purpose,
-      userId: session.userId,
+      userId: session.sub,
       processingOptions: {
         extractText: processingOptions?.extractText ?? true,
         convertToMarkdown: processingOptions?.convertToMarkdown ?? false,
@@ -141,7 +141,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { 
           error: 'Invalid request data',
-          details: error.errors.map(e => `${e.path.join('.')}: ${e.message}`)
+          details: error.issues.map((e) => `${e.path.join('.')}: ${e.message}`)
         },
         { status: 400 }
       );

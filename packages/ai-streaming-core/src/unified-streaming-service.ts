@@ -6,9 +6,7 @@ import type {
   StreamRequest, 
   StreamResponse, 
   StreamConfig, 
-  StreamingProgress, 
-  TelemetrySpan, 
-  TelemetryConfig 
+  StreamingProgress
 } from './types';
 
 /**
@@ -111,16 +109,16 @@ export class UnifiedStreamingService {
         throw new Error('Messages array is required for streaming');
       }
       
-      // Process messages to ensure correct format
-      const processedMessages = this.preprocessMessages(request.messages);
+      // Pass messages directly to AI SDK without preprocessing
+      // Let convertToModelMessages handle UIMessage → ModelMessage conversion
+      const processedMessages = request.messages;
       
       let convertedMessages;
       try {
-        convertedMessages = convertToModelMessages(processedMessages);
+        convertedMessages = convertToModelMessages(processedMessages as Parameters<typeof convertToModelMessages>[0]);
       } catch (conversionError) {
-        log.error('Failed to convert messages', {
-          error: (conversionError as Error).message,
-          messages: JSON.stringify(processedMessages).substring(0, 500)
+        log.error('Message conversion failed', {
+          error: (conversionError as Error).message
         });
         throw new Error(`Message conversion failed: ${(conversionError as Error).message}`);
       }
@@ -129,7 +127,7 @@ export class UnifiedStreamingService {
       const model = await adapter.createModel(request.modelId, request.options);
       
       // 5. Configure streaming
-      let tools = request.tools;
+      const tools = request.tools;
       
       // For gpt-image-1, we need to pass tools in the options to the Responses API
       // The tools array should be passed to the createModel call instead
@@ -218,11 +216,11 @@ export class UnifiedStreamingService {
     prompt: string;
     size?: string;
     style?: string;
-    options?: any;
+    options?: Record<string, unknown>;
     userId?: string;
     source?: string;
   }): Promise<{
-    image: any;
+    image: { base64: string; mediaType: string };
     metadata: {
       provider: string;
       model: string;
@@ -316,7 +314,7 @@ export class UnifiedStreamingService {
   /**
    * Preprocess messages to ensure correct format for AI SDK
    */
-  private preprocessMessages(messages: any[]): any[] {
+  private preprocessMessages(messages: Record<string, unknown>[]): Record<string, unknown>[] {
     return messages.map((msg) => {
       // If message already has parts array, use it as-is
       if (msg.parts && Array.isArray(msg.parts)) {
@@ -331,12 +329,10 @@ export class UnifiedStreamingService {
         };
       }
       
-      // If message has content property with array (assistant-ui format), convert to parts
+      // If message has content property with array, keep as ModelMessage format
+      // Don't convert back to parts - let convertToModelMessages handle proper conversion
       if ('content' in msg && Array.isArray(msg.content)) {
-        return {
-          ...msg,
-          parts: msg.content
-        };
+        return msg;
       }
       
       // Otherwise, return as-is and let convertToModelMessages handle it
@@ -357,7 +353,7 @@ export class UnifiedStreamingService {
   /**
    * Calculate adaptive timeout based on model capabilities
    */
-  private getAdaptiveTimeout(capabilities: any, request: StreamRequest): number {
+  private getAdaptiveTimeout(capabilities: { supportsReasoning?: boolean; supportsThinking?: boolean; maxTimeoutMs?: number }, request: StreamRequest): number {
     const baseTimeout = 30000; // 30 seconds
     
     // Extend timeout for reasoning models
@@ -413,7 +409,13 @@ export class UnifiedStreamingService {
   private handleFinish(
     data: {
       text: string;
-      usage?: any;
+      usage?: {
+        promptTokens?: number;
+        completionTokens?: number;
+        totalTokens?: number;
+        reasoningTokens?: number;
+        totalCost?: number;
+      };
       finishReason: string;
     },
     requestId: string,

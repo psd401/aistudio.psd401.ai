@@ -61,7 +61,10 @@ class ClaudeAdapter extends base_adapter_1.BaseProviderAdapter {
         }
     }
     async createImageModel(modelId, options) {
-        throw new Error('Image generation not supported by Claude/Bedrock provider');
+        // Parameters required by interface but not used since image generation is not supported
+        const log = (0, logger_1.createLogger)({ module: 'ClaudeAdapter' });
+        log.debug('Image model creation attempted', { modelId, hasOptions: !!options });
+        throw new Error(`Image generation not supported by Claude/Bedrock provider for model ${modelId}`);
     }
     getCapabilities(modelId) {
         // Claude 4 models with thinking capabilities (including v1 Bedrock models)

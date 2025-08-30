@@ -1,4 +1,4 @@
-import { DynamoDBClient, PutItemCommand, GetItemCommand, QueryCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, PutItemCommand, QueryCommand, AttributeValue } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { createLogger } from '@/lib/logger';
 
@@ -25,7 +25,7 @@ export interface DocumentJob {
   status: 'pending' | 'processing' | 'completed' | 'failed';
   progress?: number;
   processingStage?: string;
-  result?: any;
+  result?: Record<string, unknown>;
   resultLocation?: 's3' | 'dynamodb';
   resultS3Key?: string;
   errorMessage?: string;
@@ -188,8 +188,8 @@ export async function confirmDocumentUpload(jobId: string, uploadId: string): Pr
 export async function getUserJobs(
   userId: string,
   limit: number = 20,
-  lastEvaluatedKey?: any
-): Promise<{ jobs: DocumentJob[]; lastEvaluatedKey?: any }> {
+  lastEvaluatedKey?: Record<string, AttributeValue>
+): Promise<{ jobs: DocumentJob[]; lastEvaluatedKey?: Record<string, AttributeValue> }> {
   try {
     const response = await dynamoClient.send(
       new QueryCommand({
@@ -283,7 +283,7 @@ export async function getJobsByStatus(
 }
 
 // Helper function to fetch result from S3 if stored there
-export async function fetchResultFromS3(s3Key: string): Promise<any> {
+export async function fetchResultFromS3(s3Key: string): Promise<Record<string, unknown>> {
   try {
     const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
     const s3Client = new S3Client({});

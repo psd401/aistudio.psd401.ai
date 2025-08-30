@@ -1,10 +1,13 @@
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { createLogger } from '@/lib/logger';
+import type { UIMessage } from 'ai';
 
 const s3Client = new S3Client({});
 const log = createLogger({ service: 'attachment-storage' });
 
 const DOCUMENTS_BUCKET = process.env.DOCUMENTS_BUCKET_NAME || 'aistudio-documents-dev';
+
+// Use the proper UIMessage structure with parts array
 
 export interface AttachmentMetadata {
   s3Key: string;
@@ -14,10 +17,20 @@ export interface AttachmentMetadata {
   attachmentId: string;
 }
 
+export interface AttachmentContent {
+  id?: string;
+  name?: string;
+  type: 'image' | 'document' | 'file';
+  contentType?: string;
+  image?: string; // base64 data for images
+  data?: string; // data for documents/files
+  content?: string; // alternative data field
+}
+
 export interface StoredAttachment {
   type: 'image' | 'document' | 'file';
   s3Key: string;
-  originalContent: any; // Original attachment content part
+  originalContent: AttachmentContent;
   metadata: AttachmentMetadata;
 }
 
@@ -27,7 +40,7 @@ export interface StoredAttachment {
 export async function storeAttachmentInS3(
   conversationId: string,
   messageId: string,
-  attachment: any,
+  attachment: AttachmentContent,
   attachmentIndex: number
 ): Promise<AttachmentMetadata> {
   try {
@@ -38,7 +51,7 @@ export async function storeAttachmentInS3(
     const s3Key = `conversations/${conversationId}/attachments/${messageId}-${attachmentIndex}-${sanitizedName}`;
     
     // Determine content to store based on attachment type
-    let contentToStore: any;
+    let contentToStore: Record<string, unknown>;
     let contentType: string;
     
     if (attachment.type === 'image' && attachment.image) {
@@ -107,7 +120,7 @@ export async function storeAttachmentInS3(
 /**
  * Retrieve attachment content from S3
  */
-export async function getAttachmentFromS3(s3Key: string): Promise<any> {
+export async function getAttachmentFromS3(s3Key: string): Promise<AttachmentContent> {
   try {
     const response = await s3Client.send(new GetObjectCommand({
       Bucket: DOCUMENTS_BUCKET,
@@ -119,7 +132,7 @@ export async function getAttachmentFromS3(s3Key: string): Promise<any> {
     }
     
     const bodyText = await response.Body.transformToString();
-    const attachmentData = JSON.parse(bodyText);
+    const attachmentData = JSON.parse(bodyText) as AttachmentContent;
     
     log.info('Attachment retrieved from S3', {
       s3Key,
@@ -144,61 +157,68 @@ export async function getAttachmentFromS3(s3Key: string): Promise<any> {
  */
 export async function processMessagesWithAttachments(
   conversationId: string,
-  messages: any[]
-): Promise<{ lightweightMessages: any[], attachmentReferences: AttachmentMetadata[] }> {
-  const lightweightMessages = [];
+  messages: UIMessage[]
+): Promise<{ lightweightMessages: UIMessage[], attachmentReferences: AttachmentMetadata[] }> {
+  const lightweightMessages: UIMessage[] = [];
   const attachmentReferences: AttachmentMetadata[] = [];
   
   for (let msgIndex = 0; msgIndex < messages.length; msgIndex++) {
     const message = messages[msgIndex];
     const messageId = crypto.randomUUID();
     
-    if (Array.isArray(message.content)) {
-      const lightweightContent = [];
+    if (Array.isArray(message.parts)) {
+      const lightweightParts = [];
       let attachmentIndex = 0;
       
-      for (const part of message.content) {
-        if (part.type === 'image' && part.image) {
+      for (const part of message.parts) {
+        const partData = part as { type: string; image?: string; data?: string; content?: string; name?: string; [key: string]: unknown };
+        if (partData.type === 'image' && partData.image) {
           // Store image in S3
           const metadata = await storeAttachmentInS3(
             conversationId,
             messageId,
-            part,
+            partData as AttachmentContent,
             attachmentIndex++
           );
           
           attachmentReferences.push(metadata);
           
-          // Replace with S3 reference
-          lightweightContent.push({
-            type: 'text' as const,
-            text: `[Image: ${part.name || 'Uploaded image'} - Stored in conversation context]`
-          });
-        } else if ((part.type === 'document' || part.type === 'file') && (part.data || part.content)) {
+          // Replace with lightweight S3 reference for Lambda reconstruction
+          lightweightParts.push({
+            type: 'image' as const,
+            image: `s3://${metadata.s3Key}`, // S3 reference that Lambda can reconstruct
+            s3Key: metadata.s3Key,
+            attachmentId: metadata.attachmentId
+          } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+        } else if ((partData.type === 'document' || partData.type === 'file') && (partData.data || partData.content)) {
           // Store document in S3
           const metadata = await storeAttachmentInS3(
             conversationId,
             messageId,
-            part,
+            partData as AttachmentContent,
             attachmentIndex++
           );
           
           attachmentReferences.push(metadata);
           
-          // Replace with S3 reference
-          lightweightContent.push({
-            type: 'text' as const,
-            text: `[Document: ${part.name || 'Uploaded document'} - Processing in document stack]`
-          });
+          // Replace with lightweight S3 reference for Lambda reconstruction
+          lightweightParts.push({
+            type: 'file' as const,
+            url: `s3://${metadata.s3Key}`, // S3 reference that Lambda can reconstruct
+            mediaType: partData.mediaType || 'application/octet-stream',
+            filename: partData.name,
+            s3Key: metadata.s3Key,
+            attachmentId: metadata.attachmentId
+          } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
         } else {
           // Keep text and other parts as-is
-          lightweightContent.push(part);
+          lightweightParts.push(part);
         }
       }
       
       lightweightMessages.push({
         ...message,
-        content: lightweightContent
+        parts: lightweightParts
       });
     } else {
       // No attachments, keep message as-is
@@ -213,36 +233,36 @@ export async function processMessagesWithAttachments(
  * Reconstruct full messages with attachment data from S3
  */
 export async function reconstructMessagesWithAttachments(
-  lightweightMessages: any[],
+  lightweightMessages: UIMessage[],
   attachmentReferences: AttachmentMetadata[]
-): Promise<any[]> {
-  const fullMessages = [];
+): Promise<UIMessage[]> {
+  const fullMessages: UIMessage[] = [];
   
   for (const message of lightweightMessages) {
-    if (Array.isArray(message.content)) {
-      const fullContent = [];
+    if (Array.isArray(message.parts)) {
+      const fullParts = [];
       
-      for (const part of message.content) {
-        if (part.type === 'text' && part.text?.startsWith('[Image:') && part.text?.includes('conversation context')) {
+      for (const part of message.parts) {
+        if (part.type === 'text' && typeof part.text === 'string' && part.text.startsWith('[Image:') && part.text.includes('conversation context')) {
           // Find and restore image from S3
           const matchingAttachment = attachmentReferences.find(ref => 
-            part.text.includes(ref.originalName)
+            part.text && part.text.includes(ref.originalName)
           );
           
           if (matchingAttachment) {
             const attachmentData = await getAttachmentFromS3(matchingAttachment.s3Key);
-            fullContent.push(attachmentData);
+            fullParts.push(attachmentData);
           } else {
-            fullContent.push(part); // Keep as-is if not found
+            fullParts.push(part); // Keep as-is if not found
           }
         } else {
-          fullContent.push(part);
+          fullParts.push(part);
         }
       }
       
       fullMessages.push({
         ...message,
-        content: fullContent
+        parts: fullParts as UIMessage['parts']
       });
     } else {
       fullMessages.push(message);
