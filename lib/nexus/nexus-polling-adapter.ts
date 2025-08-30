@@ -8,40 +8,43 @@ const log = createLogger({ moduleName: 'nexus-polling-adapter' })
  * This ensures image and document attachments reach the API correctly
  */
 function preserveAttachmentContent(messages: readonly ThreadMessage[]): readonly ThreadMessage[] {
-  // For text-only messages, return as-is (zero impact on existing functionality)
-  const hasAttachments = messages.some(msg => 
-    Array.isArray(msg.content) && 
-    msg.content.some((part: any) => part.type === 'image' || part.type === 'file' || part.type === 'document')
-  );
-  
-  if (!hasAttachments) {
-    return messages; // No changes for text-only conversations
-  }
-  
-  // Only process messages that have attachments
-  return messages.map(msg => {
-    if (!Array.isArray(msg.content)) {
-      return msg; // Keep text messages unchanged
+  try {
+    // For text-only messages, return as-is (zero impact on existing functionality)
+    const hasAttachments = messages.some(msg => 
+      Array.isArray(msg.content) && 
+      msg.content.some((part: any) => part.type === 'image' || part.type === 'file' || part.type === 'document')
+    );
+    
+    if (!hasAttachments) {
+      return messages; // No changes for text-only conversations
     }
     
-    // Ensure attachment parts are preserved
-    const enhancedContent = msg.content.map((part: any) => {
-      if (part.type === 'image' && part.image) {
-        // Preserve image data for vision models
-        return part;
-      }
-      if ((part.type === 'file' || part.type === 'document') && part.data) {
-        // Preserve document data
-        return part;
-      }
-      return part; // Keep all other parts unchanged
+    // Log for debugging
+    console.log('preserveAttachmentContent: Processing messages with attachments', {
+      messageCount: messages.length,
+      hasAttachments
     });
     
-    return {
-      ...msg,
-      content: enhancedContent
-    };
-  });
+    // Only process messages that have attachments - create new array to avoid mutations
+    return messages.map(msg => {
+      if (!Array.isArray(msg.content)) {
+        return msg; // Keep text messages unchanged
+      }
+      
+      // Create new content array to avoid mutations
+      const enhancedContent = msg.content.map((part: any) => ({ ...part }));
+      
+      console.log('Message content parts:', enhancedContent.map(p => p.type));
+      
+      return {
+        ...msg,
+        content: enhancedContent
+      };
+    });
+  } catch (error) {
+    console.error('Error in preserveAttachmentContent, returning original messages:', error);
+    return messages; // Safe fallback - return original messages
+  }
 }
 
 export interface NexusJobResponse {
