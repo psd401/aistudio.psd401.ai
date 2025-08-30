@@ -10,6 +10,7 @@ import type { CreateJobRequest } from '@/lib/streaming/job-management-service';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { ErrorFactories } from '@/lib/error-utils';
 import { getStreamingJobsQueueUrl } from '@/lib/aws/queue-config';
+import { processMessagesWithAttachments } from '@/lib/services/attachment-storage-service';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -387,35 +388,18 @@ export async function POST(req: Request) {
       }));
     }
 
-    // Create lightweight messages for database (text + metadata only)
-    const databaseMessages = messages.map(msg => {
-      if (Array.isArray(msg.content)) {
-        return {
-          ...msg,
-          content: msg.content.map(part => {
-            if (part.type === 'image') {
-              // Store only metadata in database version
-              return {
-                type: 'text' as const,
-                text: `[Image: ${part.name || 'Uploaded image'}]`
-              };
-            }
-            return part; // Keep text and other parts as-is
-          })
-        };
-      }
-      return msg;
-    }) as UIMessage[];
-
-    // Create full messages for worker (includes complete attachment data)
-    const workerMessages = messages as UIMessage[];
+    // Process messages to store attachments in S3 and create lightweight versions
+    const { lightweightMessages, attachmentReferences } = await processMessagesWithAttachments(
+      conversationId,
+      messages as any[]
+    );
 
     const jobRequest: CreateJobRequest = {
       conversationId: conversationId, // Keep as UUID string for nexus
       userId: userId,
       modelId: dbModelId,
-      messages: databaseMessages, // Lightweight for database
-      workerMessages: workerMessages, // Full data for worker
+      messages: lightweightMessages as UIMessage[], // Lightweight for database
+      workerMessages: messages as UIMessage[], // Full data for worker
       provider: provider,
       modelIdString: modelId,
       systemPrompt,
@@ -444,7 +428,11 @@ export async function POST(req: Request) {
       try {
         const sqsCommand = new SendMessageCommand({
           QueueUrl: queueUrl,
-          MessageBody: jobId,
+          MessageBody: JSON.stringify({
+            jobId,
+            hasAttachments: attachmentReferences.length > 0,
+            attachmentCount: attachmentReferences.length
+          }),
           MessageAttributes: {
             jobType: {
               DataType: 'String',

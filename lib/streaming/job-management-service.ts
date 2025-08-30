@@ -5,6 +5,9 @@ import type { UIMessage } from 'ai';
 
 const log = createLogger({ module: 'job-management-service' });
 
+// Simple in-memory cache for worker messages (temporary storage)
+const workerMessagesCache = new Map<string, UIMessage[]>();
+
 
 /**
  * Job status enum matching existing database schema
@@ -178,7 +181,7 @@ export class JobManagementService {
     try {
       // Prepare request data for database (lightweight - no large attachments)
       const requestData = {
-        messages: request.messages, // Lightweight messages for database storage
+        messages: request.messages, // Lightweight messages for database storage only
         modelId: request.modelIdString,
         provider: request.provider,
         systemPrompt: request.systemPrompt,
@@ -188,37 +191,38 @@ export class JobManagementService {
         tools: request.tools
       };
 
-      // Add worker messages directly for small attachments (images)
-      if (request.workerMessages) {
-        requestData.workerMessages = request.workerMessages;
-      }
+      // Generate job ID first
+      const pendingJobId = crypto.randomUUID();
+      
+      // Store worker messages separately for SQS transmission (not in database)
+      workerMessagesCache.set(pendingJobId, request.workerMessages || request.messages);
+
 
       const result = await executeSQL(`
         INSERT INTO ai_streaming_jobs (
+          id,
           conversation_id,
           user_id,
           model_id,
           status,
           request_data
         ) VALUES (
+          :id::uuid,
           :conversation_id,
           :user_id,
           :model_id,
           'pending',
           :request_data::jsonb
-        ) RETURNING id
+        )
       `, [
+        { name: 'id', value: { stringValue: pendingJobId } },
         { name: 'conversation_id', value: { stringValue: conversationIdStr } },
         { name: 'user_id', value: { longValue: request.userId } },
         { name: 'model_id', value: { longValue: request.modelId } },
         { name: 'request_data', value: { stringValue: JSON.stringify(requestData) } }
       ]);
 
-      // Extract job ID from result
-      const jobId = result?.[0]?.id as string;
-      if (!jobId) {
-        throw new Error('Failed to create streaming job - no ID returned');
-      }
+      const jobId = pendingJobId;
 
       log.info('Streaming job created successfully', {
         jobId,
@@ -281,15 +285,7 @@ export class JobManagementService {
         status: mapFromDatabaseStatus(row.status as JobStatus, row.errorMessage as string),
         requestData: typeof row.requestData === 'string' ? (() => {
           try {
-            const parsedData = JSON.parse(row.requestData);
-            // Use worker messages for Lambda processing if available
-            if (parsedData.workerMessages) {
-              return {
-                ...parsedData,
-                messages: parsedData.workerMessages
-              };
-            }
-            return parsedData;
+            return JSON.parse(row.requestData);
           } catch (error) {
             log.error('Failed to parse request data', {
               jobId: row.id,
@@ -693,6 +689,18 @@ export class JobManagementService {
       log.error('Failed to get optimal polling interval', { modelId, error });
       return 1000; // Default fallback
     }
+  }
+
+  /**
+   * Get worker messages for Lambda processing
+   */
+  getWorkerMessages(jobId: string): UIMessage[] | null {
+    const messages = workerMessagesCache.get(jobId);
+    if (messages) {
+      // Clean up cache after retrieval
+      workerMessagesCache.delete(jobId);
+    }
+    return messages || null;
   }
 }
 
