@@ -81,23 +81,6 @@ export async function POST(req: Request) {
       hasConversationId: !!existingConversationId,
       enabledTools
     }));
-
-    // Debug: Log the raw message structure to see what assistant-ui is sending
-    if (messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      log.info('Raw message structure from assistant-ui', sanitizeForLogging({
-        messageRole: lastMessage.role,
-        contentType: typeof lastMessage.content,
-        contentIsArray: Array.isArray(lastMessage.content),
-        contentLength: Array.isArray(lastMessage.content) ? lastMessage.content.length : 0,
-        contentTypes: Array.isArray(lastMessage.content) 
-          ? lastMessage.content.map((part: any) => part.type) 
-          : [],
-        hasImageParts: Array.isArray(lastMessage.content) 
-          ? lastMessage.content.some((part: any) => part.type === 'image')
-          : false
-      }));
-    }
     
     // 2. Authenticate user
     const session = await getServerSession();
@@ -258,15 +241,14 @@ export async function POST(req: Request) {
               userContent += (userContent ? ' ' : '') + part.text;
               serializableParts.push({ type: 'text', text: part.text });
             } else if (part.type === 'image' && part.image) {
-              // Store only boolean flag in database for security/memory reasons
+              // Store only boolean flag - no image data or prefixes
               serializableParts.push({ 
                 type: 'image',
                 metadata: {
                   hasImage: true
-                  // No image data stored in database for security/memory reasons
+                  // No image data or prefixes stored for security/memory reasons
                 }
               });
-              // NOTE: Original messages with full image data are preserved for job worker
             }
           });
         }
@@ -345,17 +327,6 @@ export async function POST(req: Request) {
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
-
-    // Log attachment data being passed to job worker for debugging
-    const lastMessageForWorker = messagesForWorker[messagesForWorker.length - 1];
-    if (lastMessageForWorker?.content && Array.isArray(lastMessageForWorker.content)) {
-      const attachmentParts = lastMessageForWorker.content.filter(part => part.type === 'image');
-      log.info('Attachment data being passed to job worker', sanitizeForLogging({
-        attachmentCount: attachmentParts.length,
-        hasImageData: attachmentParts.some(part => !!part.image),
-        imageDataLengths: attachmentParts.map(part => part.image?.length || 0)
-      }));
-    }
     
     // Prepare job creation request for Nexus
     let jobOptions: CreateJobRequest['options'] = {
@@ -416,22 +387,11 @@ export async function POST(req: Request) {
       }));
     }
 
-    // Create version with image data for job worker (NOT for database)
-    const messagesForWorker = messages.map(msg => {
-      if (Array.isArray(msg.content)) {
-        return {
-          ...msg,
-          content: msg.content // Preserve ALL content including images for worker
-        };
-      }
-      return msg;
-    }) as UIMessage[];
-
     const jobRequest: CreateJobRequest = {
       conversationId: conversationId, // Keep as UUID string for nexus
       userId: userId,
       modelId: dbModelId,
-      messages: messagesForWorker, // Pass full messages with images to worker
+      messages: messages as UIMessage[],
       provider: provider,
       modelIdString: modelId,
       systemPrompt,
