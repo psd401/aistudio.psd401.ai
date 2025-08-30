@@ -1,7 +1,48 @@
-import type { ChatModelAdapter } from '@assistant-ui/react'
+import type { ChatModelAdapter, ThreadMessage } from '@assistant-ui/react'
 import { createLogger } from '@/lib/client-logger'
 
 const log = createLogger({ moduleName: 'nexus-polling-adapter' })
+
+/**
+ * Helper function to preserve attachment content in messages
+ * This ensures image and document attachments reach the API correctly
+ */
+function preserveAttachmentContent(messages: readonly ThreadMessage[]): readonly ThreadMessage[] {
+  // For text-only messages, return as-is (zero impact on existing functionality)
+  const hasAttachments = messages.some(msg => 
+    Array.isArray(msg.content) && 
+    msg.content.some((part: any) => part.type === 'image' || part.type === 'file' || part.type === 'document')
+  );
+  
+  if (!hasAttachments) {
+    return messages; // No changes for text-only conversations
+  }
+  
+  // Only process messages that have attachments
+  return messages.map(msg => {
+    if (!Array.isArray(msg.content)) {
+      return msg; // Keep text messages unchanged
+    }
+    
+    // Ensure attachment parts are preserved
+    const enhancedContent = msg.content.map((part: any) => {
+      if (part.type === 'image' && part.image) {
+        // Preserve image data for vision models
+        return part;
+      }
+      if ((part.type === 'file' || part.type === 'document') && part.data) {
+        // Preserve document data
+        return part;
+      }
+      return part; // Keep all other parts unchanged
+    });
+    
+    return {
+      ...msg,
+      content: enhancedContent
+    };
+  });
+}
 
 export interface NexusJobResponse {
   jobId: string
@@ -77,7 +118,7 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            messages,
+            messages: preserveAttachmentContent(messages),
             ...bodyFn()
           }),
           signal: abortSignal,
