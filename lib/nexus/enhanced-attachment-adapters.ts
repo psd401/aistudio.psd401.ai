@@ -445,14 +445,16 @@ This might be because:
 }
 
 /**
- * Enhanced Vision Image Adapter - extends the basic one with error handling
+ * Vision-capable image adapter for LLMs like GPT-4V, Claude 3, Gemini Pro Vision
+ * Sends images as base64 data URLs to vision-capable models
+ * Enhanced with additional validation but maintains full compatibility
  */
-export class EnhancedVisionImageAdapter extends SimpleImageAttachmentAdapter {
-  accept = "image/jpeg,image/png,image/webp,image/gif,image/bmp";
+export class VisionImageAdapter implements AttachmentAdapter {
+  accept = "image/jpeg,image/png,image/webp,image/gif";
 
   async add({ file }: { file: File }): Promise<PendingAttachment> {
     // Validate file size (20MB limit for most LLMs)
-    const maxSize = 20 * 1024 * 1024;
+    const maxSize = 20 * 1024 * 1024; // 20MB
     if (file.size > maxSize) {
       throw new Error("Image size exceeds 20MB limit");
     }
@@ -463,34 +465,86 @@ export class EnhancedVisionImageAdapter extends SimpleImageAttachmentAdapter {
       throw new Error("Invalid image file format");
     }
 
-    return super.add({ file });
+    // Return pending attachment while processing
+    return {
+      id: crypto.randomUUID(),
+      type: "image",
+      name: this.sanitizeFileName(file.name),
+      contentType: file.type,
+      file,
+      status: { 
+        type: "running",
+        reason: "uploading",
+        progress: 0
+      },
+    };
+  }
+
+  async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
+    // Convert image to base64 data URL
+    const base64 = await this.fileToBase64DataURL(attachment.file);
+
+    // Return in assistant-ui format with image content
+    return {
+      id: attachment.id,
+      type: "image",
+      name: attachment.name,
+      contentType: attachment.contentType || "image/jpeg",
+      file: attachment.file, // Keep the file reference - required by assistant-ui
+      content: [
+        {
+          type: "image",
+          image: base64, // data:image/jpeg;base64,... format
+        },
+      ],
+      status: { type: "complete" },
+    };
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async remove(_attachment: PendingAttachment): Promise<void> {
+    // Cleanup if needed (e.g., revoke object URLs if you created any)
+  }
+
+  private async fileToBase64DataURL(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        // FileReader result is already a data URL
+        resolve(reader.result as string);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
   }
 
   private async verifyImageMimeType(file: File): Promise<boolean> {
     try {
       const buffer = await file.arrayBuffer();
-      const bytes = new Uint8Array(buffer).subarray(0, 8);
+      const bytes = new Uint8Array(buffer).subarray(0, 4);
       const header = Array.from(bytes)
         .map(byte => byte.toString(16).padStart(2, '0'))
         .join('');
       
       // Check magic bytes for common image formats
       const imageHeaders = {
-        '89504e47': 'image/png',     // PNG
-        'ffd8ffe0': 'image/jpeg',    // JPEG (JFIF)
-        'ffd8ffe1': 'image/jpeg',    // JPEG (Exif)
-        'ffd8ffe2': 'image/jpeg',    // JPEG (Canon)
-        '47494638': 'image/gif',     // GIF
-        '52494646': 'image/webp',    // RIFF (WebP container)
-        '424d': 'image/bmp',         // BMP (first 2 bytes)
+        '89504e47': 'image/png',
+        'ffd8ffe0': 'image/jpeg',
+        'ffd8ffe1': 'image/jpeg',
+        'ffd8ffe2': 'image/jpeg',
+        '47494638': 'image/gif',
+        '52494646': 'image/webp', // Actually checks for RIFF, need to check WEBP after
       };
       
-      return Object.keys(imageHeaders).some(h => 
-        header.startsWith(h.toLowerCase())
-      );
+      return Object.keys(imageHeaders).some(h => header.startsWith(h.toLowerCase()));
     } catch {
       return false;
     }
+  }
+
+  private sanitizeFileName(name: string): string {
+    // Remove dangerous characters and limit length
+    return name.replace(/[^a-zA-Z0-9.-]/g, '_').substring(0, 255);
   }
 }
 
@@ -503,7 +557,8 @@ export class EnhancedVisionImageAdapter extends SimpleImageAttachmentAdapter {
  */
 export function createEnhancedNexusAttachmentAdapter() {
   return new CompositeAttachmentAdapter([
-    new EnhancedVisionImageAdapter(),   // Enhanced image processing with validation
+    new VisionImageAdapter(),           // For vision-capable models
+    new SimpleImageAttachmentAdapter(), // For display-only images (RESTORED)
     new HybridDocumentAdapter(),        // Smart document processing (client/server)
     new SimpleTextAttachmentAdapter(),  // Text files
   ]);
