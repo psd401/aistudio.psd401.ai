@@ -237,7 +237,7 @@ export class DocumentProcessingStack extends cdk.Stack {
       functionName: `AIStudio-DocumentProcessor-Standard-${environment}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('infra/lambdas/document-processor-v2'),
+      code: lambda.Code.fromAsset('lambdas/document-processor-v2'),
       memorySize: 3008, // 3GB for standard processing
       timeout: cdk.Duration.minutes(15),
       role: processorRole,
@@ -259,7 +259,7 @@ export class DocumentProcessingStack extends cdk.Stack {
       functionName: `AIStudio-DocumentProcessor-HighMemory-${environment}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('infra/lambdas/document-processor-v2'),
+      code: lambda.Code.fromAsset('lambdas/document-processor-v2'),
       memorySize: 10240, // 10GB for large file processing
       timeout: cdk.Duration.minutes(30),
       role: processorRole,
