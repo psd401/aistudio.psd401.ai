@@ -341,7 +341,7 @@ export class DocumentProcessingStack extends cdk.Stack {
       period: cdk.Duration.minutes(5),
     });
 
-    const dlqMessages = this.processingDLQ.metricApproximateNumberOfVisibleMessages({
+    const dlqMessages = this.processingDLQ.metric('ApproximateNumberOfVisibleMessages', {
       statistic: 'Maximum',
       period: cdk.Duration.minutes(5),
     });
