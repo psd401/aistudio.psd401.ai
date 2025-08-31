@@ -9,6 +9,7 @@ import * as XLSX from 'xlsx';
 import { marked } from 'marked';
 import JSZip from 'jszip';
 import { parseString } from 'xml2js';
+import { createLambdaLogger } from '../utils/lambda-logger';
 
 export class OfficeProcessor implements DocumentProcessor {
   constructor(
@@ -19,8 +20,18 @@ export class OfficeProcessor implements DocumentProcessor {
   async process(params: ProcessingParams): Promise<ProcessingResult> {
     const startTime = Date.now();
     const { buffer, fileName, onProgress } = params;
+    const logger = createLambdaLogger({ 
+      operation: 'OfficeProcessor.process',
+      documentType: this.documentType,
+      fileName,
+      fileSize: buffer.length
+    });
     
-    console.log(`Processing ${this.documentType.toUpperCase()}: ${fileName} (${buffer.length} bytes)`);
+    logger.info('Starting office document processing', { 
+      documentType: this.documentType.toUpperCase(), 
+      fileName, 
+      bufferSize: buffer.length 
+    });
     
     await onProgress?.('parsing_document', 40);
     
@@ -41,7 +52,7 @@ export class OfficeProcessor implements DocumentProcessor {
           throw new Error(`Unsupported document type: ${this.documentType}`);
       }
     } catch (error) {
-      console.error(`Error processing ${this.documentType}:`, error);
+      logger.error(`Error processing ${this.documentType}`, error);
       throw new Error(`Failed to process ${this.documentType}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
     
@@ -76,12 +87,18 @@ export class OfficeProcessor implements DocumentProcessor {
     
     result.metadata.processingTime = Date.now() - startTime;
     
-    console.log(`${this.documentType.toUpperCase()} processing completed: ${result.metadata.processingTime}ms`);
+    logger.info(`${this.documentType.toUpperCase()} processing completed successfully`, {
+      processingTime: result.metadata.processingTime,
+      textLength: result.text?.length || 0,
+      hasMarkdown: !!result.markdown,
+      chunkCount: result.chunks?.length || 0
+    });
     return result;
   }
 
   private async processDocx(buffer: Buffer): Promise<any> {
-    console.log('Processing DOCX document');
+    const logger = createLambdaLogger({ operation: 'OfficeProcessor.processDocx' });
+    logger.info('Processing DOCX document');
     
     // Extract raw text
     const textResult = await mammoth.extractRawText({ buffer });
@@ -101,7 +118,8 @@ export class OfficeProcessor implements DocumentProcessor {
   }
 
   private async processXlsx(buffer: Buffer): Promise<any> {
-    console.log('Processing XLSX document');
+    const logger = createLambdaLogger({ operation: 'OfficeProcessor.processXlsx' });
+    logger.info('Processing XLSX document');
     
     const workbook = XLSX.read(buffer);
     let combinedText = '';
@@ -140,7 +158,8 @@ export class OfficeProcessor implements DocumentProcessor {
   }
 
   private async processPptx(buffer: Buffer): Promise<any> {
-    console.log('Processing PPTX document using custom JSZip parser');
+    const logger = createLambdaLogger({ operation: 'OfficeProcessor.processPptx' });
+    logger.info('Processing PPTX document using custom JSZip parser');
     
     try {
       // Load PPTX as ZIP archive
@@ -192,7 +211,7 @@ export class OfficeProcessor implements DocumentProcessor {
         }
       };
     } catch (error) {
-      console.error('PPTX processing failed:', error);
+      logger.error('PPTX processing failed', error);
       throw new Error(`Failed to process PPTX: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -203,8 +222,9 @@ export class OfficeProcessor implements DocumentProcessor {
   private async extractTextFromSlideXml(slideXml: string, slideNumber: number): Promise<string[]> {
     return new Promise((resolve) => {
       parseString(slideXml, { explicitArray: false, ignoreAttrs: true }, (err: any, result: any) => {
+        const logger = createLambdaLogger({ operation: 'OfficeProcessor.extractTextFromSlideXml' });
         if (err) {
-          console.warn(`Error parsing slide ${slideNumber} XML:`, err);
+          logger.warn(`Error parsing slide ${slideNumber} XML`, { error: err });
           resolve([]);
           return;
         }
@@ -253,7 +273,8 @@ export class OfficeProcessor implements DocumentProcessor {
             }
           }
         } catch (parseError) {
-          console.warn(`Error extracting text from slide ${slideNumber}:`, parseError);
+          const logger = createLambdaLogger({ operation: 'OfficeProcessor.extractTextFromSlideXml' });
+          logger.warn(`Error extracting text from slide ${slideNumber}`, { error: parseError });
         }
         
         resolve(textBlocks);
@@ -297,7 +318,8 @@ export class OfficeProcessor implements DocumentProcessor {
         
         return markdown.trim();
       } catch (error) {
-        console.warn('Failed to convert HTML to markdown, falling back to plain text');
+        const logger = createLambdaLogger({ operation: 'OfficeProcessor.convertDocxToMarkdown' });
+        logger.warn('Failed to convert HTML to markdown, falling back to plain text', { error });
       }
     }
     
@@ -452,7 +474,11 @@ export class OfficeProcessor implements DocumentProcessor {
       if (startIndex >= endIndex) break;
     }
     
-    console.log(`Created ${chunks.length} chunks from ${this.documentType} text`);
+    const logger = createLambdaLogger({ operation: 'OfficeProcessor.chunkText' });
+    logger.info('Text chunking completed', { 
+      chunkCount: chunks.length, 
+      documentType: this.documentType 
+    });
     return chunks;
   }
 }

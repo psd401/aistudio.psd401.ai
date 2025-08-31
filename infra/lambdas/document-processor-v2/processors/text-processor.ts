@@ -6,6 +6,7 @@ import {
 } from './factory';
 import { parse as csvParse } from 'csv-parse/sync';
 import { marked } from 'marked';
+import { createLambdaLogger } from '../utils/lambda-logger';
 
 export class TextProcessor implements DocumentProcessor {
   constructor(private config: ProcessorConfig) {}
@@ -13,8 +14,14 @@ export class TextProcessor implements DocumentProcessor {
   async process(params: ProcessingParams): Promise<ProcessingResult> {
     const startTime = Date.now();
     const { buffer, fileName, fileType, onProgress } = params;
+    const logger = createLambdaLogger({ 
+      operation: 'TextProcessor.process',
+      fileName,
+      fileType,
+      fileSize: buffer.length
+    });
     
-    console.log(`Processing text document: ${fileName} (${buffer.length} bytes)`);
+    logger.info('Starting text document processing', { fileName, fileType, bufferSize: buffer.length });
     
     await onProgress?.('parsing_text', 40);
     
@@ -43,7 +50,7 @@ export class TextProcessor implements DocumentProcessor {
           extractedContent = await this.processPlainText(textContent);
       }
     } catch (error) {
-      console.error(`Error processing text document:`, error);
+      logger.error('Error processing text document', error);
       throw new Error(`Failed to process text: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
     
@@ -81,12 +88,19 @@ export class TextProcessor implements DocumentProcessor {
     
     result.metadata.processingTime = Date.now() - startTime;
     
-    console.log(`Text processing completed: ${result.metadata.processingTime}ms`);
+    logger.info('Text processing completed successfully', {
+      processingTime: result.metadata.processingTime,
+      textLength: result.text?.length || 0,
+      hasMarkdown: !!result.markdown,
+      chunkCount: result.chunks?.length || 0,
+      extractionMethod: result.metadata.extractionMethod
+    });
     return result;
   }
 
   private async processCsv(content: string): Promise<any> {
-    console.log('Processing CSV content');
+    const logger = createLambdaLogger({ operation: 'TextProcessor.processCsv' });
+    logger.info('Processing CSV content');
     
     try {
       const records = csvParse(content, {
@@ -130,13 +144,14 @@ export class TextProcessor implements DocumentProcessor {
         }
       };
     } catch (error) {
-      console.warn('Failed to parse as CSV, treating as plain text');
+      logger.warn('Failed to parse as CSV, treating as plain text', { error });
       return this.processPlainText(content);
     }
   }
 
   private async processMarkdown(content: string): Promise<any> {
-    console.log('Processing Markdown content');
+    const logger = createLambdaLogger({ operation: 'TextProcessor.processMarkdown' });
+    logger.info('Processing Markdown content');
     
     try {
       // Convert markdown to plain text for text field
@@ -154,13 +169,14 @@ export class TextProcessor implements DocumentProcessor {
         }
       };
     } catch (error) {
-      console.warn('Failed to parse markdown, treating as plain text');
+      logger.warn('Failed to parse markdown, treating as plain text', { error });
       return this.processPlainText(content);
     }
   }
 
   private async processJson(content: string): Promise<any> {
-    console.log('Processing JSON content');
+    const logger = createLambdaLogger({ operation: 'TextProcessor.processJson' });
+    logger.info('Processing JSON content');
     
     try {
       const data = JSON.parse(content);
@@ -179,13 +195,14 @@ export class TextProcessor implements DocumentProcessor {
         }
       };
     } catch (error) {
-      console.warn('Failed to parse as JSON, treating as plain text');
+      logger.warn('Failed to parse as JSON, treating as plain text', { error });
       return this.processPlainText(content);
     }
   }
 
   private async processXml(content: string): Promise<any> {
-    console.log('Processing XML content');
+    const logger = createLambdaLogger({ operation: 'TextProcessor.processXml' });
+    logger.info('Processing XML content');
     
     // Basic XML text extraction (strip tags)
     const textContent = content
@@ -205,7 +222,8 @@ export class TextProcessor implements DocumentProcessor {
   }
 
   private async processPlainText(content: string): Promise<any> {
-    console.log('Processing plain text content');
+    const logger = createLambdaLogger({ operation: 'TextProcessor.processPlainText' });
+    logger.info('Processing plain text content');
     
     // Clean up the text
     const cleanedText = content
@@ -407,7 +425,8 @@ export class TextProcessor implements DocumentProcessor {
       if (startIndex >= endIndex) break;
     }
     
-    console.log(`Created ${chunks.length} chunks from text document`);
+    const logger = createLambdaLogger({ operation: 'TextProcessor.chunkText' });
+    logger.info('Text chunking completed', { chunkCount: chunks.length });
     return chunks;
   }
 }

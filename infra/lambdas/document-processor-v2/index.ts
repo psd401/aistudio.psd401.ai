@@ -6,6 +6,7 @@ import { TextractClient, StartDocumentTextDetectionCommand, GetDocumentTextDetec
 import { Readable } from 'stream';
 import { DocumentProcessorFactory } from './processors/factory';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
+import { createLambdaLogger } from './utils/lambda-logger';
 
 const s3Client = new S3Client({});
 const dynamoClient = new DynamoDBClient({});
@@ -40,7 +41,8 @@ interface ProcessingContext {
 async function updateJobStatus(
   jobId: string,
   status: string,
-  updates: any = {}
+  updates: Record<string, any> = {},
+  logger = createLambdaLogger({ operation: 'updateJobStatus' })
 ): Promise<void> {
   const timestamp = Date.now();
   const ttl = Math.floor(timestamp / 1000) + 86400 * 7; // 7 days TTL
@@ -60,7 +62,7 @@ async function updateJobStatus(
     );
 
     if (!existingJobResponse.Items || existingJobResponse.Items.length === 0) {
-      console.error(`No existing job found for jobId: ${jobId}`);
+      logger.error('No existing job found', { jobId });
       throw new Error(`Job not found: ${jobId}`);
     }
 
@@ -89,15 +91,16 @@ async function updateJobStatus(
       })
     );
     
-    console.log(`Job status updated with complete data: ${jobId} -> ${status}`);
+    logger.info('Job status updated successfully', { jobId, status, updates });
   } catch (error) {
-    console.error(`Failed to update job status for ${jobId}:`, error);
+    logger.error('Failed to update job status', error, { jobId, status });
     throw error;
   }
 }
 
 // Get latest job status
-async function getJobStatus(jobId: string): Promise<any> {
+async function getJobStatus(jobId: string): Promise<Record<string, any> | null> {
+  const logger = createLambdaLogger({ operation: 'getJobStatus', jobId });
   try {
     // This is a simplified version - in practice you'd query for the latest timestamp
     const response = await dynamoClient.send(
@@ -109,13 +112,14 @@ async function getJobStatus(jobId: string): Promise<any> {
     
     return response.Item ? unmarshall(response.Item) : null;
   } catch (error) {
-    console.error(`Failed to get job status for ${jobId}:`, error);
+    logger.error('Failed to get job status', error, { jobId });
     return null;
   }
 }
 
 // Store processing results
-async function storeResults(jobId: string, result: any): Promise<void> {
+async function storeResults(jobId: string, result: Record<string, any>): Promise<void> {
+  const logger = createLambdaLogger({ operation: 'storeResults', jobId });
   const resultSize = JSON.stringify(result).length;
   
   if (resultSize > 400 * 1024) { // 400KB limit for DynamoDB
@@ -154,13 +158,15 @@ async function sendToHighMemoryQueue(context: ProcessingContext): Promise<void> 
     MessageBody: JSON.stringify(context),
   }));
   
-  console.log(`Sent job ${context.jobId} to high-memory queue`);
+  const logger = createLambdaLogger({ operation: 'sendToHighMemoryQueue', jobId: context.jobId });
+  logger.info('Job sent to high-memory queue', { jobId: context.jobId, queueUrl: HIGH_MEMORY_QUEUE_URL });
 }
 
 // Send to DLQ for manual review
-async function sendToDLQ(jobId: string, error: any, context: any): Promise<void> {
+async function sendToDLQ(jobId: string, error: Error | any, context: ProcessingContext): Promise<void> {
+  const logger = createLambdaLogger({ operation: 'sendToDLQ', jobId });
   if (!DLQ_URL) {
-    console.error('DLQ_URL not configured');
+    logger.error('DLQ_URL not configured');
     return;
   }
   
@@ -179,9 +185,9 @@ async function sendToDLQ(jobId: string, error: any, context: any): Promise<void>
       }),
     }));
     
-    console.log(`Sent failed job ${jobId} to DLQ`);
+    logger.info('Failed job sent to DLQ', { jobId, processorType: PROCESSOR_TYPE });
   } catch (dlqError) {
-    console.error('Failed to send to DLQ:', dlqError);
+    logger.error('Failed to send to DLQ', dlqError);
   }
 }
 
@@ -197,8 +203,23 @@ async function streamToBuffer(stream: Readable): Promise<Buffer> {
 // Process a single document
 async function processDocument(context: ProcessingContext): Promise<void> {
   const { jobId, bucket, key, fileName, fileSize, fileType, processingOptions } = context;
+  const logger = createLambdaLogger({ 
+    operation: 'processDocument', 
+    jobId, 
+    fileName, 
+    fileType,
+    processorType: PROCESSOR_TYPE
+  });
+  const timer = logger.startTimer('document-processing');
   
-  console.log(`Processing document: ${fileName} (${fileSize} bytes, ${fileType})`);
+  logger.info('Starting document processing', { 
+    fileName, 
+    fileSize, 
+    fileType, 
+    bucket, 
+    key, 
+    processingOptions 
+  });
   
   try {
     // Update status to processing
@@ -206,16 +227,19 @@ async function processDocument(context: ProcessingContext): Promise<void> {
       processingStage: 'initializing',
       progress: 10,
       startTime: new Date().toISOString(),
-    });
+    }, logger);
     
     // Check if this should be routed to high-memory processor
     if (PROCESSOR_TYPE === 'STANDARD' && fileSize > 50 * 1024 * 1024) {
-      console.log(`Routing large file (${fileSize} bytes) to high-memory processor`);
+      logger.info('Routing large file to high-memory processor', { 
+        fileSize, 
+        threshold: 50 * 1024 * 1024 
+      });
       await sendToHighMemoryQueue(context);
       await updateJobStatus(jobId, 'processing', {
         processingStage: 'routing_to_high_memory',
         progress: 15,
-      });
+      }, logger);
       return;
     }
     
@@ -223,7 +247,7 @@ async function processDocument(context: ProcessingContext): Promise<void> {
     await updateJobStatus(jobId, 'processing', {
       processingStage: 'downloading',
       progress: 20,
-    });
+    }, logger);
     
     const getObjectCommand = new GetObjectCommand({
       Bucket: bucket,
@@ -234,13 +258,17 @@ async function processDocument(context: ProcessingContext): Promise<void> {
     const stream = response.Body as Readable;
     const buffer = await streamToBuffer(stream);
     
-    console.log(`Downloaded ${buffer.length} bytes from S3`);
+    logger.info('File downloaded from S3', { 
+      downloadedBytes: buffer.length, 
+      bucket, 
+      key 
+    });
     
     // Select and configure processor
     await updateJobStatus(jobId, 'processing', {
       processingStage: 'selecting_processor',
       progress: 30,
-    });
+    }, logger);
     
     const processor = DocumentProcessorFactory.create(fileType, {
       enableOCR: processingOptions.ocrEnabled,
@@ -260,7 +288,7 @@ async function processDocument(context: ProcessingContext): Promise<void> {
         await updateJobStatus(jobId, 'processing', { 
           processingStage: stage, 
           progress: Math.max(30, Math.min(95, progress)) // Keep between 30-95%
-        });
+        }, logger);
       },
     });
     
@@ -268,14 +296,20 @@ async function processDocument(context: ProcessingContext): Promise<void> {
     await updateJobStatus(jobId, 'processing', {
       processingStage: 'storing_results',
       progress: 95,
-    });
+    }, logger);
     
     await storeResults(jobId, result);
     
-    console.log(`Successfully processed document: ${fileName}`);
+    timer();
+    logger.info('Document processing completed successfully', { 
+      fileName, 
+      fileType,
+      resultSize: JSON.stringify(result).length 
+    });
     
   } catch (error) {
-    console.error(`Error processing document ${fileName}:`, error);
+    timer();
+    logger.error('Document processing failed', error, { fileName, fileType });
     
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     
@@ -283,7 +317,7 @@ async function processDocument(context: ProcessingContext): Promise<void> {
       errorMessage,
       failedAt: new Date().toISOString(),
       processingStage: 'failed',
-    });
+    }, logger);
     
     // Send to DLQ for manual review
     await sendToDLQ(jobId, error, context);
@@ -318,11 +352,13 @@ function extractProcessingContexts(event: SQSEvent): ProcessingContext[] {
           
           // This would need additional logic to get full context from DynamoDB
           // For now, we'll skip S3-triggered processing in favor of direct SQS messages
-          console.log(`Received S3 event for ${key}, but skipping in favor of direct processing`);
+          const logger = createLambdaLogger({ operation: 'extractProcessingContexts' });
+          logger.info('Received S3 event but skipping in favor of direct processing', { key });
         }
       }
     } catch (parseError) {
-      console.error('Failed to parse SQS record:', parseError);
+      const logger = createLambdaLogger({ operation: 'extractProcessingContexts' });
+      logger.error('Failed to parse SQS record', parseError);
     }
   }
   
@@ -331,14 +367,23 @@ function extractProcessingContexts(event: SQSEvent): ProcessingContext[] {
 
 // Lambda handler
 export async function handler(event: SQSEvent, context: Context): Promise<void> {
-  console.log(`Received SQS event with ${event.Records.length} records`);
-  console.log(`Processor type: ${PROCESSOR_TYPE}`);
-  console.log(`Memory: ${context.memoryLimitInMB}MB, Timeout: ${context.getRemainingTimeInMillis()}ms`);
+  const logger = createLambdaLogger({ 
+    operation: 'lambda-handler',
+    requestId: context.awsRequestId,
+    processorType: PROCESSOR_TYPE
+  });
+  
+  logger.info('Lambda handler invoked', {
+    recordCount: event.Records.length,
+    processorType: PROCESSOR_TYPE,
+    memoryLimit: context.memoryLimitInMB,
+    remainingTime: context.getRemainingTimeInMillis()
+  });
   
   const processingContexts = extractProcessingContexts(event);
   
   if (processingContexts.length === 0) {
-    console.log('No valid processing contexts found in event');
+    logger.warn('No valid processing contexts found in event');
     return;
   }
   
@@ -351,16 +396,26 @@ export async function handler(event: SQSEvent, context: Context): Promise<void> 
   const failures = results.filter(r => r.status === 'rejected') as PromiseRejectedResult[];
   
   if (failures.length > 0) {
-    console.error(`${failures.length} documents failed to process:`);
-    failures.forEach((failure, index) => {
-      console.error(`Document ${index}: ${failure.reason}`);
+    logger.error('Some documents failed to process', {
+      failureCount: failures.length,
+      totalCount: results.length,
+      failures: failures.map((failure, index) => ({
+        documentIndex: index,
+        reason: failure.reason
+      }))
     });
     
     // If all documents failed, throw to trigger Lambda retry
     if (failures.length === results.length) {
-      throw new Error(`All ${failures.length} documents failed to process`);
+      const error = new Error(`All ${failures.length} documents failed to process`);
+      logger.error('All documents failed - triggering Lambda retry', error);
+      throw error;
     }
   }
   
-  console.log(`Processed ${results.length - failures.length}/${results.length} documents successfully`);
+  logger.info('Lambda execution completed', {
+    successCount: results.length - failures.length,
+    failureCount: failures.length,
+    totalCount: results.length
+  });
 }

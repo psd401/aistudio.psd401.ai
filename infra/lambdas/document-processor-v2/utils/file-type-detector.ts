@@ -1,3 +1,5 @@
+import { createLambdaLogger } from './lambda-logger';
+
 export interface FileTypeDetectionResult {
   detectedType: 'pdf' | 'docx' | 'xlsx' | 'pptx' | 'txt' | 'csv' | 'md' | 'unknown';
   confidence: 'high' | 'medium' | 'low';
@@ -86,12 +88,13 @@ export class FileTypeDetector {
     fileName?: string,
     mimeType?: string
   ): FileTypeDetectionResult {
-    console.log(`FileTypeDetector: Analyzing file - name: ${fileName}, mime: ${mimeType}, size: ${buffer.length}`);
+    const logger = createLambdaLogger({ operation: 'FileTypeDetector.detectFileType' });
+    logger.info('Analyzing file type', { fileName, mimeType, bufferSize: buffer.length });
 
     // Strategy 1: Magic number detection (most reliable)
     const magicResult = this.detectByMagicNumber(buffer, fileName);
     if (magicResult.confidence === 'high') {
-      console.log(`FileTypeDetector: High confidence detection via magic numbers: ${magicResult.detectedType}`);
+      logger.info('High confidence detection via magic numbers', { detectedType: magicResult.detectedType });
       return magicResult;
     }
 
@@ -99,7 +102,7 @@ export class FileTypeDetector {
     if (fileName) {
       const extensionResult = this.detectByExtension(fileName);
       if (extensionResult.detectedType !== 'unknown') {
-        console.log(`FileTypeDetector: Detected via file extension: ${extensionResult.detectedType}`);
+        logger.info('Detected via file extension', { detectedType: extensionResult.detectedType });
         return extensionResult;
       }
     }
@@ -108,7 +111,7 @@ export class FileTypeDetector {
     if (mimeType) {
       const mimeResult = this.detectByMimeType(mimeType);
       if (mimeResult.detectedType !== 'unknown') {
-        console.log(`FileTypeDetector: Detected via MIME type: ${mimeResult.detectedType}`);
+        logger.info('Detected via MIME type', { detectedType: mimeResult.detectedType });
         return mimeResult;
       }
     }
@@ -116,12 +119,12 @@ export class FileTypeDetector {
     // Strategy 4: Content inspection for Office files
     const contentResult = this.detectOfficeByContent(buffer);
     if (contentResult.detectedType !== 'unknown') {
-      console.log(`FileTypeDetector: Detected via content inspection: ${contentResult.detectedType}`);
+      logger.info('Detected via content inspection', { detectedType: contentResult.detectedType });
       return contentResult;
     }
 
     // Fallback to unknown
-    console.log('FileTypeDetector: Unable to determine file type, returning unknown');
+    logger.warn('Unable to determine file type, returning unknown');
     return {
       detectedType: 'unknown',
       confidence: 'low',
@@ -226,7 +229,8 @@ export class FileTypeDetector {
       }
 
     } catch (error) {
-      console.warn('Error inspecting ZIP content:', error);
+      const logger = createLambdaLogger({ operation: 'FileTypeDetector.detectOfficeTypeFromZip' });
+      logger.warn('Error inspecting ZIP content', { error });
     }
 
     return 'unknown';
@@ -363,7 +367,8 @@ export class FileTypeDetector {
       }
 
     } catch (error) {
-      console.warn('Error in content inspection:', error);
+      const logger = createLambdaLogger({ operation: 'FileTypeDetector.detectOfficeByContent' });
+      logger.warn('Error in content inspection', { error });
     }
 
     return {

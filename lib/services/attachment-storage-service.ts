@@ -5,7 +5,11 @@ import type { UIMessage } from 'ai';
 const s3Client = new S3Client({});
 const log = createLogger({ service: 'attachment-storage' });
 
-const DOCUMENTS_BUCKET = process.env.DOCUMENTS_BUCKET_NAME || 'aistudio-documents-dev';
+// Environment validation
+if (!process.env.DOCUMENTS_BUCKET_NAME) {
+  throw new Error('DOCUMENTS_BUCKET_NAME environment variable is required but not configured');
+}
+const DOCUMENTS_BUCKET = process.env.DOCUMENTS_BUCKET_NAME;
 
 // Use the proper UIMessage structure with parts array
 

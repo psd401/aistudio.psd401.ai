@@ -5,7 +5,11 @@ import { createLogger } from '@/lib/logger';
 const s3Client = new S3Client({});
 const log = createLogger({ service: 'document-upload' });
 
-const DOCUMENTS_BUCKET = process.env.DOCUMENTS_BUCKET_NAME || 'aistudio-documents-dev';
+// Environment validation
+if (!process.env.DOCUMENTS_BUCKET_NAME) {
+  throw new Error('DOCUMENTS_BUCKET_NAME environment variable is required but not configured');
+}
+const DOCUMENTS_BUCKET = process.env.DOCUMENTS_BUCKET_NAME;
 const PRESIGNED_URL_EXPIRY = 3600; // 1 hour
 
 export interface PresignedUploadConfig {
@@ -170,11 +174,44 @@ export async function abortMultipartUpload(
 }
 
 function sanitizeFileName(fileName: string): string {
-  // Remove dangerous characters and limit length
-  return fileName
-    .replace(/[^a-zA-Z0-9.-]/g, '_')
-    .replace(/__+/g, '_') // Replace multiple underscores with single
-    .substring(0, 255);
+  if (!fileName || typeof fileName !== 'string') {
+    return 'unnamed_file';
+  }
+  
+  // Extract extension first to preserve it
+  const lastDotIndex = fileName.lastIndexOf('.');
+  const name = lastDotIndex > 0 ? fileName.substring(0, lastDotIndex) : fileName;
+  const extension = lastDotIndex > 0 ? fileName.substring(lastDotIndex + 1) : '';
+  
+  // Sanitize the base name - remove all dangerous characters
+  let sanitizedName = name
+    .replace(/[^a-zA-Z0-9_-]/g, '_') // Remove dots from name part to prevent path traversal
+    .replace(/^\.+|\.+$/g, '')        // Remove leading/trailing dots
+    .replace(/_{2,}/g, '_')           // Collapse multiple underscores
+    .replace(/^_+|_+$/g, '')          // Remove leading/trailing underscores
+    .substring(0, 100);               // Shorter limit for filename
+  
+  // Sanitize extension
+  const sanitizedExtension = extension
+    .replace(/[^a-zA-Z0-9]/g, '')     // Only allow alphanumeric in extension
+    .substring(0, 10);                // Limit extension length
+  
+  // Handle edge cases
+  if (!sanitizedName || sanitizedName.length === 0) {
+    sanitizedName = 'file';
+  }
+  
+  // Check for reserved names (case insensitive)
+  const reservedNames = ['con', 'prn', 'aux', 'nul', 'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9', 'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9'];
+  if (reservedNames.includes(sanitizedName.toLowerCase())) {
+    sanitizedName = `file_${sanitizedName}`;
+  }
+  
+  // Construct final filename
+  const finalName = sanitizedExtension ? `${sanitizedName}.${sanitizedExtension}` : sanitizedName;
+  
+  // Final length check
+  return finalName.substring(0, 100) || 'unnamed_file';
 }
 
 function getContentType(fileName: string): string {

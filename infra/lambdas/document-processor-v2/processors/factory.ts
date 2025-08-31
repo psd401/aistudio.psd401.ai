@@ -2,6 +2,7 @@ import { PDFProcessor } from './pdf-processor';
 import { OfficeProcessor } from './office-processor';
 import { TextProcessor } from './text-processor';
 import { FileTypeDetector } from '../utils/file-type-detector';
+import { createLambdaLogger } from '../utils/lambda-logger';
 
 export interface ProcessorConfig {
   enableOCR: boolean;
@@ -67,7 +68,8 @@ export class DocumentProcessorFactory {
     buffer?: Buffer, 
     fileName?: string
   ): DocumentProcessor {
-    console.log(`DocumentProcessorFactory: Creating processor for fileType: "${fileType}", fileName: "${fileName}"`);
+    const logger = createLambdaLogger({ operation: 'DocumentProcessorFactory.create' });
+    logger.info('Creating processor', { fileType, fileName });
     
     let detectedType: string;
     
@@ -76,7 +78,7 @@ export class DocumentProcessorFactory {
       const detection = FileTypeDetector.detectFileType(buffer, fileName, fileType);
       detectedType = detection.detectedType;
       
-      console.log(`DocumentProcessorFactory: Enhanced detection result:`, {
+      logger.info('Enhanced file type detection result', {
         detectedType: detection.detectedType,
         confidence: detection.confidence,
         method: detection.method,
@@ -85,41 +87,41 @@ export class DocumentProcessorFactory {
       
       // If detection failed, fall back to legacy method
       if (detectedType === 'unknown') {
-        console.log('DocumentProcessorFactory: Enhanced detection failed, falling back to legacy method');
+        logger.warn('Enhanced detection failed, falling back to legacy method');
         detectedType = this.legacyDetection(fileType, fileName);
       }
     } else {
       // Fallback to legacy method without buffer
-      console.log('DocumentProcessorFactory: No buffer provided, using legacy detection');
+      logger.info('No buffer provided, using legacy detection');
       detectedType = this.legacyDetection(fileType, fileName);
     }
     
     // Create processor based on detected type
     switch (detectedType) {
       case 'pdf':
-        console.log('Selected PDF processor');
+        logger.info('Selected PDF processor', { detectedType });
         return new PDFProcessor(config);
         
       case 'xlsx':
-        console.log('Selected XLSX processor');
+        logger.info('Selected XLSX processor', { detectedType });
         return new OfficeProcessor('xlsx', config);
         
       case 'docx':
-        console.log('Selected DOCX processor');
+        logger.info('Selected DOCX processor', { detectedType });
         return new OfficeProcessor('docx', config);
         
       case 'pptx':
-        console.log('Selected PPTX processor');
+        logger.info('Selected PPTX processor', { detectedType });
         return new OfficeProcessor('pptx', config);
         
       case 'txt':
       case 'csv':
       case 'md':
-        console.log(`Selected text processor for ${detectedType.toUpperCase()}`);
+        logger.info(`Selected text processor`, { detectedType });
         return new TextProcessor(config);
         
       default:
-        console.log(`No processor found for detected type: ${detectedType}, original fileType: ${fileType}`);
+        logger.error('No processor found for detected type', { detectedType, originalFileType: fileType });
         throw new Error(`Unsupported file type: ${fileType} (detected as: ${detectedType})`);
     }
   }
@@ -128,10 +130,11 @@ export class DocumentProcessorFactory {
    * Legacy detection method for backward compatibility
    */
   private static legacyDetection(fileType: string, fileName?: string): string {
+    const logger = createLambdaLogger({ operation: 'DocumentProcessorFactory.legacyDetection' });
     const normalizedType = fileType.toLowerCase();
     const normalizedFileName = fileName?.toLowerCase() || '';
     
-    console.log(`DocumentProcessorFactory: Legacy detection - fileType: "${fileType}", fileName: "${fileName}"`);
+    logger.debug('Legacy detection starting', { fileType, fileName });
     
     // Check PDF first
     if (normalizedType.includes('pdf') || normalizedFileName.endsWith('.pdf')) {

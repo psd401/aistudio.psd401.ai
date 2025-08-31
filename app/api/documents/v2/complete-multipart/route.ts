@@ -56,10 +56,16 @@ export async function POST(req: NextRequest) {
     // Generate S3 key
     const s3Key = `uploads/${jobId}/${sanitizedFileName}`;
     
+    // Environment validation
+    if (!process.env.DOCUMENTS_BUCKET_NAME) {
+      log.error('DOCUMENTS_BUCKET_NAME environment variable not configured');
+      return NextResponse.json({ error: 'Service configuration error' }, { status: 500 });
+    }
+    
     // Send processing job to SQS queue
     await sendToProcessingQueue({
       jobId,
-      bucket: process.env.DOCUMENTS_BUCKET_NAME || 'aistudio-documents-dev',
+      bucket: process.env.DOCUMENTS_BUCKET_NAME,
       key: s3Key,
       fileName: job.fileName,
       fileSize: job.fileSize,
