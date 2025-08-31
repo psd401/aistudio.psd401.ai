@@ -11,6 +11,7 @@ export async function GET(
   const timer = startTimer('api.documents.v2.jobs.get');
   const log = createLogger({ requestId, route: 'api.documents.v2.jobs' });
   
+  
   try {
     // Authentication
     const session = await getServerSession();

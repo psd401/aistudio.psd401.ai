@@ -12,11 +12,12 @@ export interface DocumentProcessingStackProps extends cdk.StackProps {
   environment: string;
   rdsClusterArn?: string;
   rdsSecretArn?: string;
+  documentsBucketName: string;
 }
 
 export class DocumentProcessingStack extends cdk.Stack {
   public readonly documentJobsTable: dynamodb.Table;
-  public readonly documentsBucket: s3.Bucket;
+  public readonly documentsBucket: s3.IBucket;
   public readonly processingQueue: sqs.Queue;
   public readonly processingDLQ: sqs.Queue;
   public readonly highMemoryQueue: sqs.Queue;
@@ -26,7 +27,7 @@ export class DocumentProcessingStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: DocumentProcessingStackProps) {
     super(scope, id, props);
 
-    const { environment } = props;
+    const { environment, documentsBucketName } = props;
 
     // DynamoDB table for job tracking with fast polling
     this.documentJobsTable = new dynamodb.Table(this, 'DocumentJobs', {
@@ -73,38 +74,12 @@ export class DocumentProcessingStack extends cdk.Stack {
       },
     });
 
-    // S3 bucket for document storage with intelligent tiering
-    this.documentsBucket = new s3.Bucket(this, 'DocumentsBucket', {
-      bucketName: `aistudio-documents-${environment}-${this.account}`,
-      versioned: true,
-      lifecycleRules: [
-        {
-          id: 'intelligent-tiering',
-          enabled: true,
-          transitions: [
-            {
-              storageClass: s3.StorageClass.INTELLIGENT_TIERING,
-              transitionAfter: cdk.Duration.days(0),
-            },
-            {
-              storageClass: s3.StorageClass.GLACIER,
-              transitionAfter: cdk.Duration.days(90),
-            },
-          ],
-        },
-      ],
-      cors: [
-        {
-          allowedHeaders: ['*'],
-          allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT, s3.HttpMethods.POST],
-          allowedOrigins: ['*'], // TODO: Restrict to specific origins in production
-          exposedHeaders: ['ETag'],
-          maxAge: 3600,
-        },
-      ],
-      removalPolicy: environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: environment !== 'prod',
-    });
+    // Import existing documents bucket from StorageStack
+    this.documentsBucket = s3.Bucket.fromBucketName(
+      this, 
+      'ExistingDocumentsBucket',
+      documentsBucketName
+    );
 
     // Dead Letter Queue for failed processing jobs
     this.processingDLQ = new sqs.Queue(this, 'ProcessingDLQ', {
@@ -238,7 +213,7 @@ export class DocumentProcessingStack extends cdk.Stack {
     this.standardProcessor = new lambda.Function(this, 'StandardProcessor', {
       functionName: `AIStudio-DocumentProcessor-Standard-${environment}`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
+      handler: 'dist/index.handler',
       code: lambda.Code.fromAsset('lambdas/document-processor-v2'),
       memorySize: 3008, // 3GB for standard processing
       timeout: cdk.Duration.minutes(15),
@@ -260,7 +235,7 @@ export class DocumentProcessingStack extends cdk.Stack {
     this.highMemoryProcessor = new lambda.Function(this, 'HighMemoryProcessor', {
       functionName: `AIStudio-DocumentProcessor-HighMemory-${environment}`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
+      handler: 'dist/index.handler',
       code: lambda.Code.fromAsset('lambdas/document-processor-v2'),
       memorySize: 10240, // 10GB for large file processing
       timeout: cdk.Duration.minutes(15), // Lambda max timeout is 15 minutes

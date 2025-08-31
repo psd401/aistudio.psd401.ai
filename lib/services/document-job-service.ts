@@ -3,7 +3,7 @@ import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { createLogger } from '@/lib/logger';
 
 const dynamoClient = new DynamoDBClient({});
-const DOCUMENT_JOBS_TABLE = process.env.DOCUMENT_JOBS_TABLE || 'AIStudio-DocumentJobs-Dev';
+const DOCUMENT_JOBS_TABLE = process.env.DOCUMENT_JOBS_TABLE!;
 const log = createLogger({ service: 'document-job-service' });
 
 export interface ProcessingOptions {
@@ -147,16 +147,42 @@ export async function updateJobStatus(
   const ttl = Math.floor(timestamp / 1000) + 86400 * 7; // 7 days TTL
 
   try {
-    // Insert a new status entry (append-only pattern for DynamoDB)
+    // First, get the complete job data from the latest entry
+    const existingJobResponse = await dynamoClient.send(
+      new QueryCommand({
+        TableName: DOCUMENT_JOBS_TABLE,
+        KeyConditionExpression: 'jobId = :jobId',
+        ExpressionAttributeValues: marshall({
+          ':jobId': jobId,
+        }),
+        ScanIndexForward: false, // Get latest first
+        Limit: 1,
+      })
+    );
+
+    if (!existingJobResponse.Items || existingJobResponse.Items.length === 0) {
+      log.error(`No existing job found for jobId: ${jobId}`);
+      throw new Error(`Job not found: ${jobId}`);
+    }
+
+    // Get the existing job data and preserve all fields
+    const existingJob = unmarshall(existingJobResponse.Items[0]);
+    
+    // Insert a new status entry (append-only pattern for DynamoDB) with complete job data preserved
     await dynamoClient.send(
       new PutItemCommand({
         TableName: DOCUMENT_JOBS_TABLE,
         Item: marshall({
+          // Preserve ALL existing job data
+          ...existingJob,
+          // Update the status and timestamp
           jobId,
           timestamp,
           status,
           ttl,
+          // Apply any additional updates
           ...updates,
+          // Add completion timestamp if completed
           ...(status === 'completed' && !updates.completedAt && {
             completedAt: new Date().toISOString(),
           }),
@@ -164,7 +190,7 @@ export async function updateJobStatus(
       })
     );
 
-    log.info('Job status updated', { jobId, status, updates });
+    log.info('Job status updated with complete data', { jobId, status, updates });
   } catch (error) {
     log.error('Failed to update job status', { error, jobId, status, updates });
     throw new Error(`Failed to update job status: ${error instanceof Error ? error.message : 'Unknown error'}`);

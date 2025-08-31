@@ -122,7 +122,7 @@ export class OfficeProcessor implements DocumentProcessor {
         csv,
         json,
         rowCount: json.length,
-        columnCount: json.length > 0 ? Math.max(...json.map((row: any[]) => row.length)) : 0,
+        columnCount: json.length > 0 ? Math.max(...json.map((row: any) => Array.isArray(row) ? row.length : 0)) : 0,
       });
     });
     
@@ -199,7 +199,7 @@ export class OfficeProcessor implements DocumentProcessor {
       try {
         // Simple HTML to Markdown conversion
         let markdown = content.html
-          .replace(/<h([1-6])[^>]*>/g, (match, level) => '#'.repeat(parseInt(level)) + ' ')
+          .replace(/<h([1-6])[^>]*>/g, (match: string, level: string) => '#'.repeat(parseInt(level)) + ' ')
           .replace(/<\/h[1-6]>/g, '\n\n')
           .replace(/<p[^>]*>/g, '')
           .replace(/<\/p>/g, '\n\n')
@@ -239,7 +239,7 @@ export class OfficeProcessor implements DocumentProcessor {
             
             // Data rows (limit to first 50 rows to prevent huge markdown)
             const dataRows = rows.slice(1, 51);
-            dataRows.forEach(row => {
+            dataRows.forEach((row: any[]) => {
               markdown += '| ' + row.join(' | ') + ' |\n';
             });
             
@@ -260,11 +260,11 @@ export class OfficeProcessor implements DocumentProcessor {
     const text = content.text;
     
     // Basic slide-like structure
-    const slides = text.split(/\n{2,}/).filter(slide => slide.trim().length > 0);
+    const slides = text.split(/\n{2,}/).filter((slide: string) => slide.trim().length > 0);
     
     let markdown = '# Presentation Content\n\n';
     
-    slides.forEach((slide, index) => {
+    slides.forEach((slide: string, index: number) => {
       markdown += `## Slide ${index + 1}\n\n${slide.trim()}\n\n`;
     });
     

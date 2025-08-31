@@ -97,9 +97,11 @@ const devDocumentProcessingStack = new DocumentProcessingStack(app, 'AIStudio-Do
   environment: 'dev',
   rdsClusterArn: devDbStack.databaseResourceArn,
   rdsSecretArn: devDbStack.databaseSecretArn,
+  documentsBucketName: devStorageStack.documentsBucketName,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
 devDocumentProcessingStack.addDependency(devDbStack);
+devDocumentProcessingStack.addDependency(devStorageStack);
 cdk.Tags.of(devDocumentProcessingStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devDocumentProcessingStack).add(key, value));
 
@@ -140,9 +142,11 @@ const prodDocumentProcessingStack = new DocumentProcessingStack(app, 'AIStudio-D
   environment: 'prod',
   rdsClusterArn: prodDbStack.databaseResourceArn,
   rdsSecretArn: prodDbStack.databaseSecretArn,
+  documentsBucketName: prodStorageStack.documentsBucketName,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
 prodDocumentProcessingStack.addDependency(prodDbStack);
+prodDocumentProcessingStack.addDependency(prodStorageStack);
 cdk.Tags.of(prodDocumentProcessingStack).add('Environment', 'Prod');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodDocumentProcessingStack).add(key, value));
 

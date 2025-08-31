@@ -21,7 +21,7 @@ export interface PresignedUploadConfig {
 export async function generatePresignedUrl(jobId: string, fileName: string): Promise<PresignedUploadConfig> {
   try {
     // Generate S3 key with job ID for organization
-    const s3Key = `uploads/${jobId}/${sanitizeFileName(fileName)}`;
+    const s3Key = `v2/uploads/${jobId}/${sanitizeFileName(fileName)}`;
     
     const command = new PutObjectCommand({
       Bucket: DOCUMENTS_BUCKET,
@@ -53,7 +53,7 @@ export async function generatePresignedUrl(jobId: string, fileName: string): Pro
 
 export async function generateMultipartUrls(jobId: string, fileName: string, partCount: number): Promise<PresignedUploadConfig> {
   try {
-    const s3Key = `uploads/${jobId}/${sanitizeFileName(fileName)}`;
+    const s3Key = `v2/uploads/${jobId}/${sanitizeFileName(fileName)}`;
     
     // Initialize multipart upload
     const createMultipartCommand = new CreateMultipartUploadCommand({
@@ -122,7 +122,7 @@ export async function completeMultipartUpload(
   parts: Array<{ ETag: string; PartNumber: number }>
 ): Promise<void> {
   try {
-    const s3Key = `uploads/${jobId}/${sanitizeFileName(fileName)}`;
+    const s3Key = `v2/uploads/${jobId}/${sanitizeFileName(fileName)}`;
     
     const completeCommand = new CompleteMultipartUploadCommand({
       Bucket: DOCUMENTS_BUCKET,
@@ -151,7 +151,7 @@ export async function abortMultipartUpload(
   uploadId: string
 ): Promise<void> {
   try {
-    const s3Key = `uploads/${jobId}/${sanitizeFileName(fileName)}`;
+    const s3Key = `v2/uploads/${jobId}/${sanitizeFileName(fileName)}`;
     
     const { AbortMultipartUploadCommand } = await import('@aws-sdk/client-s3');
     const abortCommand = new AbortMultipartUploadCommand({

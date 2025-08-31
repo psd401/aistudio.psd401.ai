@@ -37,10 +37,10 @@ export async function POST(req: NextRequest) {
     // Confirm upload in job tracking
     await confirmDocumentUpload(jobId, uploadId);
     
-    // Generate S3 key based on job ID and filename
-    const s3Key = `uploads/${jobId}/${job.fileName.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+    // Generate S3 key based on job ID and filename (v2 prefix)
+    const s3Key = `v2/uploads/${jobId}/${job.fileName.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
     
-    // Send processing job to SQS queue
+    // Send processing job to NEW DocumentProcessingStack queue
     await sendToProcessingQueue({
       jobId,
       bucket: process.env.DOCUMENTS_BUCKET_NAME || 'aistudio-documents-dev',

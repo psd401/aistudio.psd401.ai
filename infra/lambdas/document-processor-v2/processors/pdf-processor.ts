@@ -4,258 +4,113 @@ import {
   DocumentProcessor, 
   ProcessorConfig 
 } from './factory';
-import { TextractClient, StartDocumentTextDetectionCommand, GetDocumentTextDetectionCommand } from '@aws-sdk/client-textract';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import pdfParse from 'pdf-parse';
-import { marked } from 'marked';
-
-const textractClient = new TextractClient({});
-const s3Client = new S3Client({});
 
 export class PDFProcessor implements DocumentProcessor {
   constructor(private config: ProcessorConfig) {}
 
   async process(params: ProcessingParams): Promise<ProcessingResult> {
     const startTime = Date.now();
-    const { buffer, fileName, jobId, onProgress } = params;
+    const { buffer, fileName, onProgress } = params;
     
     console.log(`Processing PDF: ${fileName} (${buffer.length} bytes)`);
     
     await onProgress?.('parsing_pdf', 40);
     
-    // Try multiple extraction strategies in order of preference
-    const strategies = [
-      { 
-        name: 'pdf-parse', 
-        handler: this.extractWithPdfParse.bind(this),
-        condition: () => true // Always try first
-      },
-      { 
-        name: 'textract', 
-        handler: this.extractWithTextract.bind(this),
-        condition: () => this.config.enableOCR // Only if OCR is enabled
-      },
-      { 
-        name: 'vision-llm', 
-        handler: this.extractWithVisionLLM.bind(this),
-        condition: () => this.config.convertToMarkdown // Use Vision LLM for markdown conversion
-      },
-    ];
-    
-    let extractedContent: any = null;
-    let successfulStrategy = null;
-    
-    for (const strategy of strategies) {
-      if (!strategy.condition()) continue;
+    try {
+      // Use the exact same logic as the working file-processor
+      const extractionResult = await this.extractTextFromPDF(buffer);
       
+      if (!extractionResult.text || extractionResult.text.trim().length === 0) {
+        throw new Error('No text content extracted from PDF - may need OCR');
+      }
+      
+      await onProgress?.('post_processing', 70);
+      
+      // Build result
+      const result: ProcessingResult = {
+        text: extractionResult.text,
+        metadata: {
+          extractionMethod: 'pdf-parse',
+          processingTime: Date.now() - startTime,
+          pageCount: extractionResult.pageCount || 1,
+          originalSize: buffer.length,
+        }
+      };
+      
+      // Convert to Markdown if requested
+      if (this.config.convertToMarkdown) {
+        await onProgress?.('converting_markdown', 80);
+        result.markdown = this.convertToMarkdown(extractionResult.text);
+      }
+      
+      // Generate chunks if requested
+      if (this.config.generateEmbeddings) {
+        await onProgress?.('chunking_text', 90);
+        result.chunks = this.chunkText(extractionResult.text);
+      }
+      
+      result.metadata.processingTime = Date.now() - startTime;
+      
+      console.log(`PDF processing completed: ${result.metadata.processingTime}ms`);
+      return result;
+      
+    } catch (error) {
+      console.error('Error extracting text from PDF with pdf-parse', error);
+      throw new Error('Failed to extract text from PDF');
+    }
+  }
+
+  // Copy the exact working PDF extraction logic from file-processor
+  private async extractTextFromPDF(buffer: Buffer): Promise<{ text: string | null; pageCount: number }> {
+    try {
+      console.log(`Attempting to parse PDF, buffer size: ${buffer.length} bytes`);
+      
+      // Try parsing the PDF
+      const data = await pdfParse(buffer);
+      console.log(`PDF parsed successfully, text length: ${data.text?.length || 0} characters`);
+      console.log(`PDF info - pages: ${data.numpages}, version: ${data.version}`);
+      
+      const pageCount = data.numpages || 1;
+      
+      // If no text extracted, it might be a scanned PDF
+      if (!data.text || data.text.trim().length === 0) {
+        console.warn('No text found in PDF - it might be a scanned image PDF');
+        // Return null to indicate OCR is needed
+        return { text: null, pageCount };
+      }
+      
+      // Also check if extracted text is suspiciously short for the number of pages
+      const avgCharsPerPage = data.text.length / pageCount;
+      if (avgCharsPerPage < 100 && pageCount > 1) {
+        console.warn(`Suspiciously low text content: ${avgCharsPerPage} chars/page for ${pageCount} pages`);
+        return { text: null, pageCount };
+      }
+      
+      return { text: data.text, pageCount };
+    } catch (error) {
+      console.error('PDF parsing error:', error);
+      // Try a more basic extraction as fallback
       try {
-        console.log(`Attempting extraction with ${strategy.name}`);
-        await onProgress?.(`extracting_${strategy.name}`, 50);
-        
-        extractedContent = await strategy.handler(buffer, fileName, jobId);
-        
-        if (extractedContent && extractedContent.text) {
-          successfulStrategy = strategy.name;
-          console.log(`Successfully extracted with ${strategy.name}: ${extractedContent.text.length} characters`);
-          break;
+        const basicData = await pdfParse(buffer);
+        if (basicData.text) {
+          console.log('Basic extraction succeeded');
+          return { text: basicData.text, pageCount: basicData.numpages || 1 };
         }
-      } catch (error) {
-        console.warn(`${strategy.name} failed:`, error instanceof Error ? error.message : error);
+      } catch (fallbackError) {
+        console.error('Fallback PDF parsing also failed:', fallbackError);
       }
+      // Return null text to trigger OCR
+      console.error(`Failed to parse PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return { text: null, pageCount: 1 };
     }
-    
-    if (!extractedContent || !extractedContent.text) {
-      throw new Error('All extraction strategies failed');
-    }
-    
-    await onProgress?.('post_processing', 70);
-    
-    // Build result
-    const result: ProcessingResult = {
-      text: extractedContent.text,
-      metadata: {
-        extractionMethod: successfulStrategy!,
-        processingTime: Date.now() - startTime,
-        pageCount: extractedContent.pageCount || 1,
-        confidence: extractedContent.confidence,
-        originalSize: buffer.length,
-        ...extractedContent.metadata,
-      }
-    };
-    
-    // Convert to Markdown if requested
-    if (this.config.convertToMarkdown && extractedContent.text) {
-      await onProgress?.('converting_markdown', 80);
-      result.markdown = await this.convertToMarkdown(extractedContent);
-    }
-    
-    // Extract and store images if requested
-    if (this.config.extractImages && extractedContent.images) {
-      await onProgress?.('extracting_images', 85);
-      result.images = await this.processImages(extractedContent.images, jobId);
-    }
-    
-    // Generate chunks if requested
-    if (this.config.generateEmbeddings) {
-      await onProgress?.('chunking_text', 90);
-      result.chunks = await this.chunkText(extractedContent.text);
-    }
-    
-    result.metadata.processingTime = Date.now() - startTime;
-    
-    console.log(`PDF processing completed: ${result.metadata.processingTime}ms`);
-    return result;
   }
 
-  private async extractWithPdfParse(buffer: Buffer, fileName: string, jobId: string): Promise<any> {
-    console.log(`Parsing PDF with pdf-parse: ${fileName}`);
-    
-    const data = await pdfParse(buffer, {
-      max: 0, // Parse all pages
-      version: 'v2.0.550',
-    });
-    
-    const pageCount = data.numpages || 1;
-    
-    // Check if extracted text is sufficient
-    if (!data.text || data.text.trim().length === 0) {
-      console.warn('No text found in PDF - might be a scanned document');
-      return { text: null, pageCount };
-    }
-    
-    // Check text density (suspicious if too little text for many pages)
-    const avgCharsPerPage = data.text.length / pageCount;
-    if (avgCharsPerPage < 100 && pageCount > 1) {
-      console.warn(`Low text density: ${avgCharsPerPage} chars/page for ${pageCount} pages`);
-      return { text: null, pageCount };
-    }
-    
-    return {
-      text: data.text,
-      pageCount,
-      confidence: 1.0, // pdf-parse doesn't provide confidence
-      metadata: {
-        info: data.info,
-        metadata: data.metadata,
-        version: data.version,
-      }
-    };
-  }
 
-  private async extractWithTextract(buffer: Buffer, fileName: string, jobId: string): Promise<any> {
-    console.log(`Processing PDF with AWS Textract: ${fileName}`);
-    
-    // Upload buffer to S3 for Textract processing
-    const s3Key = `textract-temp/${jobId}/${fileName}`;
-    const bucketName = process.env.DOCUMENTS_BUCKET_NAME!;
-    
-    await s3Client.send(new PutObjectCommand({
-      Bucket: bucketName,
-      Key: s3Key,
-      Body: buffer,
-      ContentType: 'application/pdf',
-    }));
-    
-    console.log(`Uploaded PDF to S3 for Textract: ${s3Key}`);
-    
-    // Start Textract job
-    const startResponse = await textractClient.send(
-      new StartDocumentTextDetectionCommand({
-        DocumentLocation: {
-          S3Object: {
-            Bucket: bucketName,
-            Name: s3Key,
-          },
-        },
-        ClientRequestToken: `job-${jobId}-${Date.now()}`,
-      })
-    );
-    
-    const textractJobId = startResponse.JobId;
-    if (!textractJobId) {
-      throw new Error('Failed to start Textract job');
-    }
-    
-    console.log(`Started Textract job: ${textractJobId}`);
-    
-    // Poll for completion
-    let attempts = 0;
-    const maxAttempts = 120; // 10 minutes with 5-second intervals
-    
-    while (attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
-      
-      const getResponse = await textractClient.send(
-        new GetDocumentTextDetectionCommand({ JobId: textractJobId })
-      );
-      
-      console.log(`Textract job status: ${getResponse.JobStatus}`);
-      
-      if (getResponse.JobStatus === 'SUCCEEDED') {
-        return this.processTextractResults(getResponse);
-      } else if (getResponse.JobStatus === 'FAILED') {
-        throw new Error(`Textract job failed: ${getResponse.StatusMessage}`);
-      }
-      
-      attempts++;
-    }
-    
-    throw new Error('Textract job timeout after 10 minutes');
-  }
-
-  private processTextractResults(response: any): any {
-    const blocks = response.Blocks || [];
-    let text = '';
-    let totalConfidence = 0;
-    let confidenceCount = 0;
-    
-    // Extract text from LINE blocks (maintains reading order)
-    const lines = blocks
-      .filter((block: any) => block.BlockType === 'LINE')
-      .sort((a: any, b: any) => {
-        // Sort by Y position first, then X position
-        const aY = a.Geometry?.BoundingBox?.Top || 0;
-        const bY = b.Geometry?.BoundingBox?.Top || 0;
-        if (Math.abs(aY - bY) > 0.01) { // Different lines
-          return aY - bY;
-        }
-        // Same line, sort by X position
-        const aX = a.Geometry?.BoundingBox?.Left || 0;
-        const bX = b.Geometry?.BoundingBox?.Left || 0;
-        return aX - bX;
-      });
-    
-    for (const line of lines) {
-      if (line.Text) {
-        text += line.Text + '\n';
-        
-        if (line.Confidence) {
-          totalConfidence += line.Confidence;
-          confidenceCount++;
-        }
-      }
-    }
-    
-    const avgConfidence = confidenceCount > 0 ? totalConfidence / confidenceCount : 0;
-    
-    console.log(`Textract extracted ${text.length} characters with ${avgConfidence.toFixed(2)}% confidence`);
-    
-    return {
-      text: text.trim(),
-      confidence: avgConfidence / 100, // Convert to 0-1 scale
-      metadata: {
-        blockCount: blocks.length,
-        lineCount: lines.length,
-        textractJobId: response.JobId,
-      }
-    };
-  }
-
-  private async convertToMarkdown(extractedContent: any): Promise<string> {
-    const text = extractedContent.text;
+  private convertToMarkdown(text: string): string {
     if (!text) return '';
     
-    // Simple markdown conversion
+    // Simple markdown conversion (same logic as main app)
     // Split into paragraphs
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     
@@ -264,9 +119,8 @@ export class PDFProcessor implements DocumentProcessor {
     for (const paragraph of paragraphs) {
       const trimmed = paragraph.trim();
       
-      // Detect headers (lines that are short and don't end with punctuation)
+      // Detect potential headers
       if (trimmed.length < 100 && !/[.!?]$/.test(trimmed) && /^[A-Z]/.test(trimmed)) {
-        // Check if it looks like a header
         const words = trimmed.split(' ');
         if (words.length <= 10) {
           markdown += `## ${trimmed}\n\n`;
@@ -281,171 +135,46 @@ export class PDFProcessor implements DocumentProcessor {
     return markdown.trim();
   }
 
-  private async processImages(images: any[], jobId: string): Promise<any[]> {
-    // Process and store extracted images
-    const processedImages = [];
-    
-    for (let i = 0; i < images.length; i++) {
-      const image = images[i];
-      const imageKey = `extracted-images/${jobId}/image-${i}.png`;
-      
-      // Store image in S3 (if image data is provided)
-      if (image.data) {
-        await s3Client.send(new PutObjectCommand({
-          Bucket: process.env.DOCUMENTS_BUCKET_NAME!,
-          Key: imageKey,
-          Body: Buffer.from(image.data, 'base64'),
-          ContentType: 'image/png',
-        }));
-      }
-      
-      processedImages.push({
-        imageIndex: i,
-        s3Key: imageKey,
-        caption: image.caption || `Image ${i + 1}`,
-        metadata: {
-          width: image.width,
-          height: image.height,
-          format: image.format || 'png',
-        },
-      });
-    }
-    
-    return processedImages;
-  }
 
-  private async chunkText(text: string): Promise<any[]> {
-    const chunkSize = 2000; // Characters per chunk
-    const overlap = 200; // Overlap between chunks
-    
-    const chunks = [];
-    let startIndex = 0;
+  // Copy the exact chunking logic from file-processor
+  private chunkText(text: string): any[] {
+    const maxChunkSize = 2000; // Same as file-processor
+    const chunks: any[] = [];
+    const lines = text.split('\n');
+    let currentChunk = '';
     let chunkIndex = 0;
     
-    while (startIndex < text.length) {
-      let endIndex = Math.min(startIndex + chunkSize, text.length);
-      
-      // Try to break at sentence boundary if not at end
-      if (endIndex < text.length) {
-        const lastSentenceEnd = text.lastIndexOf('.', endIndex);
-        if (lastSentenceEnd > startIndex) {
-          endIndex = lastSentenceEnd + 1;
-        }
-      }
-      
-      const chunkContent = text.substring(startIndex, endIndex).trim();
-      
-      if (chunkContent.length > 0) {
+    for (const line of lines) {
+      if ((currentChunk + line).length > maxChunkSize && currentChunk.length > 0) {
         chunks.push({
-          chunkIndex,
-          content: chunkContent,
-          metadata: {
-            startIndex,
-            endIndex,
-            length: chunkContent.length,
+          chunkIndex: chunkIndex++,
+          content: currentChunk.trim(),
+          metadata: { 
+            lineStart: chunkIndex,
+            length: currentChunk.trim().length,
           },
+          tokens: Math.ceil(currentChunk.length / 4), // Rough token estimate
         });
-        chunkIndex++;
+        currentChunk = line + '\n';
+      } else {
+        currentChunk += line + '\n';
       }
-      
-      startIndex = endIndex - overlap; // Move start back by overlap amount
-      if (startIndex >= endIndex) break; // Prevent infinite loop
+    }
+    
+    if (currentChunk.trim().length > 0) {
+      chunks.push({
+        chunkIndex: chunkIndex++,
+        content: currentChunk.trim(),
+        metadata: { 
+          lineStart: chunkIndex,
+          length: currentChunk.trim().length,
+        },
+        tokens: Math.ceil(currentChunk.length / 4),
+      });
     }
     
     console.log(`Created ${chunks.length} chunks from PDF text`);
     return chunks;
   }
 
-  private async extractWithVisionLLM(buffer: Buffer, fileName: string, jobId: string): Promise<any> {
-    console.log(`Processing PDF with Vision LLM via settings manager: ${fileName}`);
-    
-    try {
-      // Import helpers at runtime to avoid bundling issues
-      const { generateCompletion } = await import('@/lib/ai-helpers');
-      const { executeSQL } = await import('@/lib/db/data-api-adapter');
-      const { getSetting } = await import('@/lib/settings-manager');
-      
-      // Get the model ID from settings instead of hardcoding
-      const pdfProcessingModelIdStr = await getSetting('PDF_PROCESSING_MODEL_ID');
-      
-      if (!pdfProcessingModelIdStr) {
-        throw new Error('PDF_PROCESSING_MODEL_ID setting not configured. Please add this setting to specify which model to use for PDF processing.');
-      }
-      
-      const PDF_PROCESSING_MODEL_ID = parseInt(pdfProcessingModelIdStr, 10);
-      
-      if (isNaN(PDF_PROCESSING_MODEL_ID)) {
-        throw new Error(`Invalid PDF_PROCESSING_MODEL_ID setting value: ${pdfProcessingModelIdStr}. Must be a valid model ID number.`);
-      }
-      
-      // Get model config from database (same pattern as existing pdf-to-markdown)
-      const modelResult = await executeSQL(`
-        SELECT id, name, provider, model_id, description, capabilities, max_tokens, active, chat_enabled
-        FROM ai_models
-        WHERE id = :modelId AND active = true
-      `, [{ name: 'modelId', value: { longValue: PDF_PROCESSING_MODEL_ID } }]);
-      
-      const model = modelResult && modelResult.length > 0 ? modelResult[0] : null;
-      
-      if (!model) {
-        throw new Error(`Active model with ID ${PDF_PROCESSING_MODEL_ID} not found in database`);
-      }
-      
-      console.log(`Using model from settings: ${model.name} (${model.provider}/${model.modelId})`);
-      
-      // System prompt for the LLM (same as assistant architect)
-      const systemPrompt = `You are an expert document parser. Given a PDF file, extract ALL text and describe every image or graphic in context. Return a single, well-structured markdown document that preserves the logical order and hierarchy of the original. For images/graphics, insert a markdown image block with a description, e.g. ![Description of image]. Do not skip any content. Output only markdown.`;
-      
-      // Prepare messages for the LLM (same pattern as assistant architect)
-      const messages = [
-        {
-          role: 'user' as const,
-          content: [
-            { type: 'text' as const, text: systemPrompt },
-            { type: 'file' as const, data: buffer, mediaType: 'application/pdf' }
-          ]
-        }
-      ];
-      
-      console.log('Calling Vision LLM via generateCompletion with settings manager model...');
-      const startTime = Date.now();
-      
-      // Call the LLM using the existing generateCompletion helper (uses settings manager)
-      const markdown = await generateCompletion(
-        { provider: model.provider as string, modelId: model.modelId as string },
-        messages
-      );
-      
-      const processingTime = Date.now() - startTime;
-      console.log(`Vision LLM processing completed in ${processingTime}ms, result length: ${markdown?.length || 0}`);
-      
-      if (!markdown || markdown.trim().length === 0) {
-        throw new Error('No markdown content generated from Vision LLM');
-      }
-      
-      // Parse the markdown to extract plain text for the text field
-      const plainText = markdown
-        .replace(/[#*_`[\]()]/g, '') // Remove markdown formatting
-        .replace(/!\[.*?\]\(.*?\)/g, '') // Remove image references
-        .replace(/\n{3,}/g, '\n\n') // Clean up excessive newlines
-        .trim();
-      
-      return {
-        text: plainText,
-        markdown: markdown, // Return both plain text and markdown
-        confidence: 1.0, // Vision models don't provide confidence scores
-        pageCount: 1, // We don't know exact page count from this method
-        metadata: {
-          extractionMethod: 'vision-llm',
-          processingTime,
-          modelUsed: `${model.provider}/${model.modelId}`,
-          modelName: model.name,
-        }
-      };
-      
-    } catch (error) {
-      console.error('Vision LLM extraction failed:', error);
-      throw new Error(`Vision LLM extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
 }

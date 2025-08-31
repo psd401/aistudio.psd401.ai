@@ -48,11 +48,18 @@ export class HybridDocumentAdapter implements AttachmentAdapter {
   async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
     const file = attachment.file;
     
-    if (file.size <= this.serverProcessingThreshold) {
-      // Small file: Process client-side for immediate response
+    // Only allow PDF and text-based files to be processed directly by AI models
+    // All other formats (XLSX, DOCX, PPTX, etc.) must go through server processing
+    // to avoid hallucinated content
+    const fileType = this.getFileTypeFromName(attachment.name);
+    const textBasedFormats = ['txt', 'md', 'csv', 'json', 'xml', 'yaml', 'yml'];
+    const canProcessDirectly = fileType === 'pdf' || textBasedFormats.includes(fileType);
+    
+    if (canProcessDirectly && file.size <= this.serverProcessingThreshold) {
+      // Small PDF or text file: Process client-side for immediate response
       return this.processClientSide(attachment);
     } else {
-      // Large file: Use server processing with polling
+      // Large file OR non-PDF/text format: Use server processing with polling
       return this.processServerSide(attachment);
     }
   }
@@ -291,11 +298,12 @@ Please try re-uploading or contact support if the issue persists.`
     let pollInterval = 1000; // Start with 1 second
     
     while (attempts < maxAttempts) {
-      const response = await fetch(`/api/documents/v2/jobs/${jobId}`);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to check job status: ${response.status}`);
-      }
+      try {
+        const response = await fetch(`/api/documents/v2/jobs/${jobId}`);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to check job status: ${response.status}`);
+        }
       
       const job = await response.json();
       
@@ -368,10 +376,26 @@ This might be because:
         }
       }
       
-      // Wait before next poll with exponential backoff
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
-      pollInterval = Math.min(pollInterval * 1.2, 5000); // Max 5 seconds
-      attempts++;
+        // Wait before next poll with exponential backoff
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+        pollInterval = Math.min(pollInterval * 1.2, 5000); // Max 5 seconds
+        attempts++;
+      } catch (error) {
+        // If fetch fails, log it but continue trying
+        if (attempts < maxAttempts - 1) {
+          log.warn('Polling request failed, retrying', { 
+            error: error instanceof Error ? error.message : 'Unknown error', 
+            jobId, 
+            attempts,
+            nextRetryIn: pollInterval 
+          });
+          await new Promise(resolve => setTimeout(resolve, pollInterval));
+          attempts++;
+          continue;
+        }
+        // On final attempt, throw the error
+        throw error;
+      }
     }
     
     throw new Error('Processing timeout - document processing took too long');

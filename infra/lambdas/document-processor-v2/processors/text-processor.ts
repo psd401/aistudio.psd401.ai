@@ -106,7 +106,7 @@ export class TextProcessor implements DocumentProcessor {
         
         // Add sample records (limit to first 10)
         const sampleRecords = records.slice(0, 10);
-        sampleRecords.forEach((record, index) => {
+        sampleRecords.forEach((record: any, index: number) => {
           textOutput += `Record ${index + 1}:\n`;
           headers.forEach(header => {
             textOutput += `  ${header}: ${record[header] || 'N/A'}\n`;
@@ -300,7 +300,7 @@ export class TextProcessor implements DocumentProcessor {
     markdown += '| ' + headers.join(' | ') + ' |\n';
     markdown += '| ' + headers.map(() => '---').join(' | ') + ' |\n';
     
-    displayRecords.forEach(record => {
+    displayRecords.forEach((record: any) => {
       const row = headers.map(header => String(record[header] || '').replace(/\|/g, '\\|'));
       markdown += '| ' + row.join(' | ') + ' |\n';
     });

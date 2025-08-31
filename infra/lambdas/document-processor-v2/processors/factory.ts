@@ -56,28 +56,34 @@ export class DocumentProcessorFactory {
   static create(fileType: string, config: ProcessorConfig): DocumentProcessor {
     const normalizedType = fileType.toLowerCase();
     
+    console.log(`DocumentProcessorFactory: Creating processor for fileType: "${fileType}" (normalized: "${normalizedType}")`);
+    
     if (normalizedType.includes('pdf')) {
+      console.log('Selected PDF processor');
       return new PDFProcessor(config);
-    } else if (
-      normalizedType.includes('word') || 
-      normalizedType.includes('document') ||
-      normalizedType.endsWith('docx') ||
-      normalizedType.endsWith('doc')
-    ) {
-      return new OfficeProcessor('docx', config);
     } else if (
       normalizedType.includes('sheet') || 
       normalizedType.includes('excel') ||
       normalizedType.endsWith('xlsx') ||
       normalizedType.endsWith('xls')
     ) {
+      console.log('Selected XLSX processor');
       return new OfficeProcessor('xlsx', config);
+    } else if (
+      normalizedType.includes('word') || 
+      normalizedType.includes('document') ||
+      normalizedType.endsWith('docx') ||
+      normalizedType.endsWith('doc')
+    ) {
+      console.log('Selected DOCX processor');
+      return new OfficeProcessor('docx', config);
     } else if (
       normalizedType.includes('presentation') || 
       normalizedType.includes('powerpoint') ||
       normalizedType.endsWith('pptx') ||
       normalizedType.endsWith('ppt')
     ) {
+      console.log('Selected PPTX processor');
       return new OfficeProcessor('pptx', config);
     } else if (
       normalizedType.includes('text') || 
@@ -86,8 +92,10 @@ export class DocumentProcessorFactory {
       normalizedType.endsWith('md') ||
       normalizedType.endsWith('csv')
     ) {
+      console.log('Selected text processor');
       return new TextProcessor(config);
     } else {
+      console.log(`No processor found for fileType: ${fileType}`);
       throw new Error(`Unsupported file type: ${fileType}`);
     }
   }

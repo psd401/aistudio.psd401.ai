@@ -1,6 +1,6 @@
 import { SQSEvent, Context } from 'aws-lambda';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { DynamoDBClient, PutItemCommand, GetItemCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, PutItemCommand, GetItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { TextractClient, StartDocumentTextDetectionCommand, GetDocumentTextDetectionCommand } from '@aws-sdk/client-textract';
 import { Readable } from 'stream';
@@ -36,7 +36,7 @@ interface ProcessingContext {
   };
 }
 
-// Update job status in DynamoDB
+// Update job status in DynamoDB - preserving complete job data
 async function updateJobStatus(
   jobId: string,
   status: string,
@@ -46,19 +46,50 @@ async function updateJobStatus(
   const ttl = Math.floor(timestamp / 1000) + 86400 * 7; // 7 days TTL
 
   try {
+    // First, get the complete job data from the latest entry
+    const existingJobResponse = await dynamoClient.send(
+      new QueryCommand({
+        TableName: DOCUMENT_JOBS_TABLE,
+        KeyConditionExpression: 'jobId = :jobId',
+        ExpressionAttributeValues: marshall({
+          ':jobId': jobId,
+        }),
+        ScanIndexForward: false, // Get latest first
+        Limit: 1,
+      })
+    );
+
+    if (!existingJobResponse.Items || existingJobResponse.Items.length === 0) {
+      console.error(`No existing job found for jobId: ${jobId}`);
+      throw new Error(`Job not found: ${jobId}`);
+    }
+
+    // Get the existing job data and preserve all fields
+    const existingJob = unmarshall(existingJobResponse.Items[0]);
+    
+    // Create new status entry with complete job data preserved
     await dynamoClient.send(
       new PutItemCommand({
         TableName: DOCUMENT_JOBS_TABLE,
         Item: marshall({
+          // Preserve ALL existing job data
+          ...existingJob,
+          // Update the status and timestamp
           jobId,
           timestamp,
           status,
           ttl,
+          // Apply any additional updates
           ...updates,
+          // Add completion timestamp if completed
+          ...(status === 'completed' && !updates.completedAt && {
+            completedAt: new Date().toISOString(),
+          }),
         }),
       })
     );
-    console.log(`Job status updated: ${jobId} -> ${status}`);
+    
+    console.log(`Job status updated with complete data: ${jobId} -> ${status}`);
   } catch (error) {
     console.error(`Failed to update job status for ${jobId}:`, error);
     throw error;
@@ -89,7 +120,7 @@ async function storeResults(jobId: string, result: any): Promise<void> {
   
   if (resultSize > 400 * 1024) { // 400KB limit for DynamoDB
     // Store large results in S3
-    const resultKey = `results/${jobId}/result.json`;
+    const resultKey = `v2/results/${jobId}/result.json`;
     
     await s3Client.send(new PutObjectCommand({
       Bucket: DOCUMENTS_BUCKET,
@@ -279,11 +310,11 @@ function extractProcessingContexts(event: SQSEvent): ProcessingContext[] {
         const bucket = s3Record.bucket.name;
         const key = decodeURIComponent(s3Record.object.key.replace(/\+/g, ' '));
         
-        // Extract job ID from S3 key pattern: uploads/{jobId}/{fileName}
+        // Extract job ID from S3 key pattern: v2/uploads/{jobId}/{fileName}
         const keyParts = key.split('/');
-        if (keyParts.length >= 3 && keyParts[0] === 'uploads') {
-          const jobId = keyParts[1];
-          const fileName = keyParts.slice(2).join('/');
+        if (keyParts.length >= 4 && keyParts[0] === 'v2' && keyParts[1] === 'uploads') {
+          const jobId = keyParts[2];
+          const fileName = keyParts.slice(3).join('/');
           
           // This would need additional logic to get full context from DynamoDB
           // For now, we'll skip S3-triggered processing in favor of direct SQS messages

@@ -352,7 +352,7 @@ export async function POST(req: Request) {
           const textPart = messageContent.find(part => part.type === 'text' && part.text);
           imagePrompt = (textPart?.text || '').trim();
         } else if (lastMessage.parts && Array.isArray(lastMessage.parts)) {
-          const textPart = lastMessage.parts.find(part => part.type === 'text' && part.text);
+          const textPart = lastMessage.parts.find((part: { type: string; text?: string }) => part.type === 'text' && part.text);
           imagePrompt = (textPart?.text || '').trim();
         }
       }
