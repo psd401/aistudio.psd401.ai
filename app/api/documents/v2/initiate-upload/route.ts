@@ -76,6 +76,12 @@ export async function POST(req: NextRequest) {
       'text/plain',
       'text/markdown',
       'text/csv',
+      'application/json',
+      'application/xml',
+      'text/xml',
+      'application/x-yaml',
+      'text/yaml',
+      'text/x-yaml',
     ];
 
     if (!supportedTypes.includes(fileType)) {

@@ -11,12 +11,11 @@ import { createLogger } from "@/lib/client-logger";
 const log = createLogger({ moduleName: 'enhanced-attachment-adapters' });
 
 /**
- * Hybrid Document Adapter that intelligently routes between
- * client-side and server-side processing based on file size
+ * Document Adapter that processes all supported document formats
+ * through server-side processing for consistent extraction quality
  */
 export class HybridDocumentAdapter implements AttachmentAdapter {
-  accept = "application/pdf,.docx,.xlsx,.pptx,.doc,.xls,.ppt";
-  private serverProcessingThreshold = 10 * 1024 * 1024; // 10MB
+  accept = "application/pdf,.docx,.xlsx,.pptx,.doc,.xls,.ppt,.txt,.md,.csv,.json,.xml,.yaml,.yml";
 
   async add({ file }: { file: File }): Promise<PendingAttachment> {
     // Validate file size (500MB max for server processing)
@@ -46,86 +45,11 @@ export class HybridDocumentAdapter implements AttachmentAdapter {
   }
 
   async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
-    const file = attachment.file;
-    
-    // Only allow PDF and text-based files to be processed directly by AI models
-    // All other formats (XLSX, DOCX, PPTX, etc.) must go through server processing
-    // to avoid hallucinated content
-    const fileType = this.getFileTypeFromName(attachment.name);
-    const textBasedFormats = ['txt', 'md', 'csv', 'json', 'xml', 'yaml', 'yml'];
-    const canProcessDirectly = fileType === 'pdf' || textBasedFormats.includes(fileType);
-    
-    if (canProcessDirectly && file.size <= this.serverProcessingThreshold) {
-      // Small PDF or text file: Process client-side for immediate response
-      return this.processClientSide(attachment);
-    } else {
-      // Large file OR non-PDF/text format: Use server processing with polling
-      return this.processServerSide(attachment);
-    }
+    // All documents now go through server-side processing
+    // This ensures consistent extraction quality and handling for all file types
+    return this.processServerSide(attachment);
   }
 
-  private async processClientSide(attachment: PendingAttachment): Promise<CompleteAttachment> {
-    try {
-      log.info('Processing document client-side', { 
-        fileName: attachment.name, 
-        fileSize: attachment.file.size 
-      });
-
-      // For client-side processing, we'll send files directly to server for processing
-      // Client-side text extraction would require bundling Node.js libraries which causes issues
-      
-      // Return file reference with note about server processing
-      return {
-        id: attachment.id,
-        type: "document",
-        name: attachment.name,
-        contentType: attachment.contentType,
-        file: attachment.file,
-        content: [
-          {
-            type: "text" as const,
-            text: `## Document: ${attachment.name}
-
-*This document will be processed by the AI model. The file has been attached and will be analyzed.*
-
-**Size:** ${Math.round(attachment.file.size / 1024)}KB
-**Type:** ${attachment.contentType}
-
-*The AI will extract and analyze the content when processing your message.*`
-          }
-        ],
-        status: { type: "complete" },
-      };
-    } catch (error) {
-      log.error('Client-side processing failed', { error, fileName: attachment.name });
-      
-      // Fallback: Return file reference
-      return {
-        id: attachment.id,
-        type: "document",
-        name: attachment.name,
-        contentType: attachment.contentType,
-        file: attachment.file,
-        content: [
-          {
-            type: "text" as const,
-            text: `## Document: ${attachment.name}
-
-*Unable to process this document. The file has been attached for reference.*
-
-**Error:** ${error instanceof Error ? error.message : 'Unknown processing error'}
-**Size:** ${Math.round(attachment.file.size / 1024)}KB
-**Type:** ${attachment.contentType}
-
-*Please try uploading a different format or contact support if this issue persists.*`
-          }
-        ],
-        status: { 
-          type: "complete"
-        },
-      };
-    }
-  }
 
   private async processServerSide(attachment: PendingAttachment): Promise<CompleteAttachment> {
     try {
