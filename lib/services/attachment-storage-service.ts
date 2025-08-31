@@ -5,11 +5,20 @@ import type { UIMessage } from 'ai';
 const s3Client = new S3Client({});
 const log = createLogger({ service: 'attachment-storage' });
 
-// Environment validation
-if (!process.env.DOCUMENTS_BUCKET_NAME) {
-  throw new Error('DOCUMENTS_BUCKET_NAME environment variable is required but not configured');
+// Environment validation with test environment support
+function getDocumentsBucket(): string {
+  if (process.env.NODE_ENV === 'test') {
+    return process.env.DOCUMENTS_BUCKET_NAME || 'test-documents-bucket';
+  }
+  
+  if (!process.env.DOCUMENTS_BUCKET_NAME) {
+    throw new Error('DOCUMENTS_BUCKET_NAME environment variable is required but not configured');
+  }
+  
+  return process.env.DOCUMENTS_BUCKET_NAME;
 }
-const DOCUMENTS_BUCKET = process.env.DOCUMENTS_BUCKET_NAME;
+
+const DOCUMENTS_BUCKET = getDocumentsBucket();
 
 // Use the proper UIMessage structure with parts array
 

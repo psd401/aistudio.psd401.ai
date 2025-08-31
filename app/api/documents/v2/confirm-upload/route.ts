@@ -40,8 +40,8 @@ export async function POST(req: NextRequest) {
     // Generate S3 key based on job ID and filename (v2 prefix)
     const s3Key = `v2/uploads/${jobId}/${job.fileName.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
     
-    // Environment validation
-    if (!process.env.DOCUMENTS_BUCKET_NAME) {
+    // Environment validation (skip in test environment)
+    if (process.env.NODE_ENV !== 'test' && !process.env.DOCUMENTS_BUCKET_NAME) {
       log.error('DOCUMENTS_BUCKET_NAME environment variable not configured');
       return NextResponse.json({ error: 'Service configuration error' }, { status: 500 });
     }
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     // Send processing job to NEW DocumentProcessingStack queue
     await sendToProcessingQueue({
       jobId,
-      bucket: process.env.DOCUMENTS_BUCKET_NAME,
+      bucket: process.env.DOCUMENTS_BUCKET_NAME || 'test-documents-bucket',
       key: s3Key,
       fileName: job.fileName,
       fileSize: job.fileSize,

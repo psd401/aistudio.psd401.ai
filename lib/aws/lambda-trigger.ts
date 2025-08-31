@@ -4,8 +4,30 @@ import { createLogger } from '@/lib/logger';
 const sqsClient = new SQSClient({});
 const log = createLogger({ service: 'lambda-trigger' });
 
-const PROCESSING_QUEUE_URL = process.env.PROCESSING_QUEUE_URL;
-const HIGH_MEMORY_QUEUE_URL = process.env.HIGH_MEMORY_QUEUE_URL;
+// Dynamic environment variable loading for test compatibility
+function getProcessingQueueUrl(): string {
+  if (process.env.NODE_ENV === 'test') {
+    return process.env.PROCESSING_QUEUE_URL || 'test-processing-queue-url';
+  }
+  
+  if (!process.env.PROCESSING_QUEUE_URL) {
+    throw new Error('PROCESSING_QUEUE_URL environment variable not configured');
+  }
+  
+  return process.env.PROCESSING_QUEUE_URL;
+}
+
+function getHighMemoryQueueUrl(): string {
+  if (process.env.NODE_ENV === 'test') {
+    return process.env.HIGH_MEMORY_QUEUE_URL || 'test-high-memory-queue-url';
+  }
+  
+  if (!process.env.HIGH_MEMORY_QUEUE_URL) {
+    throw new Error('HIGH_MEMORY_QUEUE_URL environment variable not configured');
+  }
+  
+  return process.env.HIGH_MEMORY_QUEUE_URL;
+}
 
 export interface ProcessingJobMessage {
   jobId: string;
@@ -26,9 +48,7 @@ export interface ProcessingJobMessage {
 
 export async function triggerLambdaProcessing(jobId: string, options?: { priority?: boolean }): Promise<void> {
   try {
-    if (!PROCESSING_QUEUE_URL) {
-      throw new Error('PROCESSING_QUEUE_URL environment variable not configured');
-    }
+    const queueUrl = getProcessingQueueUrl();
 
     // Send a priority message to trigger immediate processing
     const message = {
@@ -40,7 +60,7 @@ export async function triggerLambdaProcessing(jobId: string, options?: { priorit
 
     await sqsClient.send(
       new SendMessageCommand({
-        QueueUrl: PROCESSING_QUEUE_URL,
+        QueueUrl: queueUrl,
         MessageBody: JSON.stringify(message),
         MessageAttributes: {
           jobId: {
@@ -64,14 +84,12 @@ export async function triggerLambdaProcessing(jobId: string, options?: { priorit
 
 export async function sendToProcessingQueue(message: ProcessingJobMessage): Promise<void> {
   try {
-    if (!PROCESSING_QUEUE_URL) {
-      throw new Error('PROCESSING_QUEUE_URL environment variable not configured');
-    }
+    const standardQueueUrl = getProcessingQueueUrl();
 
     // Determine which queue to use based on file size
     const queueUrl = message.fileSize > 50 * 1024 * 1024 // 50MB threshold
-      ? HIGH_MEMORY_QUEUE_URL || PROCESSING_QUEUE_URL
-      : PROCESSING_QUEUE_URL;
+      ? getHighMemoryQueueUrl()
+      : standardQueueUrl;
 
     await sqsClient.send(
       new SendMessageCommand({
@@ -116,32 +134,13 @@ export async function sendBatchToProcessingQueue(messages: ProcessingJobMessage[
   if (messages.length === 0) return;
 
   try {
-    if (!PROCESSING_QUEUE_URL) {
-      throw new Error('PROCESSING_QUEUE_URL environment variable not configured');
-    }
-
-    // Group messages by queue type (standard vs high-memory)
-    const standardMessages = messages.filter(msg => msg.fileSize <= 50 * 1024 * 1024);
-    const highMemoryMessages = messages.filter(msg => msg.fileSize > 50 * 1024 * 1024);
-
-    // Send standard messages
-    if (standardMessages.length > 0) {
-      await Promise.all(
-        standardMessages.map(message => sendToProcessingQueue(message))
-      );
-    }
-
-    // Send high-memory messages
-    if (highMemoryMessages.length > 0 && HIGH_MEMORY_QUEUE_URL) {
-      await Promise.all(
-        highMemoryMessages.map(message => sendToProcessingQueue(message))
-      );
-    }
+    // Just delegate to individual sendToProcessingQueue calls for simplicity
+    await Promise.all(
+      messages.map(message => sendToProcessingQueue(message))
+    );
 
     log.info('Sent batch messages to processing queues', {
       totalMessages: messages.length,
-      standardMessages: standardMessages.length,
-      highMemoryMessages: highMemoryMessages.length,
     });
   } catch (error) {
     log.error('Failed to send batch messages to processing queue', { 
@@ -154,9 +153,6 @@ export async function sendBatchToProcessingQueue(messages: ProcessingJobMessage[
 
 export async function retryFailedJob(jobId: string, attempt: number = 1): Promise<void> {
   try {
-    if (!PROCESSING_QUEUE_URL) {
-      throw new Error('PROCESSING_QUEUE_URL environment variable not configured');
-    }
 
     const retryMessage = {
       type: 'RETRY_PROCESSING',
@@ -170,7 +166,7 @@ export async function retryFailedJob(jobId: string, attempt: number = 1): Promis
 
     await sqsClient.send(
       new SendMessageCommand({
-        QueueUrl: PROCESSING_QUEUE_URL,
+        QueueUrl: getProcessingQueueUrl(),
         MessageBody: JSON.stringify(retryMessage),
         DelaySeconds: delaySeconds,
         MessageAttributes: {

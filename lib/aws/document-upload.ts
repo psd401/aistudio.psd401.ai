@@ -5,11 +5,18 @@ import { createLogger } from '@/lib/logger';
 const s3Client = new S3Client({});
 const log = createLogger({ service: 'document-upload' });
 
-// Environment validation
-if (!process.env.DOCUMENTS_BUCKET_NAME) {
-  throw new Error('DOCUMENTS_BUCKET_NAME environment variable is required but not configured');
+// Environment validation with test environment support
+function getDocumentsBucket(): string {
+  if (process.env.NODE_ENV === 'test') {
+    return process.env.DOCUMENTS_BUCKET_NAME || 'test-documents-bucket';
+  }
+  
+  if (!process.env.DOCUMENTS_BUCKET_NAME) {
+    throw new Error('DOCUMENTS_BUCKET_NAME environment variable is required but not configured');
+  }
+  
+  return process.env.DOCUMENTS_BUCKET_NAME;
 }
-const DOCUMENTS_BUCKET = process.env.DOCUMENTS_BUCKET_NAME;
 const PRESIGNED_URL_EXPIRY = 3600; // 1 hour
 
 export interface PresignedUploadConfig {
@@ -28,7 +35,7 @@ export async function generatePresignedUrl(jobId: string, fileName: string): Pro
     const s3Key = `v2/uploads/${jobId}/${sanitizeFileName(fileName)}`;
     
     const command = new PutObjectCommand({
-      Bucket: DOCUMENTS_BUCKET,
+      Bucket: getDocumentsBucket(),
       Key: s3Key,
       ContentType: getContentType(fileName),
       Metadata: {
@@ -61,7 +68,7 @@ export async function generateMultipartUrls(jobId: string, fileName: string, par
     
     // Initialize multipart upload
     const createMultipartCommand = new CreateMultipartUploadCommand({
-      Bucket: DOCUMENTS_BUCKET,
+      Bucket: getDocumentsBucket(),
       Key: s3Key,
       ContentType: getContentType(fileName),
       Metadata: {
@@ -84,7 +91,7 @@ export async function generateMultipartUrls(jobId: string, fileName: string, par
     // Generate presigned URLs for each part
     for (let partNumber = 1; partNumber <= partCount; partNumber++) {
       const uploadPartCommand = new UploadPartCommand({
-        Bucket: DOCUMENTS_BUCKET,
+        Bucket: getDocumentsBucket(),
         Key: s3Key,
         PartNumber: partNumber,
         UploadId: uploadId,
@@ -129,7 +136,7 @@ export async function completeMultipartUpload(
     const s3Key = `v2/uploads/${jobId}/${sanitizeFileName(fileName)}`;
     
     const completeCommand = new CompleteMultipartUploadCommand({
-      Bucket: DOCUMENTS_BUCKET,
+      Bucket: getDocumentsBucket(),
       Key: s3Key,
       UploadId: uploadId,
       MultipartUpload: {
@@ -159,7 +166,7 @@ export async function abortMultipartUpload(
     
     const { AbortMultipartUploadCommand } = await import('@aws-sdk/client-s3');
     const abortCommand = new AbortMultipartUploadCommand({
-      Bucket: DOCUMENTS_BUCKET,
+      Bucket: getDocumentsBucket(),
       Key: s3Key,
       UploadId: uploadId,
     });
@@ -240,7 +247,7 @@ export async function getSignedDownloadUrl(s3Key: string, expiresIn: number = 36
   try {
     const { GetObjectCommand } = await import('@aws-sdk/client-s3');
     const command = new GetObjectCommand({
-      Bucket: DOCUMENTS_BUCKET,
+      Bucket: getDocumentsBucket(),
       Key: s3Key,
     });
 

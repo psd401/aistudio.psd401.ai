@@ -3,8 +3,20 @@ import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { createLogger } from '@/lib/logger';
 
 const dynamoClient = new DynamoDBClient({});
-const DOCUMENT_JOBS_TABLE = process.env.DOCUMENT_JOBS_TABLE!;
 const log = createLogger({ service: 'document-job-service' });
+
+// Dynamic environment variable loading for test compatibility
+function getDocumentJobsTable(): string {
+  if (process.env.NODE_ENV === 'test') {
+    return process.env.DOCUMENT_JOBS_TABLE || 'test-document-jobs-table';
+  }
+  
+  if (!process.env.DOCUMENT_JOBS_TABLE) {
+    throw new Error('DOCUMENT_JOBS_TABLE environment variable is required but not configured');
+  }
+  
+  return process.env.DOCUMENT_JOBS_TABLE;
+}
 
 export interface ProcessingOptions {
   extractText: boolean;
@@ -62,7 +74,7 @@ export async function createDocumentJob(params: CreateJobParams): Promise<Docume
   try {
     await dynamoClient.send(
       new PutItemCommand({
-        TableName: DOCUMENT_JOBS_TABLE,
+        TableName: getDocumentJobsTable(),
         Item: marshall({
           jobId,
           timestamp,
@@ -93,7 +105,7 @@ export async function getJobStatus(jobId: string, userId?: string): Promise<Docu
     // Query for the latest status entry for this job
     const response = await dynamoClient.send(
       new QueryCommand({
-        TableName: DOCUMENT_JOBS_TABLE,
+        TableName: getDocumentJobsTable(),
         KeyConditionExpression: 'jobId = :jobId',
         ExpressionAttributeValues: marshall({
           ':jobId': jobId,
@@ -150,7 +162,7 @@ export async function updateJobStatus(
     // First, get the complete job data from the latest entry
     const existingJobResponse = await dynamoClient.send(
       new QueryCommand({
-        TableName: DOCUMENT_JOBS_TABLE,
+        TableName: getDocumentJobsTable(),
         KeyConditionExpression: 'jobId = :jobId',
         ExpressionAttributeValues: marshall({
           ':jobId': jobId,
@@ -171,7 +183,7 @@ export async function updateJobStatus(
     // Insert a new status entry (append-only pattern for DynamoDB) with complete job data preserved
     await dynamoClient.send(
       new PutItemCommand({
-        TableName: DOCUMENT_JOBS_TABLE,
+        TableName: getDocumentJobsTable(),
         Item: marshall({
           // Preserve ALL existing job data
           ...existingJob,
@@ -219,7 +231,7 @@ export async function getUserJobs(
   try {
     const response = await dynamoClient.send(
       new QueryCommand({
-        TableName: DOCUMENT_JOBS_TABLE,
+        TableName: getDocumentJobsTable(),
         IndexName: 'UserIdIndex',
         KeyConditionExpression: 'userId = :userId',
         ExpressionAttributeValues: marshall({
@@ -270,7 +282,7 @@ export async function getJobsByStatus(
   try {
     const response = await dynamoClient.send(
       new QueryCommand({
-        TableName: DOCUMENT_JOBS_TABLE,
+        TableName: getDocumentJobsTable(),
         IndexName: 'StatusIndex',
         KeyConditionExpression: 'status = :status',
         ExpressionAttributeValues: marshall({
