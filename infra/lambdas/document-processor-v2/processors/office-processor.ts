@@ -6,10 +6,38 @@ import {
 } from './factory';
 import * as mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
-import { marked } from 'marked';
 import JSZip from 'jszip';
 import { parseString } from 'xml2js';
 import { createLambdaLogger } from '../utils/lambda-logger';
+
+/**
+ * Securely removes HTML tags to prevent injection attacks
+ * This function handles malformed HTML and prevents bypassing attempts
+ */
+function sanitizeHTML(html: string): string {
+  // First pass: handle common HTML entities
+  let sanitized = html
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'");
+    
+  // Iteratively remove HTML tags until none remain
+  // This prevents bypassing through nested or malformed tags
+  let previousLength = 0;
+  while (sanitized.length !== previousLength && /<[^>]*>/g.test(sanitized)) {
+    previousLength = sanitized.length;
+    sanitized = sanitized.replace(/<[^>]*>/g, '');
+  }
+  
+  // Final cleanup for any remaining angle brackets that might form tags
+  sanitized = sanitized
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+    
+  return sanitized;
+}
 
 export class OfficeProcessor implements DocumentProcessor {
   constructor(
@@ -313,10 +341,11 @@ export class OfficeProcessor implements DocumentProcessor {
           .replace(/<em[^>]*>/g, '*')
           .replace(/<\/em>/g, '*')
           .replace(/<br[^>]*>/g, '\n')
-          .replace(/<[^>]+>/g, '') // Remove remaining HTML tags
           .replace(/\n{3,}/g, '\n\n'); // Clean up excessive newlines
         
-        return markdown.trim();
+        // Apply secure HTML sanitization to prevent injection attacks
+        const sanitizedMarkdown = sanitizeHTML(markdown);
+        return sanitizedMarkdown.trim();
       } catch (error) {
         const logger = createLambdaLogger({ operation: 'OfficeProcessor.convertDocxToMarkdown' });
         logger.warn('Failed to convert HTML to markdown, falling back to plain text', { error });

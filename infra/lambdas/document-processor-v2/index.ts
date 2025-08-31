@@ -2,7 +2,6 @@ import { SQSEvent, Context } from 'aws-lambda';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient, PutItemCommand, GetItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
-import { TextractClient, StartDocumentTextDetectionCommand, GetDocumentTextDetectionCommand } from '@aws-sdk/client-textract';
 import { Readable } from 'stream';
 import { DocumentProcessorFactory } from './processors/factory';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
@@ -11,7 +10,6 @@ import { createLambdaLogger } from './utils/lambda-logger';
 const s3Client = new S3Client({});
 const dynamoClient = new DynamoDBClient({});
 const sqsClient = new SQSClient({});
-const textractClient = new TextractClient({});
 
 // Environment variables
 const DOCUMENTS_BUCKET = process.env.DOCUMENTS_BUCKET_NAME!;
@@ -95,25 +93,6 @@ async function updateJobStatus(
   } catch (error) {
     logger.error('Failed to update job status', error, { jobId, status });
     throw error;
-  }
-}
-
-// Get latest job status
-async function getJobStatus(jobId: string): Promise<Record<string, any> | null> {
-  const logger = createLambdaLogger({ operation: 'getJobStatus', jobId });
-  try {
-    // This is a simplified version - in practice you'd query for the latest timestamp
-    const response = await dynamoClient.send(
-      new GetItemCommand({
-        TableName: DOCUMENT_JOBS_TABLE,
-        Key: marshall({ jobId, timestamp: 0 }), // This would need proper querying
-      })
-    );
-    
-    return response.Item ? unmarshall(response.Item) : null;
-  } catch (error) {
-    logger.error('Failed to get job status', error, { jobId });
-    return null;
   }
 }
 
@@ -339,22 +318,13 @@ function extractProcessingContexts(event: SQSEvent): ProcessingContext[] {
         // Direct processing message
         contexts.push(message as ProcessingContext);
       } else if (message.Records && message.Records[0]?.s3) {
-        // S3 event notification
-        const s3Record = message.Records[0].s3;
-        const bucket = s3Record.bucket.name;
-        const key = decodeURIComponent(s3Record.object.key.replace(/\+/g, ' '));
-        
-        // Extract job ID from S3 key pattern: v2/uploads/{jobId}/{fileName}
-        const keyParts = key.split('/');
-        if (keyParts.length >= 4 && keyParts[0] === 'v2' && keyParts[1] === 'uploads') {
-          const jobId = keyParts[2];
-          const fileName = keyParts.slice(3).join('/');
-          
-          // This would need additional logic to get full context from DynamoDB
-          // For now, we'll skip S3-triggered processing in favor of direct SQS messages
-          const logger = createLambdaLogger({ operation: 'extractProcessingContexts' });
-          logger.info('Received S3 event but skipping in favor of direct processing', { key });
-        }
+        // S3 event notification - currently not implemented
+        // For now, we'll skip S3-triggered processing in favor of direct SQS messages
+        const logger = createLambdaLogger({ operation: 'extractProcessingContexts' });
+        logger.info('Received S3 event but skipping in favor of direct processing', { 
+          eventType: 'S3', 
+          objectKey: message.Records[0].s3.object.key 
+        });
       }
     } catch (parseError) {
       const logger = createLambdaLogger({ operation: 'extractProcessingContexts' });

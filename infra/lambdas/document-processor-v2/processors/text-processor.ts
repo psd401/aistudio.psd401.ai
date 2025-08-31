@@ -8,6 +8,35 @@ import { parse as csvParse } from 'csv-parse/sync';
 import { marked } from 'marked';
 import { createLambdaLogger } from '../utils/lambda-logger';
 
+/**
+ * Securely removes HTML tags to prevent injection attacks
+ * This function handles malformed HTML and prevents bypassing attempts
+ */
+function sanitizeHTML(html: string): string {
+  // First pass: handle common HTML entities
+  let sanitized = html
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'");
+    
+  // Iteratively remove HTML tags until none remain
+  // This prevents bypassing through nested or malformed tags
+  let previousLength = 0;
+  while (sanitized.length !== previousLength && /<[^>]*>/g.test(sanitized)) {
+    previousLength = sanitized.length;
+    sanitized = sanitized.replace(/<[^>]*>/g, '');
+  }
+  
+  // Final cleanup for any remaining angle brackets that might form tags
+  sanitized = sanitized
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+    
+  return sanitized;
+}
+
 export class TextProcessor implements DocumentProcessor {
   constructor(private config: ProcessorConfig) {}
 
@@ -156,7 +185,7 @@ export class TextProcessor implements DocumentProcessor {
     try {
       // Convert markdown to plain text for text field
       const html = await marked.parse(content);
-      const plainText = html.replace(/<[^>]*>/g, '').trim();
+      const plainText = sanitizeHTML(html).trim();
       
       return {
         text: plainText,
@@ -319,7 +348,11 @@ export class TextProcessor implements DocumentProcessor {
     markdown += '| ' + headers.map(() => '---').join(' | ') + ' |\n';
     
     displayRecords.forEach((record: any) => {
-      const row = headers.map(header => String(record[header] || '').replace(/\|/g, '\\|'));
+      const row = headers.map(header => {
+        const cellValue = String(record[header] || '');
+        // Properly escape both backslashes and pipe characters for markdown table
+        return cellValue.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
+      });
       markdown += '| ' + row.join(' | ') + ' |\n';
     });
     
