@@ -10,12 +10,25 @@ import { createLogger } from "@/lib/client-logger";
 
 const log = createLogger({ moduleName: 'enhanced-attachment-adapters' });
 
+export interface AttachmentProcessingCallbacks {
+  onProcessingStart?: (attachmentId: string) => void;
+  onProcessingComplete?: (attachmentId: string) => void;
+}
+
 /**
  * Document Adapter that processes all supported document formats
  * through server-side processing for consistent extraction quality
  */
 export class HybridDocumentAdapter implements AttachmentAdapter {
   accept = "application/pdf,.docx,.xlsx,.pptx,.doc,.xls,.ppt,.txt,.md,.csv,.json,.xml,.yaml,.yml";
+  
+  private processedCache = new Map<string, CompleteAttachment>();
+  private processingPromises = new Map<string, Promise<CompleteAttachment>>();
+  private callbacks?: AttachmentProcessingCallbacks;
+
+  constructor(callbacks?: AttachmentProcessingCallbacks) {
+    this.callbacks = callbacks;
+  }
 
   async add({ file }: { file: File }): Promise<PendingAttachment> {
     // Validate file size (500MB max for server processing)
@@ -30,7 +43,7 @@ export class HybridDocumentAdapter implements AttachmentAdapter {
       throw new Error(`Invalid file format`);
     }
 
-    return {
+    const attachment: PendingAttachment = {
       id: crypto.randomUUID(),
       type: "document",
       name: this.sanitizeFileName(file.name),
@@ -42,11 +55,58 @@ export class HybridDocumentAdapter implements AttachmentAdapter {
         progress: 0
       },
     };
+
+    // Start background processing immediately
+    if (this.callbacks?.onProcessingStart) {
+      this.callbacks.onProcessingStart(attachment.id);
+      
+      // Start processing in background and cache the result
+      const processingPromise = this.processServerSide(attachment)
+        .then(result => {
+          this.processedCache.set(attachment.id, result);
+          this.processingPromises.delete(attachment.id);
+          if (this.callbacks?.onProcessingComplete) {
+            this.callbacks.onProcessingComplete(attachment.id);
+          }
+          log.info('Background processing completed', { attachmentId: attachment.id, fileName: attachment.name });
+          return result;
+        })
+        .catch(error => {
+          this.processingPromises.delete(attachment.id);
+          if (this.callbacks?.onProcessingComplete) {
+            this.callbacks.onProcessingComplete(attachment.id);
+          }
+          log.error('Background processing failed', { attachmentId: attachment.id, fileName: attachment.name, error });
+          throw error;
+        });
+
+      this.processingPromises.set(attachment.id, processingPromise);
+      log.info('Started background processing', { attachmentId: attachment.id, fileName: attachment.name });
+    }
+
+    return attachment;
   }
 
   async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
-    // All documents now go through server-side processing
-    // This ensures consistent extraction quality and handling for all file types
+    // Check if we have a cached result from background processing
+    const cached = this.processedCache.get(attachment.id);
+    if (cached) {
+      this.processedCache.delete(attachment.id);
+      log.info('Using cached processing result', { attachmentId: attachment.id, fileName: attachment.name });
+      return cached;
+    }
+
+    // Check if background processing is still in progress
+    const processingPromise = this.processingPromises.get(attachment.id);
+    if (processingPromise) {
+      log.info('Waiting for background processing to complete', { attachmentId: attachment.id, fileName: attachment.name });
+      const result = await processingPromise;
+      this.processedCache.delete(attachment.id); // Clean up cache after use
+      return result;
+    }
+
+    // Fallback: Process normally if no background processing was initiated
+    log.info('Processing attachment synchronously (fallback)', { attachmentId: attachment.id, fileName: attachment.name });
     return this.processServerSide(attachment);
   }
 
@@ -398,6 +458,12 @@ This might be because:
  */
 export class VisionImageAdapter implements AttachmentAdapter {
   accept = "image/jpeg,image/png,image/webp,image/gif";
+  
+  private callbacks?: AttachmentProcessingCallbacks;
+
+  constructor(callbacks?: AttachmentProcessingCallbacks) {
+    this.callbacks = callbacks;
+  }
 
   async add({ file }: { file: File }): Promise<PendingAttachment> {
     log.info('VisionImageAdapter.add() called', {
@@ -518,11 +584,11 @@ export class VisionImageAdapter implements AttachmentAdapter {
  * - Hybrid document adapter (client/server processing)
  * - Simple text adapter
  */
-export function createEnhancedNexusAttachmentAdapter() {
+export function createEnhancedNexusAttachmentAdapter(callbacks?: AttachmentProcessingCallbacks) {
   return new CompositeAttachmentAdapter([
-    new VisionImageAdapter(),           // For vision-capable models
+    new VisionImageAdapter(callbacks),           // For vision-capable models
     new SimpleImageAttachmentAdapter(), // For display-only images (RESTORED)
-    new HybridDocumentAdapter(),        // Smart document processing (client/server)
+    new HybridDocumentAdapter(callbacks),        // Smart document processing (client/server)
     new SimpleTextAttachmentAdapter(),  // Text files
   ]);
 }

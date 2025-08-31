@@ -34,6 +34,9 @@ export default function NexusPage() {
   const [enabledTools, setEnabledTools] = useState<string[]>([])
   const enabledToolsRef = useRef(enabledTools)
   
+  // Attachment processing state
+  const [processingAttachments, setProcessingAttachments] = useState<Set<string>>(new Set())
+  
   // Keep ref in sync with state
   useEffect(() => {
     enabledToolsRef.current = enabledTools
@@ -58,6 +61,21 @@ export default function NexusPage() {
   // Memoized callback for tool changes to prevent unnecessary re-renders
   const onToolsChange = useCallback((tools: string[]) => {
     setEnabledTools(tools);
+  }, [])
+
+  // Attachment processing callbacks
+  const handleAttachmentProcessingStart = useCallback((attachmentId: string) => {
+    setProcessingAttachments(prev => new Set([...prev, attachmentId]))
+    log.debug('Attachment processing started', { attachmentId })
+  }, [])
+
+  const handleAttachmentProcessingComplete = useCallback((attachmentId: string) => {
+    setProcessingAttachments(prev => {
+      const next = new Set(prev)
+      next.delete(attachmentId)
+      return next
+    })
+    log.debug('Attachment processing completed', { attachmentId })
   }, [])
   
   // Authentication verification for defense in depth
@@ -98,12 +116,20 @@ export default function NexusPage() {
     }
   }), [])
 
+  // Create attachment adapter with processing callbacks
+  const attachmentAdapter = useMemo(() => {
+    return createEnhancedNexusAttachmentAdapter({
+      onProcessingStart: handleAttachmentProcessingStart,
+      onProcessingComplete: handleAttachmentProcessingComplete,
+    })
+  }, [handleAttachmentProcessingStart, handleAttachmentProcessingComplete])
+
   // Use LocalRuntime with our custom polling adapter
   const runtime = useLocalRuntime(
     pollingAdapter || fallbackAdapter,
     {
       adapters: {
-        attachments: createEnhancedNexusAttachmentAdapter(),
+        attachments: attachmentAdapter,
       }
     }
   )
@@ -146,7 +172,7 @@ export default function NexusPage() {
               <CodeInterpreterUI />
               
               <div className="flex h-full flex-col">
-                <Thread />
+                <Thread processingAttachments={processingAttachments} />
               </div>
               <ConversationPanel />
             </AssistantRuntimeProvider>
