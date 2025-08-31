@@ -81,7 +81,8 @@ export default function NexusPage() {
         modelId: selectedModel.modelId,
         provider: selectedModel.provider,
         enabledTools: enabledToolsRef.current
-      })
+      }),
+      pollTimeoutMs: 120000 // 2 minutes per poll - allows for longer document processing
     });
   }, [selectedModel]);
 

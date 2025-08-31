@@ -125,6 +125,7 @@
     "@types/react": "^19.1.11",
     "@types/react-dom": "^19.1.7",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "@types/xml2js": "^0.4.14",
     "autoprefixer": "^10.4.19",
     "babel-loader": "^10.0.0",
     "copy-webpack-plugin": "^13.0.1",

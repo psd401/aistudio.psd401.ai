@@ -7,6 +7,8 @@ import {
 import * as mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import { marked } from 'marked';
+import JSZip from 'jszip';
+import { parseString } from 'xml2js';
 
 export class OfficeProcessor implements DocumentProcessor {
   constructor(
@@ -138,43 +140,125 @@ export class OfficeProcessor implements DocumentProcessor {
   }
 
   private async processPptx(buffer: Buffer): Promise<any> {
-    console.log('Processing PPTX document');
+    console.log('Processing PPTX document using custom JSZip parser');
     
-    // For PPTX, we'll need to use a specialized library or fallback to basic extraction
-    // This is a simplified implementation - in production you might use libraries like:
-    // - pptx2json
-    // - officegen
-    // - mammoth (which doesn't support PPTX)
-    
-    // For now, we'll attempt to extract using a basic approach
     try {
-      // Convert buffer to string and look for text patterns
-      const content = buffer.toString('utf-8');
+      // Load PPTX as ZIP archive
+      const zip = new JSZip();
+      const zipData = await zip.loadAsync(buffer);
       
-      // This is a very basic extraction - proper PPTX parsing would require specialized libraries
-      const textMatches = content.match(/[A-Za-z0-9\s.,!?;:'"()-]{10,}/g) || [];
-      const extractedText = textMatches
-        .filter(match => match.trim().length > 10)
-        .join('\n')
-        .replace(/\s+/g, ' ')
-        .trim();
+      // Extract text from all slides
+      const slides: any[] = [];
+      let slideIndex = 1;
+      let combinedText = '';
       
-      if (!extractedText) {
-        throw new Error('No readable text found in PPTX - file might be corrupted or empty');
+      // Process slides sequentially
+      while (true) {
+        const slideFile = zipData.file(`ppt/slides/slide${slideIndex}.xml`);
+        if (!slideFile) break;
+        
+        const slideXml = await slideFile.async('text');
+        const slideText = await this.extractTextFromSlideXml(slideXml, slideIndex);
+        
+        if (slideText && slideText.length > 0) {
+          slides.push({
+            id: slideIndex,
+            text: slideText
+          });
+          combinedText += `\n\n## Slide ${slideIndex}\n\n${slideText.join('\n')}`;
+        }
+        
+        slideIndex++;
+      }
+      
+      if (slides.length === 0) {
+        throw new Error('No slides found in PPTX - file might be corrupted or empty');
+      }
+      
+      const cleanedText = combinedText.trim();
+      
+      if (!cleanedText) {
+        throw new Error('No readable text found in PPTX slides');
       }
       
       return {
-        text: extractedText,
+        text: cleanedText,
+        slides: slides, // Keep structured slide data
         metadata: {
-          extractionMethod: 'basic-text-extraction',
-          warning: 'PPTX processing uses basic text extraction - consider upgrading to specialized library',
-          estimatedSlides: Math.max(1, Math.floor(extractedText.length / 500)),
+          extractionMethod: 'custom-jszip-pptx',
+          characterCount: cleanedText.length,
+          slideCount: slides.length,
+          slidesWithContent: slides.length
         }
       };
     } catch (error) {
       console.error('PPTX processing failed:', error);
       throw new Error(`Failed to process PPTX: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  /**
+   * Extract text from a single slide's XML content
+   */
+  private async extractTextFromSlideXml(slideXml: string, slideNumber: number): Promise<string[]> {
+    return new Promise((resolve) => {
+      parseString(slideXml, { explicitArray: false, ignoreAttrs: true }, (err: any, result: any) => {
+        if (err) {
+          console.warn(`Error parsing slide ${slideNumber} XML:`, err);
+          resolve([]);
+          return;
+        }
+
+        const textBlocks: string[] = [];
+        
+        try {
+          // Navigate through the PPTX XML structure to find text elements
+          // Structure: p:sld -> p:cSld -> p:spTree -> p:sp -> p:txBody -> a:p -> a:r -> a:t
+          const slide = result['p:sld'];
+          if (slide && slide['p:cSld'] && slide['p:cSld']['p:spTree']) {
+            const shapes = slide['p:cSld']['p:spTree']['p:sp'];
+            const shapesArray = Array.isArray(shapes) ? shapes : [shapes];
+            
+            for (const shape of shapesArray) {
+              if (shape && shape['p:txBody'] && shape['p:txBody']['a:p']) {
+                const paragraphs = Array.isArray(shape['p:txBody']['a:p']) ? 
+                  shape['p:txBody']['a:p'] : [shape['p:txBody']['a:p']];
+                
+                for (const paragraph of paragraphs) {
+                  if (paragraph && paragraph['a:r']) {
+                    const runs = Array.isArray(paragraph['a:r']) ? 
+                      paragraph['a:r'] : [paragraph['a:r']];
+                    
+                    let paragraphText = '';
+                    for (const run of runs) {
+                      if (run && run['a:t']) {
+                        paragraphText += run['a:t'];
+                      }
+                    }
+                    
+                    if (paragraphText.trim()) {
+                      textBlocks.push(paragraphText.trim());
+                    }
+                  }
+                  
+                  // Handle direct text in paragraphs (without runs)
+                  if (paragraph && paragraph['a:t']) {
+                    const directText = paragraph['a:t'];
+                    if (directText && directText.trim()) {
+                      textBlocks.push(directText.trim());
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (parseError) {
+          console.warn(`Error extracting text from slide ${slideNumber}:`, parseError);
+        }
+        
+        resolve(textBlocks);
+      });
+    });
   }
 
   private async convertToMarkdown(extractedContent: any, docType: string): Promise<string> {
@@ -257,16 +341,49 @@ export class OfficeProcessor implements DocumentProcessor {
   }
 
   private convertPptxToMarkdown(content: any): string {
-    const text = content.text;
+    let markdown = '# PowerPoint Presentation\n\n';
     
-    // Basic slide-like structure
-    const slides = text.split(/\n{2,}/).filter((slide: string) => slide.trim().length > 0);
+    // Use structured slide data from node-pptx-parser if available
+    if (content.slides && Array.isArray(content.slides)) {
+      content.slides.forEach((slide: any, index: number) => {
+        if (slide.text && slide.text.length > 0) {
+          markdown += `## Slide ${index + 1}\n\n`;
+          
+          // Join slide text with proper formatting
+          const slideContent = slide.text.join('\n').trim();
+          if (slideContent) {
+            markdown += `${slideContent}\n\n`;
+          }
+        }
+      });
+    } else {
+      // Fallback to text-based parsing if structured data not available
+      const text = content.text;
+      const sections = text.split(/## Slide \d+/).filter((section: string) => section.trim().length > 0);
+      
+      sections.forEach((section: string, index: number) => {
+        const trimmedSection = section.trim();
+        if (trimmedSection) {
+          if (index === 0 && !text.includes('## Slide')) {
+            markdown += `## Slide 1\n\n${trimmedSection}\n\n`;
+          } else if (index > 0) {
+            markdown += `## Slide ${index + 1}\n\n${trimmedSection}\n\n`;
+          } else {
+            markdown += `${trimmedSection}\n\n`;
+          }
+        }
+      });
+    }
     
-    let markdown = '# Presentation Content\n\n';
-    
-    slides.forEach((slide: string, index: number) => {
-      markdown += `## Slide ${index + 1}\n\n${slide.trim()}\n\n`;
-    });
+    // Add metadata
+    markdown += '\n---\n';
+    if (content.metadata?.slideCount) {
+      markdown += `**Total Slides:** ${content.metadata.slideCount}\n`;
+    }
+    if (content.metadata?.slidesWithContent) {
+      markdown += `**Slides with Content:** ${content.metadata.slidesWithContent}\n`;
+    }
+    markdown += `**Extraction Method:** ${content.metadata?.extractionMethod || 'custom-jszip-pptx'}\n`;
     
     return markdown;
   }

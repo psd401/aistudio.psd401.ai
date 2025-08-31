@@ -247,7 +247,7 @@ async function processDocument(context: ProcessingContext): Promise<void> {
       convertToMarkdown: processingOptions.convertToMarkdown,
       extractImages: processingOptions.extractImages,
       generateEmbeddings: processingOptions.generateEmbeddings,
-    });
+    }, buffer, fileName);
     
     // Process document with progress callbacks
     const result = await processor.process({

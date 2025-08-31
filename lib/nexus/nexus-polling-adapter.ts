@@ -194,6 +194,8 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
             const pollController = new AbortController()
             const pollTimeout = setTimeout(() => pollController.abort(), pollTimeoutMs)
 
+            // Don't use the main abortSignal for individual polls to prevent React strict mode issues
+            // Each poll has its own timeout via pollController
             const pollResponse = await fetch(`${apiUrl}/jobs/${jobId}`, {
               method: 'GET',
               headers: {

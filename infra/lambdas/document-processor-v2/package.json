@@ -19,7 +19,8 @@
     "mammoth": "^1.6.0",
     "xlsx": "^0.18.5",
     "csv-parse": "^5.4.0",
-    "marked": "^9.0.0"
+    "marked": "^9.0.0",
+    "jszip": "^3.10.1"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.119",
