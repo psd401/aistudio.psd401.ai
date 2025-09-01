@@ -239,7 +239,7 @@ export class ProcessingStack extends cdk.Stack {
 
     // Grant permissions
     documentsBucket.grantRead(fileProcessor);
-    documentsBucket.grantWrite(this.streamingJobsWorker);
+    documentsBucket.grantReadWrite(this.streamingJobsWorker);
     this.jobStatusTable.grantReadWriteData(fileProcessor);
     this.jobStatusTable.grantReadWriteData(urlProcessor);
     this.embeddingQueue.grantSendMessages(fileProcessor);

@@ -32,7 +32,11 @@ import {
   UserMessageAttachments,
 } from "@/components/assistant-ui/attachment";
 
-export const Thread: FC = () => {
+interface ThreadProps {
+  processingAttachments?: Set<string>;
+}
+
+export const Thread: FC<ThreadProps> = ({ processingAttachments }) => {
   return (
     <ThreadPrimitive.Root
       className="bg-white flex h-full flex-col"
@@ -57,7 +61,7 @@ export const Thread: FC = () => {
         </ThreadPrimitive.If>
       </ThreadPrimitive.Viewport>
 
-      <Composer />
+      <Composer processingAttachments={processingAttachments} />
     </ThreadPrimitive.Root>
   );
 };
@@ -180,7 +184,11 @@ const ThreadWelcomeSuggestions: FC = () => {
   );
 };
 
-const Composer: FC = () => {
+interface ComposerProps {
+  processingAttachments?: Set<string>;
+}
+
+const Composer: FC<ComposerProps> = ({ processingAttachments }) => {
   return (
     <div className="bg-white relative mx-auto flex w-full max-w-[var(--thread-max-width)] flex-col gap-4 px-[var(--thread-padding-x)] pb-4 md:pb-6">
       <ThreadScrollToBottom />
@@ -188,7 +196,7 @@ const Composer: FC = () => {
         <ThreadWelcomeSuggestions />
       </ThreadPrimitive.Empty>
       <ComposerPrimitive.Root className="relative flex w-full flex-col rounded-2xl focus-within:ring-2 focus-within:ring-black focus-within:ring-offset-2 dark:focus-within:ring-white">
-        <ComposerAttachments />
+        <ComposerAttachments processingAttachments={processingAttachments} />
         <ComposerPrimitive.Input
           placeholder="Send a message..."
           className="bg-muted border-border dark:border-muted-foreground/15 focus:outline-primary placeholder:text-muted-foreground max-h-[calc(50dvh)] min-h-16 w-full resize-none rounded-t-2xl border-x border-t px-4 pb-3 pt-2 text-base outline-none"
@@ -196,13 +204,19 @@ const Composer: FC = () => {
           autoFocus
           aria-label="Message input"
         />
-        <ComposerAction />
+        <ComposerAction processingAttachments={processingAttachments} />
       </ComposerPrimitive.Root>
     </div>
   );
 };
 
-const ComposerAction: FC = () => {
+interface ComposerActionProps {
+  processingAttachments?: Set<string>;
+}
+
+const ComposerAction: FC<ComposerActionProps> = ({ processingAttachments }) => {
+  const hasProcessingAttachments = processingAttachments && processingAttachments.size > 0;
+  
   return (
     <div className="bg-muted border-border dark:border-muted-foreground/15 relative flex items-center justify-between rounded-b-2xl border-x border-b p-2">
       <ComposerAddAttachment />
@@ -212,8 +226,14 @@ const ComposerAction: FC = () => {
           <Button
             type="submit"
             variant="default"
-            className="dark:border-muted-foreground/90 border-muted-foreground/60 hover:bg-primary/75 size-8 rounded-full border"
-            aria-label="Send message"
+            disabled={hasProcessingAttachments}
+            className={cn(
+              "size-8 rounded-full border",
+              "dark:border-muted-foreground/90 border-muted-foreground/60 hover:bg-primary/75",
+              hasProcessingAttachments && "opacity-50 cursor-not-allowed"
+            )}
+            aria-label={hasProcessingAttachments ? "Processing documents..." : "Send message"}
+            title={hasProcessingAttachments ? "Please wait for document processing to complete" : "Send message"}
           >
             <ArrowUpIcon className="size-5" />
           </Button>

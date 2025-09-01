@@ -28,11 +28,14 @@ export declare class UnifiedStreamingService {
         prompt: string;
         size?: string;
         style?: string;
-        options?: any;
+        options?: Record<string, unknown>;
         userId?: string;
         source?: string;
     }): Promise<{
-        image: any;
+        image: {
+            base64: string;
+            mediaType: string;
+        };
         metadata: {
             provider: string;
             model: string;

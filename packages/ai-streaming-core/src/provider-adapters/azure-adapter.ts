@@ -1,5 +1,5 @@
 import { createAzure } from '@ai-sdk/azure';
-import { BaseProviderAdapter } from './base-adapter';
+import { BaseProviderAdapter, type ProviderOptions, type ModelInstance, type ImageModelInstance } from './base-adapter';
 import { createLogger } from '../utils/logger';
 import type { ProviderCapabilities } from '../types';
 import type { SettingsManager } from '../utils/settings-manager';
@@ -19,7 +19,7 @@ export class AzureAdapter extends BaseProviderAdapter {
     this.settingsManager = settingsManager;
   }
   
-  async createModel(modelId: string, options?: any): Promise<any> {
+  async createModel(modelId: string, options?: ProviderOptions): Promise<ModelInstance> {
     const log = createLogger({ module: 'AzureAdapter' });
     log.info('Creating Azure model', { modelId, options });
     
@@ -55,8 +55,11 @@ export class AzureAdapter extends BaseProviderAdapter {
     }
   }
   
-  async createImageModel(modelId: string, options?: any): Promise<any> {
-    throw new Error('Image generation not supported by Azure provider in this implementation');
+  async createImageModel(modelId: string, options?: ProviderOptions): Promise<ImageModelInstance> {
+    // Parameters required by interface but not used since image generation is not supported
+    const log = createLogger({ module: 'AzureAdapter' });
+    log.debug('Image model creation attempted', { modelId, hasOptions: !!options });
+    throw new Error(`Image generation not supported by Azure provider for model ${modelId}`);
   }
   
   getCapabilities(modelId: string): ProviderCapabilities {
@@ -104,8 +107,11 @@ export class AzureAdapter extends BaseProviderAdapter {
     };
   }
   
-  getProviderOptions(modelId: string, options?: any): Record<string, any> {
-    // Azure doesn't have special provider options currently
+  getProviderOptions(modelId: string, options?: ProviderOptions): ProviderOptions {
+    // Azure OpenAI doesn't currently support special provider options like reasoning effort
+    // Log parameters for debugging but return empty options
+    const log = createLogger({ module: 'AzureAdapter' });
+    log.debug('Getting provider options', { modelId, hasOptions: !!options });
     return {};
   }
   

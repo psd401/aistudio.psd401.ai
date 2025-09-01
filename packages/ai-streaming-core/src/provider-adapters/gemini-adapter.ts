@@ -1,5 +1,5 @@
 import { google, createGoogleGenerativeAI } from '@ai-sdk/google';
-import { BaseProviderAdapter } from './base-adapter';
+import { BaseProviderAdapter, type ProviderOptions, type ModelInstance, type ImageModelInstance } from './base-adapter';
 import { createLogger } from '../utils/logger';
 import type { ProviderCapabilities } from '../types';
 import type { SettingsManager } from '../utils/settings-manager';
@@ -19,7 +19,7 @@ export class GeminiAdapter extends BaseProviderAdapter {
     this.settingsManager = settingsManager;
   }
   
-  async createModel(modelId: string, options?: any): Promise<any> {
+  async createModel(modelId: string, options?: ProviderOptions): Promise<ModelInstance> {
     const log = createLogger({ module: 'GeminiAdapter' });
     log.info('Creating Google model', { modelId, options });
     
@@ -51,7 +51,7 @@ export class GeminiAdapter extends BaseProviderAdapter {
     }
   }
   
-  async createImageModel(modelId: string, options?: any): Promise<any> {
+  async createImageModel(modelId: string, options?: ProviderOptions): Promise<ImageModelInstance> {
     const log = createLogger({ module: 'GeminiAdapter' });
     log.info('Creating Google image model', { modelId, options });
     
@@ -146,8 +146,11 @@ export class GeminiAdapter extends BaseProviderAdapter {
     return baseCapabilities;
   }
   
-  getProviderOptions(modelId: string, options?: any): Record<string, any> {
-    // Google models don't have special provider options currently
+  getProviderOptions(modelId: string, options?: ProviderOptions): ProviderOptions {
+    // Google models don't currently support special provider options like reasoning effort
+    // Log parameters for debugging but return empty options
+    const log = createLogger({ module: 'GeminiAdapter' });
+    log.debug('Getting provider options', { modelId, hasOptions: !!options });
     return {};
   }
   
