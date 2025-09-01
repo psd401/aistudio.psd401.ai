@@ -1,6 +1,6 @@
 import { SQSEvent, Context } from 'aws-lambda';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { DynamoDBClient, PutItemCommand, GetItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, PutItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { Readable } from 'stream';
 import { DocumentProcessorFactory } from './processors/factory';
@@ -98,7 +98,6 @@ async function updateJobStatus(
 
 // Store processing results
 async function storeResults(jobId: string, result: Record<string, any>): Promise<void> {
-  const logger = createLambdaLogger({ operation: 'storeResults', jobId });
   const resultSize = JSON.stringify(result).length;
   
   if (resultSize > 400 * 1024) { // 400KB limit for DynamoDB
