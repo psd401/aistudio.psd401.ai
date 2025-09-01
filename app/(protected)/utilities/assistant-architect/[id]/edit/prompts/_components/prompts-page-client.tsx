@@ -61,7 +61,7 @@ import {
   Separator,
   CreateLink
 } from "@mdxeditor/editor"
-import PdfUploadButton from "@/components/ui/pdf-upload-button"
+import DocumentUploadButton from "@/components/ui/document-upload-button"
 import { RepositoryBrowser } from "@/components/features/assistant-architect/repository-browser"
 const MDXEditor = dynamic(() => import("@mdxeditor/editor").then(mod => mod.MDXEditor), { ssr: false })
 
@@ -160,8 +160,8 @@ function KnowledgeSection({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>Direct Knowledge Input</Label>
-              <PdfUploadButton 
-                onMarkdown={(doc: string) => {
+              <DocumentUploadButton 
+                onContent={(doc: string) => {
                   const currentContext = systemContext || ""
                   const merged = (!currentContext || currentContext.trim() === "") ? doc : currentContext + "\n\n" + doc
                   setSystemContext(merged)
@@ -169,7 +169,7 @@ function KnowledgeSection({
                 }}
                 onError={err => {
                   if (err?.status === 413) {
-                    toast.error("File too large. Please upload a file smaller than 25MB.")
+                    toast.error("File too large. Please upload a file smaller than 50MB.")
                   } else {
                     toast.error("Upload failed: " + (err?.message || "Unknown error"))
                   }
