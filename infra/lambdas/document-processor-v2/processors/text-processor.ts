@@ -13,7 +13,7 @@ import { createLambdaLogger } from '../utils/lambda-logger';
  * This function handles malformed HTML and prevents bypassing attempts
  */
 function sanitizeHTML(html: string): string {
-  // Iteratively remove HTML tags until none remain
+  // First, iteratively remove HTML tags until none remain
   // This prevents bypassing through nested or malformed tags
   let sanitized = html;
   let previousLength = 0;
@@ -22,6 +22,15 @@ function sanitizeHTML(html: string): string {
     previousLength = sanitized.length;
     sanitized = sanitized.replace(/<[^>]*>/g, ' ');
   }
+  
+  // AFTER tags are removed, safely decode HTML entities (prevents security bypass)
+  sanitized = sanitized
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#39;/g, "'");
   
   // Clean up extra whitespace created by tag removal
   sanitized = sanitized

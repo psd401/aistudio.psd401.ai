@@ -23,14 +23,6 @@ const InitiateUploadSchema = z.object({
   
   if (!processingOptions) return; // No validation needed if no options provided
   
-  // OCR limits: Disable for files over 10MB to prevent Lambda timeouts
-  if (processingOptions.ocrEnabled && fileSize > 10 * 1024 * 1024) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['processingOptions', 'ocrEnabled'],
-      message: 'OCR processing is disabled for files over 10MB due to resource constraints'
-    });
-  }
   
   // Embedding generation limits: Disable for files over 50MB to prevent API quota exhaustion  
   if (processingOptions.generateEmbeddings && fileSize > 50 * 1024 * 1024) {
@@ -58,14 +50,6 @@ const InitiateUploadSchema = z.object({
     }
   }
   
-  // Markdown conversion combined with OCR for large files
-  if (processingOptions.convertToMarkdown && processingOptions.ocrEnabled && fileSize > 5 * 1024 * 1024) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['processingOptions'],
-      message: 'Markdown conversion with OCR is disabled for files over 5MB to prevent processing timeouts'
-    });
-  }
   
   // Multiple expensive operations on large files
   const expensiveOpsCount = [
