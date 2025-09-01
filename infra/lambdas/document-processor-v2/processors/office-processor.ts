@@ -27,12 +27,12 @@ function sanitizeHTML(html: string): string {
   
   // AFTER tags are removed, safely decode HTML entities (prevents security bypass)
   sanitized = sanitized
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#x27;/g, "'")
-    .replace(/&#39;/g, "'");
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&');
   
   // Clean up extra whitespace created by tag removal
   sanitized = sanitized
