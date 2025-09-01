@@ -47,14 +47,14 @@ export default function DocumentUploadButton({
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
   const [processingStatus, setProcessingStatus] = useState<string>("")
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const pollingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Clean up polling on unmount
   useEffect(() => {
     return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current)
-        pollingIntervalRef.current = null
+      if (pollingTimeoutRef.current) {
+        clearTimeout(pollingTimeoutRef.current)
+        pollingTimeoutRef.current = null
       }
     }
   }, [])
@@ -83,10 +83,10 @@ export default function DocumentUploadButton({
         const job = await response.json();
         
         if (job.status === 'completed') {
-          // Stop polling
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current)
-            pollingIntervalRef.current = null
+          // Stop polling - clear the timeout ref
+          if (pollingTimeoutRef.current) {
+            clearTimeout(pollingTimeoutRef.current)
+            pollingTimeoutRef.current = null
           }
           
           // Process the result - match nexus adapter pattern
@@ -111,13 +111,14 @@ export default function DocumentUploadButton({
           setProcessingStatus("")
           
         } else if (job.status === 'failed') {
-          // Stop polling
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current)
-            pollingIntervalRef.current = null
+          // Stop polling - clear the timeout ref
+          if (pollingTimeoutRef.current) {
+            clearTimeout(pollingTimeoutRef.current)
+            pollingTimeoutRef.current = null
           }
           
-          throw new Error(job.error || job.errorMessage || 'Document processing failed')
+          const errorMessage = job.error || job.errorMessage || 'Document processing failed'
+          throw new Error(errorMessage)
         } else if (job.status === 'processing') {
           // Show progress if available
           if (job.progress && job.processingStage) {
@@ -125,28 +126,48 @@ export default function DocumentUploadButton({
           } else {
             setProcessingStatus("Processing document...");
           }
-          // Continue polling
-          setTimeout(poll, Math.min(pollInterval * 1.2, 5000)); // Max 5 seconds with backoff
-          pollInterval = Math.min(pollInterval * 1.2, 5000);
+          // Continue polling with exponential backoff and jitter
+          const nextInterval = Math.min(pollInterval * 1.2, 5000); // Max 5 seconds
+          const jitter = Math.random() * 0.2 + 0.9; // 90-110% of interval for jitter
+          const jitteredInterval = nextInterval * jitter;
+          
+          pollingTimeoutRef.current = setTimeout(poll, jitteredInterval);
+          pollInterval = nextInterval;
           attempts++;
         } else {
           // Unknown status, treat as still processing
           setProcessingStatus("Processing document...");
-          setTimeout(poll, pollInterval);
+          const jitter = Math.random() * 0.2 + 0.9; // Add jitter for unknown status too
+          pollingTimeoutRef.current = setTimeout(poll, pollInterval * jitter);
           attempts++;
         }
         
       } catch (error) {
-        // Stop polling
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current)
-          pollingIntervalRef.current = null
+        // Stop polling - clear the timeout ref
+        if (pollingTimeoutRef.current) {
+          clearTimeout(pollingTimeoutRef.current)
+          pollingTimeoutRef.current = null
         }
         
         const errorMessage = error instanceof Error ? error.message : "Failed to process document."
-        console.error('[DocumentUploadButton] Polling error:', error);
+        
+        // Enhanced error logging with context
+        console.error('[DocumentUploadButton] Polling error:', { 
+          error, 
+          jobId, 
+          fileName, 
+          attempts,
+          errorMessage
+        });
+        
         toast.error(errorMessage)
-        onError?.({ message: errorMessage })
+        
+        // Enhanced error reporting with status code if available
+        const status = error instanceof Error && error.message.includes('status:') 
+          ? parseInt(error.message.split('status:')[1]) 
+          : undefined;
+        onError?.({ message: errorMessage, status })
+        
         setUploadedFileName(null)
         setIsLoading(false)
         setProcessingStatus("")
@@ -237,6 +258,12 @@ export default function DocumentUploadButton({
       toast.error(errorMessage)
       onError?.({ message: errorMessage })
       return
+    }
+
+    // Cancel any existing polling before starting new upload
+    if (pollingTimeoutRef.current) {
+      clearTimeout(pollingTimeoutRef.current)
+      pollingTimeoutRef.current = null
     }
 
     setIsLoading(true)
