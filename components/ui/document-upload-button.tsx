@@ -4,7 +4,10 @@ import { useRef, useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Loader2, FileUp, CheckCircle } from "lucide-react"
 import { toast } from "sonner"
-import { createLogger, generateRequestId, sanitizeForLogging } from "@/lib/logger"
+// Client-side logging helper
+const logError = (message: string, data?: Record<string, unknown>) => {
+  console.error(`[DocumentUploadButton] ${message}`, data)
+}
 
 interface DocumentUploadButtonProps {
   onContent: (content: string) => void
@@ -50,9 +53,7 @@ export default function DocumentUploadButton({
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const pollingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   
-  // Create logger for proper error tracking
-  const requestId = generateRequestId()
-  const log = createLogger({ requestId, component: "DocumentUploadButton" })
+  // Client-side component - using console for error tracking
 
   // Clean up polling on unmount
   useEffect(() => {
@@ -156,14 +157,14 @@ export default function DocumentUploadButton({
         
         const errorMessage = error instanceof Error ? error.message : "Failed to process document."
         
-        // Enhanced error logging with context using proper logger
-        log.error('Polling error occurred', sanitizeForLogging({ 
+        // Enhanced error logging with context
+        logError('Polling error occurred', { 
           error: error instanceof Error ? error.message : String(error), 
           jobId, 
           fileName, 
           attempts,
           errorMessage
-        }));
+        });
         
         toast.error(errorMessage)
         
@@ -337,14 +338,14 @@ export default function DocumentUploadButton({
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to process document."
       
-      // Proper error logging using logger
-      log.error('Upload error occurred', sanitizeForLogging({
+      // Error logging for client-side debugging
+      logError('Upload error occurred', {
         error: err instanceof Error ? err.message : String(err),
         fileName: file.name,
         fileSize: file.size,
         fileType: file.type,
         errorMessage
-      }));
+      });
       
       toast.error(errorMessage)
       onError?.({ message: errorMessage })
