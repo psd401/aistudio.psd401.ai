@@ -6,30 +6,30 @@ export interface MessagePart {
     type: string;
     text?: string;
     image?: string;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 export interface AssistantUIMessage {
     id?: string;
     role: 'user' | 'assistant' | 'system';
     content?: string | MessagePart[];
     parts?: MessagePart[];
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
     createdAt?: string;
-    attachments?: any[];
+    attachments?: unknown[];
 }
 export interface CoreMessage {
     role: 'user' | 'assistant' | 'system';
     parts: MessagePart[];
-    [key: string]: any;
+    [key: string]: unknown;
 }
 /**
- * Convert assistant-ui messages to AI SDK CoreMessage format
+ * Pass messages through unchanged - let AI SDK convertToModelMessages handle the conversion
  */
-export declare function convertAssistantUIMessages(messages: AssistantUIMessage[]): CoreMessage[];
+export declare function convertAssistantUIMessages(messages: AssistantUIMessage[]): AssistantUIMessage[];
 /**
- * Normalize a single message to CoreMessage format with parts array
+ * Pass messages through unchanged - let AI SDK handle the conversion
  */
-export declare function normalizeMessage(msg: AssistantUIMessage): CoreMessage;
+export declare function normalizeMessage(msg: AssistantUIMessage): AssistantUIMessage;
 /**
  * Extract text content from a message
  */
@@ -41,11 +41,11 @@ export declare function hasAttachments(msg: AssistantUIMessage): boolean;
 /**
  * Validate message format
  */
-export declare function validateMessage(msg: any): string[];
+export declare function validateMessage(msg: unknown): string[];
 /**
  * Validate messages array
  */
-export declare function validateMessages(messages: any[]): {
+export declare function validateMessages(messages: unknown[]): {
     isValid: boolean;
     errors: string[];
 };

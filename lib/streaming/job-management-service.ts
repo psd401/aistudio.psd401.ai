@@ -5,6 +5,7 @@ import type { UIMessage } from 'ai';
 
 const log = createLogger({ module: 'job-management-service' });
 
+
 /**
  * Job status enum matching existing database schema
  * Maps to existing job_status enum: pending, running, completed, failed
@@ -122,7 +123,7 @@ export interface CreateJobRequest {
   conversationId: string | number; // Support both legacy (number) and nexus (UUID string)
   userId: number;
   modelId: number;
-  messages: UIMessage[];
+  messages: UIMessage[]; // Lightweight messages (attachments stored in S3)
   provider: string;
   modelIdString: string;
   systemPrompt?: string;
@@ -174,9 +175,9 @@ export class JobManagementService {
     });
 
     try {
-      // Prepare request data
+      // Prepare request data for database (lightweight messages only - NO attachments)
       const requestData = {
-        messages: request.messages,
+        messages: request.messages, // These should be lightweight messages (attachments already in S3)
         modelId: request.modelIdString,
         provider: request.provider,
         systemPrompt: request.systemPrompt,
@@ -186,32 +187,34 @@ export class JobManagementService {
         tools: request.tools
       };
 
-      const result = await executeSQL(`
+      // Generate job ID first
+      const pendingJobId = crypto.randomUUID();
+
+      await executeSQL(`
         INSERT INTO ai_streaming_jobs (
+          id,
           conversation_id,
           user_id,
           model_id,
           status,
           request_data
         ) VALUES (
+          :id::uuid,
           :conversation_id,
           :user_id,
           :model_id,
           'pending',
           :request_data::jsonb
-        ) RETURNING id
+        )
       `, [
+        { name: 'id', value: { stringValue: pendingJobId } },
         { name: 'conversation_id', value: { stringValue: conversationIdStr } },
         { name: 'user_id', value: { longValue: request.userId } },
         { name: 'model_id', value: { longValue: request.modelId } },
         { name: 'request_data', value: { stringValue: JSON.stringify(requestData) } }
       ]);
 
-      // Extract job ID from result
-      const jobId = result?.[0]?.id as string;
-      if (!jobId) {
-        throw new Error('Failed to create streaming job - no ID returned');
-      }
+      const jobId = pendingJobId;
 
       log.info('Streaming job created successfully', {
         jobId,
@@ -679,6 +682,7 @@ export class JobManagementService {
       return 1000; // Default fallback
     }
   }
+
 }
 
 // Singleton instance

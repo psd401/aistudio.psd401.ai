@@ -3,7 +3,7 @@
  */
 
 export interface StreamRequest {
-  messages: any[];
+  messages: unknown[];
   modelId: string;
   provider: string;
   userId: string;
@@ -21,7 +21,7 @@ export interface StreamRequest {
   };
   maxTokens?: number;
   temperature?: number;
-  tools?: Record<string, any>;
+  tools?: Record<string, unknown>;
   timeout?: number;
   telemetry?: {
     recordInputs?: boolean;
@@ -31,21 +31,21 @@ export interface StreamRequest {
 }
 
 export interface StreamResponse {
-  result: any;
+  result: Record<string, unknown>;
   requestId: string;
   capabilities: ProviderCapabilities;
-  telemetryConfig?: any;
+  telemetryConfig?: Record<string, unknown>;
 }
 
 export interface StreamConfig {
-  model: any;
-  messages: any[];
+  model: unknown;
+  messages: unknown[];
   system?: string;
   maxTokens?: number;
   temperature?: number;
-  tools?: Record<string, any>;
+  tools?: Record<string, unknown>;
   timeout?: number;
-  providerOptions?: Record<string, any>;
+  providerOptions?: Record<string, unknown>;
 }
 
 export interface StreamingCallbacks {
@@ -69,7 +69,7 @@ export interface StreamingCallbacks {
 export interface StreamingProgress {
   metadata?: {
     tokens?: number;
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 
@@ -87,8 +87,8 @@ export interface ProviderCapabilities {
 }
 
 export interface TelemetrySpan {
-  addEvent(name: string, attributes: Record<string, any>): void;
-  setAttributes(attributes: Record<string, any>): void;
+  addEvent(name: string, attributes: Record<string, unknown>): void;
+  setAttributes(attributes: Record<string, unknown>): void;
   setStatus(status: { code: number; message?: string }): void;
   recordException(error: Error): void;
   end(): void;
@@ -97,11 +97,11 @@ export interface TelemetrySpan {
 export interface TelemetryConfig {
   isEnabled: boolean;
   functionId?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   recordInputs?: boolean;
   recordOutputs?: boolean;
   tracer?: {
-    startSpan(name: string, options?: any): TelemetrySpan;
+    startSpan(name: string, options?: Record<string, unknown>): TelemetrySpan;
   };
 }
 

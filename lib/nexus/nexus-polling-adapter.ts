@@ -60,9 +60,18 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
 
   return {
     async *run({ messages, abortSignal }) {
-      log.debug('Starting Nexus chat request', { 
+      log.info('NEXUS POLLING ADAPTER - Starting chat request', { 
         messageCount: messages.length,
-        apiUrl
+        apiUrl,
+        rawMessages: messages,
+        messagesStructure: messages.map(msg => ({
+          role: msg.role,
+          hasContent: !!msg.content,
+          contentType: typeof msg.content,
+          contentLength: Array.isArray(msg.content) ? msg.content.length : 0,
+          contentTypes: Array.isArray(msg.content) ? msg.content.map(p => (p as { type?: string })?.type) : [],
+          fullContent: Array.isArray(msg.content) ? msg.content : msg.content
+        }))
       })
 
       let jobId: string | null = null
@@ -70,6 +79,66 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
       let pollAttempts = 0
 
       try {
+        // Convert ThreadMessages to AI SDK v5 UIMessages format
+        const processedMessages = messages.map(message => {
+          const parts = []
+          
+          // Process message content
+          if (Array.isArray(message.content)) {
+            message.content.forEach(contentPart => {
+              // Handle different content part types from assistant-ui
+              if (contentPart.type === 'text') {
+                parts.push({ type: 'text', text: contentPart.text })
+              } else if (contentPart.type === 'image') {
+                parts.push({ type: 'image', image: contentPart.image })
+              } else if (contentPart.type === 'file') {
+                parts.push({ type: 'file', url: contentPart.url, mediaType: contentPart.mediaType })
+              } else {
+                // Pass through other types
+                parts.push(contentPart)
+              }
+            })
+          } else if (typeof message.content === 'string') {
+            // Simple string content
+            parts.push({ type: 'text', text: message.content })
+          }
+          
+          // CRITICAL: Process attachments and merge their content into parts
+          const messageWithAttachments = message as { attachments?: Array<{ content?: Array<{ type: string; image?: string; url?: string; mediaType?: string }> }> }
+          if (Array.isArray(messageWithAttachments.attachments)) {
+            messageWithAttachments.attachments.forEach((attachment) => {
+              if (Array.isArray(attachment.content)) {
+                attachment.content.forEach((attachmentPart) => {
+                  if (attachmentPart.type === 'image' && attachmentPart.image) {
+                    parts.push({ type: 'image', image: attachmentPart.image })
+                  } else if (attachmentPart.type === 'file' && attachmentPart.url) {
+                    parts.push({ type: 'file', url: attachmentPart.url, mediaType: attachmentPart.mediaType })
+                  } else {
+                    // Pass through other attachment content
+                    parts.push(attachmentPart)
+                  }
+                })
+              }
+            })
+          }
+          
+          return {
+            id: message.id || crypto.randomUUID(),
+            role: message.role,
+            parts: parts.length > 0 ? parts : [{ type: 'text', text: '' }]
+          }
+        })
+
+        log.debug('Processed messages for API', {
+          originalCount: messages.length,
+          processedCount: processedMessages.length,
+          processedStructure: processedMessages.map(msg => ({
+            role: msg.role,
+            partsCount: msg.parts?.length || 0,
+            partsTypes: msg.parts?.map(p => p.type) || []
+          }))
+        })
+
         // 1. Submit chat request to get job ID
         const chatResponse = await fetch(apiUrl, {
           method: 'POST',
@@ -77,7 +146,7 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            messages,
+            messages: processedMessages,
             ...bodyFn()
           }),
           signal: abortSignal,
@@ -125,6 +194,8 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
             const pollController = new AbortController()
             const pollTimeout = setTimeout(() => pollController.abort(), pollTimeoutMs)
 
+            // Don't use the main abortSignal for individual polls to prevent React strict mode issues
+            // Each poll has its own timeout via pollController
             const pollResponse = await fetch(`${apiUrl}/jobs/${jobId}`, {
               method: 'GET',
               headers: {

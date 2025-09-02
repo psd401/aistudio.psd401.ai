@@ -1,4 +1,3 @@
-import { createLogger } from './logger';
 
 /**
  * Message conversion utilities for handling different message formats
@@ -9,7 +8,7 @@ export interface MessagePart {
   type: string;
   text?: string;
   image?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface AssistantUIMessage {
@@ -17,63 +16,30 @@ export interface AssistantUIMessage {
   role: 'user' | 'assistant' | 'system';
   content?: string | MessagePart[];
   parts?: MessagePart[];
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   createdAt?: string;
-  attachments?: any[];
+  attachments?: unknown[];
 }
 
 export interface CoreMessage {
   role: 'user' | 'assistant' | 'system';
   parts: MessagePart[];
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 /**
- * Convert assistant-ui messages to AI SDK CoreMessage format
+ * Pass messages through unchanged - let AI SDK convertToModelMessages handle the conversion
  */
-export function convertAssistantUIMessages(messages: AssistantUIMessage[]): CoreMessage[] {
+export function convertAssistantUIMessages(messages: AssistantUIMessage[]): AssistantUIMessage[] {
   return messages.map((msg) => normalizeMessage(msg));
 }
 
 /**
- * Normalize a single message to CoreMessage format with parts array
+ * Pass messages through unchanged - let AI SDK handle the conversion
  */
-export function normalizeMessage(msg: AssistantUIMessage): CoreMessage {
-  // If message already has parts array, use it
-  if (msg.parts && Array.isArray(msg.parts)) {
-    return {
-      role: msg.role,
-      parts: msg.parts,
-      ...(msg.metadata && { metadata: msg.metadata })
-    };
-  }
-  
-  // If message has content property with string, convert to parts
-  if ('content' in msg && typeof msg.content === 'string') {
-    return {
-      role: msg.role,
-      parts: [{ type: 'text', text: msg.content }],
-      ...(msg.metadata && { metadata: msg.metadata })
-    };
-  }
-  
-  // If message has content property with array (assistant-ui format), use as parts
-  if ('content' in msg && Array.isArray(msg.content)) {
-    return {
-      role: msg.role,
-      parts: msg.content,
-      ...(msg.metadata && { metadata: msg.metadata })
-    };
-  }
-  
-  // Fallback - create empty text part
-  const log = createLogger({ module: 'MessageConverter' });
-  log.warn('Message has no content or parts, creating empty text part', { msg });
-  return {
-    role: msg.role,
-    parts: [{ type: 'text', text: '' }],
-    ...(msg.metadata && { metadata: msg.metadata })
-  };
+export function normalizeMessage(msg: AssistantUIMessage): AssistantUIMessage {
+  // Return the message as-is and let convertToModelMessages handle proper conversion
+  return msg;
 }
 
 /**
@@ -129,23 +95,25 @@ export function hasAttachments(msg: AssistantUIMessage): boolean {
 /**
  * Validate message format
  */
-export function validateMessage(msg: any): string[] {
+export function validateMessage(msg: unknown): string[] {
   const errors: string[] = [];
   
-  if (!msg) {
-    errors.push('Message is null or undefined');
+  if (!msg || typeof msg !== 'object') {
+    errors.push('Message is null or undefined or not an object');
     return errors;
   }
   
-  if (!msg.role || !['user', 'assistant', 'system'].includes(msg.role)) {
-    errors.push(`Invalid role: ${msg.role}`);
+  const message = msg as Record<string, unknown>;
+  
+  if (!message.role || !['user', 'assistant', 'system'].includes(message.role as string)) {
+    errors.push(`Invalid role: ${message.role}`);
   }
   
-  const hasContent = msg.content && (
-    typeof msg.content === 'string' || 
-    Array.isArray(msg.content)
+  const hasContent = message.content && (
+    typeof message.content === 'string' || 
+    Array.isArray(message.content)
   );
-  const hasParts = msg.parts && Array.isArray(msg.parts);
+  const hasParts = message.parts && Array.isArray(message.parts);
   
   if (!hasContent && !hasParts) {
     errors.push('Message must have either content or parts');
@@ -157,7 +125,7 @@ export function validateMessage(msg: any): string[] {
 /**
  * Validate messages array
  */
-export function validateMessages(messages: any[]): { isValid: boolean; errors: string[] } {
+export function validateMessages(messages: unknown[]): { isValid: boolean; errors: string[] } {
   const errors: string[] = [];
   
   if (!Array.isArray(messages)) {

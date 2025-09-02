@@ -57,7 +57,7 @@ export class SettingsManager {
       keys.map(async (key) => {
         const value = await this.getSetting(key);
         if (value) {
-          (settings as any)[key] = value;
+          (settings as Record<string, unknown>)[key] = value;
         }
       })
     );

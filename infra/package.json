@@ -14,7 +14,6 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.11",
-    "@types/cheerio": "^1.0.0",
     "@types/jest": "^30.0.0",
     "@types/node": "24.3.0",
     "@types/pdf-parse": "^1.1.5",

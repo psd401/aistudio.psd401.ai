@@ -1,4 +1,4 @@
-import { BaseProviderAdapter } from './base-adapter';
+import { BaseProviderAdapter, type ProviderOptions, type ModelInstance, type ImageModelInstance } from './base-adapter';
 import type { ProviderCapabilities } from '../types';
 import type { SettingsManager } from '../utils/settings-manager';
 /**
@@ -12,9 +12,9 @@ export declare class OpenAIAdapter extends BaseProviderAdapter {
     providerName: string;
     private settingsManager?;
     constructor(settingsManager?: SettingsManager);
-    createModel(modelId: string, options?: any): Promise<any>;
-    createImageModel(modelId: string, options?: any): Promise<any>;
+    createModel(modelId: string, options?: ProviderOptions): Promise<ModelInstance>;
+    createImageModel(modelId: string, options?: ProviderOptions): Promise<ImageModelInstance>;
     getCapabilities(modelId: string): ProviderCapabilities;
-    getProviderOptions(modelId: string, options?: any): Record<string, any>;
+    getProviderOptions(modelId: string, options?: ProviderOptions): ProviderOptions;
     supportsModel(modelId: string): boolean;
 }

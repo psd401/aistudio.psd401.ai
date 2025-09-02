@@ -6,6 +6,7 @@ import { AuthStack } from '../lib/auth-stack';
 import { StorageStack } from '../lib/storage-stack';
 import { FrontendStack } from '../lib/frontend-stack';
 import { ProcessingStack } from '../lib/processing-stack';
+import { DocumentProcessingStack } from '../lib/document-processing-stack';
 import { MonitoringStack } from '../lib/monitoring-stack';
 import { SecretValue } from 'aws-cdk-lib';
 
@@ -92,6 +93,18 @@ const devProcessingStack = new ProcessingStack(app, 'AIStudio-ProcessingStack-De
 cdk.Tags.of(devProcessingStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devProcessingStack).add(key, value));
 
+const devDocumentProcessingStack = new DocumentProcessingStack(app, 'AIStudio-DocumentProcessingStack-Dev', {
+  environment: 'dev',
+  rdsClusterArn: devDbStack.databaseResourceArn,
+  rdsSecretArn: devDbStack.databaseSecretArn,
+  documentsBucketName: devStorageStack.documentsBucketName,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+devDocumentProcessingStack.addDependency(devDbStack);
+devDocumentProcessingStack.addDependency(devStorageStack);
+cdk.Tags.of(devDocumentProcessingStack).add('Environment', 'Dev');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devDocumentProcessingStack).add(key, value));
+
 // Prod environment
 const prodDbStack = new DatabaseStack(app, 'AIStudio-DatabaseStack-Prod', {
   environment: 'prod',
@@ -124,6 +137,18 @@ const prodProcessingStack = new ProcessingStack(app, 'AIStudio-ProcessingStack-P
 });
 cdk.Tags.of(prodProcessingStack).add('Environment', 'Prod');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodProcessingStack).add(key, value));
+
+const prodDocumentProcessingStack = new DocumentProcessingStack(app, 'AIStudio-DocumentProcessingStack-Prod', {
+  environment: 'prod',
+  rdsClusterArn: prodDbStack.databaseResourceArn,
+  rdsSecretArn: prodDbStack.databaseSecretArn,
+  documentsBucketName: prodStorageStack.documentsBucketName,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+prodDocumentProcessingStack.addDependency(prodDbStack);
+prodDocumentProcessingStack.addDependency(prodStorageStack);
+cdk.Tags.of(prodDocumentProcessingStack).add('Environment', 'Prod');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodDocumentProcessingStack).add(key, value));
 
 // Frontend stacks - created after all other stacks
 if (baseDomain) {

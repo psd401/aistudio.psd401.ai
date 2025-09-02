@@ -47,7 +47,10 @@ class AzureAdapter extends base_adapter_1.BaseProviderAdapter {
         }
     }
     async createImageModel(modelId, options) {
-        throw new Error('Image generation not supported by Azure provider in this implementation');
+        // Parameters required by interface but not used since image generation is not supported
+        const log = (0, logger_1.createLogger)({ module: 'AzureAdapter' });
+        log.debug('Image model creation attempted', { modelId, hasOptions: !!options });
+        throw new Error(`Image generation not supported by Azure provider for model ${modelId}`);
     }
     getCapabilities(modelId) {
         // GPT-4 models via Azure
@@ -91,7 +94,10 @@ class AzureAdapter extends base_adapter_1.BaseProviderAdapter {
         };
     }
     getProviderOptions(modelId, options) {
-        // Azure doesn't have special provider options currently
+        // Azure OpenAI doesn't currently support special provider options like reasoning effort
+        // Log parameters for debugging but return empty options
+        const log = (0, logger_1.createLogger)({ module: 'AzureAdapter' });
+        log.debug('Getting provider options', { modelId, hasOptions: !!options });
         return {};
     }
     supportsModel(modelId) {
