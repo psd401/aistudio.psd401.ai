@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth/server-session';
 import { confirmDocumentUpload, getJobStatus } from '@/lib/services/document-job-service';
 import { sendToProcessingQueue } from '@/lib/aws/lambda-trigger';
+import { sanitizeFileName } from '@/lib/aws/document-upload';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { z } from 'zod';
 
@@ -37,8 +38,9 @@ export async function POST(req: NextRequest) {
     // Confirm upload in job tracking
     await confirmDocumentUpload(jobId, uploadId);
     
-    // Generate S3 key based on job ID and filename (v2 prefix)
-    const s3Key = `v2/uploads/${jobId}/${job.fileName.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+    // Generate S3 key using the same sanitization as upload - ensure consistency
+    const sanitizedFileName = sanitizeFileName(job.fileName);
+    const s3Key = `v2/uploads/${jobId}/${sanitizedFileName}`;
     
     // Environment validation (skip in test environment)
     if (process.env.NODE_ENV !== 'test' && !process.env.DOCUMENTS_BUCKET_NAME) {
@@ -51,7 +53,7 @@ export async function POST(req: NextRequest) {
       jobId,
       bucket: process.env.DOCUMENTS_BUCKET_NAME || 'test-documents-bucket',
       key: s3Key,
-      fileName: job.fileName,
+      fileName: sanitizedFileName, // Use sanitized filename for consistency
       fileSize: job.fileSize,
       fileType: job.fileType,
       userId: session.sub,
