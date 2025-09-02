@@ -172,10 +172,8 @@ export class DocumentProcessingStack extends cdk.Stack {
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
               actions: [
-                'textract:StartDocumentTextDetection',
-                'textract:StartDocumentAnalysis',
-                'textract:GetDocumentTextDetection',
-                'textract:GetDocumentAnalysis',
+                'textract:DetectDocumentText',    // For sync text detection
+                'textract:AnalyzeDocument',       // For sync document analysis
               ],
               resources: ['*'],
             }),
@@ -270,42 +268,8 @@ export class DocumentProcessingStack extends cdk.Stack {
       })
     );
 
-    // S3 bucket notification to trigger processing
-    this.documentsBucket.addEventNotification(
-      s3.EventType.OBJECT_CREATED,
-      new s3n.SqsDestination(this.processingQueue),
-      {
-        prefix: 'uploads/',
-        suffix: '.pdf',
-      }
-    );
-
-    this.documentsBucket.addEventNotification(
-      s3.EventType.OBJECT_CREATED,
-      new s3n.SqsDestination(this.processingQueue),
-      {
-        prefix: 'uploads/',
-        suffix: '.docx',
-      }
-    );
-
-    this.documentsBucket.addEventNotification(
-      s3.EventType.OBJECT_CREATED,
-      new s3n.SqsDestination(this.processingQueue),
-      {
-        prefix: 'uploads/',
-        suffix: '.xlsx',
-      }
-    );
-
-    this.documentsBucket.addEventNotification(
-      s3.EventType.OBJECT_CREATED,
-      new s3n.SqsDestination(this.processingQueue),
-      {
-        prefix: 'uploads/',
-        suffix: '.pptx',
-      }
-    );
+    // Note: S3 event notifications removed - Documents v2 uses direct job processing
+    // via sendToProcessingQueue() instead of S3-triggered processing
 
     // CloudWatch Alarms for monitoring
     const processingErrors = this.standardProcessor.metricErrors({

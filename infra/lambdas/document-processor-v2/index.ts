@@ -317,10 +317,9 @@ function extractProcessingContexts(event: SQSEvent): ProcessingContext[] {
         // Direct processing message
         contexts.push(message as ProcessingContext);
       } else if (message.Records && message.Records[0]?.s3) {
-        // S3 event notification - currently not implemented
-        // For now, we'll skip S3-triggered processing in favor of direct SQS messages
+        // S3 event notification - skip since we use direct job processing
         const logger = createLambdaLogger({ operation: 'extractProcessingContexts' });
-        logger.info('Received S3 event but skipping in favor of direct processing', { 
+        logger.info('Received S3 event but skipping in favor of direct job processing', { 
           eventType: 'S3', 
           objectKey: message.Records[0].s3.object.key 
         });

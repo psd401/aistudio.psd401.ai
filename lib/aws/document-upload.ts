@@ -180,7 +180,7 @@ export async function abortMultipartUpload(
   }
 }
 
-function sanitizeFileName(fileName: string): string {
+export function sanitizeFileName(fileName: string): string {
   if (!fileName || typeof fileName !== 'string') {
     return 'unnamed_file';
   }
@@ -196,7 +196,7 @@ function sanitizeFileName(fileName: string): string {
     .replace(/^\.+|\.+$/g, '')        // Remove leading/trailing dots
     .replace(/_{2,}/g, '_')           // Collapse multiple underscores
     .replace(/^_+|_+$/g, '')          // Remove leading/trailing underscores
-    .substring(0, 100);               // Shorter limit for filename
+    .substring(0, 200);               // Allow longer filenames for academic papers
   
   // Sanitize extension
   const sanitizedExtension = extension
@@ -217,8 +217,8 @@ function sanitizeFileName(fileName: string): string {
   // Construct final filename
   const finalName = sanitizedExtension ? `${sanitizedName}.${sanitizedExtension}` : sanitizedName;
   
-  // Final length check
-  return finalName.substring(0, 100) || 'unnamed_file';
+  // Final length check - ensure S3 key limits are respected
+  return finalName.substring(0, 200) || 'unnamed_file';
 }
 
 function getContentType(fileName: string): string {
