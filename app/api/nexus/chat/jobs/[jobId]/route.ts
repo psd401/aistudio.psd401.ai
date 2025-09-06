@@ -100,18 +100,18 @@ export async function GET(
     );
     
     // 5.5. Save assistant response to nexus_messages if job completed and not already saved
-    log.debug('DEBUG: Checking API fallback save conditions', {
+    log.debug('Checking API fallback save conditions', {
       jobId,
       status: job.status,
       hasResponseData: !!job.responseData,
-      nexusConversationId: job.nexusConversationId,
+      hasConversationId: !!job.nexusConversationId,
       shouldAttemptSave: job.status === 'completed' && job.responseData && job.nexusConversationId
     });
     
     if (job.status === 'completed' && job.responseData && job.nexusConversationId) {
       try {
-        log.debug('DEBUG: Checking for existing assistant messages', {
-          conversationId: job.nexusConversationId,
+        log.debug('Checking for existing assistant messages', {
+          hasConversationId: !!job.nexusConversationId,
           jobCreatedAt: job.createdAt.toISOString()
         });
         
@@ -128,9 +128,16 @@ export async function GET(
           ]
         );
         
-        log.debug('DEBUG: Existing assistant messages query result', {
+        log.debug('Existing assistant messages query result', {
           found: existingAssistantMessages.length,
-          messageIds: existingAssistantMessages.map((msg: Record<string, unknown>) => (msg.id as string))
+          messageIds: existingAssistantMessages.map((msg: Record<string, unknown>) => {
+            const id = msg.id;
+            if (typeof id !== 'string') {
+              log.warn('Invalid message ID type', { id, type: typeof id });
+              return 'unknown';
+            }
+            return id;
+          })
         });
 
         if (existingAssistantMessages.length === 0) {
@@ -138,8 +145,8 @@ export async function GET(
           const responseData = job.responseData as Record<string, unknown>;
           const assistantText = (responseData?.text as string) || 'Response completed.';
           
-          log.debug('DEBUG: Attempting API fallback save', {
-            conversationId: job.nexusConversationId,
+          log.debug('Attempting API fallback save', {
+            hasConversationId: !!job.nexusConversationId,
             textLength: assistantText.length,
             modelId: job.modelId,
             hasUsage: !!responseData?.usage,
@@ -167,7 +174,7 @@ export async function GET(
             ]
           );
 
-          log.debug('DEBUG: API fallback message insert completed');
+          log.debug('API fallback message insert completed');
 
           // Update conversation message count
           await executeSQL(
@@ -180,14 +187,14 @@ export async function GET(
             [{ name: 'conversationId', value: { stringValue: job.nexusConversationId } }]
           );
 
-          log.info('DEBUG: Assistant message saved via API fallback successfully', {
+          log.info('Assistant message saved via API fallback successfully', {
             jobId,
-            conversationId: job.nexusConversationId,
+            hasConversationId: !!job.nexusConversationId,
             textLength: assistantText.length,
             modelId: job.modelId
           });
         } else {
-          log.debug('DEBUG: Assistant message already exists, skipping fallback save', { 
+          log.debug('Assistant message already exists, skipping fallback save', { 
             jobId, 
             existingCount: existingAssistantMessages.length 
           });
@@ -195,7 +202,7 @@ export async function GET(
       } catch (saveError) {
         log.error('Failed to save assistant message via API fallback', {
           jobId,
-          conversationId: job.nexusConversationId,
+          hasConversationId: !!job.nexusConversationId,
           error: saveError instanceof Error ? saveError.message : String(saveError)
         });
         // Don't fail the polling request if fallback save fails

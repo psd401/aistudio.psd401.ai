@@ -70,14 +70,13 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
       log.info('NEXUS POLLING ADAPTER - Starting chat request', { 
         messageCount: messages.length,
         apiUrl,
-        rawMessages: messages,
         messagesStructure: messages.map(msg => ({
           role: msg.role,
           hasContent: !!msg.content,
           contentType: typeof msg.content,
           contentLength: Array.isArray(msg.content) ? msg.content.length : 0,
-          contentTypes: Array.isArray(msg.content) ? msg.content.map(p => (p as { type?: string })?.type) : [],
-          fullContent: Array.isArray(msg.content) ? msg.content : msg.content
+          contentTypes: Array.isArray(msg.content) ? msg.content.map(p => (p as { type?: string })?.type) : []
+          // Removed: rawMessages and fullContent to prevent PII exposure
         }))
       })
 

@@ -1,9 +1,14 @@
-# CDK compiled JavaScript files (but not Lambda source code)
+# CDK compiled JavaScript files
 lib/**/*.js
+bin/**/*.js
 *.d.ts
 
-# Keep Lambda source code tracked
+# Compiled Lambda distribution files
+**/dist/**/*.js
+
+# Keep Lambda source code tracked (but not dist folders)
 !lambdas/**/*.js
+!database/lambda/*.js
 !jest.config.js
 node_modules
 
