@@ -36,6 +36,8 @@ export interface NexusPollingAdapterOptions {
   bodyFn?: () => Record<string, unknown>
   maxPollAttempts?: number
   pollTimeoutMs?: number
+  conversationId?: string
+  onConversationIdChange?: (conversationId: string) => void
 }
 
 /**
@@ -55,22 +57,26 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
     apiUrl, 
     bodyFn = () => ({}),
     maxPollAttempts = 300, // 5 minutes with 1s intervals
-    pollTimeoutMs = 30000 // 30 seconds per poll
+    pollTimeoutMs = 30000, // 30 seconds per poll
+    conversationId: initialConversationId,
+    onConversationIdChange
   } = options
+
+  // Maintain conversation state within the adapter
+  let currentConversationId: string | null = initialConversationId || null
 
   return {
     async *run({ messages, abortSignal }) {
       log.info('NEXUS POLLING ADAPTER - Starting chat request', { 
         messageCount: messages.length,
         apiUrl,
-        rawMessages: messages,
         messagesStructure: messages.map(msg => ({
           role: msg.role,
           hasContent: !!msg.content,
           contentType: typeof msg.content,
           contentLength: Array.isArray(msg.content) ? msg.content.length : 0,
-          contentTypes: Array.isArray(msg.content) ? msg.content.map(p => (p as { type?: string })?.type) : [],
-          fullContent: Array.isArray(msg.content) ? msg.content : msg.content
+          contentTypes: Array.isArray(msg.content) ? msg.content.map(p => (p as { type?: string })?.type) : []
+          // Removed: rawMessages and fullContent to prevent PII exposure
         }))
       })
 
@@ -140,15 +146,27 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
         })
 
         // 1. Submit chat request to get job ID
+        const requestBody: Record<string, unknown> = {
+          messages: processedMessages,
+          ...bodyFn()
+        }
+        
+        // Include conversationId if we have one for conversation continuity
+        if (currentConversationId) {
+          requestBody.conversationId = currentConversationId
+        }
+
+        log.debug('Sending request with conversation context', {
+          hasConversationId: !!currentConversationId,
+          conversationId: currentConversationId
+        })
+
         const chatResponse = await fetch(apiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            messages: processedMessages,
-            ...bodyFn()
-          }),
+          body: JSON.stringify(requestBody),
           signal: abortSignal,
         })
 
@@ -163,7 +181,24 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
           throw new Error('No jobId received from chat request')
         }
 
-        log.info('Job created successfully', { jobId })
+        // Extract conversationId from response headers for conversation continuity
+        const responseConversationId = chatResponse.headers.get('X-Conversation-Id')
+        if (responseConversationId && responseConversationId !== currentConversationId) {
+          currentConversationId = responseConversationId
+          // Notify parent component of conversation ID change
+          if (onConversationIdChange) {
+            onConversationIdChange(currentConversationId)
+          }
+          log.info('Conversation ID updated', { 
+            previousId: currentConversationId, 
+            newId: responseConversationId 
+          })
+        }
+
+        log.info('Job created successfully', { 
+          jobId, 
+          conversationId: currentConversationId 
+        })
 
         // 2. Poll for job updates
         while (pollAttempts < maxPollAttempts) {
