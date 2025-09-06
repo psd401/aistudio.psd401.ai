@@ -37,6 +37,9 @@ export default function NexusPage() {
   // Attachment processing state
   const [processingAttachments, setProcessingAttachments] = useState<Set<string>>(new Set())
   
+  // Conversation continuity state
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  
   // Keep ref in sync with state
   useEffect(() => {
     enabledToolsRef.current = enabledTools
@@ -52,6 +55,8 @@ export default function NexusPage() {
     originalSetSelectedModel(model);
     // Clear enabled tools when switching models
     setEnabledTools([]);
+    // Clear conversation ID when switching models for fresh conversation
+    setConversationId(null);
     // Force page reload to ensure clean state
     if (model && selectedModel && model.modelId !== selectedModel.modelId) {
       window.location.reload();
@@ -77,6 +82,15 @@ export default function NexusPage() {
     })
     log.debug('Attachment processing completed', { attachmentId })
   }, [])
+
+  // Conversation ID callback for maintaining conversation continuity
+  const handleConversationIdChange = useCallback((newConversationId: string) => {
+    setConversationId(newConversationId)
+    log.debug('Conversation ID updated', { 
+      previousId: conversationId, 
+      newId: newConversationId 
+    })
+  }, [conversationId])
   
   // Authentication verification for defense in depth
   useEffect(() => {
@@ -100,9 +114,11 @@ export default function NexusPage() {
         provider: selectedModel.provider,
         enabledTools: enabledToolsRef.current
       }),
-      pollTimeoutMs: 120000 // 2 minutes per poll - allows for longer document processing
+      pollTimeoutMs: 120000, // 2 minutes per poll - allows for longer document processing
+      conversationId: conversationId || undefined,
+      onConversationIdChange: handleConversationIdChange
     });
-  }, [selectedModel]);
+  }, [selectedModel, conversationId, handleConversationIdChange]);
 
   // Fallback adapter for when no model is selected
   const fallbackAdapter = useMemo(() => ({

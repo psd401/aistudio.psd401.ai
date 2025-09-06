@@ -3,6 +3,7 @@ import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { jobManagementService } from '@/lib/streaming/job-management-service';
 import type { UniversalPollingStatus } from '@/lib/streaming/job-management-service';
+import { executeSQL } from '@/lib/db/data-api-adapter';
 
 /**
  * Nexus Job Polling API Endpoint
@@ -97,6 +98,109 @@ export async function GET(
       job.modelId, 
       job.status
     );
+    
+    // 5.5. Save assistant response to nexus_messages if job completed and not already saved
+    log.debug('DEBUG: Checking API fallback save conditions', {
+      jobId,
+      status: job.status,
+      hasResponseData: !!job.responseData,
+      nexusConversationId: job.nexusConversationId,
+      shouldAttemptSave: job.status === 'completed' && job.responseData && job.nexusConversationId
+    });
+    
+    if (job.status === 'completed' && job.responseData && job.nexusConversationId) {
+      try {
+        log.debug('DEBUG: Checking for existing assistant messages', {
+          conversationId: job.nexusConversationId,
+          jobCreatedAt: job.createdAt.toISOString()
+        });
+        
+        // Check if we already saved the assistant response (prevent duplicates)
+        const existingAssistantMessages = await executeSQL(
+          `SELECT id FROM nexus_messages 
+           WHERE conversation_id = :conversationId 
+           AND role = 'assistant' 
+           AND created_at >= :jobCreatedAt
+           LIMIT 1`,
+          [
+            { name: 'conversationId', value: { stringValue: job.nexusConversationId } },
+            { name: 'jobCreatedAt', value: { stringValue: job.createdAt.toISOString() } }
+          ]
+        );
+        
+        log.debug('DEBUG: Existing assistant messages query result', {
+          found: existingAssistantMessages.length,
+          messageIds: existingAssistantMessages.map((msg: { id: string }) => msg.id)
+        });
+
+        if (existingAssistantMessages.length === 0) {
+          // Save assistant response to nexus_messages as fallback
+          const responseData = job.responseData as Record<string, unknown>;
+          const assistantText = (responseData?.text as string) || 'Response completed.';
+          
+          log.debug('DEBUG: Attempting API fallback save', {
+            conversationId: job.nexusConversationId,
+            textLength: assistantText.length,
+            modelId: job.modelId,
+            hasUsage: !!responseData?.usage,
+            finishReason: responseData?.finishReason
+          });
+          
+          await executeSQL(
+            `INSERT INTO nexus_messages (
+              conversation_id, role, content, parts, 
+              model_id, token_usage, finish_reason, 
+              metadata, created_at
+            ) VALUES (
+              :conversationId, 'assistant', :content, :parts,
+              :modelId, :tokenUsage, :finishReason,
+              :metadata, NOW()
+            )`,
+            [
+              { name: 'conversationId', value: { stringValue: job.nexusConversationId } },
+              { name: 'content', value: { stringValue: assistantText } },
+              { name: 'parts', value: { stringValue: JSON.stringify([{type: 'text', text: assistantText}]) } },
+              { name: 'modelId', value: { longValue: job.modelId } },
+              { name: 'tokenUsage', value: { stringValue: JSON.stringify(responseData?.usage || {}) } },
+              { name: 'finishReason', value: { stringValue: (responseData?.finishReason as string) || 'stop' } },
+              { name: 'metadata', value: { stringValue: JSON.stringify({ savedVia: 'api-fallback' }) } }
+            ]
+          );
+
+          log.debug('DEBUG: API fallback message insert completed');
+
+          // Update conversation message count
+          await executeSQL(
+            `UPDATE nexus_conversations 
+             SET 
+               message_count = message_count + 1,
+               last_message_at = NOW(),
+               updated_at = NOW()
+             WHERE id = :conversationId`,
+            [{ name: 'conversationId', value: { stringValue: job.nexusConversationId } }]
+          );
+
+          log.info('DEBUG: Assistant message saved via API fallback successfully', {
+            jobId,
+            conversationId: job.nexusConversationId,
+            textLength: assistantText.length,
+            modelId: job.modelId
+          });
+        } else {
+          log.debug('DEBUG: Assistant message already exists, skipping fallback save', { 
+            jobId, 
+            existingCount: existingAssistantMessages.length 
+          });
+        }
+      } catch (saveError) {
+        log.error('Failed to save assistant message via API fallback', {
+          jobId,
+          conversationId: job.nexusConversationId,
+          error: saveError instanceof Error ? saveError.message : String(saveError)
+        });
+        // Don't fail the polling request if fallback save fails
+      }
+    }
     
     // 6. Prepare response based on job status
     const responseData = {

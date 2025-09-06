@@ -1,6 +1,10 @@
-*.js
-!jest.config.js
+# CDK compiled JavaScript files (but not Lambda source code)
+lib/**/*.js
 *.d.ts
+
+# Keep Lambda source code tracked
+!lambdas/**/*.js
+!jest.config.js
 node_modules
 
 # CDK asset staging directory

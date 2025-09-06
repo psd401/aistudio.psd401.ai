@@ -184,7 +184,8 @@ export class JobManagementService {
         options: request.options,
         maxTokens: request.maxTokens,
         temperature: request.temperature,
-        tools: request.tools
+        tools: request.tools,
+        source: request.source || 'chat' // CRITICAL: Include source for Nexus message persistence
       };
 
       // Generate job ID first
