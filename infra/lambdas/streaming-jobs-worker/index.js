@@ -595,9 +595,23 @@ async function saveAssistantMessage(conversationId, responseData, modelId) {
       { name: 'parts', value: { stringValue: JSON.stringify([{type: 'text', text: responseData.text || ''}]) } },
       { name: 'modelId', value: { longValue: modelId } },
       { name: 'tokenUsage', value: { stringValue: JSON.stringify(responseData.usage || {}) } },
-      { name: 'finishReason', value: { stringValue: responseData.finishReason || 'stop' } },
+      { name: 'finishReason', value: { 
+        stringValue: typeof responseData.finishReason === 'string' 
+          ? responseData.finishReason 
+          : String(responseData.finishReason || 'stop')
+      } },
       { name: 'metadata', value: { stringValue: JSON.stringify({ savedVia: 'lambda-worker' }) } }
     ]
+  });
+
+  // Debug: Ensure all values are serializable
+  console.log('DEBUG: saveAssistantMessage parameters before sending:', {
+    conversationId,
+    modelId,
+    textLength: responseData.text?.length,
+    finishReasonType: typeof responseData.finishReason,
+    finishReasonValue: responseData.finishReason,
+    isPromise: responseData.finishReason instanceof Promise
   });
   
   console.log('DEBUG: Executing SQL command with parameters:', {
@@ -1157,7 +1171,7 @@ async function processStreamingJob(job) {
           reasoningTokens: finalResult.experimental_providerMetadata.openai.reasoningTokens
         })
       },
-      finishReason: finalResult.finishReason || 'unknown'
+      finishReason: (await Promise.resolve(finalResult.finishReason)) || 'unknown'
     };
 
     // Complete the job
