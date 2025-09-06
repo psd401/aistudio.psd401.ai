@@ -593,7 +593,12 @@ async function saveAssistantMessage(conversationId, responseData, modelId) {
       { name: 'conversationId', value: { stringValue: conversationId } },
       { name: 'content', value: { stringValue: responseData.text || '' } },
       { name: 'parts', value: { stringValue: JSON.stringify([{type: 'text', text: responseData.text || ''}]) } },
-      { name: 'modelId', value: { longValue: modelId } },
+      { 
+        name: 'modelId', 
+        value: (modelId !== null && modelId !== undefined && Number.isFinite(modelId)) 
+          ? { longValue: modelId } 
+          : { isNull: true }
+      },
       { name: 'tokenUsage', value: { stringValue: JSON.stringify(responseData.usage || {}) } },
       { name: 'finishReason', value: { 
         stringValue: typeof responseData.finishReason === 'string' 
@@ -619,8 +624,10 @@ async function saveAssistantMessage(conversationId, responseData, modelId) {
     parameterCount: command.input.parameters.length,
     parameters: command.input.parameters.map(p => ({
       name: p.name,
-      type: Object.keys(p.value)[0],
-      valueLength: typeof p.value[Object.keys(p.value)[0]] === 'string' ? p.value[Object.keys(p.value)[0]].length : 'N/A'
+      type: p.value ? Object.keys(p.value)[0] : 'undefined',
+      valueLength: p.value && typeof p.value[Object.keys(p.value)[0]] === 'string' 
+        ? p.value[Object.keys(p.value)[0]].length 
+        : 'N/A'
     }))
   });
   
@@ -804,7 +811,7 @@ async function processImageGenerationJob(job) {
       await saveAssistantMessage(
         job.nexus_conversation_id, 
         imageResponseData, 
-        job.modelId
+        job.model_id
       );
       
       // Update conversation message count
@@ -994,7 +1001,7 @@ async function processAssistantArchitectJob(job) {
             await saveAssistantMessage(
               job.nexus_conversation_id, 
               assistantResponseData, 
-              job.modelId
+              job.model_id
             );
             
             // Update conversation message count
