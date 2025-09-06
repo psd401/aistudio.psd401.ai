@@ -166,24 +166,40 @@ export async function POST(req: Request) {
       if (firstUserMessage) {
         // Extract text content for title generation
         let messageText = '';
-        const content = (firstUserMessage as UIMessage & { 
-          content?: string | Array<{ type: string; text?: string }> 
-        }).content;
         
-        if (typeof content === 'string') {
-          messageText = content;
-        } else if (Array.isArray(content)) {
-          const textPart = content.find(part => part.type === 'text' && part.text);
+        // Handle both legacy content format and new parts format
+        const messageWithContent = firstUserMessage as UIMessage & { 
+          content?: string | Array<{ type: string; text?: string }>;
+          parts?: Array<{ type: string; text?: string; [key: string]: unknown }>;
+        };
+        
+        // Check if message has parts (new format)
+        if (messageWithContent.parts && Array.isArray(messageWithContent.parts)) {
+          const textPart = messageWithContent.parts.find((part): part is { type: 'text'; text: string } => 
+            part.type === 'text' && typeof (part as Record<string, unknown>).text === 'string'
+          );
           if (textPart?.text) {
             messageText = textPart.text;
           }
+        } 
+        // Fallback to legacy content format
+        else if (messageWithContent.content) {
+          if (typeof messageWithContent.content === 'string') {
+            messageText = messageWithContent.content;
+          } else if (Array.isArray(messageWithContent.content)) {
+            const textPart = messageWithContent.content.find(part => part.type === 'text' && part.text);
+            if (textPart?.text) {
+              messageText = textPart.text;
+            }
+          }
         }
         
-        // Generate a concise title (max 100 chars)
+        // Generate a concise title (max 40 chars)
         if (messageText) {
           // Remove newlines and extra whitespace for header compatibility
-          conversationTitle = messageText.replace(/\s+/g, ' ').slice(0, 100).trim();
-          if (messageText.length > 100) {
+          const cleanedText = messageText.replace(/\s+/g, ' ').trim();
+          conversationTitle = cleanedText.slice(0, 40).trim();
+          if (cleanedText.length > 40) {
             conversationTitle += '...';
           }
         }
@@ -225,19 +241,40 @@ export async function POST(req: Request) {
       let userContent = '';
       let serializableParts: unknown[] = [];
       
-      // Handle assistant-ui message format - look for content array
-      const messageContent = (lastMessage as UIMessage & { 
-        content?: string | Array<{ type: string; text?: string; image?: string }> 
-      }).content;
+      // Handle both legacy content format and new parts format
+      const messageWithContent = lastMessage as UIMessage & { 
+        content?: string | Array<{ type: string; text?: string; image?: string }>;
+        parts?: Array<{ type: string; text?: string; image?: string; [key: string]: unknown }>;
+      };
       
-      if (messageContent) {
-        if (typeof messageContent === 'string') {
+      // Check if message has parts (new format)
+      if (messageWithContent.parts && Array.isArray(messageWithContent.parts)) {
+        messageWithContent.parts.forEach((part) => {
+          const typedPart = part as Record<string, unknown>;
+          if (part.type === 'text' && typeof typedPart.text === 'string') {
+            userContent += (userContent ? ' ' : '') + typedPart.text;
+            serializableParts.push({ type: 'text', text: typedPart.text });
+          } else if (typedPart.type === 'image' && typedPart.image) {
+            // Store only boolean flag - no image data or prefixes
+            serializableParts.push({ 
+              type: 'image',
+              metadata: {
+                hasImage: true
+                // No image data or prefixes stored for security/memory reasons
+              }
+            });
+          }
+        });
+      }
+      // Fallback to legacy content format
+      else if (messageWithContent.content) {
+        if (typeof messageWithContent.content === 'string') {
           // Simple string content
-          userContent = messageContent;
-          serializableParts = [{ type: 'text', text: messageContent }];
-        } else if (Array.isArray(messageContent)) {
+          userContent = messageWithContent.content;
+          serializableParts = [{ type: 'text', text: messageWithContent.content }];
+        } else if (Array.isArray(messageWithContent.content)) {
           // Content parts array (includes attachments from assistant-ui)
-          messageContent.forEach((part) => {
+          messageWithContent.content.forEach((part) => {
             if (part.type === 'text' && part.text) {
               userContent += (userContent ? ' ' : '') + part.text;
               serializableParts.push({ type: 'text', text: part.text });

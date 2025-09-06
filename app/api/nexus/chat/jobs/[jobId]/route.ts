@@ -130,7 +130,7 @@ export async function GET(
         
         log.debug('DEBUG: Existing assistant messages query result', {
           found: existingAssistantMessages.length,
-          messageIds: existingAssistantMessages.map((msg: { id: string }) => msg.id)
+          messageIds: existingAssistantMessages.map((msg: Record<string, unknown>) => (msg.id as string))
         });
 
         if (existingAssistantMessages.length === 0) {
