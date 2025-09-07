@@ -62,11 +62,11 @@ export async function GET(
     // Verify user owns this conversation
     const conversationQuery = `
       SELECT id, title FROM nexus_conversations 
-      WHERE id = :conversationId AND user_id = :userId
+      WHERE id = $1::uuid AND user_id = $2
     `
     const conversationResult = await executeSQL(conversationQuery, [
-      { name: 'conversationId', value: { stringValue: conversationId } },
-      { name: 'userId', value: { longValue: userId } }
+      conversationId,
+      userId
     ])
     
     if (conversationResult.length === 0) {
@@ -96,15 +96,15 @@ export async function GET(
         created_at,
         updated_at
       FROM nexus_messages
-      WHERE conversation_id = :conversationId
+      WHERE conversation_id = $1::uuid
       ORDER BY created_at ASC
-      LIMIT :limit OFFSET :offset
+      LIMIT $2 OFFSET $3
     `
     
     const result = await executeSQL(query, [
-      { name: 'conversationId', value: { stringValue: conversationId } },
-      { name: 'limit', value: { longValue: limit } },
-      { name: 'offset', value: { longValue: offset } }
+      conversationId,
+      limit,
+      offset
     ])
     
     // Transform snake_case to camelCase and format for AI SDK

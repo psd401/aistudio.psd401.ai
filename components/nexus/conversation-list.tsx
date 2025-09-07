@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { TooltipIconButton } from '@/components/assistant-ui/tooltip-icon-button'
 import { ArchiveIcon, MessageSquareIcon } from 'lucide-react'
-import { useAssistantRuntime } from '@assistant-ui/react'
 import { createLogger } from '@/lib/client-logger'
 
 const log = createLogger({ moduleName: 'nexus-conversation-list' })
@@ -31,7 +30,6 @@ export function ConversationList({ onConversationSelect, selectedConversationId 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
-  const runtime = useAssistantRuntime()
 
   // Load conversations from database
   const loadConversations = useCallback(async () => {
@@ -73,12 +71,10 @@ export function ConversationList({ onConversationSelect, selectedConversationId 
       log.debug('Selecting conversation', { conversationId })
       
       // Notify parent component about the selection
+      // The parent will handle loading messages and runtime remounting
       if (onConversationSelect) {
         onConversationSelect(conversationId)
       }
-      
-      // Switch to new thread (the history adapter will load the messages)
-      runtime.switchToNewThread()
       
       log.debug('Conversation selected successfully', { conversationId })
       
@@ -88,7 +84,7 @@ export function ConversationList({ onConversationSelect, selectedConversationId 
         error: err instanceof Error ? err.message : String(err)
       })
     }
-  }, [runtime, onConversationSelect])
+  }, [onConversationSelect])
 
   // Handle archiving a conversation
   const handleArchiveConversation = useCallback(async (conversationId: string, event: React.MouseEvent) => {
@@ -113,7 +109,6 @@ export function ConversationList({ onConversationSelect, selectedConversationId 
       // If this was the selected conversation, clear selection
       if (selectedConversationId === conversationId && onConversationSelect) {
         onConversationSelect(null)
-        runtime.switchToNewThread()
       }
       
       log.debug('Conversation archived successfully', { conversationId })
@@ -124,7 +119,7 @@ export function ConversationList({ onConversationSelect, selectedConversationId 
         error: err instanceof Error ? err.message : String(err)
       })
     }
-  }, [selectedConversationId, onConversationSelect, runtime])
+  }, [selectedConversationId, onConversationSelect])
 
   // Format relative time
   const formatRelativeTime = (dateString: string) => {

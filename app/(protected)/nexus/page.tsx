@@ -8,7 +8,7 @@ import { useEffect, useMemo, useCallback, useState, useRef } from 'react'
 import { NexusShell } from './_components/layout/nexus-shell'
 import { ErrorBoundary } from './_components/error-boundary'
 import { ConversationPanel } from './_components/conversation-panel'
-import { useConversationContext } from '@/lib/nexus/history-adapter'
+import { useConversationContext, createNexusHistoryAdapter } from '@/lib/nexus/history-adapter'
 import { WebSearchUI } from './_components/tools/web-search-ui'
 import { CodeInterpreterUI } from './_components/tools/code-interpreter-ui'
 import { useModelsWithPersistence } from '@/lib/hooks/use-models'
@@ -40,6 +40,7 @@ export default function NexusPage() {
   
   // Conversation continuity state
   const [conversationId, setConversationId] = useState<string | null>(null)
+  
   
   // Conversation context for history adapter
   const conversationContext = useConversationContext()
@@ -153,16 +154,31 @@ export default function NexusPage() {
       onProcessingComplete: handleAttachmentProcessingComplete,
     })
   }, [handleAttachmentProcessingStart, handleAttachmentProcessingComplete])
-  
-  // Use LocalRuntime with our custom polling adapter
-  const runtime = useLocalRuntime(
-    pollingAdapter || fallbackAdapter,
-    {
-      adapters: {
-        attachments: attachmentAdapter,
-      }
+
+  // Create a component that remounts when conversation changes
+  const ConversationRuntime = useMemo(() => {
+    // This component will be recreated when conversationId changes
+    return function ConversationRuntimeComponent({ children }: { children: React.ReactNode }) {
+      const historyAdapter = createNexusHistoryAdapter(conversationId)
+      
+      const runtime = useLocalRuntime(
+        pollingAdapter || fallbackAdapter,
+        {
+          adapters: {
+            attachments: attachmentAdapter,
+            history: historyAdapter,
+          },
+        }
+      )
+      
+      return (
+        <AssistantRuntimeProvider runtime={runtime}>
+          {children}
+        </AssistantRuntimeProvider>
+      )
     }
-  )
+  }, [conversationId, pollingAdapter, fallbackAdapter, attachmentAdapter])
+
   
   // Show loading state while checking authentication
   if (sessionStatus === 'loading') {
@@ -193,10 +209,7 @@ export default function NexusPage() {
       >
         <div className="relative h-full">
           {selectedModel ? (
-            <AssistantRuntimeProvider 
-              key={`${selectedModel.modelId}-${selectedModel.provider}`} 
-              runtime={runtime}
-            >
+            <ConversationRuntime>
               {/* Register tool UI components */}
               <WebSearchUI />
               <CodeInterpreterUI />
@@ -208,7 +221,7 @@ export default function NexusPage() {
                 onConversationSelect={handleConversationSelect}
                 selectedConversationId={conversationId}
               />
-            </AssistantRuntimeProvider>
+            </ConversationRuntime>
           ) : (
             <div className="flex h-full items-center justify-center">
               <div className="text-center">

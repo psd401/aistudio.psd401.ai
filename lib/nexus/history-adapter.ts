@@ -1,8 +1,38 @@
 'use client'
 
 import { createLogger } from '@/lib/client-logger'
+import type { ThreadHistoryAdapter, ThreadMessage } from '@assistant-ui/react'
+import { INTERNAL } from '@assistant-ui/react'
 
-const log = createLogger({ moduleName: 'nexus-conversation-manager' })
+// Import ExportedMessageRepository type and utility
+type ExportedMessageRepository = {
+  headId?: string | null
+  messages: Array<{
+    message: ThreadMessage
+    parentId: string | null
+  }>
+}
+
+// We'll use a simple implementation since ExportedMessageRepository.fromArray may not be accessible
+const createExportedMessageRepository = (messages: any[]): ExportedMessageRepository => ({
+  messages: messages.map((msg, index) => ({
+    message: INTERNAL.fromThreadMessageLike({
+      id: msg.id,
+      role: msg.role,
+      content: msg.content || [{ type: 'text', text: '' }],
+      ...(msg.createdAt && { createdAt: new Date(msg.createdAt) }),
+    }, msg.id, { type: 'complete', reason: 'unknown' }),
+    parentId: index === 0 ? null : messages[index - 1]?.id || null
+  }))
+})
+
+// ExportedMessageRepositoryItem is not exported from the main module, so we'll define it based on the expected structure
+type ExportedMessageRepositoryItem = {
+  message: ThreadMessage
+  parentId: string | null
+}
+
+const log = createLogger({ moduleName: 'nexus-history-adapter' })
 
 /**
  * Manages conversation context and provides utilities for loading/saving conversation data
@@ -31,6 +61,100 @@ export function useConversationContext() {
     
     getCurrentConversationId(): string | null {
       return currentConversationId
+    }
+  }
+}
+
+/**
+ * Creates a ThreadHistoryAdapter that loads and saves conversation messages
+ */
+export function createNexusHistoryAdapter(conversationId: string | null): ThreadHistoryAdapter {
+  return {
+    async load(): Promise<ExportedMessageRepository & { unstable_resume?: boolean }> {
+      if (!conversationId) {
+        log.debug('No conversation ID, returning empty repository')
+        return { messages: [] }
+      }
+
+      try {
+        log.debug('Loading conversation messages', { conversationId })
+        
+        const response = await fetch(`/api/nexus/conversations/${conversationId}/messages`)
+        
+        if (!response.ok) {
+          if (response.status === 404) {
+            log.warn('Conversation not found', { conversationId })
+            return { messages: [] }
+          }
+          throw new Error(`Failed to load messages: ${response.status}`)
+        }
+        
+        const data = await response.json()
+        const { messages = [] } = data
+        
+        // Convert messages using our helper function
+        const repository = createExportedMessageRepository(messages)
+        
+        log.debug('Messages loaded successfully', { 
+          conversationId,
+          messageCount: repository.messages.length
+        })
+        
+        return repository
+        
+      } catch (error) {
+        log.error('Failed to load conversation messages', {
+          conversationId,
+          error: error instanceof Error ? error.message : String(error)
+        })
+        
+        return { messages: [] }
+      }
+    },
+
+    async append(item: ExportedMessageRepositoryItem): Promise<void> {
+      if (!conversationId) {
+        log.warn('Cannot append message: no conversation ID')
+        return
+      }
+
+      try {
+        log.debug('Saving message to conversation', { 
+          conversationId,
+          messageRole: item.message.role,
+          messageId: item.message.id
+        })
+        
+        const response = await fetch('/api/nexus/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversationId,
+            messageId: item.message.id,
+            role: item.message.role,
+            content: Array.isArray(item.message.content) ? item.message.content : [{ type: 'text', text: String(item.message.content) }],
+            metadata: item.message.metadata || {}
+          })
+        })
+        
+        if (!response.ok) {
+          throw new Error(`Failed to save message: ${response.status}`)
+        }
+        
+        log.debug('Message saved successfully', {
+          conversationId,
+          messageId: item.message.id
+        })
+        
+      } catch (error) {
+        log.error('Failed to save message', {
+          conversationId,
+          messageId: item.message.id,
+          error: error instanceof Error ? error.message : String(error)
+        })
+        
+        throw error
+      }
     }
   }
 }
