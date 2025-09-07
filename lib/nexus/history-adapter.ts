@@ -113,48 +113,14 @@ export function createNexusHistoryAdapter(conversationId: string | null): Thread
     },
 
     async append(item: ExportedMessageRepositoryItem): Promise<void> {
-      if (!conversationId) {
-        log.warn('Cannot append message: no conversation ID')
-        return
-      }
-
-      try {
-        log.debug('Saving message to conversation', { 
-          conversationId,
-          messageRole: item.message.role,
-          messageId: item.message.id
-        })
-        
-        const response = await fetch('/api/nexus/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            conversationId,
-            messageId: item.message.id,
-            role: item.message.role,
-            content: Array.isArray(item.message.content) ? item.message.content : [{ type: 'text', text: String(item.message.content) }],
-            metadata: item.message.metadata || {}
-          })
-        })
-        
-        if (!response.ok) {
-          throw new Error(`Failed to save message: ${response.status}`)
-        }
-        
-        log.debug('Message saved successfully', {
-          conversationId,
-          messageId: item.message.id
-        })
-        
-      } catch (error) {
-        log.error('Failed to save message', {
-          conversationId,
-          messageId: item.message.id,
-          error: error instanceof Error ? error.message : String(error)
-        })
-        
-        throw error
-      }
+      // Messages are already saved by the polling adapter in /api/nexus/chat
+      // No need to save again - this prevents duplicates and API errors
+      log.debug('Skipping message save - handled by polling adapter', {
+        conversationId,
+        messageRole: item.message.role,
+        messageId: item.message.id
+      })
+      return
     }
   }
 }
