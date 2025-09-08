@@ -1,10 +1,11 @@
 import { DynamoDBClient, PutItemCommand, QueryCommand, AttributeValue } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
-import { createLogger } from '@/lib/logger';
+import { createLogger, generateRequestId, sanitizeForLogging } from '@/lib/logger';
 import crypto from 'crypto';
 
 const dynamoClient = new DynamoDBClient({
-  region: process.env.NEXT_PUBLIC_AWS_REGION || process.env.AWS_REGION || 'us-east-1'
+  region: 'us-east-1', // Explicit region - AWS Amplify SSR needs this
+  maxAttempts: 3,
 });
 const log = createLogger({ service: 'document-job-service' });
 
@@ -14,11 +15,13 @@ function getDocumentJobsTable(): string {
     return process.env.DOCUMENT_JOBS_TABLE || 'test-document-jobs-table';
   }
   
-  if (!process.env.DOCUMENT_JOBS_TABLE) {
-    throw new Error('DOCUMENT_JOBS_TABLE environment variable is required but not configured');
+  const tableName = process.env.DOCUMENT_JOBS_TABLE;
+  if (!tableName) {
+    const availableVars = Object.keys(process.env).filter(k => k.includes('TABLE')).join(', ');
+    throw new Error(`DOCUMENT_JOBS_TABLE environment variable is required but not configured. Available TABLE vars: ${availableVars}`);
   }
   
-  return process.env.DOCUMENT_JOBS_TABLE;
+  return tableName;
 }
 
 export interface ProcessingOptions {
@@ -58,47 +61,89 @@ export interface CreateJobParams {
 }
 
 export async function createDocumentJob(params: CreateJobParams): Promise<DocumentJob> {
-  const jobId = crypto.randomUUID();
-  const timestamp = Date.now();
-  const ttl = Math.floor(timestamp / 1000) + 86400 * 7; // 7 days TTL
-
-  const job: DocumentJob = {
-    id: jobId,
-    userId: params.userId,
-    fileName: params.fileName,
-    fileSize: params.fileSize,
-    fileType: params.fileType,
-    purpose: params.purpose,
-    processingOptions: params.processingOptions,
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-  };
-
+  const requestId = generateRequestId();
+  const jobLog = createLogger({ action: 'createDocumentJob', requestId });
+  
   try {
+    // Step 1: Validate environment and configuration
+    const tableName = getDocumentJobsTable();
+    jobLog.info('Creating document job', { 
+      tableName, 
+      hasTableName: !!tableName,
+      region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION,
+      environment: process.env.NODE_ENV,
+      params: sanitizeForLogging(params)
+    });
+
+    // Step 2: Generate job ID
+    const jobId = crypto.randomUUID();
+    jobLog.info('Generated job ID', { jobId });
+
+    const timestamp = Date.now();
+    const ttl = Math.floor(timestamp / 1000) + 86400 * 7; // 7 days TTL
+
+    const job: DocumentJob = {
+      id: jobId,
+      userId: params.userId,
+      fileName: params.fileName,
+      fileSize: params.fileSize,
+      fileType: params.fileType,
+      purpose: params.purpose,
+      processingOptions: params.processingOptions,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    // Step 3: Prepare data for DynamoDB
+    const itemData = {
+      jobId,
+      timestamp,
+      userId: params.userId,
+      fileName: params.fileName,
+      fileSize: params.fileSize,
+      fileType: params.fileType,
+      purpose: params.purpose,
+      processingOptions: params.processingOptions,
+      status: 'pending',
+      createdAt: job.createdAt,
+      ttl,
+    };
+    
+    const marshalled = marshall(itemData);
+    jobLog.info('Prepared DynamoDB item', { 
+      itemKeys: Object.keys(marshalled),
+      itemSize: JSON.stringify(itemData).length 
+    });
+
+    // Step 4: Write to DynamoDB
+    jobLog.info('Sending PutItem command to DynamoDB');
     await dynamoClient.send(
       new PutItemCommand({
-        TableName: getDocumentJobsTable(),
-        Item: marshall({
-          jobId,
-          timestamp,
-          userId: params.userId,
-          fileName: params.fileName,
-          fileSize: params.fileSize,
-          fileType: params.fileType,
-          purpose: params.purpose,
-          processingOptions: params.processingOptions,
-          status: 'pending',
-          createdAt: job.createdAt,
-          ttl,
-        }),
+        TableName: tableName,
+        Item: marshalled,
         ConditionExpression: 'attribute_not_exists(jobId)', // Prevent duplicates
       })
     );
 
-    log.info('Document job created', { jobId, fileName: params.fileName, userId: params.userId });
+    jobLog.info('Document job created successfully', { jobId, fileName: params.fileName, userId: params.userId });
     return job;
   } catch (error) {
-    log.error('Failed to create document job', { error, params });
+    // CRITICAL: Log the actual error details
+    const errorDetails = {
+      name: error instanceof Error ? error.name : 'Unknown',
+      message: error instanceof Error ? error.message : String(error || 'No message'),
+      code: 'Code' in (error as object) ? (error as { Code?: string }).Code : undefined,
+      httpStatusCode: '$metadata' in (error as object) ? (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode : undefined,
+      requestId: '$metadata' in (error as object) ? (error as { $metadata?: { requestId?: string } }).$metadata?.requestId : undefined,
+      stack: error instanceof Error ? error.stack : undefined,
+      totalRetryDelay: '$metadata' in (error as object) ? (error as { $metadata?: { totalRetryDelay?: number } }).$metadata?.totalRetryDelay : undefined
+    };
+    
+    jobLog.error('Failed to create document job', { 
+      error: errorDetails,
+      params: sanitizeForLogging(params),
+      requestId
+    });
     throw new Error(`Failed to create document job: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
