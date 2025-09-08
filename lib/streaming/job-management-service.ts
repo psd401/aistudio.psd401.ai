@@ -2,6 +2,7 @@ import { executeSQL } from '@/lib/db/data-api-adapter';
 import { createLogger, generateRequestId } from '@/lib/logger';
 import { transformSnakeToCamel } from '@/lib/db/field-mapper';
 import type { UIMessage } from 'ai';
+import { generateUUID } from '@/lib/utils/uuid';
 
 const log = createLogger({ module: 'job-management-service' });
 
@@ -189,7 +190,7 @@ export class JobManagementService {
       };
 
       // Generate job ID first
-      const pendingJobId = crypto.randomUUID();
+      const pendingJobId = generateUUID();
 
       await executeSQL(`
         INSERT INTO ai_streaming_jobs (

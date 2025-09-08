@@ -7,6 +7,7 @@ import {
   SimpleTextAttachmentAdapter,
 } from "@assistant-ui/react";
 import { createLogger } from "@/lib/client-logger";
+import { generateUUID } from "@/lib/utils/uuid";
 
 const log = createLogger({ moduleName: 'enhanced-attachment-adapters' });
 
@@ -44,7 +45,7 @@ export class HybridDocumentAdapter implements AttachmentAdapter {
     }
 
     const attachment: PendingAttachment = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       type: "document",
       name: this.sanitizeFileName(file.name),
       contentType: file.type,
@@ -488,7 +489,7 @@ export class VisionImageAdapter implements AttachmentAdapter {
 
     // Return pending attachment while processing
     return {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       type: "image",
       name: this.sanitizeFileName(file.name),
       contentType: file.type,

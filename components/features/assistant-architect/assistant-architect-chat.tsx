@@ -17,6 +17,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type { SelectMessage } from "@/types/schema-types"
+import { generateUUID } from "@/lib/utils/uuid"
 
 interface PromptResult {
   promptId: number
@@ -254,7 +255,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
     
     // Use sendMessage with v2 patterns - pass body with execution context
     await sendMessage({
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       role: 'user' as const,
       parts: [{ type: 'text' as const, text: messageText }]
     }, {

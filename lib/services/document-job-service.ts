@@ -1,8 +1,12 @@
 import { DynamoDBClient, PutItemCommand, QueryCommand, AttributeValue } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
-import { createLogger } from '@/lib/logger';
+import { createLogger, generateRequestId } from '@/lib/logger';
+import { generateUUID } from '@/lib/utils/uuid';
 
-const dynamoClient = new DynamoDBClient({});
+const dynamoClient = new DynamoDBClient({
+  region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
+  maxAttempts: 3,
+});
 const log = createLogger({ service: 'document-job-service' });
 
 // Dynamic environment variable loading for test compatibility
@@ -11,11 +15,13 @@ function getDocumentJobsTable(): string {
     return process.env.DOCUMENT_JOBS_TABLE || 'test-document-jobs-table';
   }
   
-  if (!process.env.DOCUMENT_JOBS_TABLE) {
-    throw new Error('DOCUMENT_JOBS_TABLE environment variable is required but not configured');
+  const tableName = process.env.DOCUMENT_JOBS_TABLE;
+  if (!tableName) {
+    const availableVars = Object.keys(process.env).filter(k => k.includes('TABLE')).join(', ');
+    throw new Error(`DOCUMENT_JOBS_TABLE environment variable is required but not configured. Available TABLE vars: ${availableVars}`);
   }
   
-  return process.env.DOCUMENT_JOBS_TABLE;
+  return tableName;
 }
 
 export interface ProcessingOptions {
@@ -55,47 +61,103 @@ export interface CreateJobParams {
 }
 
 export async function createDocumentJob(params: CreateJobParams): Promise<DocumentJob> {
-  const jobId = crypto.randomUUID();
-  const timestamp = Date.now();
-  const ttl = Math.floor(timestamp / 1000) + 86400 * 7; // 7 days TTL
-
-  const job: DocumentJob = {
-    id: jobId,
-    userId: params.userId,
-    fileName: params.fileName,
-    fileSize: params.fileSize,
-    fileType: params.fileType,
-    purpose: params.purpose,
-    processingOptions: params.processingOptions,
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-  };
-
+  const requestId = generateRequestId();
+  const jobLog = createLogger({ action: 'createDocumentJob', requestId });
+  
   try {
+    // Step 1: Validate environment and configuration
+    const tableName = getDocumentJobsTable();
+    jobLog.info('Creating document job', { 
+      tableName, 
+      hasTableName: !!tableName,
+      region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION,
+      environment: process.env.NODE_ENV,
+      fileSize: params.fileSize,
+      fileType: params.fileType,
+      purpose: params.purpose,
+      userId: params.userId.substring(0, 8) + '...', // Log only first 8 chars of user ID
+      fileName: params.fileName ? params.fileName.substring(0, 50) + (params.fileName.length > 50 ? '...' : '') : undefined,
+      hasProcessingOptions: !!params.processingOptions
+    });
+
+    // Step 2: Generate job ID
+    const jobId = generateUUID();
+    jobLog.info('Generated job ID', { jobId });
+
+    const timestamp = Date.now();
+    const ttl = Math.floor(timestamp / 1000) + 86400 * 7; // 7 days TTL
+
+    const job: DocumentJob = {
+      id: jobId,
+      userId: params.userId,
+      fileName: params.fileName,
+      fileSize: params.fileSize,
+      fileType: params.fileType,
+      purpose: params.purpose,
+      processingOptions: params.processingOptions,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    // Step 3: Prepare data for DynamoDB
+    const itemData = {
+      jobId,
+      timestamp,
+      userId: params.userId,
+      fileName: params.fileName,
+      fileSize: params.fileSize,
+      fileType: params.fileType,
+      purpose: params.purpose,
+      processingOptions: params.processingOptions,
+      status: 'pending',
+      createdAt: job.createdAt,
+      ttl,
+    };
+    
+    const marshalled = marshall(itemData);
+    jobLog.info('Prepared DynamoDB item', { 
+      itemKeys: Object.keys(marshalled),
+      itemSize: JSON.stringify(itemData).length 
+    });
+
+    // Step 4: Write to DynamoDB
+    jobLog.info('Sending PutItem command to DynamoDB');
     await dynamoClient.send(
       new PutItemCommand({
-        TableName: getDocumentJobsTable(),
-        Item: marshall({
-          jobId,
-          timestamp,
-          userId: params.userId,
-          fileName: params.fileName,
-          fileSize: params.fileSize,
-          fileType: params.fileType,
-          purpose: params.purpose,
-          processingOptions: params.processingOptions,
-          status: 'pending',
-          createdAt: job.createdAt,
-          ttl,
-        }),
+        TableName: tableName,
+        Item: marshalled,
         ConditionExpression: 'attribute_not_exists(jobId)', // Prevent duplicates
       })
     );
 
-    log.info('Document job created', { jobId, fileName: params.fileName, userId: params.userId });
+    jobLog.info('Document job created successfully', { jobId, fileName: params.fileName, userId: params.userId });
     return job;
   } catch (error) {
-    log.error('Failed to create document job', { error, params });
+    // CRITICAL: Log the actual error details
+    const errorDetails = {
+      name: error instanceof Error ? error.name : 'Unknown',
+      message: error instanceof Error ? error.message : String(error || 'No message'),
+      code: 'Code' in (error as object) ? (error as { Code?: string }).Code : undefined,
+      httpStatusCode: '$metadata' in (error as object) ? (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode : undefined,
+      requestId: '$metadata' in (error as object) ? (error as { $metadata?: { requestId?: string } }).$metadata?.requestId : undefined,
+      stack: error instanceof Error ? error.stack : undefined,
+      totalRetryDelay: '$metadata' in (error as object) ? (error as { $metadata?: { totalRetryDelay?: number } }).$metadata?.totalRetryDelay : undefined
+    };
+    
+    jobLog.error('Failed to create document job', { 
+      error: errorDetails,
+      fileSize: params.fileSize,
+      fileType: params.fileType,
+      purpose: params.purpose,
+      fileName: params.fileName ? params.fileName.substring(0, 50) + (params.fileName.length > 50 ? '...' : '') : undefined,
+      requestId
+    });
+    // Preserve AWS error context for better debugging
+    if (error && typeof error === 'object' && 'name' in error && error.name) {
+      // Re-throw AWS SDK errors to preserve their structure
+      throw error;
+    }
+    // Fallback for non-AWS errors
     throw new Error(`Failed to create document job: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -146,6 +208,10 @@ export async function getJobStatus(jobId: string, userId?: string): Promise<Docu
     };
   } catch (error) {
     log.error('Failed to get job status', { error, jobId, userId });
+    // Preserve AWS error context for better debugging
+    if (error && typeof error === 'object' && 'name' in error && error.name) {
+      throw error;
+    }
     throw new Error(`Failed to get job status: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -205,6 +271,10 @@ export async function updateJobStatus(
     log.info('Job status updated with complete data', { jobId, status, updates });
   } catch (error) {
     log.error('Failed to update job status', { error, jobId, status, updates });
+    // Preserve AWS error context for better debugging
+    if (error && typeof error === 'object' && 'name' in error && error.name) {
+      throw error;
+    }
     throw new Error(`Failed to update job status: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -219,6 +289,10 @@ export async function confirmDocumentUpload(jobId: string, uploadId: string): Pr
     log.info('Document upload confirmed', { jobId, uploadId });
   } catch (error) {
     log.error('Failed to confirm document upload', { error, jobId, uploadId });
+    // Preserve AWS error context for better debugging
+    if (error && typeof error === 'object' && 'name' in error && error.name) {
+      throw error;
+    }
     throw new Error(`Failed to confirm upload: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -271,6 +345,10 @@ export async function getUserJobs(
     };
   } catch (error) {
     log.error('Failed to get user jobs', { error, userId });
+    // Preserve AWS error context for better debugging
+    if (error && typeof error === 'object' && 'name' in error && error.name) {
+      throw error;
+    }
     throw new Error(`Failed to get user jobs: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -316,6 +394,10 @@ export async function getJobsByStatus(
     });
   } catch (error) {
     log.error('Failed to get jobs by status', { error, status });
+    // Preserve AWS error context for better debugging
+    if (error && typeof error === 'object' && 'name' in error && error.name) {
+      throw error;
+    }
     throw new Error(`Failed to get jobs by status: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -346,6 +428,10 @@ export async function fetchResultFromS3(s3Key: string): Promise<Record<string, u
     return JSON.parse(bodyText);
   } catch (error) {
     log.error('Failed to fetch result from S3', { error, s3Key });
+    // Preserve AWS error context for better debugging
+    if (error && typeof error === 'object' && 'name' in error && error.name) {
+      throw error;
+    }
     throw new Error(`Failed to fetch result from S3: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
