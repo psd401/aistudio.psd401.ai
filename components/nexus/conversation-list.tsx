@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { TooltipIconButton } from '@/components/assistant-ui/tooltip-icon-button'
 import { ArchiveIcon, MessageSquareIcon } from 'lucide-react'
 import { createLogger } from '@/lib/client-logger'
+import { useRouter } from 'next/navigation'
 
 const log = createLogger({ moduleName: 'nexus-conversation-list' })
 
@@ -21,14 +22,14 @@ interface ConversationItem {
 }
 
 interface ConversationListProps {
-  onConversationSelect?: (conversationId: string | null) => void
   selectedConversationId?: string | null
 }
 
-export function ConversationList({ onConversationSelect, selectedConversationId }: ConversationListProps) {
+export function ConversationList({ selectedConversationId }: ConversationListProps) {
   const [conversations, setConversations] = useState<ConversationItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
   
 
   // Load conversations from database
@@ -65,26 +66,11 @@ export function ConversationList({ onConversationSelect, selectedConversationId 
   }, [loadConversations])
 
 
-  // Handle selecting a conversation
-  const handleConversationSelect = useCallback(async (conversationId: string) => {
-    try {
-      log.debug('Selecting conversation', { conversationId })
-      
-      // Notify parent component about the selection
-      // The parent will handle loading messages and runtime remounting
-      if (onConversationSelect) {
-        onConversationSelect(conversationId)
-      }
-      
-      log.debug('Conversation selected successfully', { conversationId })
-      
-    } catch (err) {
-      log.error('Failed to select conversation', {
-        conversationId,
-        error: err instanceof Error ? err.message : String(err)
-      })
-    }
-  }, [onConversationSelect])
+  // Handle conversation selection with full page reload
+  const handleConversationSelect = useCallback((conversationId: string) => {
+    log.debug('Conversation selected', { conversationId })
+    window.location.href = `/nexus?id=${conversationId}`
+  }, [])
 
   // Handle archiving a conversation using server action
   const handleArchiveConversation = useCallback(async (conversationId: string, event: React.MouseEvent) => {
@@ -107,9 +93,9 @@ export function ConversationList({ onConversationSelect, selectedConversationId 
       // Remove from local state
       setConversations(prev => prev.filter(conv => conv.id !== conversationId))
       
-      // If this was the selected conversation, clear selection
-      if (selectedConversationId === conversationId && onConversationSelect) {
-        onConversationSelect(null)
+      // If this was the selected conversation, navigate to new conversation
+      if (selectedConversationId === conversationId) {
+        router.push('/nexus')
       }
       
       log.debug('Conversation archived successfully', { conversationId })
@@ -120,7 +106,7 @@ export function ConversationList({ onConversationSelect, selectedConversationId 
         error: err instanceof Error ? err.message : String(err)
       })
     }
-  }, [selectedConversationId, onConversationSelect])
+  }, [selectedConversationId, router])
 
   // Format relative time
   const formatRelativeTime = (dateString: string) => {

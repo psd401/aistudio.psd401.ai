@@ -45,11 +45,11 @@ export function NexusHeader({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* New Chat Button - Not graceful but works like model selector */}
+          {/* New Chat Button - Full page reload to reset conversation */}
           <Button
             variant="outline"
             size="sm"
-            onClick={() => window.location.reload()}
+            onClick={() => window.location.href = '/nexus'}
             className="flex items-center gap-1.5"
             title="Start new chat"
           >
