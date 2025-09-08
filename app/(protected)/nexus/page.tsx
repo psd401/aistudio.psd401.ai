@@ -4,7 +4,7 @@ import { AssistantRuntimeProvider, useLocalRuntime, type ChatModelAdapter, type 
 import { Thread } from '@/components/assistant-ui/thread'
 import { useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useCallback, useState, useRef } from 'react'
+import { useEffect, useMemo, useCallback, useState, useRef, Suspense } from 'react'
 import { NexusShell } from './_components/layout/nexus-shell'
 import { ErrorBoundary } from './_components/error-boundary'
 import { ConversationPanel } from './_components/conversation-panel'
@@ -58,7 +58,8 @@ function ConversationRuntimeProvider({
   )
 }
 
-export default function NexusPage() {
+// Component that uses useSearchParams - must be wrapped in Suspense
+function NexusPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { data: session, status: sessionStatus } = useSession()
@@ -274,5 +275,21 @@ export default function NexusPage() {
         </div>
       </NexusShell>
     </ErrorBoundary>
+  )
+}
+
+// Main component with Suspense boundary for useSearchParams
+export default function NexusPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent mx-auto mb-4" />
+          <div className="text-lg text-muted-foreground">Loading Nexus...</div>
+        </div>
+      </div>
+    }>
+      <NexusPageContent />
+    </Suspense>
   )
 }
