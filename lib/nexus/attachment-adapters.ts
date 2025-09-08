@@ -224,6 +224,9 @@ export class PDFAttachmentAdapter implements AttachmentAdapter {
  * - Simple image adapter (for display-only)
  * - Simple text adapter (for text files)
  * - PDF adapter (for document processing - basic implementation)
+ * 
+ * @deprecated This function has been replaced by createEnhancedNexusAttachmentAdapter
+ * Use import { createEnhancedNexusAttachmentAdapter } from '@/lib/nexus/enhanced-attachment-adapters'
  */
 export function createNexusAttachmentAdapter() {
   return new CompositeAttachmentAdapter([

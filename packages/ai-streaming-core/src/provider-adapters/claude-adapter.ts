@@ -1,5 +1,5 @@
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
-import { BaseProviderAdapter } from './base-adapter';
+import { BaseProviderAdapter, type ProviderOptions, type ModelInstance, type ImageModelInstance } from './base-adapter';
 import { createLogger } from '../utils/logger';
 import type { ProviderCapabilities } from '../types';
 import type { SettingsManager } from '../utils/settings-manager';
@@ -21,7 +21,7 @@ export class ClaudeAdapter extends BaseProviderAdapter {
     this.settingsManager = settingsManager;
   }
   
-  async createModel(modelId: string, options?: any): Promise<any> {
+  async createModel(modelId: string, options?: ProviderOptions): Promise<ModelInstance> {
     const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
     const log = createLogger({ module: 'ClaudeAdapter' });
     
@@ -68,8 +68,11 @@ export class ClaudeAdapter extends BaseProviderAdapter {
     }
   }
   
-  async createImageModel(modelId: string, options?: any): Promise<any> {
-    throw new Error('Image generation not supported by Claude/Bedrock provider');
+  async createImageModel(modelId: string, options?: ProviderOptions): Promise<ImageModelInstance> {
+    // Parameters required by interface but not used since image generation is not supported
+    const log = createLogger({ module: 'ClaudeAdapter' });
+    log.debug('Image model creation attempted', { modelId, hasOptions: !!options });
+    throw new Error(`Image generation not supported by Claude/Bedrock provider for model ${modelId}`);
   }
   
   getCapabilities(modelId: string): ProviderCapabilities {
@@ -163,8 +166,8 @@ export class ClaudeAdapter extends BaseProviderAdapter {
     };
   }
   
-  getProviderOptions(modelId: string, options?: any): Record<string, any> {
-    const providerOptions: Record<string, any> = {};
+  getProviderOptions(modelId: string, options?: ProviderOptions): ProviderOptions {
+    const providerOptions: Record<string, unknown> = {};
     
     // Handle thinking budget for Claude 4 models
     if (options?.thinkingBudget && this.matchesPattern(modelId, [
@@ -175,7 +178,7 @@ export class ClaudeAdapter extends BaseProviderAdapter {
     ])) {
       providerOptions.experimental_providerMetadata = {
         anthropic: {
-          thinkingBudget: Math.min(options.thinkingBudget, 6553)
+          thinkingBudget: Math.min(options.thinkingBudget as number, 6553)
         }
       };
     }

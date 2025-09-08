@@ -1,8 +1,7 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { experimental_generateImage as generateImage } from 'ai';
-import { BaseProviderAdapter } from './base-adapter';
+import { BaseProviderAdapter, type ProviderOptions, type ModelInstance, type ImageModelInstance } from './base-adapter';
 import { createLogger } from '../utils/logger';
-import type { ProviderCapabilities, StreamConfig, StreamingCallbacks } from '../types';
+import type { ProviderCapabilities } from '../types';
 import type { SettingsManager } from '../utils/settings-manager';
 
 /**
@@ -21,7 +20,7 @@ export class OpenAIAdapter extends BaseProviderAdapter {
     this.settingsManager = settingsManager;
   }
   
-  async createModel(modelId: string, options?: any): Promise<any> {
+  async createModel(modelId: string, options?: ProviderOptions): Promise<ModelInstance> {
     const log = createLogger({ module: 'OpenAIAdapter' });
     log.info('Creating OpenAI model', { modelId, options });
     
@@ -60,7 +59,7 @@ export class OpenAIAdapter extends BaseProviderAdapter {
     }
   }
   
-  async createImageModel(modelId: string, options?: any): Promise<any> {
+  async createImageModel(modelId: string, options?: ProviderOptions): Promise<ImageModelInstance> {
     const log = createLogger({ module: 'OpenAIAdapter' });
     log.info('Creating OpenAI image model', { modelId, options });
     
@@ -165,8 +164,8 @@ export class OpenAIAdapter extends BaseProviderAdapter {
     };
   }
   
-  getProviderOptions(modelId: string, options?: any): Record<string, any> {
-    const providerOptions: Record<string, any> = {};
+  getProviderOptions(modelId: string, options?: ProviderOptions): ProviderOptions {
+    const providerOptions: ProviderOptions = {};
     
     // Handle reasoning effort for GPT-5 and o1 models
     if (options?.reasoningEffort && this.matchesPattern(modelId, ['gpt-5*', 'o1*'])) {

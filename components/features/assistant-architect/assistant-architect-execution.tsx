@@ -30,7 +30,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AssistantArchitectChat } from "./assistant-architect-chat"
 import { ChatErrorBoundary } from "./chat-error-boundary"
 import Image from "next/image"
-import PdfUploadButton from "@/components/ui/pdf-upload-button"
+import DocumentUploadButton from "@/components/ui/document-upload-button"
 import { updatePromptResultAction } from "@/actions/db/assistant-architect-actions"
 import { type StreamingJob } from "@/lib/streaming/job-management-service"
 
@@ -534,11 +534,26 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                             </SelectContent>
                           </Select>
                         ) : field.fieldType === "file_upload" ? (
-                          <PdfUploadButton
-                            label="Upload PDF"
-                            onMarkdown={doc => formField.onChange(doc)}
+                          <DocumentUploadButton
+                            label="Add Document for Knowledge"
+                            onContent={doc => formField.onChange(doc)}
                             disabled={jobStatus === 'streaming' || jobStatus === 'processing' || isPolling}
                             className="w-full"
+                            onError={err => {
+                              if (err?.status === 413) {
+                                toast({
+                                  title: "File Too Large",
+                                  description: "Please upload a file smaller than 50MB.",
+                                  variant: "destructive"
+                                })
+                              } else {
+                                toast({
+                                  title: "Upload Failed", 
+                                  description: err?.message || "Unknown error",
+                                  variant: "destructive"
+                                })
+                              }
+                            }}
                           />
                         ) : (
                         <Input

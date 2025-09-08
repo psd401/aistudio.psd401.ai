@@ -91,23 +91,23 @@ class UnifiedStreamingService {
             if (!request.messages || !Array.isArray(request.messages)) {
                 throw new Error('Messages array is required for streaming');
             }
-            // Process messages to ensure correct format
-            const processedMessages = this.preprocessMessages(request.messages);
+            // Pass messages directly to AI SDK without preprocessing
+            // Let convertToModelMessages handle UIMessage → ModelMessage conversion
+            const processedMessages = request.messages;
             let convertedMessages;
             try {
                 convertedMessages = (0, ai_1.convertToModelMessages)(processedMessages);
             }
             catch (conversionError) {
-                log.error('Failed to convert messages', {
-                    error: conversionError.message,
-                    messages: JSON.stringify(processedMessages).substring(0, 500)
+                log.error('Message conversion failed', {
+                    error: conversionError.message
                 });
                 throw new Error(`Message conversion failed: ${conversionError.message}`);
             }
             // 4. Create model
             const model = await adapter.createModel(request.modelId, request.options);
             // 5. Configure streaming
-            let tools = request.tools;
+            const tools = request.tools;
             // For gpt-image-1, we need to pass tools in the options to the Responses API
             // The tools array should be passed to the createModel call instead
             const config = {
@@ -271,12 +271,10 @@ class UnifiedStreamingService {
                     parts: [{ type: 'text', text: msg.content }]
                 };
             }
-            // If message has content property with array (assistant-ui format), convert to parts
+            // If message has content property with array, keep as ModelMessage format
+            // Don't convert back to parts - let convertToModelMessages handle proper conversion
             if ('content' in msg && Array.isArray(msg.content)) {
-                return {
-                    ...msg,
-                    parts: msg.content
-                };
+                return msg;
             }
             // Otherwise, return as-is and let convertToModelMessages handle it
             return msg;

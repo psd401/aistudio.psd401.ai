@@ -36,6 +36,8 @@ export interface NexusPollingAdapterOptions {
   bodyFn?: () => Record<string, unknown>
   maxPollAttempts?: number
   pollTimeoutMs?: number
+  conversationId?: string
+  onConversationIdChange?: (conversationId: string) => void
 }
 
 /**
@@ -55,31 +57,117 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
     apiUrl, 
     bodyFn = () => ({}),
     maxPollAttempts = 300, // 5 minutes with 1s intervals
-    pollTimeoutMs = 30000 // 30 seconds per poll
+    pollTimeoutMs = 30000, // 30 seconds per poll
+    conversationId: initialConversationId,
+    onConversationIdChange
   } = options
+
+  // Maintain conversation state within the adapter
+  let currentConversationId: string | null = initialConversationId || null
 
   return {
     async *run({ messages, abortSignal }) {
-      log.debug('Starting Nexus chat request', { 
+      log.info('NEXUS POLLING ADAPTER - Starting chat request', { 
         messageCount: messages.length,
-        apiUrl
+        apiUrl,
+        messagesStructure: messages.map(msg => ({
+          role: msg.role,
+          hasContent: !!msg.content,
+          contentType: typeof msg.content,
+          contentLength: Array.isArray(msg.content) ? msg.content.length : 0,
+          contentTypes: Array.isArray(msg.content) ? msg.content.map(p => (p as { type?: string })?.type) : []
+          // Removed: rawMessages and fullContent to prevent PII exposure
+        }))
       })
+
 
       let jobId: string | null = null
       let pollingInterval = 1000 // Start with 1 second
       let pollAttempts = 0
 
       try {
+        // Convert ThreadMessages to AI SDK v5 UIMessages format
+        const processedMessages = messages.map(message => {
+          const parts = []
+          
+          // Process message content
+          if (Array.isArray(message.content)) {
+            message.content.forEach(contentPart => {
+              // Handle different content part types from assistant-ui
+              if (contentPart.type === 'text') {
+                parts.push({ type: 'text', text: contentPart.text })
+              } else if (contentPart.type === 'image') {
+                parts.push({ type: 'image', image: contentPart.image })
+              } else if (contentPart.type === 'file') {
+                parts.push({ type: 'file', url: contentPart.url, mediaType: contentPart.mediaType })
+              } else {
+                // Pass through other types
+                parts.push(contentPart)
+              }
+            })
+          } else if (typeof message.content === 'string') {
+            // Simple string content
+            parts.push({ type: 'text', text: message.content })
+          }
+          
+          // CRITICAL: Process attachments and merge their content into parts
+          const messageWithAttachments = message as { attachments?: Array<{ content?: Array<{ type: string; image?: string; url?: string; mediaType?: string }> }> }
+          if (Array.isArray(messageWithAttachments.attachments)) {
+            messageWithAttachments.attachments.forEach((attachment) => {
+              if (Array.isArray(attachment.content)) {
+                attachment.content.forEach((attachmentPart) => {
+                  if (attachmentPart.type === 'image' && attachmentPart.image) {
+                    parts.push({ type: 'image', image: attachmentPart.image })
+                  } else if (attachmentPart.type === 'file' && attachmentPart.url) {
+                    parts.push({ type: 'file', url: attachmentPart.url, mediaType: attachmentPart.mediaType })
+                  } else {
+                    // Pass through other attachment content
+                    parts.push(attachmentPart)
+                  }
+                })
+              }
+            })
+          }
+          
+          return {
+            id: message.id || crypto.randomUUID(),
+            role: message.role,
+            parts: parts.length > 0 ? parts : [{ type: 'text', text: '' }]
+          }
+        })
+
+        log.debug('Processed messages for API', {
+          originalCount: messages.length,
+          processedCount: processedMessages.length,
+          processedStructure: processedMessages.map(msg => ({
+            role: msg.role,
+            partsCount: msg.parts?.length || 0,
+            partsTypes: msg.parts?.map(p => p.type) || []
+          }))
+        })
+
         // 1. Submit chat request to get job ID
+        const requestBody: Record<string, unknown> = {
+          messages: processedMessages,
+          ...bodyFn()
+        }
+        
+        // Include conversationId if we have one for conversation continuity
+        if (currentConversationId) {
+          requestBody.conversationId = currentConversationId
+        }
+
+        log.debug('Sending request with conversation context', {
+          hasConversationId: !!currentConversationId,
+          conversationId: currentConversationId
+        })
+
         const chatResponse = await fetch(apiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            messages,
-            ...bodyFn()
-          }),
+          body: JSON.stringify(requestBody),
           signal: abortSignal,
         })
 
@@ -94,7 +182,24 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
           throw new Error('No jobId received from chat request')
         }
 
-        log.info('Job created successfully', { jobId })
+        // Extract conversationId from response headers for conversation continuity
+        const responseConversationId = chatResponse.headers.get('X-Conversation-Id')
+        if (responseConversationId && responseConversationId !== currentConversationId) {
+          currentConversationId = responseConversationId
+          // Notify parent component of conversation ID change
+          if (onConversationIdChange) {
+            onConversationIdChange(currentConversationId)
+          }
+          log.info('Conversation ID updated', { 
+            previousId: currentConversationId, 
+            newId: responseConversationId 
+          })
+        }
+
+        log.info('Job created successfully', { 
+          jobId, 
+          conversationId: currentConversationId 
+        })
 
         // 2. Poll for job updates
         while (pollAttempts < maxPollAttempts) {
@@ -125,6 +230,8 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
             const pollController = new AbortController()
             const pollTimeout = setTimeout(() => pollController.abort(), pollTimeoutMs)
 
+            // Don't use the main abortSignal for individual polls to prevent React strict mode issues
+            // Each poll has its own timeout via pollController
             const pollResponse = await fetch(`${apiUrl}/jobs/${jobId}`, {
               method: 'GET',
               headers: {

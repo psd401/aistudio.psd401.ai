@@ -1,8 +1,22 @@
-*.js
-!jest.config.js
+# CDK compiled JavaScript files
+lib/**/*.js
+bin/**/*.js
 *.d.ts
-node_modules
 
-# CDK asset staging directory
+# Compiled Lambda distribution files
+**/dist/
+
+# Node modules everywhere
+**/node_modules/
+
+# Keep Lambda source code tracked (but not dist folders or node_modules)
+!lambdas/**/*.js
+!database/lambda/*.js
+!jest.config.js
+
+# CDK asset staging directory  
 .cdk.staging
 cdk.out
+
+# Package lock files in lambdas (can be regenerated)
+lambdas/**/package-lock.json

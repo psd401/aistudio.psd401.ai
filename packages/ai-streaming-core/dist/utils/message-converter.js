@@ -1,4 +1,8 @@
 "use strict";
+/**
+ * Message conversion utilities for handling different message formats
+ * between assistant-ui, AI SDK, and provider-specific formats
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.convertAssistantUIMessages = convertAssistantUIMessages;
 exports.normalizeMessage = normalizeMessage;
@@ -6,49 +10,18 @@ exports.extractTextContent = extractTextContent;
 exports.hasAttachments = hasAttachments;
 exports.validateMessage = validateMessage;
 exports.validateMessages = validateMessages;
-const logger_1 = require("./logger");
 /**
- * Convert assistant-ui messages to AI SDK CoreMessage format
+ * Pass messages through unchanged - let AI SDK convertToModelMessages handle the conversion
  */
 function convertAssistantUIMessages(messages) {
     return messages.map((msg) => normalizeMessage(msg));
 }
 /**
- * Normalize a single message to CoreMessage format with parts array
+ * Pass messages through unchanged - let AI SDK handle the conversion
  */
 function normalizeMessage(msg) {
-    // If message already has parts array, use it
-    if (msg.parts && Array.isArray(msg.parts)) {
-        return {
-            role: msg.role,
-            parts: msg.parts,
-            ...(msg.metadata && { metadata: msg.metadata })
-        };
-    }
-    // If message has content property with string, convert to parts
-    if ('content' in msg && typeof msg.content === 'string') {
-        return {
-            role: msg.role,
-            parts: [{ type: 'text', text: msg.content }],
-            ...(msg.metadata && { metadata: msg.metadata })
-        };
-    }
-    // If message has content property with array (assistant-ui format), use as parts
-    if ('content' in msg && Array.isArray(msg.content)) {
-        return {
-            role: msg.role,
-            parts: msg.content,
-            ...(msg.metadata && { metadata: msg.metadata })
-        };
-    }
-    // Fallback - create empty text part
-    const log = (0, logger_1.createLogger)({ module: 'MessageConverter' });
-    log.warn('Message has no content or parts, creating empty text part', { msg });
-    return {
-        role: msg.role,
-        parts: [{ type: 'text', text: '' }],
-        ...(msg.metadata && { metadata: msg.metadata })
-    };
+    // Return the message as-is and let convertToModelMessages handle proper conversion
+    return msg;
 }
 /**
  * Extract text content from a message
@@ -98,16 +71,17 @@ function hasAttachments(msg) {
  */
 function validateMessage(msg) {
     const errors = [];
-    if (!msg) {
-        errors.push('Message is null or undefined');
+    if (!msg || typeof msg !== 'object') {
+        errors.push('Message is null or undefined or not an object');
         return errors;
     }
-    if (!msg.role || !['user', 'assistant', 'system'].includes(msg.role)) {
-        errors.push(`Invalid role: ${msg.role}`);
+    const message = msg;
+    if (!message.role || !['user', 'assistant', 'system'].includes(message.role)) {
+        errors.push(`Invalid role: ${message.role}`);
     }
-    const hasContent = msg.content && (typeof msg.content === 'string' ||
-        Array.isArray(msg.content));
-    const hasParts = msg.parts && Array.isArray(msg.parts);
+    const hasContent = message.content && (typeof message.content === 'string' ||
+        Array.isArray(message.content));
+    const hasParts = message.parts && Array.isArray(message.parts);
     if (!hasContent && !hasParts) {
         errors.push('Message must have either content or parts');
     }

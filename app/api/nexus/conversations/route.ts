@@ -2,6 +2,7 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { executeSQL } from '@/lib/streaming/nexus/db-helpers';
 import { transformSnakeToCamel } from '@/lib/db/field-mapper';
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 
 
 interface ConversationListItem {
@@ -39,7 +40,15 @@ export async function GET(req: Request) {
       return new Response('Unauthorized', { status: 401 });
     }
     
-    const userId = session.sub;
+    // Get current user with integer ID
+    const currentUser = await getCurrentUserAction();
+    if (!currentUser.isSuccess) {
+      log.error('Failed to get current user');
+      timer({ status: 'error', reason: 'user_lookup_failed' });
+      return new Response('Unauthorized', { status: 401 });
+    }
+    
+    const userId = currentUser.data.user.id;
     
     // Parse query parameters
     const url = new URL(req.url);
@@ -47,28 +56,16 @@ export async function GET(req: Request) {
     const offset = parseInt(url.searchParams.get('offset') || '0');
     const includeArchived = url.searchParams.get('includeArchived') === 'true';
     
-    // Query conversations
+    // Query conversations 
     const query = `
       SELECT 
-        id,
-        title,
-        provider,
-        model_used,
-        message_count,
-        total_tokens,
-        last_message_at,
-        created_at,
-        updated_at,
-        is_archived,
-        is_pinned,
-        external_id,
-        cache_key
-      FROM nexus_conversations
-      WHERE user_id = $1
+        id, title, provider, model_used, message_count, total_tokens, 
+        last_message_at, created_at, updated_at, is_archived, is_pinned, 
+        external_id, cache_key 
+      FROM nexus_conversations 
+      WHERE user_id = $1 
         ${includeArchived ? '' : 'AND (is_archived = false OR is_archived IS NULL)'}
-      ORDER BY 
-        is_pinned DESC NULLS LAST,
-        COALESCE(last_message_at, updated_at) DESC
+      ORDER BY is_pinned DESC NULLS LAST, COALESCE(last_message_at, updated_at) DESC 
       LIMIT $2 OFFSET $3
     `;
     
@@ -81,9 +78,9 @@ export async function GET(req: Request) {
     
     // Get total count
     const countQuery = `
-      SELECT COUNT(*) as total
-      FROM nexus_conversations
-      WHERE user_id = $1
+      SELECT COUNT(*) as total 
+      FROM nexus_conversations 
+      WHERE user_id = $1 
         ${includeArchived ? '' : 'AND (is_archived = false OR is_archived IS NULL)'}
     `;
     
@@ -145,7 +142,15 @@ export async function POST(req: Request) {
       return new Response('Unauthorized', { status: 401 });
     }
     
-    const userId = session.sub;
+    // Get current user with integer ID
+    const currentUser = await getCurrentUserAction();
+    if (!currentUser.isSuccess) {
+      log.error('Failed to get current user');
+      timer({ status: 'error', reason: 'user_lookup_failed' });
+      return new Response('Unauthorized', { status: 401 });
+    }
+    
+    const userId = currentUser.data.user.id;
     
     // Parse request body
     const body = await req.json();
@@ -177,13 +182,7 @@ export async function POST(req: Request) {
         model_used as model_id,
         created_at,
         updated_at
-    `, [
-      userId,
-      title,
-      provider,
-      modelId,
-      metadata as Record<string, unknown>
-    ]);
+    `, [userId, title, provider, modelId, metadata]);
     
     const conversation = transformSnakeToCamel<{
       id: string;

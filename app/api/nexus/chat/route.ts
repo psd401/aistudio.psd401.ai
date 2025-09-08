@@ -10,6 +10,7 @@ import type { CreateJobRequest } from '@/lib/streaming/job-management-service';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { ErrorFactories } from '@/lib/error-utils';
 import { getStreamingJobsQueueUrl } from '@/lib/aws/queue-config';
+import { processMessagesWithAttachments } from '@/lib/services/attachment-storage-service';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -165,24 +166,40 @@ export async function POST(req: Request) {
       if (firstUserMessage) {
         // Extract text content for title generation
         let messageText = '';
-        const content = (firstUserMessage as UIMessage & { 
-          content?: string | Array<{ type: string; text?: string }> 
-        }).content;
         
-        if (typeof content === 'string') {
-          messageText = content;
-        } else if (Array.isArray(content)) {
-          const textPart = content.find(part => part.type === 'text' && part.text);
+        // Handle both legacy content format and new parts format
+        const messageWithContent = firstUserMessage as UIMessage & { 
+          content?: string | Array<{ type: string; text?: string }>;
+          parts?: Array<{ type: string; text?: string; [key: string]: unknown }>;
+        };
+        
+        // Check if message has parts (new format)
+        if (messageWithContent.parts && Array.isArray(messageWithContent.parts)) {
+          const textPart = messageWithContent.parts.find((part): part is { type: 'text'; text: string } => 
+            part.type === 'text' && typeof (part as Record<string, unknown>).text === 'string'
+          );
           if (textPart?.text) {
             messageText = textPart.text;
           }
+        } 
+        // Fallback to legacy content format
+        else if (messageWithContent.content) {
+          if (typeof messageWithContent.content === 'string') {
+            messageText = messageWithContent.content;
+          } else if (Array.isArray(messageWithContent.content)) {
+            const textPart = messageWithContent.content.find(part => part.type === 'text' && part.text);
+            if (textPart?.text) {
+              messageText = textPart.text;
+            }
+          }
         }
         
-        // Generate a concise title (max 100 chars)
+        // Generate a concise title (max 40 chars)
         if (messageText) {
           // Remove newlines and extra whitespace for header compatibility
-          conversationTitle = messageText.replace(/\s+/g, ' ').slice(0, 100).trim();
-          if (messageText.length > 100) {
+          const cleanedText = messageText.replace(/\s+/g, ' ').trim();
+          conversationTitle = cleanedText.slice(0, 40).trim();
+          if (cleanedText.length > 40) {
             conversationTitle += '...';
           }
         }
@@ -224,19 +241,40 @@ export async function POST(req: Request) {
       let userContent = '';
       let serializableParts: unknown[] = [];
       
-      // Handle assistant-ui message format - look for content array
-      const messageContent = (lastMessage as UIMessage & { 
-        content?: string | Array<{ type: string; text?: string; image?: string }> 
-      }).content;
+      // Handle both legacy content format and new parts format
+      const messageWithContent = lastMessage as UIMessage & { 
+        content?: string | Array<{ type: string; text?: string; image?: string }>;
+        parts?: Array<{ type: string; text?: string; image?: string; [key: string]: unknown }>;
+      };
       
-      if (messageContent) {
-        if (typeof messageContent === 'string') {
+      // Check if message has parts (new format)
+      if (messageWithContent.parts && Array.isArray(messageWithContent.parts)) {
+        messageWithContent.parts.forEach((part) => {
+          const typedPart = part as Record<string, unknown>;
+          if (part.type === 'text' && typeof typedPart.text === 'string') {
+            userContent += (userContent ? ' ' : '') + typedPart.text;
+            serializableParts.push({ type: 'text', text: typedPart.text });
+          } else if (typedPart.type === 'image' && typedPart.image) {
+            // Store only boolean flag - no image data or prefixes
+            serializableParts.push({ 
+              type: 'image',
+              metadata: {
+                hasImage: true
+                // No image data or prefixes stored for security/memory reasons
+              }
+            });
+          }
+        });
+      }
+      // Fallback to legacy content format
+      else if (messageWithContent.content) {
+        if (typeof messageWithContent.content === 'string') {
           // Simple string content
-          userContent = messageContent;
-          serializableParts = [{ type: 'text', text: messageContent }];
-        } else if (Array.isArray(messageContent)) {
+          userContent = messageWithContent.content;
+          serializableParts = [{ type: 'text', text: messageWithContent.content }];
+        } else if (Array.isArray(messageWithContent.content)) {
           // Content parts array (includes attachments from assistant-ui)
-          messageContent.forEach((part) => {
+          messageWithContent.content.forEach((part) => {
             if (part.type === 'text' && part.text) {
               userContent += (userContent ? ' ' : '') + part.text;
               serializableParts.push({ type: 'text', text: part.text });
@@ -350,22 +388,58 @@ export async function POST(req: Request) {
         } else if (Array.isArray(messageContent)) {
           const textPart = messageContent.find(part => part.type === 'text' && part.text);
           imagePrompt = (textPart?.text || '').trim();
+        } else if (lastMessage.parts && Array.isArray(lastMessage.parts)) {
+          const textPart = lastMessage.parts.find((part: { type: string; text?: string }) => part.type === 'text' && part.text);
+          imagePrompt = (textPart?.text || '').trim();
         }
       }
 
-      // Validate prompt length (typical AI image models have limits)
+      // Validate prompt length (reject if too long instead of truncating)
       if (imagePrompt.length > 4000) {
-        log.warn('Image prompt too long, truncating', { 
+        log.warn('Image prompt exceeds maximum length', { 
           originalLength: imagePrompt.length,
-          modelId 
+          modelId,
+          maxLength: 4000
         });
-        imagePrompt = imagePrompt.substring(0, 4000);
+        return new Response(
+          JSON.stringify({ 
+            error: 'Image prompt is too long. Maximum 4000 characters allowed.',
+            maxLength: 4000,
+            currentLength: imagePrompt.length
+          }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
       }
 
       if (imagePrompt.length === 0) {
         log.error('Empty image generation prompt');
         return new Response(
           JSON.stringify({ error: 'Image generation requires a text prompt' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Basic content policy validation - reject obvious harmful requests
+      const lowercasePrompt = imagePrompt.toLowerCase();
+      const forbiddenPatterns = [
+        'nude', 'naked', 'nsfw', 'explicit', 'sexual', 'porn', 'erotic',
+        'violence', 'blood', 'gore', 'weapon', 'harm', 'kill', 'death',
+        'hate', 'racist', 'discriminatory', 'offensive'
+      ];
+      
+      const hasForbiddenContent = forbiddenPatterns.some(pattern => 
+        lowercasePrompt.includes(pattern)
+      );
+
+      if (hasForbiddenContent) {
+        log.warn('Image prompt violates content policy', {
+          promptLength: imagePrompt.length,
+          modelId
+        });
+        return new Response(
+          JSON.stringify({ 
+            error: 'Image prompt violates content policy. Please revise your request.' 
+          }),
           { status: 400, headers: { 'Content-Type': 'application/json' } }
         );
       }
@@ -387,11 +461,50 @@ export async function POST(req: Request) {
       }));
     }
 
+    // Convert messages to AI SDK v5 format (parts array) before processing attachments
+    const messagesWithParts: UIMessage[] = messages.map(message => {
+      // If message already has parts, use as-is
+      if (message.parts) {
+        return message;
+      }
+      
+      // Convert legacy content format to parts format
+      const messageContent = (message as UIMessage & { 
+        content?: string | Array<{ type: string; text?: string; image?: string }> 
+      }).content;
+      
+      if (typeof messageContent === 'string') {
+        // Simple string content
+        return {
+          ...message,
+          parts: [{ type: 'text', text: messageContent }]
+        };
+      } else if (Array.isArray(messageContent)) {
+        // Content parts array - convert to parts format
+        return {
+          ...message,
+          parts: messageContent
+        };
+      } else {
+        // No content, create empty parts
+        return {
+          ...message,
+          parts: []
+        };
+      }
+    });
+
+    // Process messages to store attachments in S3 and create lightweight versions
+    const { lightweightMessages, attachmentReferences } = await processMessagesWithAttachments(
+      conversationId,
+      messagesWithParts
+    );
+
     const jobRequest: CreateJobRequest = {
       conversationId: conversationId, // Keep as UUID string for nexus
       userId: userId,
       modelId: dbModelId,
-      messages: messages as UIMessage[],
+      messages: lightweightMessages as UIMessage[], // Lightweight messages (attachments in S3)
       provider: provider,
       modelIdString: modelId,
       systemPrompt,
@@ -420,7 +533,12 @@ export async function POST(req: Request) {
       try {
         const sqsCommand = new SendMessageCommand({
           QueueUrl: queueUrl,
-          MessageBody: jobId,
+          MessageBody: JSON.stringify({
+            jobId,
+            hasAttachments: attachmentReferences.length > 0,
+            attachmentCount: attachmentReferences.length,
+            attachmentReferences: attachmentReferences // S3 metadata for reconstruction
+          }),
           MessageAttributes: {
             jobType: {
               DataType: 'String',
