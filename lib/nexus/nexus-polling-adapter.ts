@@ -1,5 +1,6 @@
 import type { ChatModelAdapter } from '@assistant-ui/react'
 import { createLogger } from '@/lib/client-logger'
+import { generateUUID } from '@/lib/utils/uuid'
 
 const log = createLogger({ moduleName: 'nexus-polling-adapter' })
 
@@ -130,7 +131,7 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
           }
           
           return {
-            id: message.id || globalThis.crypto.randomUUID(),
+            id: message.id || generateUUID(),
             role: message.role,
             parts: parts.length > 0 ? parts : [{ type: 'text', text: '' }]
           }
