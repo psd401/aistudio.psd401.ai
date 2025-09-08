@@ -34,9 +34,10 @@ import {
 
 interface ThreadProps {
   processingAttachments?: Set<string>;
+  conversationId?: string | null;
 }
 
-export const Thread: FC<ThreadProps> = ({ processingAttachments }) => {
+export const Thread: FC<ThreadProps> = ({ processingAttachments, conversationId }) => {
   return (
     <ThreadPrimitive.Root
       className="bg-white flex h-full flex-col"
@@ -46,7 +47,7 @@ export const Thread: FC<ThreadProps> = ({ processingAttachments }) => {
       }}
     >
       <ThreadPrimitive.Viewport className="relative flex min-w-0 flex-1 flex-col gap-6 overflow-y-scroll">
-        <ThreadWelcome />
+        <ThreadWelcome conversationId={conversationId} />
 
         <ThreadPrimitive.Messages
           components={{
@@ -80,8 +81,24 @@ const ThreadScrollToBottom: FC = () => {
   );
 };
 
-const ThreadWelcome: FC = () => {
+const ThreadWelcome: FC<{ conversationId?: string | null }> = ({ conversationId }) => {
   const { data: session } = useSession();
+  
+  // If we have a conversationId (loading existing conversation), show loading state
+  if (conversationId) {
+    return (
+      <ThreadPrimitive.Empty>
+        <div className="mx-auto flex w-full max-w-[var(--thread-max-width)] flex-grow flex-col px-[var(--thread-padding-x)]">
+          <div className="flex w-full flex-grow flex-col items-center justify-center">
+            <div className="flex items-center space-x-2">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
+              <span className="text-muted-foreground">Loading conversation...</span>
+            </div>
+          </div>
+        </div>
+      </ThreadPrimitive.Empty>
+    );
+  }
   
   // Extract user name with fallback
   const getUserName = () => {
