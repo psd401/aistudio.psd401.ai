@@ -14,6 +14,7 @@ import { CodeInterpreterUI } from './_components/tools/code-interpreter-ui'
 import { useModelsWithPersistence } from '@/lib/hooks/use-models'
 import { createEnhancedNexusAttachmentAdapter } from '@/lib/nexus/enhanced-attachment-adapters'
 import { createNexusPollingAdapter } from '@/lib/nexus/nexus-polling-adapter'
+import { validateConversationId } from '@/lib/nexus/conversation-navigation'
 import type { SelectAiModel } from '@/types'
 import { createLogger } from '@/lib/client-logger'
 
@@ -62,8 +63,19 @@ export default function NexusPage() {
   const searchParams = useSearchParams()
   const { data: session, status: sessionStatus } = useSession()
   
-  // Get conversation ID from URL parameter
+  // Get conversation ID from URL parameter with validation
   const urlConversationId = searchParams.get('id')
+  const validatedConversationId = useMemo(() => {
+    if (validateConversationId(urlConversationId)) {
+      return urlConversationId
+    }
+    
+    if (urlConversationId) {
+      log.warn('Invalid conversation ID in URL parameter', { urlConversationId })
+    }
+    
+    return null
+  }, [urlConversationId])
   
   // Load models and manage model selection
   const { 
@@ -80,8 +92,8 @@ export default function NexusPage() {
   // Attachment processing state
   const [processingAttachments, setProcessingAttachments] = useState<Set<string>>(new Set())
   
-  // Conversation continuity state - initialize from URL parameter
-  const [conversationId, setConversationId] = useState<string | null>(urlConversationId)
+  // Conversation continuity state - initialize from validated URL parameter
+  const [conversationId, setConversationId] = useState<string | null>(validatedConversationId)
   
   
   // Conversation context for history adapter
@@ -146,6 +158,16 @@ export default function NexusPage() {
     })
   }, [conversationId, conversationContext, router])
   
+  // Handle invalid conversation ID in URL - redirect to clean state
+  useEffect(() => {
+    if (urlConversationId && !validatedConversationId) {
+      // URL had conversation ID but it was invalid - redirect to clean nexus
+      log.warn('Redirecting due to invalid conversation ID in URL', { urlConversationId })
+      router.replace('/nexus')
+      return
+    }
+  }, [urlConversationId, validatedConversationId, router])
+
   // Authentication verification for defense in depth
   useEffect(() => {
     if (sessionStatus === 'loading') return // Still loading, wait

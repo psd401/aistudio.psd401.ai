@@ -5,6 +5,7 @@ import { ModelSelector } from '@/components/features/model-selector'
 import { CompactToolSelector } from '../tools/compact-tool-selector'
 import { Button } from '@/components/ui/button'
 import { Plus } from 'lucide-react'
+import { navigateToNewConversation } from '@/lib/nexus/conversation-navigation'
 import type { SelectAiModel } from '@/types'
 
 interface NexusHeaderProps {
@@ -49,7 +50,7 @@ export function NexusHeader({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => window.location.href = '/nexus'}
+            onClick={() => navigateToNewConversation()}
             className="flex items-center gap-1.5"
             title="Start new chat"
           >

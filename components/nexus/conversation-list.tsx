@@ -6,6 +6,7 @@ import { TooltipIconButton } from '@/components/assistant-ui/tooltip-icon-button
 import { ArchiveIcon, MessageSquareIcon } from 'lucide-react'
 import { createLogger } from '@/lib/client-logger'
 import { useRouter } from 'next/navigation'
+import { navigateToConversation } from '@/lib/nexus/conversation-navigation'
 
 const log = createLogger({ moduleName: 'nexus-conversation-list' })
 
@@ -32,7 +33,7 @@ export function ConversationList({ selectedConversationId }: ConversationListPro
   const router = useRouter()
   
 
-  // Load conversations from database
+  // Load conversations from database with comprehensive error handling
   const loadConversations = useCallback(async () => {
     try {
       setLoading(true)
@@ -40,19 +41,61 @@ export function ConversationList({ selectedConversationId }: ConversationListPro
       
       log.debug('Loading conversations from API')
       
-      const response = await fetch('/api/nexus/conversations?limit=500')
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+      
+      const response = await fetch('/api/nexus/conversations?limit=500', {
+        signal: controller.signal
+      })
+      
+      clearTimeout(timeoutId)
+      
       if (!response.ok) {
-        throw new Error(`Failed to load conversations: ${response.status}`)
+        if (response.status === 401) {
+          throw new Error('Authentication required. Please sign in again.')
+        } else if (response.status === 403) {
+          throw new Error('Access denied. You do not have permission to view conversations.')
+        } else if (response.status >= 500) {
+          throw new Error('Server error. Please try again later.')
+        } else {
+          throw new Error(`Failed to load conversations: ${response.status}`)
+        }
       }
       
       const data = await response.json()
       const { conversations: loadedConversations = [] } = data
       
-      setConversations(loadedConversations)
-      log.debug('Conversations loaded', { count: loadedConversations.length })
+      // Validate conversation data structure
+      const validConversations = loadedConversations.filter((conv: unknown): conv is ConversationItem => {
+        return conv && 
+               typeof conv === 'object' && 
+               'id' in conv && 
+               'title' in conv &&
+               typeof conv.id === 'string' && 
+               typeof conv.title === 'string'
+      })
+      
+      if (validConversations.length !== loadedConversations.length) {
+        log.warn('Some conversations had invalid data structure', { 
+          total: loadedConversations.length,
+          valid: validConversations.length
+        })
+      }
+      
+      setConversations(validConversations)
+      log.debug('Conversations loaded', { count: validConversations.length })
       
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load conversations'
+      let errorMessage = 'Failed to load conversations'
+      
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          errorMessage = 'Request timed out. Please check your connection and try again.'
+        } else {
+          errorMessage = err.message
+        }
+      }
+      
       log.error('Failed to load conversations', { error: errorMessage })
       setError(errorMessage)
     } finally {
@@ -66,18 +109,23 @@ export function ConversationList({ selectedConversationId }: ConversationListPro
   }, [loadConversations])
 
 
-  // Handle conversation selection with full page reload
+  // Handle conversation selection with secure navigation
   const handleConversationSelect = useCallback((conversationId: string) => {
     log.debug('Conversation selected', { conversationId })
-    window.location.href = `/nexus?id=${conversationId}`
+    navigateToConversation(conversationId)
   }, [])
 
-  // Handle archiving a conversation using server action
+  // Handle archiving a conversation using server action with comprehensive error handling
   const handleArchiveConversation = useCallback(async (conversationId: string, event: React.MouseEvent) => {
     event.stopPropagation() // Prevent triggering conversation selection
     
     try {
       log.debug('Archiving conversation', { conversationId })
+      
+      // Validate conversation ID before proceeding
+      if (!conversationId || typeof conversationId !== 'string') {
+        throw new Error('Invalid conversation ID')
+      }
       
       // Use server action instead of direct API call
       const { archiveConversationAction } = await import('@/actions/nexus/archive-conversation.actions')
@@ -101,10 +149,19 @@ export function ConversationList({ selectedConversationId }: ConversationListPro
       log.debug('Conversation archived successfully', { conversationId })
       
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to archive conversation'
       log.error('Failed to archive conversation', {
         conversationId,
-        error: err instanceof Error ? err.message : String(err)
+        error: errorMessage
       })
+      
+      // Show user-friendly error feedback (could be enhanced with toast notifications)
+      setError(`Archive failed: ${errorMessage}`)
+      
+      // Clear error after a delay
+      setTimeout(() => {
+        setError(null)
+      }, 5000)
     }
   }, [selectedConversationId, router])
 
