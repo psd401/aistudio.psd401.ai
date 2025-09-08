@@ -2,7 +2,9 @@ import { DynamoDBClient, PutItemCommand, QueryCommand, AttributeValue } from '@a
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { createLogger } from '@/lib/logger';
 
-const dynamoClient = new DynamoDBClient({});
+const dynamoClient = new DynamoDBClient({
+  region: process.env.NEXT_PUBLIC_AWS_REGION || process.env.AWS_REGION || 'us-east-1'
+});
 const log = createLogger({ service: 'document-job-service' });
 
 // Dynamic environment variable loading for test compatibility
