@@ -1,9 +1,9 @@
 'use client'
 
-import { AssistantRuntimeProvider, useLocalRuntime } from '@assistant-ui/react'
+import { AssistantRuntimeProvider, useLocalRuntime, type ChatModelAdapter, type AttachmentAdapter } from '@assistant-ui/react'
 import { Thread } from '@/components/assistant-ui/thread'
 import { useSession } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useCallback, useState, useRef } from 'react'
 import { NexusShell } from './_components/layout/nexus-shell'
 import { ErrorBoundary } from './_components/error-boundary'
@@ -14,14 +14,68 @@ import { CodeInterpreterUI } from './_components/tools/code-interpreter-ui'
 import { useModelsWithPersistence } from '@/lib/hooks/use-models'
 import { createEnhancedNexusAttachmentAdapter } from '@/lib/nexus/enhanced-attachment-adapters'
 import { createNexusPollingAdapter } from '@/lib/nexus/nexus-polling-adapter'
+import { validateConversationId } from '@/lib/nexus/conversation-navigation'
 import type { SelectAiModel } from '@/types'
 import { createLogger } from '@/lib/client-logger'
 
 const log = createLogger({ moduleName: 'nexus-page' })
 
+// Stable ConversationRuntime component - no remounting when conversationId changes
+interface ConversationRuntimeProviderProps {
+  children: React.ReactNode
+  conversationId: string | null
+  pollingAdapter: ChatModelAdapter | null
+  fallbackAdapter: ChatModelAdapter
+  attachmentAdapter: AttachmentAdapter
+}
+
+function ConversationRuntimeProvider({ 
+  children, 
+  conversationId,
+  pollingAdapter,
+  fallbackAdapter,
+  attachmentAdapter 
+}: ConversationRuntimeProviderProps) {
+  const historyAdapter = useMemo(
+    () => createNexusHistoryAdapter(conversationId),
+    [conversationId]
+  )
+  
+  const runtime = useLocalRuntime(
+    pollingAdapter || fallbackAdapter,
+    {
+      adapters: {
+        attachments: attachmentAdapter,
+        history: historyAdapter,
+      },
+    }
+  )
+  
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      {children}
+    </AssistantRuntimeProvider>
+  )
+}
+
 export default function NexusPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { data: session, status: sessionStatus } = useSession()
+  
+  // Get conversation ID from URL parameter with validation
+  const urlConversationId = searchParams.get('id')
+  const validatedConversationId = useMemo(() => {
+    if (validateConversationId(urlConversationId)) {
+      return urlConversationId
+    }
+    
+    if (urlConversationId) {
+      log.warn('Invalid conversation ID in URL parameter', { urlConversationId })
+    }
+    
+    return null
+  }, [urlConversationId])
   
   // Load models and manage model selection
   const { 
@@ -38,8 +92,8 @@ export default function NexusPage() {
   // Attachment processing state
   const [processingAttachments, setProcessingAttachments] = useState<Set<string>>(new Set())
   
-  // Conversation continuity state
-  const [conversationId, setConversationId] = useState<string | null>(null)
+  // Conversation continuity state - initialize from validated URL parameter
+  const [conversationId, setConversationId] = useState<string | null>(validatedConversationId)
   
   
   // Conversation context for history adapter
@@ -92,21 +146,28 @@ export default function NexusPage() {
   const handleConversationIdChange = useCallback((newConversationId: string) => {
     setConversationId(newConversationId)
     conversationContext.setConversationId(newConversationId)
+    
+    // Update URL to reflect the current conversation
+    const newUrl = `/nexus?id=${newConversationId}`
+    router.push(newUrl, { scroll: false })
+    
     log.debug('Conversation ID updated', { 
       previousId: conversationId, 
-      newId: newConversationId 
+      newId: newConversationId,
+      newUrl
     })
-  }, [conversationId, conversationContext])
+  }, [conversationId, conversationContext, router])
   
-  // Handle conversation selection from conversation list
-  const handleConversationSelect = useCallback((selectedConversationId: string | null) => {
-    setConversationId(selectedConversationId)
-    conversationContext.setConversationId(selectedConversationId)
-    log.debug('Conversation selected from list', { 
-      conversationId: selectedConversationId 
-    })
-  }, [conversationContext])
-  
+  // Handle invalid conversation ID in URL - redirect to clean state
+  useEffect(() => {
+    if (urlConversationId && !validatedConversationId) {
+      // URL had conversation ID but it was invalid - redirect to clean nexus
+      log.warn('Redirecting due to invalid conversation ID in URL', { urlConversationId })
+      router.replace('/nexus')
+      return
+    }
+  }, [urlConversationId, validatedConversationId, router])
+
   // Authentication verification for defense in depth
   useEffect(() => {
     if (sessionStatus === 'loading') return // Still loading, wait
@@ -155,29 +216,6 @@ export default function NexusPage() {
     })
   }, [handleAttachmentProcessingStart, handleAttachmentProcessingComplete])
 
-  // Create a component that remounts when conversation changes
-  const ConversationRuntime = useMemo(() => {
-    // This component will be recreated when conversationId changes
-    return function ConversationRuntimeComponent({ children }: { children: React.ReactNode }) {
-      const historyAdapter = createNexusHistoryAdapter(conversationId)
-      
-      const runtime = useLocalRuntime(
-        pollingAdapter || fallbackAdapter,
-        {
-          adapters: {
-            attachments: attachmentAdapter,
-            history: historyAdapter,
-          },
-        }
-      )
-      
-      return (
-        <AssistantRuntimeProvider runtime={runtime}>
-          {children}
-        </AssistantRuntimeProvider>
-      )
-    }
-  }, [conversationId, pollingAdapter, fallbackAdapter, attachmentAdapter])
 
   
   // Show loading state while checking authentication
@@ -209,19 +247,23 @@ export default function NexusPage() {
       >
         <div className="relative h-full">
           {selectedModel ? (
-            <ConversationRuntime>
+            <ConversationRuntimeProvider
+              conversationId={conversationId}
+              pollingAdapter={pollingAdapter}
+              fallbackAdapter={fallbackAdapter}
+              attachmentAdapter={attachmentAdapter}
+            >
               {/* Register tool UI components */}
               <WebSearchUI />
               <CodeInterpreterUI />
               
               <div className="flex h-full flex-col">
-                <Thread processingAttachments={processingAttachments} />
+                <Thread processingAttachments={processingAttachments} conversationId={conversationId} />
               </div>
               <ConversationPanel 
-                onConversationSelect={handleConversationSelect}
                 selectedConversationId={conversationId}
               />
-            </ConversationRuntime>
+            </ConversationRuntimeProvider>
           ) : (
             <div className="flex h-full items-center justify-center">
               <div className="text-center">

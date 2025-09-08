@@ -9,11 +9,10 @@ import { Button } from '@/components/ui/button'
 import { PanelRightOpen, PanelRightClose } from 'lucide-react'
 
 interface ConversationPanelProps {
-  onConversationSelect?: (conversationId: string | null) => void
   selectedConversationId?: string | null
 }
 
-export function ConversationPanel({ onConversationSelect, selectedConversationId }: ConversationPanelProps) {
+export function ConversationPanel({ selectedConversationId }: ConversationPanelProps) {
   const [isOpen, setIsOpen] = useState(false)
   const isMobile = useMediaQuery('(max-width: 640px)')
 
@@ -42,7 +41,6 @@ export function ConversationPanel({ onConversationSelect, selectedConversationId
             
             <div className="flex-1 overflow-y-auto px-4 pb-4 max-h-[calc(80vh-6rem)]">
               <ConversationList 
-                onConversationSelect={onConversationSelect}
                 selectedConversationId={selectedConversationId}
               />
             </div>
@@ -74,7 +72,6 @@ export function ConversationPanel({ onConversationSelect, selectedConversationId
           
           <div className="flex-1 overflow-y-auto mt-4 max-h-[calc(100vh-8rem)]">
             <ConversationList 
-              onConversationSelect={onConversationSelect}
               selectedConversationId={selectedConversationId}
             />
           </div>

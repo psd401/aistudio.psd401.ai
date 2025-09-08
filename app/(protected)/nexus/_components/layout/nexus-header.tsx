@@ -5,6 +5,7 @@ import { ModelSelector } from '@/components/features/model-selector'
 import { CompactToolSelector } from '../tools/compact-tool-selector'
 import { Button } from '@/components/ui/button'
 import { Plus } from 'lucide-react'
+import { navigateToNewConversation } from '@/lib/nexus/conversation-navigation'
 import type { SelectAiModel } from '@/types'
 
 interface NexusHeaderProps {
@@ -45,11 +46,11 @@ export function NexusHeader({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* New Chat Button - Not graceful but works like model selector */}
+          {/* New Chat Button - Full page reload to reset conversation */}
           <Button
             variant="outline"
             size="sm"
-            onClick={() => window.location.reload()}
+            onClick={() => navigateToNewConversation()}
             className="flex items-center gap-1.5"
             title="Start new chat"
           >
