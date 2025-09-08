@@ -4,6 +4,9 @@ import { AlertCircle, Home, LogIn, Mail } from "lucide-react"
 import Link from "next/link"
 import { getCurrentUserAction } from "@/actions/db/get-current-user-action"
 
+// Force dynamic rendering to allow headers() usage in server actions
+export const dynamic = 'force-dynamic'
+
 export default async function UnauthorizedPage() {
   const userResult = await getCurrentUserAction()
   const userRoles = userResult.isSuccess && userResult.data 
