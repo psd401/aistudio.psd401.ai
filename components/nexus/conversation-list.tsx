@@ -67,12 +67,13 @@ export function ConversationList({ selectedConversationId }: ConversationListPro
       
       // Validate conversation data structure
       const validConversations = loadedConversations.filter((conv: unknown): conv is ConversationItem => {
-        return conv && 
+        return Boolean(conv) && 
                typeof conv === 'object' && 
+               conv !== null &&
                'id' in conv && 
                'title' in conv &&
-               typeof conv.id === 'string' && 
-               typeof conv.title === 'string'
+               typeof (conv as Record<string, unknown>).id === 'string' && 
+               typeof (conv as Record<string, unknown>).title === 'string'
       })
       
       if (validConversations.length !== loadedConversations.length) {
