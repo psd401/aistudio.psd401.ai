@@ -1,10 +1,10 @@
 import { DynamoDBClient, PutItemCommand, QueryCommand, AttributeValue } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
-import { createLogger, generateRequestId, sanitizeForLogging } from '@/lib/logger';
-import crypto from 'crypto';
+import { createLogger, generateRequestId } from '@/lib/logger';
+import { generateUUID } from '@/lib/utils/uuid';
 
 const dynamoClient = new DynamoDBClient({
-  region: 'us-east-1', // Explicit region - AWS Amplify SSR needs this
+  region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
   maxAttempts: 3,
 });
 const log = createLogger({ service: 'document-job-service' });
@@ -72,11 +72,16 @@ export async function createDocumentJob(params: CreateJobParams): Promise<Docume
       hasTableName: !!tableName,
       region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION,
       environment: process.env.NODE_ENV,
-      params: sanitizeForLogging(params)
+      fileSize: params.fileSize,
+      fileType: params.fileType,
+      purpose: params.purpose,
+      userId: params.userId.substring(0, 8) + '...', // Log only first 8 chars of user ID
+      fileName: params.fileName ? params.fileName.substring(0, 50) + (params.fileName.length > 50 ? '...' : '') : undefined,
+      hasProcessingOptions: !!params.processingOptions
     });
 
     // Step 2: Generate job ID
-    const jobId = crypto.randomUUID();
+    const jobId = generateUUID();
     jobLog.info('Generated job ID', { jobId });
 
     const timestamp = Date.now();
@@ -141,9 +146,18 @@ export async function createDocumentJob(params: CreateJobParams): Promise<Docume
     
     jobLog.error('Failed to create document job', { 
       error: errorDetails,
-      params: sanitizeForLogging(params),
+      fileSize: params.fileSize,
+      fileType: params.fileType,
+      purpose: params.purpose,
+      fileName: params.fileName ? params.fileName.substring(0, 50) + (params.fileName.length > 50 ? '...' : '') : undefined,
       requestId
     });
+    // Preserve AWS error context for better debugging
+    if (error && typeof error === 'object' && 'name' in error && error.name) {
+      // Re-throw AWS SDK errors to preserve their structure
+      throw error;
+    }
+    // Fallback for non-AWS errors
     throw new Error(`Failed to create document job: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -194,6 +208,10 @@ export async function getJobStatus(jobId: string, userId?: string): Promise<Docu
     };
   } catch (error) {
     log.error('Failed to get job status', { error, jobId, userId });
+    // Preserve AWS error context for better debugging
+    if (error && typeof error === 'object' && 'name' in error && error.name) {
+      throw error;
+    }
     throw new Error(`Failed to get job status: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -253,6 +271,10 @@ export async function updateJobStatus(
     log.info('Job status updated with complete data', { jobId, status, updates });
   } catch (error) {
     log.error('Failed to update job status', { error, jobId, status, updates });
+    // Preserve AWS error context for better debugging
+    if (error && typeof error === 'object' && 'name' in error && error.name) {
+      throw error;
+    }
     throw new Error(`Failed to update job status: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -267,6 +289,10 @@ export async function confirmDocumentUpload(jobId: string, uploadId: string): Pr
     log.info('Document upload confirmed', { jobId, uploadId });
   } catch (error) {
     log.error('Failed to confirm document upload', { error, jobId, uploadId });
+    // Preserve AWS error context for better debugging
+    if (error && typeof error === 'object' && 'name' in error && error.name) {
+      throw error;
+    }
     throw new Error(`Failed to confirm upload: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -319,6 +345,10 @@ export async function getUserJobs(
     };
   } catch (error) {
     log.error('Failed to get user jobs', { error, userId });
+    // Preserve AWS error context for better debugging
+    if (error && typeof error === 'object' && 'name' in error && error.name) {
+      throw error;
+    }
     throw new Error(`Failed to get user jobs: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -364,6 +394,10 @@ export async function getJobsByStatus(
     });
   } catch (error) {
     log.error('Failed to get jobs by status', { error, status });
+    // Preserve AWS error context for better debugging
+    if (error && typeof error === 'object' && 'name' in error && error.name) {
+      throw error;
+    }
     throw new Error(`Failed to get jobs by status: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -394,6 +428,10 @@ export async function fetchResultFromS3(s3Key: string): Promise<Record<string, u
     return JSON.parse(bodyText);
   } catch (error) {
     log.error('Failed to fetch result from S3', { error, s3Key });
+    // Preserve AWS error context for better debugging
+    if (error && typeof error === 'object' && 'name' in error && error.name) {
+      throw error;
+    }
     throw new Error(`Failed to fetch result from S3: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }

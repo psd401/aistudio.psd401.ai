@@ -1,6 +1,6 @@
 import { createLogger } from '@/lib/logger';
 import type { StreamRequest, StreamResponse, StreamingCallbacks } from './types';
-import crypto from 'crypto';
+import { generateUUID } from '@/lib/utils/uuid';
 
 const log = createLogger({ module: 'openai-responses-api' });
 
@@ -360,7 +360,7 @@ export async function streamWithResponsesAPI(
         reasoningTokens: result.reasoningTokens
       })
     },
-    requestId: crypto.randomUUID(),
+    requestId: generateUUID(),
     capabilities: {
       supportsReasoning: true,
       supportsThinking: false,

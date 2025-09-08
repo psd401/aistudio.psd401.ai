@@ -1,7 +1,7 @@
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { createLogger } from '@/lib/logger';
 import type { UIMessage } from 'ai';
-import crypto from 'crypto';
+import { generateUUID } from '@/lib/utils/uuid';
 
 const s3Client = new S3Client({});
 const log = createLogger({ service: 'attachment-storage' });
@@ -58,7 +58,7 @@ export async function storeAttachmentInS3(
   attachmentIndex: number
 ): Promise<AttachmentMetadata> {
   try {
-    const attachmentId = attachment.id || crypto.randomUUID();
+    const attachmentId = attachment.id || generateUUID();
     const sanitizedName = sanitizeFileName(attachment.name || 'attachment');
     
     // Create conversation-scoped S3 key
@@ -178,7 +178,7 @@ export async function processMessagesWithAttachments(
   
   for (let msgIndex = 0; msgIndex < messages.length; msgIndex++) {
     const message = messages[msgIndex];
-    const messageId = crypto.randomUUID();
+    const messageId = generateUUID();
     
     if (Array.isArray(message.parts)) {
       const lightweightParts = [];
