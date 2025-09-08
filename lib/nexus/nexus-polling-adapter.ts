@@ -80,6 +80,7 @@ export function createNexusPollingAdapter(options: NexusPollingAdapterOptions): 
         }))
       })
 
+
       let jobId: string | null = null
       let pollingInterval = 1000 // Start with 1 second
       let pollAttempts = 0

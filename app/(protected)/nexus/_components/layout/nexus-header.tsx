@@ -3,6 +3,8 @@
 import Image from 'next/image'
 import { ModelSelector } from '@/components/features/model-selector'
 import { CompactToolSelector } from '../tools/compact-tool-selector'
+import { Button } from '@/components/ui/button'
+import { Plus } from 'lucide-react'
 import type { SelectAiModel } from '@/types'
 
 interface NexusHeaderProps {
@@ -43,6 +45,17 @@ export function NexusHeader({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* New Chat Button - Not graceful but works like model selector */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.location.reload()}
+            className="flex items-center gap-1.5"
+            title="Start new chat"
+          >
+            <Plus className="h-4 w-4" />
+            New Chat
+          </Button>
           <CompactToolSelector
             selectedModel={selectedModel}
             enabledTools={enabledTools}

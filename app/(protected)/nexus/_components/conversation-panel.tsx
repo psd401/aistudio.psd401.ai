@@ -3,12 +3,17 @@
 import { useState } from 'react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
-import { ThreadList } from '@/components/assistant-ui/thread-list'
+import { ConversationList } from '@/components/nexus/conversation-list'
 import { useMediaQuery } from '@/lib/hooks/use-media-query'
 import { Button } from '@/components/ui/button'
 import { PanelRightOpen, PanelRightClose } from 'lucide-react'
 
-export function ConversationPanel() {
+interface ConversationPanelProps {
+  onConversationSelect?: (conversationId: string | null) => void
+  selectedConversationId?: string | null
+}
+
+export function ConversationPanel({ onConversationSelect, selectedConversationId }: ConversationPanelProps) {
   const [isOpen, setIsOpen] = useState(false)
   const isMobile = useMediaQuery('(max-width: 640px)')
 
@@ -35,8 +40,11 @@ export function ConversationPanel() {
               <DrawerTitle>Conversations</DrawerTitle>
             </DrawerHeader>
             
-            <div className="flex-1 overflow-auto px-4 pb-4">
-              <ThreadList />
+            <div className="flex-1 overflow-y-auto px-4 pb-4 max-h-[calc(80vh-6rem)]">
+              <ConversationList 
+                onConversationSelect={onConversationSelect}
+                selectedConversationId={selectedConversationId}
+              />
             </div>
           </DrawerContent>
         </Drawer>
@@ -64,8 +72,11 @@ export function ConversationPanel() {
             <SheetTitle>Conversations</SheetTitle>
           </SheetHeader>
           
-          <div className="flex-1 overflow-auto mt-4">
-            <ThreadList />
+          <div className="flex-1 overflow-y-auto mt-4 max-h-[calc(100vh-8rem)]">
+            <ConversationList 
+              onConversationSelect={onConversationSelect}
+              selectedConversationId={selectedConversationId}
+            />
           </div>
         </SheetContent>
       </Sheet>
