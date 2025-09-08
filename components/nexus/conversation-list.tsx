@@ -86,21 +86,22 @@ export function ConversationList({ onConversationSelect, selectedConversationId 
     }
   }, [onConversationSelect])
 
-  // Handle archiving a conversation
+  // Handle archiving a conversation using server action
   const handleArchiveConversation = useCallback(async (conversationId: string, event: React.MouseEvent) => {
     event.stopPropagation() // Prevent triggering conversation selection
     
     try {
       log.debug('Archiving conversation', { conversationId })
       
-      const response = await fetch(`/api/nexus/conversations/${conversationId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isArchived: true })
-      })
+      // Use server action instead of direct API call
+      const { archiveConversationAction } = await import('@/actions/nexus/archive-conversation.actions')
+      const result = await archiveConversationAction({ conversationId })
       
-      if (!response.ok) {
-        throw new Error(`Failed to archive conversation: ${response.status}`)
+      if (!result.isSuccess) {
+        const errorMessage = result.error instanceof Error ? result.error.message : 
+                           typeof result.error === 'string' ? result.error : 
+                           'Failed to archive conversation'
+        throw new Error(errorMessage)
       }
       
       // Remove from local state

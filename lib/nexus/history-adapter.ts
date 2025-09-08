@@ -13,17 +13,42 @@ type ExportedMessageRepository = {
   }>
 }
 
+// Type for incoming message data from API
+type MessageData = {
+  id: string
+  role: 'user' | 'assistant' | 'system'
+  content?: Array<{ type: 'text'; text?: string; [key: string]: unknown }> | string
+  createdAt?: string | Date
+  [key: string]: unknown
+}
+
 // We'll use a simple implementation since ExportedMessageRepository.fromArray may not be accessible
-const createExportedMessageRepository = (messages: any[]): ExportedMessageRepository => ({
-  messages: messages.map((msg, index) => ({
-    message: INTERNAL.fromThreadMessageLike({
-      id: msg.id,
-      role: msg.role,
-      content: msg.content || [{ type: 'text', text: '' }],
-      ...(msg.createdAt && { createdAt: new Date(msg.createdAt) }),
-    }, msg.id, { type: 'complete', reason: 'unknown' }),
-    parentId: index === 0 ? null : messages[index - 1]?.id || null
-  }))
+const createExportedMessageRepository = (messages: MessageData[]): ExportedMessageRepository => ({
+  messages: messages.map((msg, index) => {
+    // Ensure content is in the correct format for assistant-ui
+    let content: Array<{ type: 'text'; text: string }> = []
+    
+    if (Array.isArray(msg.content)) {
+      content = msg.content.map(part => ({
+        type: 'text' as const,
+        text: part.text || ''
+      }))
+    } else if (typeof msg.content === 'string') {
+      content = [{ type: 'text', text: msg.content }]
+    } else {
+      content = [{ type: 'text', text: '' }]
+    }
+    
+    return {
+      message: INTERNAL.fromThreadMessageLike({
+        id: msg.id,
+        role: msg.role,
+        content,
+        ...(msg.createdAt && { createdAt: new Date(msg.createdAt) }),
+      }, msg.id, { type: 'complete', reason: 'unknown' }),
+      parentId: index === 0 ? null : messages[index - 1]?.id || null
+    }
+  })
 })
 
 // ExportedMessageRepositoryItem is not exported from the main module, so we'll define it based on the expected structure

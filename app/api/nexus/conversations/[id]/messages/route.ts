@@ -35,9 +35,11 @@ export async function GET(
   const timer = startTimer('nexus.conversations.messages.get')
   const log = createLogger({ requestId, route: 'nexus.conversations.messages.get' })
   
+  let conversationId: string | undefined
+  
   try {
     const resolvedParams = await params
-    const conversationId = resolvedParams.id
+    conversationId = resolvedParams.id
     
     log.info('GET /api/nexus/conversations/[id]/messages', { conversationId })
   
@@ -75,10 +77,36 @@ export async function GET(
       return new Response('Conversation not found', { status: 404 })
     }
     
-    // Parse query parameters
+    // Parse and validate query parameters
     const url = new URL(req.url)
-    const limit = parseInt(url.searchParams.get('limit') || '50')
-    const offset = parseInt(url.searchParams.get('offset') || '0')
+    const limitParam = url.searchParams.get('limit') || '50'
+    const offsetParam = url.searchParams.get('offset') || '0'
+    
+    // Validate and bound limit parameter (1-1000)
+    const parsedLimit = parseInt(limitParam, 10)
+    const limit = Math.min(Math.max(isNaN(parsedLimit) ? 50 : parsedLimit, 1), 1000)
+    
+    // Validate and bound offset parameter (0 or positive)
+    const parsedOffset = parseInt(offsetParam, 10)
+    const offset = Math.max(isNaN(parsedOffset) ? 0 : parsedOffset, 0)
+    
+    // Additional validation to prevent potential abuse
+    if (isNaN(parsedLimit) || isNaN(parsedOffset) || 
+        limitParam !== parsedLimit.toString() || 
+        offsetParam !== parsedOffset.toString()) {
+      log.warn('Invalid pagination parameters', { 
+        limitParam, 
+        offsetParam, 
+        conversationId 
+      })
+      return new Response(
+        JSON.stringify({ error: 'Invalid pagination parameters' }), 
+        { 
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      )
+    }
     
     // Query messages
     const query = `
@@ -107,10 +135,46 @@ export async function GET(
       offset
     ])
     
-    // Transform snake_case to camelCase and format for AI SDK
-    const messages: NexusMessage[] = result.map(row => 
-      transformSnakeToCamel<NexusMessage>(row)
-    )
+    // Helper function to truncate content to prevent memory issues
+    const MAX_CONTENT_LENGTH = 50000 // 50KB per content field
+    const truncateContent = (content: string): string => {
+      if (typeof content === 'string' && content.length > MAX_CONTENT_LENGTH) {
+        return content.substring(0, MAX_CONTENT_LENGTH) + '...[content truncated for size]'
+      }
+      return content
+    }
+    
+    const truncatePartsContent = (parts: Array<{ type: string; text?: string; [key: string]: unknown }>): Array<{ type: string; text?: string; [key: string]: unknown }> => {
+      return parts.map(part => {
+        if (part.text && typeof part.text === 'string' && part.text.length > MAX_CONTENT_LENGTH) {
+          return {
+            ...part,
+            text: part.text.substring(0, MAX_CONTENT_LENGTH) + '...[content truncated for size]'
+          }
+        }
+        return part
+      })
+    }
+
+    // Transform snake_case to camelCase and format for AI SDK with content size limits
+    const messages: NexusMessage[] = result.map(row => {
+      const transformed = transformSnakeToCamel<NexusMessage>(row)
+      
+      // Apply content truncation to prevent memory issues
+      if (transformed.content) {
+        transformed.content = truncateContent(transformed.content)
+      }
+      
+      if (transformed.reasoningContent) {
+        transformed.reasoningContent = truncateContent(transformed.reasoningContent)
+      }
+      
+      if (transformed.parts && Array.isArray(transformed.parts)) {
+        transformed.parts = truncatePartsContent(transformed.parts)
+      }
+      
+      return transformed
+    })
     
     // Convert to AI SDK format
     const aiSdkMessages = messages.map(msg => {
@@ -164,15 +228,40 @@ export async function GET(
   } catch (error) {
     timer({ status: 'error' })
     log.error('Failed to get messages', {
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      conversationId,
+      requestId
     })
+    
+    // Determine error type and appropriate response
+    let statusCode = 500
+    let errorCode = 'MESSAGES_FETCH_ERROR'
+    let errorMessage = 'Failed to retrieve messages'
+    
+    if (error instanceof Error) {
+      // Handle specific error types
+      if (error.message.includes('invalid input syntax for type uuid')) {
+        statusCode = 400
+        errorCode = 'INVALID_CONVERSATION_ID'
+        errorMessage = 'Invalid conversation ID format'
+      } else if (error.message.includes('connection')) {
+        errorCode = 'DATABASE_CONNECTION_ERROR'
+        errorMessage = 'Database connection error'
+      } else if (error.message.includes('timeout')) {
+        errorCode = 'REQUEST_TIMEOUT'
+        errorMessage = 'Request timed out'
+      }
+    }
     
     return new Response(
       JSON.stringify({
-        error: 'Failed to retrieve messages'
+        error: errorMessage,
+        code: errorCode,
+        requestId
       }),
       {
-        status: 500,
+        status: statusCode,
         headers: { 'Content-Type': 'application/json' }
       }
     )
