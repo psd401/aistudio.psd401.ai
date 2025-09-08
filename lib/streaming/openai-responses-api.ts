@@ -1,5 +1,6 @@
 import { createLogger } from '@/lib/logger';
 import type { StreamRequest, StreamResponse, StreamingCallbacks } from './types';
+import crypto from 'crypto';
 
 const log = createLogger({ module: 'openai-responses-api' });
 

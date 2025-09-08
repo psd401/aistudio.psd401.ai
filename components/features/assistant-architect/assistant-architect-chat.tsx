@@ -254,7 +254,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
     
     // Use sendMessage with v2 patterns - pass body with execution context
     await sendMessage({
-      id: crypto.randomUUID(),
+      id: globalThis.crypto.randomUUID(),
       role: 'user' as const,
       parts: [{ type: 'text' as const, text: messageText }]
     }, {

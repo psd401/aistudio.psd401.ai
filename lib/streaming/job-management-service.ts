@@ -2,6 +2,7 @@ import { executeSQL } from '@/lib/db/data-api-adapter';
 import { createLogger, generateRequestId } from '@/lib/logger';
 import { transformSnakeToCamel } from '@/lib/db/field-mapper';
 import type { UIMessage } from 'ai';
+import crypto from 'crypto';
 
 const log = createLogger({ module: 'job-management-service' });
 

@@ -6,6 +6,7 @@ import {
   SimpleImageAttachmentAdapter,
   SimpleTextAttachmentAdapter,
 } from "@assistant-ui/react";
+import crypto from 'crypto';
 
 /**
  * Vision-capable image adapter for LLMs like GPT-4V, Claude 3, Gemini Pro Vision

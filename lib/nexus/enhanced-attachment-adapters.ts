@@ -7,6 +7,7 @@ import {
   SimpleTextAttachmentAdapter,
 } from "@assistant-ui/react";
 import { createLogger } from "@/lib/client-logger";
+import crypto from 'crypto';
 
 const log = createLogger({ moduleName: 'enhanced-attachment-adapters' });
 

@@ -1,6 +1,7 @@
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { createLogger } from '@/lib/logger';
 import type { UIMessage } from 'ai';
+import crypto from 'crypto';
 
 const s3Client = new S3Client({});
 const log = createLogger({ service: 'attachment-storage' });
