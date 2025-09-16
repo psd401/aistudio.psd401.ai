@@ -117,9 +117,9 @@ export async function GET(
         
         // Check if we already saved the assistant response (prevent duplicates)
         const existingAssistantMessages = await executeSQL(
-          `SELECT id FROM nexus_messages 
-           WHERE conversation_id = :conversationId 
-           AND role = 'assistant' 
+          `SELECT id FROM nexus_messages
+           WHERE conversation_id = :conversationId::uuid
+           AND role = 'assistant'
            AND created_at >= :jobCreatedAt
            LIMIT 1`,
           [
@@ -155,11 +155,11 @@ export async function GET(
           
           await executeSQL(
             `INSERT INTO nexus_messages (
-              conversation_id, role, content, parts, 
-              model_id, token_usage, finish_reason, 
+              conversation_id, role, content, parts,
+              model_id, token_usage, finish_reason,
               metadata, created_at
             ) VALUES (
-              :conversationId, 'assistant', :content, :parts,
+              :conversationId::uuid, 'assistant', :content, :parts,
               :modelId, :tokenUsage, :finishReason,
               :metadata, NOW()
             )`,
@@ -178,12 +178,12 @@ export async function GET(
 
           // Update conversation message count
           await executeSQL(
-            `UPDATE nexus_conversations 
-             SET 
+            `UPDATE nexus_conversations
+             SET
                message_count = message_count + 1,
                last_message_at = NOW(),
                updated_at = NOW()
-             WHERE id = :conversationId`,
+             WHERE id = :conversationId::uuid`,
             [{ name: 'conversationId', value: { stringValue: job.nexusConversationId } }]
           );
 
