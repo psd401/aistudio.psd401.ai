@@ -1092,24 +1092,41 @@ async function processStreamingJob(job) {
     // DEBUG: Comprehensive message format logging for debugging circular conversion issue
     console.log('=== MESSAGE FORMAT DEBUG BEFORE STREAMING SERVICE ===');
     messages.forEach((msg, idx) => {
-      if (msg.parts?.some(p => p.type === 'image') || (Array.isArray(msg.content) && msg.content.some(p => p.type === 'image'))) {
-        console.log(`Message ${idx} (${msg.role}) format analysis:`, {
-          hasContent: !!msg.content,
-          hasParts: !!msg.parts,
-          contentType: Array.isArray(msg.content) ? 'array' : typeof msg.content,
-          partsType: Array.isArray(msg.parts) ? 'array' : typeof msg.parts,
-          contentLength: Array.isArray(msg.content) ? msg.content.length : 0,
-          partsLength: Array.isArray(msg.parts) ? msg.parts.length : 0,
-          imageInParts: msg.parts?.filter(p => p.type === 'image').map(p => ({
-            hasImage: !!p.image,
-            imageStartsWithData: p.image?.startsWith('data:'),
-            imageLength: p.image?.length || 0
-          })) || [],
-          imageInContent: Array.isArray(msg.content) ? msg.content.filter(p => p.type === 'image').map(p => ({
-            hasImage: !!p.image,
-            imageStartsWithData: p.image?.startsWith('data:'),
-            imageLength: p.image?.length || 0
-          })) : []
+      try {
+        // Only log messages that might have images
+        const hasImageParts = msg.parts && Array.isArray(msg.parts) && msg.parts.some(p => p.type === 'image');
+        const hasImageContent = msg.content && Array.isArray(msg.content) && msg.content.some(p => p.type === 'image');
+
+        if (hasImageParts || hasImageContent) {
+          console.log(`Message ${idx} (${msg.role}) format analysis:`, {
+            hasContent: !!msg.content,
+            hasParts: !!msg.parts,
+            contentType: Array.isArray(msg.content) ? 'array' : typeof msg.content,
+            partsType: Array.isArray(msg.parts) ? 'array' : typeof msg.parts,
+            contentLength: Array.isArray(msg.content) ? msg.content.length : 0,
+            partsLength: Array.isArray(msg.parts) ? msg.parts.length : 0,
+            imageInParts: Array.isArray(msg.parts) ? msg.parts.filter(p => p.type === 'image').map(p => ({
+              hasImage: !!p.image,
+              imageStartsWithData: p.image?.startsWith('data:'),
+              imageLength: p.image?.length || 0
+            })) : [],
+            imageInContent: Array.isArray(msg.content) ? msg.content.filter(p => p.type === 'image').map(p => ({
+              hasImage: !!p.image,
+              imageStartsWithData: p.image?.startsWith('data:'),
+              imageLength: p.image?.length || 0
+            })) : []
+          });
+        }
+      } catch (error) {
+        console.log(`Debug logging error for message ${idx}:`, {
+          error: error.message,
+          messageStructure: {
+            role: msg.role,
+            hasContent: !!msg.content,
+            hasParts: !!msg.parts,
+            contentType: typeof msg.content,
+            partsType: typeof msg.parts
+          }
         });
       }
     });
