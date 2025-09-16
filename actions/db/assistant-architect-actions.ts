@@ -1965,13 +1965,13 @@ export async function executeAssistantArchitectAction({
           id: p.id,
           name: p.name,
           content: p.content,
-          systemContext: p.systemContext || undefined,
+          systemContext: p.systemContext || null,
           modelId: p.modelId || modelId, // Use the tool's model if prompt modelId is null
           position: p.position,
-          inputMapping: p.inputMapping as Record<string, unknown> || undefined,
-          repositoryIds: p.repositoryIds ? parseRepositoryIds(p.repositoryIds) : undefined
+          inputMapping: p.inputMapping as Record<string, unknown> || {},
+          repositoryIds: p.repositoryIds ? parseRepositoryIds(p.repositoryIds) : []
         })) || [],
-        inputMapping: validatedInputs
+        inputMapping: validatedInputs || {}
       }
     };
 

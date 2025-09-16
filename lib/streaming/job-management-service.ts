@@ -141,7 +141,7 @@ export interface CreateJobRequest {
       id: number;
       name: string;
       content: string;
-      systemContext?: string;
+      systemContext?: string | null;
       modelId: number;
       position: number;
       inputMapping?: Record<string, unknown>;
