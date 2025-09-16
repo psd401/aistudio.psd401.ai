@@ -134,6 +134,21 @@ export interface CreateJobRequest {
   tools?: unknown;
   source?: string;
   sessionId?: string;
+  toolMetadata?: {
+    toolId: number;
+    executionId: number;
+    prompts: Array<{
+      id: number;
+      name: string;
+      content: string;
+      systemContext?: string;
+      modelId: number;
+      position: number;
+      inputMapping?: Record<string, unknown>;
+      repositoryIds?: number[];
+    }>;
+    inputMapping: Record<string, unknown>;
+  };
 }
 
 /**
@@ -186,7 +201,8 @@ export class JobManagementService {
         maxTokens: request.maxTokens,
         temperature: request.temperature,
         tools: request.tools,
-        source: request.source || 'chat' // CRITICAL: Include source for Nexus message persistence
+        source: request.source || 'chat', // CRITICAL: Include source for Nexus message persistence
+        toolMetadata: request.toolMetadata // Include toolMetadata for Assistant Architect jobs
       };
 
       // Generate job ID first

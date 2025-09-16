@@ -1935,34 +1935,17 @@ export async function executeAssistantArchitectAction({
         {
           id: `assistant-architect-start-${Date.now()}`,
           role: 'system' as const,
-          parts: [{ 
-            type: 'text' as const, 
-            text: 'Assistant Architect execution initiated' 
+          parts: [{
+            type: 'text' as const,
+            text: 'Assistant Architect execution initiated'
           }]
         },
         {
           id: `assistant-architect-user-${Date.now()}`,
           role: 'user' as const,
-          parts: [{ 
-            type: 'text' as const, 
-            text: JSON.stringify({
-              action: 'execute_assistant_architect',
-              toolId: String(toolId),
-              executionId,
-              inputs: validatedInputs,
-              toolName: tool.name,
-              prompts: tool.prompts?.map(p => ({
-                id: p.id,
-                name: p.name,
-                content: p.content,
-                systemContext: p.systemContext,
-                modelId: p.modelId,
-                position: p.position,
-                inputMapping: p.inputMapping,
-                repositoryIds: p.repositoryIds ? parseRepositoryIds(p.repositoryIds) : undefined
-              })) || [],
-              repositoryIds
-            })
+          parts: [{
+            type: 'text' as const,
+            text: `Execute Assistant Architect tool: ${tool.name}`
           }]
         }
       ],
@@ -1974,7 +1957,22 @@ export async function executeAssistantArchitectAction({
         reasoningEffort: 'medium' as const
       },
       source: 'assistant-architect',
-      sessionId: session.sub
+      sessionId: session.sub,
+      toolMetadata: {
+        toolId: parseInt(String(toolId), 10),
+        executionId,
+        prompts: tool.prompts?.map(p => ({
+          id: p.id,
+          name: p.name,
+          content: p.content,
+          systemContext: p.systemContext || undefined,
+          modelId: p.modelId || modelId, // Use the tool's model if prompt modelId is null
+          position: p.position,
+          inputMapping: p.inputMapping as Record<string, unknown> || undefined,
+          repositoryIds: p.repositoryIds ? parseRepositoryIds(p.repositoryIds) : undefined
+        })) || [],
+        inputMapping: validatedInputs
+      }
     };
 
     // Create the streaming job
