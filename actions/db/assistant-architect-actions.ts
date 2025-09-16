@@ -1926,6 +1926,39 @@ export async function executeAssistantArchitectAction({
     const { getStreamingJobsQueueUrl } = await import('@/lib/aws/queue-config');
     const { SQSClient, SendMessageCommand } = await import('@aws-sdk/client-sqs');
 
+    // Validate and prepare toolMetadata for Lambda worker
+    const toolMetadata = {
+      toolId: typeof toolId === 'number' ? toolId : parseInt(String(toolId), 10),
+      executionId,
+      prompts: tool.prompts?.map(p => ({
+        id: p.id,
+        name: p.name,
+        content: p.content,
+        systemContext: p.systemContext || null,
+        modelId: p.modelId || modelId, // Use the tool's model if prompt modelId is null
+        position: p.position,
+        inputMapping: (p.inputMapping && typeof p.inputMapping === 'object') ? p.inputMapping as Record<string, unknown> : {},
+        repositoryIds: p.repositoryIds ? parseRepositoryIds(p.repositoryIds) : []
+      })) || [],
+      inputMapping: validatedInputs || {}
+    };
+
+    // Validate toolMetadata structure before sending to Lambda
+    if (!toolMetadata.toolId || !toolMetadata.executionId) {
+      log.error("Invalid toolMetadata: missing required fields", { toolMetadata });
+      throw ErrorFactories.validationFailed([{
+        field: "toolMetadata",
+        message: "Tool metadata validation failed: missing required fields"
+      }]);
+    }
+
+    log.debug("Tool metadata prepared for Lambda", {
+      toolId: toolMetadata.toolId,
+      executionId: toolMetadata.executionId,
+      promptCount: toolMetadata.prompts.length,
+      hasInputMapping: !!toolMetadata.inputMapping
+    });
+
     // Create job request for assistant architect execution
     const jobRequest = {
       conversationId: `assistant-architect-${executionId}`, // Unique conversation ID for this execution
@@ -1958,21 +1991,7 @@ export async function executeAssistantArchitectAction({
       },
       source: 'assistant-architect',
       sessionId: session.sub,
-      toolMetadata: {
-        toolId: parseInt(String(toolId), 10),
-        executionId,
-        prompts: tool.prompts?.map(p => ({
-          id: p.id,
-          name: p.name,
-          content: p.content,
-          systemContext: p.systemContext || null,
-          modelId: p.modelId || modelId, // Use the tool's model if prompt modelId is null
-          position: p.position,
-          inputMapping: p.inputMapping as Record<string, unknown> || {},
-          repositoryIds: p.repositoryIds ? parseRepositoryIds(p.repositoryIds) : []
-        })) || [],
-        inputMapping: validatedInputs || {}
-      }
+      toolMetadata
     };
 
     // Create the streaming job
