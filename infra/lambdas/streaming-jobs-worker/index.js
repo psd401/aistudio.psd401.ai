@@ -905,11 +905,11 @@ async function processAssistantArchitectJob(job) {
         // Substitute variables in prompt content
         const processedContent = substituteVariables(prompt.content, chainContext);
         
-        // Build messages for this specific prompt
+        // Build messages for this specific prompt in UIMessage format
         const promptMessages = [
           {
             role: 'user',
-            content: processedContent
+            parts: [{ type: 'text', text: processedContent }]
           }
         ];
 
@@ -970,7 +970,8 @@ async function processAssistantArchitectJob(job) {
         if (isLastPrompt) {
           const responseData = {
             type: 'assistant_architect_chain',
-            finalOutput: finalText,
+            text: finalText,
+            finalOutput: finalText, // Keep for backward compatibility
             chainContext: chainContext,
             totalPrompts: sortedPrompts.length,
             toolId: toolId,
