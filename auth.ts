@@ -2,8 +2,8 @@ import NextAuth from "next-auth"
 import Cognito from "next-auth/providers/cognito"
 import type { NextAuthConfig } from "next-auth"
 import type { JWT } from "next-auth/jwt"
-import { refreshAccessToken, shouldRefreshToken } from "@/lib/auth/cognito-refresh"
-import { createLogger } from "@/lib/logger"
+import { refreshAccessToken, shouldRefreshToken } from "@/lib/auth/token-refresh-client"
+import { createLogger } from "@/lib/auth/edge-logger"
 
 export const authConfig: NextAuthConfig = {
   providers: [
@@ -60,7 +60,11 @@ export const authConfig: NextAuthConfig = {
         })
 
         try {
-          // Parse JWT payload without using jsonwebtoken library (Edge Runtime compatible)
+          // SECURITY NOTE: This JWT parsing is safe here because the id_token comes directly
+          // from Cognito during the OAuth callback flow and has already been validated by NextAuth.
+          // The token signature has been verified by NextAuth before reaching this callback.
+          // DO NOT use this pattern for parsing JWTs from untrusted sources or user input.
+          // For untrusted JWTs, always use proper JWT verification libraries like 'jose'.
           const base64Payload = account.id_token.split('.')[1];
           const payload = Buffer.from(base64Payload, 'base64').toString('utf-8');
           const decoded = JSON.parse(payload);
