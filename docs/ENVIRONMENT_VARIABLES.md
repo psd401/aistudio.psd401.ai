@@ -13,6 +13,12 @@ This document provides a comprehensive guide to all environment variables requir
 | `AUTH_COGNITO_CLIENT_ID` | AWS Cognito client ID | From Auth stack outputs | ✅ |
 | `AUTH_COGNITO_ISSUER` | AWS Cognito issuer URL | `https://cognito-idp.us-east-1.amazonaws.com/<pool-id>` | ✅ |
 
+### Token Configuration
+
+| Variable | Description | Example | Required |
+|----------|-------------|---------|----------|
+| `COGNITO_ACCESS_TOKEN_LIFETIME_SECONDS` | Token lifetime for refresh calculations | `3600` (1 hour) | ❌ (defaults to 3600) |
+
 ### Public Authentication Variables
 
 | Variable | Description | Example | Required |

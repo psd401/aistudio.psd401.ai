@@ -266,8 +266,35 @@ export async function getCurrentUserAction(): Promise<
     // Log failure and performance
     const endTimer = timer
     endTimer({ status: "error" })
-    
-    // Use the enhanced error handler with proper context
+
+    // Check for specific AWS token expiration errors
+    const isTokenExpiredError = error instanceof Error && (
+      error.name === "ExpiredTokenException" ||
+      error.message.includes("security token included in the request is expired") ||
+      error.message.includes("Token is expired") ||
+      error.message.includes("The security token")
+    )
+
+    if (isTokenExpiredError) {
+      log.warn("AWS token expired - user may need to refresh session", {
+        errorName: error instanceof Error ? error.name : 'Unknown',
+        errorMessage: error instanceof Error ? error.message : 'Unknown error'
+      })
+
+      // Provide specific error message for expired tokens
+      return handleError(error, "Your session has expired. Please refresh the page or sign in again.", {
+        context: "getCurrentUserAction",
+        requestId,
+        operation: "getCurrentUserAction",
+        metadata: {
+          sessionExists: !!session,
+          cognitoSub: session?.sub,
+          errorType: "token_expired"
+        }
+      })
+    }
+
+    // Use the enhanced error handler with proper context for other errors
     return handleError(error, "Failed to retrieve user information. Please try again or contact support if the issue persists.", {
       context: "getCurrentUserAction",
       requestId,
