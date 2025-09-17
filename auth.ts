@@ -1,6 +1,9 @@
 import NextAuth from "next-auth"
 import Cognito from "next-auth/providers/cognito"
 import type { NextAuthConfig } from "next-auth"
+import type { JWT } from "next-auth/jwt"
+import { refreshAccessToken, shouldRefreshToken } from "@/lib/auth/cognito-refresh"
+import { createLogger } from "@/lib/logger"
 
 export const authConfig: NextAuthConfig = {
   providers: [
@@ -34,22 +37,35 @@ export const authConfig: NextAuthConfig = {
   ],
   callbacks: {
     async jwt({ token, account, profile, user, trigger }) {
+      const log = createLogger({
+        context: "auth-jwt-callback",
+        tokenSub: token?.sub as string || 'unknown'
+      })
+
       // Handle session update trigger (when roles change)
       if (trigger === "update") {
+        log.info("Session update triggered - forcing re-authentication")
         // Force token refresh by returning null
         // This will cause the user to re-authenticate
         return null;
       }
-      
+
       // Initial sign in - store essential data
       if (account && account.id_token) {
+        log.info("Initial sign in - processing new tokens", {
+          hasAccessToken: !!account.access_token,
+          hasRefreshToken: !!account.refresh_token,
+          hasIdToken: !!account.id_token,
+          expiresAt: account.expires_at ? new Date(account.expires_at * 1000).toISOString() : 'unknown'
+        })
+
         try {
           // Parse JWT payload without using jsonwebtoken library (Edge Runtime compatible)
           const base64Payload = account.id_token.split('.')[1];
           const payload = Buffer.from(base64Payload, 'base64').toString('utf-8');
           const decoded = JSON.parse(payload);
-        
-        return {
+
+        const newToken: JWT = {
           sub: decoded.sub,
           email: decoded.email,
           name: decoded.name || decoded.given_name || decoded.preferred_username || decoded.email,
@@ -61,53 +77,136 @@ export const authConfig: NextAuthConfig = {
           idToken: account.id_token,
           expiresAt: account.expires_at ? account.expires_at * 1000 : Date.now() + 3600 * 1000, // Convert to milliseconds
           roleVersion: 0, // Initialize role version
-          };
+        };
+
+          log.info("Successfully created initial token", {
+            sub: newToken.sub,
+            email: newToken.email,
+            expiresAt: newToken.expiresAt ? new Date(newToken.expiresAt).toISOString() : 'unknown'
+          })
+
+          return newToken
         } catch (error) {
           // Log error but don't fail authentication
           // This handles malformed tokens gracefully
-          return {
+          log.warn("Failed to parse ID token, using fallback approach", {
+            error: error instanceof Error ? error.message : 'Unknown error'
+          })
+
+          const fallbackToken: JWT = {
             sub: account.providerAccountId,
-            email: user?.email || profile?.email,
-            name: user?.name || profile?.name,
+            email: user?.email || profile?.email || undefined,
+            name: user?.name || profile?.name || undefined,
             accessToken: account.access_token,
             refreshToken: account.refresh_token,
             idToken: account.id_token,
             expiresAt: account.expires_at ? account.expires_at * 1000 : Date.now() + 3600 * 1000,
             roleVersion: 0,
           };
+
+          log.info("Created fallback token", {
+            sub: fallbackToken.sub,
+            email: fallbackToken.email
+          })
+
+          return fallbackToken
         }
       }
 
-      // Check if token is expired
-      if (token.expiresAt && Date.now() > (token.expiresAt as number)) {
-        // Token has expired, trigger sign out
-        return null;
+      // Existing session - check if token needs refresh
+      if (!token.expiresAt) {
+        log.warn("Token missing expiration time, allowing to continue")
+        return token
       }
 
-      // Return existing token
+      const expiresAt = token.expiresAt as number
+      const now = Date.now()
+      const isExpired = now > expiresAt
+      const shouldRefresh = shouldRefreshToken(token)
+
+      // Log token status for debugging
+      log.debug("Token status check", {
+        isExpired,
+        shouldRefresh,
+        timeUntilExpiryMinutes: Math.round((expiresAt - now) / (1000 * 60)),
+        expiresAt: new Date(expiresAt).toISOString()
+      })
+
+      // Attempt token refresh if expired or should be refreshed proactively
+      if (isExpired || shouldRefresh) {
+        log.info("Attempting token refresh", {
+          reason: isExpired ? 'expired' : 'proactive',
+          hasRefreshToken: !!token.refreshToken
+        })
+
+        if (!token.refreshToken) {
+          log.warn("No refresh token available - forcing re-authentication")
+          return null
+        }
+
+        try {
+          const refreshedTokens = await refreshAccessToken(token)
+
+          if (refreshedTokens) {
+            log.info("Token refresh successful", {
+              newExpiresAt: new Date(refreshedTokens.expiresAt).toISOString()
+            })
+
+            // Return refreshed token with existing user data
+            return {
+              ...token,
+              accessToken: refreshedTokens.accessToken,
+              idToken: refreshedTokens.idToken,
+              refreshToken: refreshedTokens.refreshToken,
+              expiresAt: refreshedTokens.expiresAt
+            }
+          } else {
+            log.warn("Token refresh failed - forcing re-authentication")
+            return null
+          }
+        } catch (error) {
+          log.error("Token refresh threw error - forcing re-authentication", {
+            error: error instanceof Error ? error.message : 'Unknown error'
+          })
+          return null
+        }
+      }
+
+      // Token is still valid, return as-is
+      log.debug("Token is valid, no refresh needed")
       return token;
     },
     async session({ session, token }) {
+      const log = createLogger({
+        context: "auth-session-callback",
+        tokenSub: token?.sub as string || 'unknown'
+      })
+
       // Check if token exists and is valid
       if (!token || !token.sub) {
+        log.warn("Session callback called with invalid token")
         return session; // Return empty session instead of null
       }
 
-      // Check if token is expired
+      // Check if token is expired (shouldn't happen after JWT callback refresh logic)
       if (token.expiresAt && Date.now() > (token.expiresAt as number)) {
+        log.warn("Session callback received expired token", {
+          expiresAt: new Date(token.expiresAt as number).toISOString(),
+          now: new Date().toISOString()
+        })
         return session;
       }
-      
+
       // Send properties to the client
       const givenName = token.given_name as string;
       const familyName = token.family_name as string;
       const fullName = token.name as string;
       const preferredUsername = token.preferred_username as string;
       const email = token.email as string;
-      
+
       // Use given_name as display name, with multiple fallbacks
       const displayName = givenName || fullName || preferredUsername || familyName || email;
-      
+
       session.user = {
         ...session.user,
         id: token.sub as string,
@@ -116,13 +215,13 @@ export const authConfig: NextAuthConfig = {
         givenName: givenName || null,
         familyName: familyName || null,
       }
-      
+
       // Store tokens in session for server-side use
       // NOTE: These tokens are necessary for:
       // - accessToken: Making authenticated API calls to AWS services
       // - idToken: Contains user claims and is used for identity verification
       // - refreshToken: Required for token refresh when accessToken expires
-      // 
+      //
       // Security considerations:
       // - These tokens are encrypted in the JWT session cookie
       // - Never log or expose these tokens in client-side code
@@ -130,7 +229,16 @@ export const authConfig: NextAuthConfig = {
       session.accessToken = token.accessToken as string;
       session.idToken = token.idToken as string;
       session.refreshToken = token.refreshToken as string;
-      
+
+      log.debug("Session created successfully", {
+        userId: session.user.id,
+        userEmail: session.user.email,
+        hasAccessToken: !!session.accessToken,
+        hasIdToken: !!session.idToken,
+        hasRefreshToken: !!session.refreshToken,
+        tokenExpiresAt: token.expiresAt ? new Date(token.expiresAt as number).toISOString() : 'unknown'
+      })
+
       return session
     },
     async redirect({ url, baseUrl }) {
