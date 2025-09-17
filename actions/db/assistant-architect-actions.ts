@@ -1926,6 +1926,39 @@ export async function executeAssistantArchitectAction({
     const { getStreamingJobsQueueUrl } = await import('@/lib/aws/queue-config');
     const { SQSClient, SendMessageCommand } = await import('@aws-sdk/client-sqs');
 
+    // Validate and prepare toolMetadata for Lambda worker
+    const toolMetadata = {
+      toolId: typeof toolId === 'number' ? toolId : parseInt(String(toolId), 10),
+      executionId,
+      prompts: tool.prompts?.map(p => ({
+        id: p.id,
+        name: p.name,
+        content: p.content,
+        systemContext: p.systemContext || null,
+        modelId: p.modelId || modelId, // Use the tool's model if prompt modelId is null
+        position: p.position,
+        inputMapping: (p.inputMapping && typeof p.inputMapping === 'object') ? p.inputMapping as Record<string, unknown> : {},
+        repositoryIds: p.repositoryIds ? parseRepositoryIds(p.repositoryIds) : []
+      })) || [],
+      inputMapping: validatedInputs || {}
+    };
+
+    // Validate toolMetadata structure before sending to Lambda
+    if (!toolMetadata.toolId || !toolMetadata.executionId) {
+      log.error("Invalid toolMetadata: missing required fields", { toolMetadata });
+      throw ErrorFactories.validationFailed([{
+        field: "toolMetadata",
+        message: "Tool metadata validation failed: missing required fields"
+      }]);
+    }
+
+    log.debug("Tool metadata prepared for Lambda", {
+      toolId: toolMetadata.toolId,
+      executionId: toolMetadata.executionId,
+      promptCount: toolMetadata.prompts.length,
+      hasInputMapping: !!toolMetadata.inputMapping
+    });
+
     // Create job request for assistant architect execution
     const jobRequest = {
       conversationId: `assistant-architect-${executionId}`, // Unique conversation ID for this execution
@@ -1935,34 +1968,17 @@ export async function executeAssistantArchitectAction({
         {
           id: `assistant-architect-start-${Date.now()}`,
           role: 'system' as const,
-          parts: [{ 
-            type: 'text' as const, 
-            text: 'Assistant Architect execution initiated' 
+          parts: [{
+            type: 'text' as const,
+            text: 'Assistant Architect execution initiated'
           }]
         },
         {
           id: `assistant-architect-user-${Date.now()}`,
           role: 'user' as const,
-          parts: [{ 
-            type: 'text' as const, 
-            text: JSON.stringify({
-              action: 'execute_assistant_architect',
-              toolId: String(toolId),
-              executionId,
-              inputs: validatedInputs,
-              toolName: tool.name,
-              prompts: tool.prompts?.map(p => ({
-                id: p.id,
-                name: p.name,
-                content: p.content,
-                systemContext: p.systemContext,
-                modelId: p.modelId,
-                position: p.position,
-                inputMapping: p.inputMapping,
-                repositoryIds: p.repositoryIds ? parseRepositoryIds(p.repositoryIds) : undefined
-              })) || [],
-              repositoryIds
-            })
+          parts: [{
+            type: 'text' as const,
+            text: `Execute Assistant Architect tool: ${tool.name}`
           }]
         }
       ],
@@ -1974,7 +1990,8 @@ export async function executeAssistantArchitectAction({
         reasoningEffort: 'medium' as const
       },
       source: 'assistant-architect',
-      sessionId: session.sub
+      sessionId: session.sub,
+      toolMetadata
     };
 
     // Create the streaming job
