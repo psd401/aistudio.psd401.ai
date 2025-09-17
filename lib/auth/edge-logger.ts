@@ -22,16 +22,7 @@ interface LogContext {
   [key: string]: unknown
 }
 
-interface LogEntry {
-  level: string
-  message: string
-  timestamp: string
-  context: string
-  meta?: Record<string, unknown>
-}
-
-// Global log store for Edge Runtime (per request isolation)
-let globalLogStore: LogEntry[] = []
+// No global state - each logger instance is self-contained
 
 /**
  * Creates an Edge Runtime compatible logger instance
@@ -71,40 +62,32 @@ export function createEdgeLogger(context: LogContext): EdgeLogger {
     return sanitized
   }
 
-  const createLogEntry = (level: string, message: string, meta?: Record<string, unknown>): LogEntry => {
-    return {
-      level,
-      message,
-      timestamp: new Date().toISOString(),
-      context: `${context.context}[${sanitizedTokenSub}]`,
-      meta: sanitizeMetadata(meta)
-    }
-  }
-
   const logMessage = (level: string, message: string, meta?: Record<string, unknown>) => {
-    const entry = createLogEntry(level, message, meta)
-
-    // Store in global log store for potential retrieval
-    globalLogStore.push(entry)
-
-    // Keep only last 100 entries to prevent memory leaks
-    if (globalLogStore.length > 100) {
-      globalLogStore.shift()
-    }
+    const timestamp = new Date().toISOString()
+    const contextString = `${context.context}[${sanitizedTokenSub}]`
+    const sanitizedMeta = sanitizeMetadata(meta)
 
     // In development, attempt to output to available logging mechanism
     if (process.env.NODE_ENV === 'development') {
       try {
-        const formattedMessage = `[${entry.timestamp}] ${entry.context} ${level}: ${message}`
-        const metaString = entry.meta ? ` ${JSON.stringify(entry.meta)}` : ''
+        const formattedMessage = `[${timestamp}] ${contextString} ${level}: ${message}`
+        const metaString = sanitizedMeta ? ` ${JSON.stringify(sanitizedMeta)}` : ''
 
         // Try to use fetch to send to a logging endpoint if available
         // This is Edge Runtime compatible
         if (process.env.DEBUG_LOG_ENDPOINT) {
+          const logEntry = {
+            level,
+            message,
+            timestamp,
+            context: contextString,
+            meta: sanitizedMeta
+          }
+
           fetch(process.env.DEBUG_LOG_ENDPOINT, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(entry)
+            body: JSON.stringify(logEntry)
           }).catch(() => {
             // Silently fail if logging endpoint unavailable
           })
@@ -146,22 +129,6 @@ export function createEdgeLogger(context: LogContext): EdgeLogger {
       }
     }
   }
-}
-
-/**
- * Retrieves all log entries from the global store
- * Useful for debugging or sending logs to monitoring systems
- */
-export function getLogEntries(): LogEntry[] {
-  return [...globalLogStore]
-}
-
-/**
- * Clears the global log store
- * Useful for preventing memory leaks in long-running processes
- */
-export function clearLogEntries(): void {
-  globalLogStore = []
 }
 
 /**

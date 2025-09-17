@@ -69,6 +69,12 @@ export const authConfig: NextAuthConfig = {
           const payload = Buffer.from(base64Payload, 'base64').toString('utf-8');
           const decoded = JSON.parse(payload);
 
+        // Calculate token lifetime for accurate refresh timing
+        const defaultTokenLifetimeSeconds = parseInt(process.env.COGNITO_ACCESS_TOKEN_LIFETIME_SECONDS || "3600")
+        const expiresAt = account.expires_at ? account.expires_at * 1000 : Date.now() + (defaultTokenLifetimeSeconds * 1000)
+        const issuedAt = decoded.iat ? decoded.iat * 1000 : Date.now()
+        const tokenLifetimeMs = expiresAt - issuedAt
+
         const newToken: JWT = {
           sub: decoded.sub,
           email: decoded.email,
@@ -79,7 +85,9 @@ export const authConfig: NextAuthConfig = {
           accessToken: account.access_token,
           refreshToken: account.refresh_token,
           idToken: account.id_token,
-          expiresAt: account.expires_at ? account.expires_at * 1000 : Date.now() + 3600 * 1000, // Convert to milliseconds
+          expiresAt: expiresAt,
+          iat: decoded.iat,
+          tokenLifetimeMs: tokenLifetimeMs, // Store calculated lifetime for accurate refresh timing
           roleVersion: 0, // Initialize role version
         };
 
@@ -97,6 +105,10 @@ export const authConfig: NextAuthConfig = {
             error: error instanceof Error ? error.message : 'Unknown error'
           })
 
+          const defaultTokenLifetimeSeconds = parseInt(process.env.COGNITO_ACCESS_TOKEN_LIFETIME_SECONDS || "3600")
+          const expiresAt = account.expires_at ? account.expires_at * 1000 : Date.now() + (defaultTokenLifetimeSeconds * 1000)
+          const tokenLifetimeMs = defaultTokenLifetimeSeconds * 1000
+
           const fallbackToken: JWT = {
             sub: account.providerAccountId,
             email: user?.email || profile?.email || undefined,
@@ -104,7 +116,8 @@ export const authConfig: NextAuthConfig = {
             accessToken: account.access_token,
             refreshToken: account.refresh_token,
             idToken: account.id_token,
-            expiresAt: account.expires_at ? account.expires_at * 1000 : Date.now() + 3600 * 1000,
+            expiresAt: expiresAt,
+            tokenLifetimeMs: tokenLifetimeMs,
             roleVersion: 0,
           };
 
@@ -156,13 +169,16 @@ export const authConfig: NextAuthConfig = {
               newExpiresAt: new Date(refreshedTokens.expiresAt).toISOString()
             })
 
-            // Return refreshed token with existing user data
+            // Return refreshed token with existing user data and preserve lifetime info
+            const tokenWithLifetime = token as JWT & { tokenLifetimeMs?: number }
             return {
               ...token,
               accessToken: refreshedTokens.accessToken,
               idToken: refreshedTokens.idToken,
               refreshToken: refreshedTokens.refreshToken,
-              expiresAt: refreshedTokens.expiresAt
+              expiresAt: refreshedTokens.expiresAt,
+              // Preserve the original token lifetime for consistent refresh calculations
+              tokenLifetimeMs: tokenWithLifetime.tokenLifetimeMs
             }
           } else {
             log.warn("Token refresh failed - forcing re-authentication")
@@ -194,11 +210,24 @@ export const authConfig: NextAuthConfig = {
 
       // Check if token is expired (shouldn't happen after JWT callback refresh logic)
       if (token.expiresAt && Date.now() > (token.expiresAt as number)) {
-        log.warn("Session callback received expired token", {
+        log.warn("Session callback received expired token - returning empty session", {
           expiresAt: new Date(token.expiresAt as number).toISOString(),
           now: new Date().toISOString()
         })
-        return session;
+        // Return an empty session to force re-authentication
+        return {
+          ...session,
+          user: {
+            id: '',
+            email: '',
+            name: '',
+            givenName: null,
+            familyName: null
+          },
+          accessToken: '',
+          idToken: '',
+          refreshToken: ''
+        }
       }
 
       // Send properties to the client

@@ -38,37 +38,14 @@ export function shouldRefreshToken(token: JWT): boolean {
     return true
   }
 
-  // Get configurable token lifetime from environment or calculate from token
-  const configuredTokenLifetime = process.env.COGNITO_ACCESS_TOKEN_LIFETIME_SECONDS
-    ? parseInt(process.env.COGNITO_ACCESS_TOKEN_LIFETIME_SECONDS) * 1000
-    : null
+  // Use stored token lifetime from JWT creation, with fallback
+  const tokenWithLifetime = token as JWT & { tokenLifetimeMs?: number }
+  const tokenLifetime = tokenWithLifetime.tokenLifetimeMs ||
+    (parseInt(process.env.COGNITO_ACCESS_TOKEN_LIFETIME_SECONDS || "3600") * 1000)
 
-  let tokenLifetime: number
-
-  if (configuredTokenLifetime) {
-    // Use configured lifetime from environment
-    tokenLifetime = configuredTokenLifetime
-  } else if (token.originalExpiresIn) {
-    // Use original token lifetime if available
-    tokenLifetime = (token.originalExpiresIn as number) * 1000
-  } else {
-    // Attempt to calculate from token creation time if available
-    const tokenWithIat = token as JWT & { iat?: number }
-    const tokenIssuedAt = tokenWithIat.iat ? tokenWithIat.iat * 1000 : null
-    if (tokenIssuedAt) {
-      tokenLifetime = expiresAt - tokenIssuedAt
-    } else {
-      // Fall back to default Cognito access token lifetime (1 hour)
-      tokenLifetime = 3600 * 1000
-      log.debug("Using default token lifetime assumption", {
-        tokenSub: token.sub,
-        defaultLifetimeHours: 1
-      })
-    }
-  }
-
-  // Calculate refresh threshold (when 25% of lifetime remains)
-  const refreshThreshold = tokenLifetime * 0.25
+  // Refresh when 25% of token lifetime remains (75% expired)
+  const refreshThresholdPercent = 0.25
+  const refreshThreshold = tokenLifetime * refreshThresholdPercent
   const shouldRefresh = timeUntilExpiry <= refreshThreshold
 
   if (shouldRefresh) {
@@ -76,7 +53,8 @@ export function shouldRefreshToken(token: JWT): boolean {
       tokenSub: token.sub,
       timeUntilExpiryMinutes: Math.round(timeUntilExpiry / (1000 * 60)),
       refreshThresholdMinutes: Math.round(refreshThreshold / (1000 * 60)),
-      tokenLifetimeHours: Math.round(tokenLifetime / (1000 * 60 * 60))
+      tokenLifetimeHours: Math.round(tokenLifetime / (1000 * 60 * 60)),
+      thresholdPercent: refreshThresholdPercent * 100
     })
   }
 

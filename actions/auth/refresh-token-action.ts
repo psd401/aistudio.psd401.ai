@@ -31,10 +31,65 @@ interface CognitoRefreshResponse {
   }
 }
 
-// Rate limiting configuration
-const MAX_REFRESH_ATTEMPTS = 5 // Maximum attempts per user per time window
-const RATE_LIMIT_WINDOW_MS = 60000 // 1 minute window
+// Rate limiting configuration with sensible defaults
+const MAX_REFRESH_ATTEMPTS = 5 // 5 attempts per user per minute
+const RATE_LIMIT_WINDOW_MS = 60 * 1000 // 1 minute window
+const MAX_RATE_LIMIT_ENTRIES = 1000 // Max users to track
+
+// Use a Map with size-based cleanup for better memory management
 const refreshAttempts = new Map<string, { count: number; lastAttempt: number; windowStart: number }>()
+let lastCleanupTime = 0
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
+
+// Promise deduplication to prevent concurrent refresh requests for the same user
+const activeRefreshPromises = new Map<string, Promise<ActionState<RefreshedTokens>>>()
+
+/**
+ * Deterministic cleanup of expired rate limiting entries
+ * Runs based on time intervals and map size to prevent memory leaks
+ */
+function cleanupRateLimitingEntries(): void {
+  const now = Date.now()
+  const expiredThreshold = now - (RATE_LIMIT_WINDOW_MS * 2)
+
+  // Remove expired entries
+  for (const [userId, attempts] of refreshAttempts.entries()) {
+    if (attempts.windowStart < expiredThreshold) {
+      refreshAttempts.delete(userId)
+    }
+  }
+
+  // If still too many entries, remove oldest ones (LRU-style cleanup)
+  if (refreshAttempts.size > MAX_RATE_LIMIT_ENTRIES) {
+    const entries = Array.from(refreshAttempts.entries())
+    entries.sort((a, b) => a[1].lastAttempt - b[1].lastAttempt)
+
+    const toRemove = refreshAttempts.size - MAX_RATE_LIMIT_ENTRIES
+    for (let i = 0; i < toRemove; i++) {
+      refreshAttempts.delete(entries[i][0])
+    }
+  }
+
+  // Also cleanup stale promise deduplication entries
+  // (Note: Promises are automatically cleaned up when they resolve/reject)
+  if (activeRefreshPromises.size > MAX_RATE_LIMIT_ENTRIES) {
+    // Clear all if too many accumulate (they should auto-clean, but safety measure)
+    activeRefreshPromises.clear()
+  }
+
+  lastCleanupTime = now
+}
+
+/**
+ * Checks if cleanup should run based on time and size thresholds
+ */
+function shouldRunCleanup(): boolean {
+  const now = Date.now()
+
+  // Run cleanup if interval has passed OR if map is getting too large
+  return (now - lastCleanupTime > CLEANUP_INTERVAL_MS) ||
+         (refreshAttempts.size > MAX_RATE_LIMIT_ENTRIES * 0.8)
+}
 
 /**
  * Checks if a user has exceeded the rate limit for token refresh attempts
@@ -45,12 +100,17 @@ const refreshAttempts = new Map<string, { count: number; lastAttempt: number; wi
  */
 function isRateLimited(userId: string): boolean {
   const now = Date.now()
-  const attemptKey = userId
-  const attempts = refreshAttempts.get(attemptKey)
+
+  // Run cleanup deterministically based on time and size
+  if (shouldRunCleanup()) {
+    cleanupRateLimitingEntries()
+  }
+
+  const attempts = refreshAttempts.get(userId)
 
   if (!attempts) {
     // First attempt, record it
-    refreshAttempts.set(attemptKey, {
+    refreshAttempts.set(userId, {
       count: 1,
       lastAttempt: now,
       windowStart: now
@@ -61,7 +121,7 @@ function isRateLimited(userId: string): boolean {
   // Check if we're in a new time window
   if (now - attempts.windowStart >= RATE_LIMIT_WINDOW_MS) {
     // Reset the window
-    refreshAttempts.set(attemptKey, {
+    refreshAttempts.set(userId, {
       count: 1,
       lastAttempt: now,
       windowStart: now
@@ -75,26 +135,13 @@ function isRateLimited(userId: string): boolean {
   }
 
   // Increment attempt count
-  refreshAttempts.set(attemptKey, {
+  refreshAttempts.set(userId, {
     count: attempts.count + 1,
     lastAttempt: now,
     windowStart: attempts.windowStart
   })
 
   return false
-}
-
-/**
- * Cleans up old rate limiting entries to prevent memory leaks
- * Should be called periodically to remove expired entries
- */
-function cleanupRateLimitingEntries(): void {
-  const now = Date.now()
-  for (const [userId, attempts] of refreshAttempts.entries()) {
-    if (now - attempts.windowStart > RATE_LIMIT_WINDOW_MS * 2) {
-      refreshAttempts.delete(userId)
-    }
-  }
 }
 
 /**
@@ -109,6 +156,38 @@ export async function refreshCognitoToken(params: RefreshTokenParams): Promise<A
   const timer = startTimer("refreshCognitoToken")
   const log = createLogger({ requestId, action: "refreshCognitoToken" })
 
+  // Check if there's already a refresh in progress for this user
+  const existingRefresh = activeRefreshPromises.get(params.tokenSub)
+  if (existingRefresh) {
+    log.info("Token refresh already in progress, returning existing promise", {
+      tokenSub: params.tokenSub
+    })
+    return existingRefresh
+  }
+
+  // Create the refresh promise
+  const refreshPromise = performTokenRefresh(params, requestId, timer, log)
+
+  // Store the promise for deduplication
+  activeRefreshPromises.set(params.tokenSub, refreshPromise)
+
+  // Clean up the promise when it completes (success or failure)
+  refreshPromise.finally(() => {
+    activeRefreshPromises.delete(params.tokenSub)
+  })
+
+  return refreshPromise
+}
+
+/**
+ * Internal function that performs the actual token refresh logic
+ */
+async function performTokenRefresh(
+  params: RefreshTokenParams,
+  requestId: string,
+  timer: ReturnType<typeof startTimer>,
+  log: ReturnType<typeof createLogger>
+): Promise<ActionState<RefreshedTokens>> {
   try {
     log.info("Token refresh action started", {
       tokenSub: params.tokenSub
@@ -131,10 +210,7 @@ export async function refreshCognitoToken(params: RefreshTokenParams): Promise<A
       throw new Error("Rate limit exceeded. Please try again later.")
     }
 
-    // Clean up old rate limiting entries periodically (every 100th call)
-    if (Math.random() < 0.01) {
-      cleanupRateLimitingEntries()
-    }
+    // Cleanup is now handled deterministically in isRateLimited()
 
     const clientId = process.env.AUTH_COGNITO_CLIENT_ID
     if (!clientId) {
@@ -142,10 +218,16 @@ export async function refreshCognitoToken(params: RefreshTokenParams): Promise<A
       throw new Error("Authentication configuration error")
     }
 
+    const awsRegion = process.env.AWS_REGION
+    if (!awsRegion) {
+      log.error("AWS_REGION environment variable not set")
+      throw new Error("AWS region configuration required")
+    }
+
     log.info("Attempting Cognito token refresh", { tokenSub: params.tokenSub })
 
     const client = new CognitoIdentityProviderClient({
-      region: process.env.AWS_REGION || "us-east-1"
+      region: awsRegion
     })
 
     const authParams: InitiateAuthCommandInput = {
@@ -167,7 +249,8 @@ export async function refreshCognitoToken(params: RefreshTokenParams): Promise<A
     }
 
     const authResult = response.AuthenticationResult
-    const newExpiresAt = Date.now() + ((authResult.ExpiresIn || 3600) * 1000)
+    const defaultTokenLifetimeSeconds = parseInt(process.env.COGNITO_ACCESS_TOKEN_LIFETIME_SECONDS || "3600")
+    const newExpiresAt = Date.now() + ((authResult.ExpiresIn || defaultTokenLifetimeSeconds) * 1000)
 
     if (!authResult.AccessToken || !authResult.IdToken) {
       log.warn("Token refresh failed - missing required tokens", {
