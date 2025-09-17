@@ -27,14 +27,22 @@ interface FreshserviceTicketResponse {
 }
 
 // Define proper interface for Freshservice API response
-interface FreshserviceTicketResponseRaw {
-  id: number
-  display_id?: string
+// Note: Freshservice API v2 wraps ticket data in a nested structure
+interface FreshserviceTicketData {
+  id: number | string  // Can be either based on request type (JSON vs multipart)
+  display_id?: string | number
   subject?: string
   description?: string
   status?: number
   priority?: number
+  created_at?: string
+  updated_at?: string
   [key: string]: any
+}
+
+// Freshservice API v2 wraps the ticket data in a "ticket" property
+interface FreshserviceApiResponse {
+  ticket: FreshserviceTicketData
 }
 
 export async function createFreshserviceTicketAction(
@@ -224,29 +232,56 @@ export async function createFreshserviceTicketAction(
       throw ErrorFactories.externalServiceError("Freshservice", new Error(errorData.message || `API returned ${response.status}`))
     }
     
-    const ticket: FreshserviceTicketResponseRaw = await response.json()
-    
-    // Validate ticket.id is a number for security
-    if (!ticket.id || typeof ticket.id !== 'number') {
-      log.error("Invalid ticket ID in response", { ticketId: ticket.id })
+    const apiResponse: FreshserviceApiResponse = await response.json()
+
+    // Log the response for debugging
+    log.debug("Freshservice response received", {
+      responseKeys: Object.keys(apiResponse),
+      hasTicketProperty: 'ticket' in apiResponse,
+      ticketKeys: apiResponse.ticket ? Object.keys(apiResponse.ticket) : [],
+      ticketId: apiResponse.ticket?.id,
+      ticketIdType: typeof apiResponse.ticket?.id,
+      displayId: apiResponse.ticket?.display_id
+    })
+
+    // Extract ticket data from nested response
+    const ticketData = apiResponse.ticket
+    if (!ticketData) {
+      log.error("No ticket data in response", {
+        responseKeys: Object.keys(apiResponse),
+        fullResponse: apiResponse
+      })
+      throw ErrorFactories.externalServiceError("Freshservice", new Error("Invalid ticket response - no ticket data"))
+    }
+
+    // Robust ticket ID validation - handle both string and number formats
+    const ticketId = typeof ticketData.id === 'string' ? parseInt(ticketData.id, 10) : ticketData.id
+    if (!ticketId || isNaN(ticketId) || ticketId <= 0) {
+      log.error("Invalid ticket ID in response", {
+        rawTicketId: ticketData.id,
+        parsedTicketId: ticketId,
+        ticketIdType: typeof ticketData.id,
+        ticketKeys: Object.keys(ticketData)
+      })
       throw ErrorFactories.externalServiceError("Freshservice", new Error("Invalid ticket response"))
     }
     
-    const ticketUrl = `https://${settings.domain}.freshservice.com/support/tickets/${ticket.id}`
-    
+    const ticketUrl = `https://${settings.domain}.freshservice.com/support/tickets/${ticketId}`
+
     log.info("Freshservice ticket created successfully", {
       ticketUrl,
-      ticketId: ticket.id,
-      ticketNumber: ticket.display_id || ticket.id
+      ticketId: ticketId,
+      ticketNumber: ticketData.display_id || ticketId,
+      rawTicketId: ticketData.id
     })
-    
-    timer({ status: "success", ticketId: ticket.id })
-    
+
+    timer({ status: "success", ticketId: ticketId })
+
     return createSuccess(
-      { 
-        ticket_url: ticketUrl, 
-        ticket_id: ticket.id 
-      }, 
+      {
+        ticket_url: ticketUrl,
+        ticket_id: ticketId
+      },
       "Ticket created successfully"
     )
   } catch (error) {
