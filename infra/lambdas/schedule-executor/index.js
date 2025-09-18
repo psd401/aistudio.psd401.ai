@@ -126,12 +126,61 @@ const rdsClient = new RDSDataClient({});
 const sqsClient = new SQSClient({});
 const schedulerClient = new SchedulerClient({});
 
-// Environment variables
-const DATABASE_RESOURCE_ARN = process.env.DATABASE_RESOURCE_ARN;
-const DATABASE_SECRET_ARN = process.env.DATABASE_SECRET_ARN;
-const DATABASE_NAME = process.env.DATABASE_NAME;
-const ENVIRONMENT = process.env.ENVIRONMENT;
-const DLQ_URL = process.env.DLQ_URL;
+// Environment variables with startup validation
+const requiredEnvVars = {
+  DATABASE_RESOURCE_ARN: process.env.DATABASE_RESOURCE_ARN,
+  DATABASE_SECRET_ARN: process.env.DATABASE_SECRET_ARN,
+  DATABASE_NAME: process.env.DATABASE_NAME,
+  ENVIRONMENT: process.env.ENVIRONMENT,
+  STREAMING_JOBS_QUEUE_URL: process.env.STREAMING_JOBS_QUEUE_URL
+};
+
+const optionalEnvVars = {
+  DLQ_URL: process.env.DLQ_URL,
+  SCHEDULER_EXECUTION_ROLE_ARN: process.env.SCHEDULER_EXECUTION_ROLE_ARN
+};
+
+// Validate required environment variables at startup
+function validateEnvironmentVariables() {
+  const missingVars = [];
+
+  for (const [key, value] of Object.entries(requiredEnvVars)) {
+    if (!value || value.trim() === '') {
+      missingVars.push(key);
+    }
+  }
+
+  if (missingVars.length > 0) {
+    const errorMessage = `Missing required environment variables: ${missingVars.join(', ')}`;
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      message: 'Lambda startup failed - missing environment variables',
+      missingVariables: missingVars,
+      timestamp: new Date().toISOString(),
+      service: 'schedule-executor'
+    }));
+    throw new Error(errorMessage);
+  }
+
+  console.log(JSON.stringify({
+    level: 'INFO',
+    message: 'Environment variables validated successfully',
+    requiredVarsPresent: Object.keys(requiredEnvVars).length,
+    optionalVarsPresent: Object.values(optionalEnvVars).filter(Boolean).length,
+    timestamp: new Date().toISOString(),
+    service: 'schedule-executor'
+  }));
+}
+
+// Run validation at module load time
+validateEnvironmentVariables();
+
+// Export validated environment variables
+const DATABASE_RESOURCE_ARN = requiredEnvVars.DATABASE_RESOURCE_ARN;
+const DATABASE_SECRET_ARN = requiredEnvVars.DATABASE_SECRET_ARN;
+const DATABASE_NAME = requiredEnvVars.DATABASE_NAME;
+const ENVIRONMENT = requiredEnvVars.ENVIRONMENT;
+const DLQ_URL = optionalEnvVars.DLQ_URL;
 
 /**
  * Schedule Executor Lambda - EventBridge Scheduler Handler
