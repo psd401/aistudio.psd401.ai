@@ -55,6 +55,7 @@ export interface CreateChainPromptForm {
   inputMapping?: Record<string, string>
   timeoutSeconds?: number
   repositoryIds?: number[]
+  enabledTools?: string[]
 }
 
 // Execution types
@@ -110,6 +111,7 @@ export interface ChainPrompt {
   inputMapping?: Record<string, string>
   timeoutSeconds: number
   repositoryIds?: number[]
+  enabledTools?: string[]
   createdAt: Date
   updatedAt: Date
 }
