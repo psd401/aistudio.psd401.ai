@@ -2,7 +2,6 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as iam from 'aws-cdk-lib/aws-iam';
-import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
@@ -63,7 +62,9 @@ export class SchedulerStack extends cdk.Stack {
         DATABASE_NAME: 'aistudio',
         ENVIRONMENT: props.environment,
         DLQ_URL: this.deadLetterQueue.queueUrl,
-        SCHEDULER_EXECUTION_ROLE_ARN: '', // Will be set after role creation
+        STREAMING_JOBS_QUEUE_URL: ssm.StringParameter.valueForStringParameter(
+          this, `/aistudio/${props.environment}/streaming-jobs-queue-url`
+        ),
       },
       logGroup: scheduleExecutorLogGroup,
       // Concurrency limits to prevent overwhelming the system
@@ -143,8 +144,13 @@ export class SchedulerStack extends cdk.Stack {
         'bedrock:InvokeModelWithResponseStream',
       ],
       resources: [
-        `arn:aws:bedrock:${this.region}:${this.account}:foundation-model/*`,
-        `arn:aws:bedrock:${this.region}:${this.account}:custom-model/*`
+        `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0`,
+        `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0`,
+        `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-opus-20240229-v1:0`,
+        `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0`,
+        `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-instant-v1`,
+        `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-v2:1`,
+        `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-v2`,
       ],
     });
     this.scheduleExecutorFunction.addToRolePolicy(bedrockPolicy);

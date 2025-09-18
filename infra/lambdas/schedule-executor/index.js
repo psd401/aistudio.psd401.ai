@@ -120,18 +120,6 @@ function sanitizeForLogging(data) {
   return sanitized;
 }
 
-// Simple variable substitution function
-function substituteVariables(content, context) {
-  if (!content || typeof content !== 'string') {
-    return content;
-  }
-
-  // Replace ${variableName} patterns with values from context
-  return content.replace(/\${([^}]+)}/g, (match, variableName) => {
-    const value = context[variableName];
-    return value !== undefined ? String(value) : match;
-  });
-}
 
 // Initialize clients
 const rdsClient = new RDSDataClient({});
@@ -409,13 +397,11 @@ async function loadScheduledExecution(scheduledExecutionId, expectedUserId = nul
       : 'WHERE se.id = :scheduled_execution_id';
 
     const parameters = [
-      { name: 'scheduled_execution_id', value: { longValue: executionId } }
+      { name: 'scheduled_execution_id', value: { longValue: executionId } },
+      ...(expectedUserId != null
+        ? [{ name: 'user_id', value: { longValue: safeParseInt(expectedUserId, 'user ID') } }]
+        : [])
     ];
-
-    if (expectedUserId != null) {
-      const userId = safeParseInt(expectedUserId, 'user ID');
-      parameters.push({ name: 'user_id', value: { longValue: userId } });
-    }
 
     const command = new ExecuteStatementCommand({
       resourceArn: DATABASE_RESOURCE_ARN,
