@@ -418,5 +418,12 @@ export class ProcessingStack extends cdk.Stack {
       description: 'Name of the AI streaming jobs worker Lambda function',
       exportName: `${props.environment}-StreamingJobsWorkerFunctionName`,
     });
+
+    // Store the streaming jobs queue URL in SSM for other stacks to reference
+    new ssm.StringParameter(this, 'StreamingJobsQueueUrlParam', {
+      parameterName: `/aistudio/${props.environment}/streaming-jobs-queue-url`,
+      stringValue: this.streamingJobsQueue.queueUrl,
+      description: 'URL of the AI streaming jobs queue for cross-stack access',
+    });
   }
 }
