@@ -921,19 +921,42 @@ async function processAssistantArchitectJob(job) {
           }
         ];
 
-        // Filter tools for this specific prompt based on enabledTools
-        let promptTools = {};
+        // DEBUG: Log tool name mismatch issue
+        console.log(`=== TOOL DEBUGGING FOR PROMPT: ${prompt.name} ===`);
+        console.log('Prompt enabled tools:', prompt.enabledTools);
+        console.log('Available tools from job:', Object.keys(tools || {}));
+        console.log('Tool objects:', tools);
+
+        // FIXED: Use all tools instead of broken filtering
+        // The issue was that enabledTools contains generic names like 'webSearch'
+        // but tools object has provider-specific names like 'web_search_preview'
+        let promptTools = tools || {}; // Use all available tools (like Nexus does)
+
+        // Optional: Smart filtering if we want to restrict tools per prompt
         if (prompt.enabledTools && prompt.enabledTools.length > 0 && tools && Object.keys(tools).length > 0) {
-          // Only include tools that are enabled for this prompt
-          for (const toolName of prompt.enabledTools) {
-            if (tools[toolName]) {
-              promptTools[toolName] = tools[toolName];
-            }
-          }
-          console.log(`Prompt ${prompt.name} tools filtered:`, {
+          promptTools = {};
+          // Map generic names to provider-specific names
+          Object.keys(tools).forEach(actualToolName => {
+            prompt.enabledTools.forEach(enabledTool => {
+              // Smart matching: check if tool name contains the enabled tool
+              if (actualToolName.toLowerCase().includes(enabledTool.toLowerCase()) ||
+                  (enabledTool === 'webSearch' && actualToolName.includes('search'))) {
+                promptTools[actualToolName] = tools[actualToolName];
+                console.log(`Mapped ${enabledTool} -> ${actualToolName}`);
+              }
+            });
+          });
+
+          console.log(`Prompt ${prompt.name} tools after smart filtering:`, {
             requestedTools: prompt.enabledTools,
             availableTools: Object.keys(tools),
-            filteredTools: Object.keys(promptTools)
+            filteredTools: Object.keys(promptTools),
+            smartMappingUsed: true
+          });
+        } else {
+          console.log(`Prompt ${prompt.name} using all available tools:`, {
+            availableTools: Object.keys(promptTools),
+            allToolsUsed: true
           });
         }
 
@@ -945,7 +968,7 @@ async function processAssistantArchitectJob(job) {
           userId: job.user_id.toString(),
           sessionId: `${job.id}-prompt-${prompt.id}`,
           conversationId: job.conversation_id,
-          source: 'assistant-architect',
+          source: 'lambda-worker', // Align with Nexus for consistent tool handling
           systemPrompt: systemPrompt + (prompt.system_context ? '\n\n' + prompt.system_context : ''),
           options: {
             reasoningEffort: options.reasoningEffort || 'medium',
@@ -954,11 +977,14 @@ async function processAssistantArchitectJob(job) {
             temperature: options.temperature
           },
           callbacks: {
-            onFinish: async ({ text, usage, finishReason }) => {
+            onFinish: async ({ text, usage, finishReason, toolCalls }) => {
               console.log(`Prompt ${prompt.name} finished`, {
                 hasText: !!text,
                 textLength: text?.length || 0,
-                finishReason
+                finishReason,
+                hasToolCalls: !!(toolCalls && toolCalls.length > 0),
+                toolCallCount: toolCalls?.length || 0,
+                toolCallTypes: toolCalls?.map(tc => tc.toolName) || []
               });
             }
           },
@@ -968,6 +994,21 @@ async function processAssistantArchitectJob(job) {
         // Execute the prompt using unified streaming service
         const streamResponse = await unifiedStreamingService.stream(streamRequest);
         const promptResult = await streamResponse.result;
+
+        // ENHANCED LOGGING: Capture tool execution details
+        console.log(`=== PROMPT EXECUTION COMPLETE: ${prompt.name} ===`);
+        console.log('Prompt result structure:', {
+          hasText: !!promptResult.text,
+          hasToolCalls: !!(promptResult.toolCalls && promptResult.toolCalls.length > 0),
+          toolCallCount: promptResult.toolCalls?.length || 0,
+          toolCallDetails: promptResult.toolCalls?.map(tc => ({
+            toolName: tc.toolName,
+            hasArgs: !!tc.args,
+            hasResult: !!tc.result
+          })) || [],
+          finishReason: promptResult.finishReason,
+          usage: promptResult.usage
+        });
 
         // Extract final text result
         let finalText = '';
