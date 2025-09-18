@@ -27,6 +27,10 @@ Before diving into specific issues, run through this quick checklist:
 
 **Diagnosis:**
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- Check available models with tool support
 SELECT model_id, name, capabilities, active
 FROM ai_models
@@ -47,7 +51,11 @@ AND capabilities::text LIKE '%tools%';
 
 3. **Permission Check:**
    ```sql
-   -- Verify user has access to tool-enabled models
+   -- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+   -- In production code, ALWAYS use parameterized queries through the executeSQL function
+   -- with proper parameter binding to prevent SQL injection attacks.
+
+   -- Verify user has access to tool-enabled models (use parameterized queries in actual implementation)
    SELECT u.username, r.role_name, ra.permission
    FROM users u
    JOIN user_roles ur ON u.id = ur.user_id
@@ -147,6 +155,10 @@ aws logs filter-log-events \
 
 **Diagnosis:**
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- Analyze execution performance
 SELECT
   DATE(started_at) as execution_date,
@@ -185,6 +197,10 @@ ORDER BY execution_date DESC;
 
 **Monitoring Query:**
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- Calculate daily success rate
 SELECT
   DATE(started_at) as date,
@@ -223,6 +239,10 @@ ORDER BY date DESC;
 
 **Security Checks:**
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- Audit tool configurations
 SELECT
   aa.name,
@@ -364,6 +384,10 @@ Create monitoring dashboards with:
 ### Database Queries for Diagnosis
 
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- Recent execution analysis
 SELECT
   te.id,

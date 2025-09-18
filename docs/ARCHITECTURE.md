@@ -372,6 +372,10 @@ interface ToolResult {
 
 #### Tool Configuration
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- Enhanced chain_prompts table
 ALTER TABLE chain_prompts ADD COLUMN enabled_tools JSONB DEFAULT '[]';
 ALTER TABLE chain_prompts ADD COLUMN tool_settings JSONB DEFAULT '{}';
@@ -401,10 +405,14 @@ CREATE TABLE tool_results (
 
 #### Model Capabilities
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- Enhanced ai_models table
 ALTER TABLE ai_models ADD COLUMN capabilities JSONB DEFAULT '{}';
 
--- Example capabilities structure
+-- Example capabilities structure (use parameterized queries in actual implementation)
 UPDATE ai_models SET capabilities = '{
   "tools": ["web_search", "code_interpreter"],
   "maxToolCalls": 5,
@@ -416,10 +424,97 @@ UPDATE ai_models SET capabilities = '{
 ### Security & Compliance
 
 #### Tool Execution Security
-- **Sandboxing**: Isolated execution environments for each tool
-- **Input Validation**: Strict parameter sanitization and type checking
-- **Output Filtering**: Content scanning for sensitive information
-- **Rate Limiting**: Per-user and per-tool execution limits
+
+##### Container Security & Isolation
+- **Runtime**: AWS Lambda with isolated execution contexts
+- **Container Features**:
+  - Read-only root filesystem
+  - Non-root user execution (UID 1000)
+  - No privileged access or capabilities
+  - Isolated process namespace (PID isolation)
+  - Restricted file system access (no /tmp persistence)
+- **Security Context**:
+  ```yaml
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+  ```
+
+##### Network Isolation
+- **Code Interpreter**: Complete network isolation - no outbound internet access
+- **Web Search Tool**: Restricted to approved domains only via allowlist
+- **DNS Resolution**: Limited to AWS internal DNS for security
+- **Firewall Rules**:
+  - Block all outbound traffic except HTTPS to approved endpoints
+  - No inbound network access permitted
+  - VPC security groups with explicit deny-all default
+
+##### Resource Limits & Controls
+- **Memory Limits**:
+  - Code Interpreter: 512MB maximum (configurable per model)
+  - Web Search: 256MB maximum
+  - Hard limits enforced at container level
+- **CPU Limits**:
+  - Code Interpreter: 0.5 vCPU maximum with burst capability
+  - Web Search: 0.25 vCPU maximum
+  - Timeout enforcement: 30 seconds hard limit
+- **Disk I/O**:
+  - Ephemeral storage only (no persistent volumes)
+  - 512MB maximum temporary space
+  - Automatic cleanup after execution
+
+##### Input Validation & Attack Prevention
+- **Dangerous Input Patterns Blocked**:
+  ```typescript
+  // Command injection patterns
+  /[;&|`$(){}[\]\\]/g          // Shell metacharacters
+  /\b(eval|exec|system)\b/gi   // Dangerous functions
+  /import\s+os|subprocess/gi   // System module imports
+  /__import__|getattr/gi       // Dynamic imports
+
+  // Path traversal patterns
+  /\.\.[\/\\]/g                // Directory traversal
+  /\/etc\/|\/proc\/|\/dev\//gi // System directories
+
+  // Network access patterns
+  /socket|urllib|requests/gi   // Network libraries
+  /http[s]?:\/\//gi           // URL patterns
+  ```
+
+- **Code Execution Restrictions**:
+  - No file system write access outside `/tmp`
+  - Blocked system calls: `socket`, `fork`, `exec`
+  - Import restrictions: `os`, `subprocess`, `socket`, `urllib`
+  - Memory allocation limits to prevent resource exhaustion
+
+- **Input Sanitization**:
+  - Maximum input size: 100KB for code, 10KB for search queries
+  - UTF-8 encoding validation
+  - SQL injection pattern detection
+  - XSS pattern filtering for all outputs
+
+##### Monitoring & Detection
+- **Real-time Monitoring**:
+  - Resource usage tracking (CPU, memory, disk)
+  - Network connection attempts (blocked and logged)
+  - Suspicious pattern detection in code execution
+  - Failed execution attempt analysis
+
+- **Security Alerting**:
+  - Immediate alerts for blocked dangerous patterns
+  - Resource limit violations
+  - Repeated security violations by user
+  - Anomalous execution patterns
+
+- **Audit Logging**:
+  - All tool execution inputs and outputs
+  - Security violation attempts with user context
+  - Resource usage metrics for capacity planning
+  - Performance metrics for optimization
 
 #### Data Privacy
 - **Temporary Storage**: Tool results stored with automatic cleanup

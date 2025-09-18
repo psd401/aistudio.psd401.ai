@@ -13,6 +13,10 @@ This guide provides comprehensive instructions for administrators to manage Assi
 
 ### Access Verification
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- Check admin permissions
 SELECT u.username, r.role_name, rp.permission
 FROM users u
@@ -30,6 +34,10 @@ ORDER BY u.username;
 
 #### View Current Model Capabilities
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- List all models with tool support
 SELECT
   id,
@@ -46,7 +54,11 @@ ORDER BY provider, name;
 
 #### Enable Tools for a Model
 ```sql
--- Enable web search and code interpreter for GPT-5
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
+-- Enable web search and code interpreter for GPT-5 (use parameterized queries in actual implementation)
 UPDATE ai_models
 SET capabilities = jsonb_set(
   COALESCE(capabilities, '{}'),
@@ -55,7 +67,7 @@ SET capabilities = jsonb_set(
 )
 WHERE model_id = 'gpt-5' AND active = true;
 
--- Set tool-specific configurations
+-- Set tool-specific configurations (use parameterized queries in actual implementation)
 UPDATE ai_models
 SET capabilities = jsonb_set(
   capabilities,
@@ -79,12 +91,16 @@ WHERE model_id = 'gpt-5';
 
 #### Disable Tools for a Model
 ```sql
--- Remove all tool support
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
+-- Remove all tool support (use parameterized queries in actual implementation)
 UPDATE ai_models
 SET capabilities = capabilities - 'tools'
 WHERE model_id = 'gpt-3.5-turbo';
 
--- Remove specific tool
+-- Remove specific tool (use parameterized queries in actual implementation)
 UPDATE ai_models
 SET capabilities = jsonb_set(
   capabilities,
@@ -150,13 +166,17 @@ aws ssm put-parameter \
 
 #### Grant Tool Access to Users
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- Create tool-specific permissions
 INSERT INTO permissions (name, description)
 VALUES
   ('use_web_search', 'Permission to use web search tool'),
   ('use_code_interpreter', 'Permission to use code interpreter tool');
 
--- Grant permissions to role
+-- Grant permissions to role (use parameterized queries in actual implementation)
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id
 FROM roles r
@@ -164,7 +184,7 @@ CROSS JOIN permissions p
 WHERE r.role_name = 'premium_user'
 AND p.name IN ('use_web_search', 'use_code_interpreter');
 
--- Grant permissions to specific user
+-- Grant permissions to specific user (use parameterized queries in actual implementation)
 INSERT INTO user_permissions (user_id, permission_id)
 SELECT u.id, p.id
 FROM users u
@@ -175,7 +195,11 @@ AND p.name = 'use_web_search';
 
 #### Check User Tool Access
 ```sql
--- Check user's tool permissions
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
+-- Check user's tool permissions (use parameterized queries in actual implementation)
 SELECT
   u.username,
   p.name as permission,
@@ -197,12 +221,16 @@ ORDER BY p.name;
 
 #### Revoke Tool Access
 ```sql
--- Revoke direct user permission
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
+-- Revoke direct user permission (use parameterized queries in actual implementation)
 DELETE FROM user_permissions
 WHERE user_id = (SELECT id FROM users WHERE username = 'target_user')
 AND permission_id = (SELECT id FROM permissions WHERE name = 'use_web_search');
 
--- Remove permission from role
+-- Remove permission from role (use parameterized queries in actual implementation)
 DELETE FROM role_permissions
 WHERE role_id = (SELECT id FROM roles WHERE role_name = 'basic_user')
 AND permission_id = (SELECT id FROM permissions WHERE name = 'use_code_interpreter');
@@ -214,6 +242,10 @@ AND permission_id = (SELECT id FROM permissions WHERE name = 'use_code_interpret
 
 #### Daily Usage Summary
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- Daily tool usage statistics
 SELECT
   DATE(te.started_at) as usage_date,
@@ -233,6 +265,10 @@ ORDER BY usage_date DESC, execution_count DESC;
 
 #### Performance Analysis
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- Tool performance analysis
 SELECT
   jsonb_array_elements_text(cp.enabled_tools) as tool_name,
@@ -253,6 +289,10 @@ ORDER BY total_executions DESC;
 
 #### User Adoption Tracking
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- User adoption metrics
 SELECT
   DATE_TRUNC('week', te.started_at) as week_start,
@@ -269,6 +309,10 @@ ORDER BY week_start;
 
 #### Error Rate Analysis
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- Error analysis by tool and error type
 SELECT
   jsonb_array_elements_text(cp.enabled_tools) as tool_name,
@@ -425,21 +469,88 @@ aws sqs set-queue-attributes \
 ### API Key Management
 
 #### Web Search API Keys
+
+**🔒 CRITICAL SECURITY REQUIREMENTS:**
+- **NEVER log API keys or secret values** in application code, logs, or monitoring systems
+- **NEVER hardcode secrets** in code, configuration files, or documentation examples
+- **NEVER expose secrets** in environment variables on shared systems
+- **ALWAYS use IAM roles** instead of API keys where possible for AWS services
+- **IMPLEMENT secret rotation** procedures with automated key rotation every 90 days maximum
+- **MONITOR secret access** and log all secret retrieval operations for audit
+- **USE least privilege** principles - grant minimum required permissions only
+
 ```bash
-# Store API keys in AWS Secrets Manager
+# Store API keys in AWS Secrets Manager with proper security practices
 aws secretsmanager create-secret \
   --name "ai-studio/tools/web-search-api-key" \
   --description "API key for web search tool" \
   --secret-string "$WEB_SEARCH_API_KEY"
 
-# Rotate API keys
+# Enable automatic rotation (CRITICAL: Implement automated key rotation)
 aws secretsmanager rotate-secret \
   --secret-id "ai-studio/tools/web-search-api-key" \
   --rotation-lambda-arn "arn:aws:lambda:region:account:function:rotate-api-key"
+
+# Set up secret access monitoring and alerting
+aws logs create-log-group --log-group-name "/aws/secretsmanager/ai-studio"
+
+# Configure resource-based policy for strict access control
+aws secretsmanager put-resource-policy \
+  --secret-id "ai-studio/tools/web-search-api-key" \
+  --resource-policy '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Principal": {"AWS": "arn:aws:iam::ACCOUNT:role/AssistantArchitectRole"},
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "secretsmanager:VersionStage": "AWSCURRENT"
+        }
+      }
+    }]
+  }'
+```
+
+**Secure Secret Retrieval Pattern:**
+```typescript
+// SECURE: Proper secret handling with error management
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
+
+async function getApiKeySecurely(secretId: string): Promise<string> {
+  const client = new SecretsManagerClient({ region: process.env.AWS_REGION })
+
+  try {
+    const result = await client.send(new GetSecretValueCommand({ SecretId: secretId }))
+
+    // NEVER log the secret value
+    if (!result.SecretString) {
+      throw new Error('Secret value not found')
+    }
+
+    return result.SecretString
+  } catch (error) {
+    // Log error without exposing secret details
+    logger.error('Failed to retrieve API key', {
+      secretId: sanitizeForLogging(secretId),
+      error: error.message
+    })
+    throw new Error('API key retrieval failed')
+  }
+}
+
+// INSECURE: Never do this
+// console.log('API Key:', apiKey) // ❌ NEVER LOG SECRETS
+// process.env.API_KEY = apiKey    // ❌ NEVER SET ENV VARS
 ```
 
 #### Access Logging
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- Create audit log table
 CREATE TABLE tool_audit_log (
   id SERIAL PRIMARY KEY,
@@ -454,7 +565,7 @@ CREATE TABLE tool_audit_log (
   error_message TEXT
 );
 
--- Log tool access
+-- Log tool access (use parameterized queries in actual implementation)
 INSERT INTO tool_audit_log (user_id, tool_type, action, resource_id, ip_address, user_agent)
 VALUES (?, 'web_search', 'execute', ?, ?, ?);
 ```
@@ -463,6 +574,10 @@ VALUES (?, 'web_search', 'execute', ?, ?, ?);
 
 #### Data Retention Policies
 ```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
 -- Automated cleanup of old tool executions
 DELETE FROM tool_executions
 WHERE started_at < NOW() - INTERVAL '90 days'
@@ -588,12 +703,16 @@ aws lambda get-function \
 
 **Resolution:**
 ```sql
--- Fix missing model capabilities
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
+-- Fix missing model capabilities (use parameterized queries in actual implementation)
 UPDATE ai_models
 SET capabilities = '{"tools": ["web_search", "code_interpreter"]}'
 WHERE model_id = 'affected-model' AND capabilities IS NULL;
 
--- Grant missing permissions
+-- Grant missing permissions (use parameterized queries in actual implementation)
 INSERT INTO user_permissions (user_id, permission_id)
 SELECT u.id, p.id
 FROM users u, permissions p

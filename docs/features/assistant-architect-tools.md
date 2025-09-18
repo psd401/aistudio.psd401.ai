@@ -200,11 +200,114 @@ If you encounter persistent issues:
 - No personal data is sent to external tool services
 - All tool usage is logged for monitoring and debugging
 
-### Best Practices
-- Avoid including sensitive information in tool-enabled prompts
-- Review tool outputs before sharing with others
-- Use tools responsibly and respect rate limits
-- Follow your organization's data handling policies
+### 🔒 Critical Security Guidelines
+
+#### Prompt Security & Data Protection
+- **⚠️ NEVER include sensitive data** in prompts that use tools:
+  - Personal identification numbers (SSN, license numbers)
+  - Financial information (credit card numbers, bank accounts)
+  - Authentication credentials (passwords, API keys)
+  - Proprietary business information or trade secrets
+  - Patient health information or other regulated data
+- **External API Risk**: Web search tools send prompts to external services - treat all prompts as potentially visible to third parties
+- **Data Locality**: Tool execution may process data in different geographic regions - ensure compliance with data residency requirements
+- **Encryption**: All data is encrypted in transit, but external tool providers have their own security policies
+
+#### Output Validation & Verification
+- **🔍 ALWAYS verify tool results** before using in critical decisions:
+  - Web search results may contain outdated or inaccurate information
+  - Code interpreter calculations should be independently verified for financial or safety-critical applications
+  - Cross-reference important information with authoritative sources
+- **Misinformation Risk**: AI-generated summaries may introduce bias or errors - verify facts independently
+- **Code Security**: Review all generated code before execution in production environments
+- **Business Decisions**: Never rely solely on tool outputs for important business or operational decisions
+
+#### Access Control & Monitoring
+- **Activity Logging**: All tool usage is logged and monitored for security purposes:
+  - Execution timestamps and user identification
+  - Input prompts and generated outputs (sanitized for sensitive data)
+  - Performance metrics and error conditions
+  - Security violation attempts and rate limiting events
+- **Access Reviews**: Tool access permissions are reviewed regularly by system administrators
+- **Audit Trail**: Complete audit trail maintained for compliance and security investigation purposes
+- **Anomaly Detection**: Unusual usage patterns are automatically flagged for security review
+
+#### Data Retention & Lifecycle
+- **Execution History**: Tool execution data is retained according to the following schedule:
+  - **Active Data**: 30 days in primary systems for performance monitoring
+  - **Archived Data**: 90 days in secure archive for audit and compliance
+  - **Automatic Cleanup**: All tool execution data automatically deleted after retention period
+  - **Security Logs**: Security-related logs retained for 1 year minimum
+- **User Control**: Users can request deletion of their tool execution history (subject to legal/compliance requirements)
+- **Backup Policy**: Encrypted backups follow same retention schedule with secure destruction
+
+#### Network Security & Isolation
+- **Tool Isolation**: Each tool execution runs in a completely isolated environment
+- **Network Restrictions**:
+  - Code interpreter has NO internet access
+  - Web search limited to approved, safe domains only
+  - All network traffic monitored and filtered
+- **Data Boundaries**: No tool can access data from other users or executions
+
+### Best Practices for Secure Usage
+
+#### Before Using Tools
+- ✅ **Review your prompt** for sensitive information before execution
+- ✅ **Choose appropriate tools** - use code interpreter for calculations, web search only for public information
+- ✅ **Understand data flow** - know where your data goes and who might have access
+- ✅ **Check compliance** with your organization's data handling policies
+
+#### During Tool Execution
+- ✅ **Monitor results** as they stream in for unexpected or concerning content
+- ✅ **Stop execution** immediately if sensitive data appears in outputs
+- ✅ **Stay within limits** - respect rate limits and usage quotas
+- ✅ **Report issues** immediately if you notice security concerns
+
+#### After Tool Execution
+- ✅ **Review all outputs** thoroughly before sharing or using in decisions
+- ✅ **Sanitize results** if sharing outside your organization
+- ✅ **Document sources** when using web search results for important work
+- ✅ **Archive securely** if you need to retain results long-term
+
+### Compliance & Regulatory Considerations
+
+#### Industry-Specific Guidelines
+- **Healthcare (HIPAA)**: Never include patient information in tool prompts
+- **Financial (SOX/PCI)**: Avoid financial data or cardholder information in any tool inputs
+- **Education (FERPA)**: Do not include student records or educational information
+- **Government**: Follow your agency's data classification and handling requirements
+
+#### International Data Protection
+- **GDPR Compliance**: Tool usage respects European data protection requirements
+- **Data Residency**: Configure tools to process data in required geographic regions
+- **Right to Deletion**: Users can request deletion of tool execution history
+- **Privacy by Design**: Minimal data collection and automatic retention limits
+
+### Incident Response
+If you suspect a security issue with tool usage:
+
+1. **Immediate Actions**:
+   - Stop any ongoing tool executions
+   - Do not share or use potentially compromised outputs
+   - Document what you observed
+
+2. **Reporting**:
+   - Contact your system administrator immediately
+   - Provide execution IDs and timestamps
+   - Describe the security concern in detail
+
+3. **Follow-up**:
+   - Cooperate with security investigation
+   - Review and update your security practices
+   - Consider additional training if needed
+
+### Security Training & Awareness
+- Regular security training is recommended for all tool users
+- Stay informed about new security threats and best practices
+- Report security concerns promptly to help protect the entire system
+- Participate in security reviews and audits when requested
+
+**Remember: When in doubt about security implications, consult with your system administrator or security team before proceeding.**
 
 ## Advanced Features
 
