@@ -146,6 +146,26 @@ async function validateEnabledTools(
   }
 }
 
+// Helper function to collect all unique enabled tools from prompts in execution order
+function collectEnabledTools(prompts: SelectChainPrompt[]): string[] {
+  const allTools = new Set<string>();
+
+  // Sort prompts by position to ensure correct execution order
+  prompts
+    .sort((a, b) => (a.position || 0) - (b.position || 0))
+    .forEach(prompt => {
+      if (prompt.enabledTools && Array.isArray(prompt.enabledTools)) {
+        prompt.enabledTools.forEach(tool => {
+          if (typeof tool === 'string' && tool.trim()) {
+            allTools.add(tool.trim());
+          }
+        });
+      }
+    });
+
+  return Array.from(allTools);
+}
+
 
 // Helper function to get current user ID
 async function getCurrentUserId(): Promise<number | null> {
@@ -2070,6 +2090,46 @@ export async function executeAssistantArchitectAction({
     
     log.info("Repository IDs collected for knowledge context", { repositoryIds });
 
+    // Collect enabled tools from all prompts in the assistant chain
+    const enabledTools = tool.prompts ? collectEnabledTools(tool.prompts) : [];
+    log.info("Enabled tools collected from prompts", {
+      enabledTools,
+      toolCount: enabledTools.length
+    });
+
+    // Build tools using existing buildToolsForRequest function
+    let tools: unknown = {};
+    if (enabledTools.length > 0) {
+      try {
+        // Validate tools before building
+        const { buildToolsForRequest } = await import('@/lib/tools/tool-registry');
+        const toolValidation = await validateEnabledTools(enabledTools, modelId);
+
+        if (!toolValidation.isValid) {
+          log.warn("Tool validation failed, continuing without tools", {
+            invalidTools: toolValidation.invalidTools,
+            message: toolValidation.message
+          });
+          // Continue execution without tools rather than failing
+          tools = {};
+        } else {
+          tools = await buildToolsForRequest(modelIdString, enabledTools, provider);
+          log.info("Tools built for assistant architect execution", {
+            enabledTools,
+            availableToolCount: Object.keys(tools || {}).length,
+            toolNames: Object.keys(tools || {})
+          });
+        }
+      } catch (toolError) {
+        log.warn("Failed to build tools, continuing without tools", {
+          error: toolError instanceof Error ? toolError.message : 'Unknown error',
+          enabledTools
+        });
+        // Don't fail the entire execution if tools can't be built
+        tools = {};
+      }
+    }
+
     // Use jobManagementService to create streaming job with assistant architect context
     const { jobManagementService } = await import('@/lib/streaming/job-management-service');
     const { getStreamingJobsQueueUrl } = await import('@/lib/aws/queue-config');
@@ -2140,6 +2200,7 @@ export async function executeAssistantArchitectAction({
       },
       source: 'assistant-architect',
       sessionId: session.sub,
+      tools,
       toolMetadata
     };
 
@@ -2191,6 +2252,18 @@ export async function executeAssistantArchitectAction({
             source: {
               DataType: 'String',
               StringValue: 'assistant-architect'
+            },
+            toolsEnabled: {
+              DataType: 'String',
+              StringValue: enabledTools.length > 0 ? 'true' : 'false'
+            },
+            enabledToolsList: {
+              DataType: 'String',
+              StringValue: JSON.stringify(enabledTools)
+            },
+            toolCount: {
+              DataType: 'Number',
+              StringValue: enabledTools.length.toString()
             }
           }
         });
