@@ -856,14 +856,15 @@ async function processAssistantArchitectJob(job) {
   });
 
   try {
-    const { 
-      messages, 
-      modelId, 
-      provider, 
-      systemPrompt, 
+    const {
+      messages,
+      modelId,
+      provider,
+      systemPrompt,
       options = {},
       toolMetadata,
-      repositoryIds = []
+      repositoryIds = [],
+      tools = {}
     } = job.request_data;
 
     if (!toolMetadata) {
@@ -877,7 +878,10 @@ async function processAssistantArchitectJob(job) {
       executionId,
       promptCount: prompts?.length || 0,
       hasInputMapping: !!inputMapping,
-      repositoryCount: repositoryIds.length
+      repositoryCount: repositoryIds.length,
+      hasTools: !!tools && Object.keys(tools).length > 0,
+      toolCount: tools ? Object.keys(tools).length : 0,
+      toolNames: tools ? Object.keys(tools) : []
     });
 
     // Update tool execution status to running
@@ -896,7 +900,11 @@ async function processAssistantArchitectJob(job) {
       const prompt = sortedPrompts[i];
       const isLastPrompt = i === sortedPrompts.length - 1;
       
-      console.log(`Executing prompt ${i + 1}/${sortedPrompts.length}: ${prompt.name}`);
+      console.log(`Executing prompt ${i + 1}/${sortedPrompts.length}: ${prompt.name}`, {
+        hasEnabledTools: !!(prompt.enabledTools && prompt.enabledTools.length > 0),
+        enabledTools: prompt.enabledTools || [],
+        toolCount: (prompt.enabledTools || []).length
+      });
 
       try {
         // Mark prompt as running
@@ -912,6 +920,22 @@ async function processAssistantArchitectJob(job) {
             parts: [{ type: 'text', text: processedContent }]
           }
         ];
+
+        // Filter tools for this specific prompt based on enabledTools
+        let promptTools = {};
+        if (prompt.enabledTools && prompt.enabledTools.length > 0 && tools && Object.keys(tools).length > 0) {
+          // Only include tools that are enabled for this prompt
+          for (const toolName of prompt.enabledTools) {
+            if (tools[toolName]) {
+              promptTools[toolName] = tools[toolName];
+            }
+          }
+          console.log(`Prompt ${prompt.name} tools filtered:`, {
+            requestedTools: prompt.enabledTools,
+            availableTools: Object.keys(tools),
+            filteredTools: Object.keys(promptTools)
+          });
+        }
 
         // Create streaming request using shared core interface
         const streamRequest = {
@@ -937,7 +961,8 @@ async function processAssistantArchitectJob(job) {
                 finishReason
               });
             }
-          }
+          },
+          tools: promptTools
         };
 
         // Execute the prompt using unified streaming service

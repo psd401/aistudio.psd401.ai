@@ -2147,7 +2147,8 @@ export async function executeAssistantArchitectAction({
         modelId: p.modelId || modelId, // Use the tool's model if prompt modelId is null
         position: p.position,
         inputMapping: (p.inputMapping && typeof p.inputMapping === 'object') ? p.inputMapping as Record<string, unknown> : {},
-        repositoryIds: p.repositoryIds ? parseRepositoryIds(p.repositoryIds) : []
+        repositoryIds: p.repositoryIds ? parseRepositoryIds(p.repositoryIds) : [],
+        enabledTools: p.enabledTools && Array.isArray(p.enabledTools) ? p.enabledTools : []
       })) || [],
       inputMapping: validatedInputs || {}
     };
