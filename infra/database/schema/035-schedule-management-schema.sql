@@ -6,14 +6,19 @@
 -- Stores user-configured automated executions with schedule settings
 CREATE TABLE IF NOT EXISTS scheduled_executions (
   id SERIAL PRIMARY KEY,
-  user_id TEXT NOT NULL,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   assistant_architect_id INTEGER NOT NULL REFERENCES assistant_architects(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
-  schedule_config JSONB NOT NULL, -- {frequency, time, timezone, cron}
+  schedule_config JSONB NOT NULL CHECK (
+    schedule_config ? 'frequency' AND
+    schedule_config->>'frequency' IN ('daily', 'weekly', 'monthly', 'custom')
+  ), -- {frequency, time, timezone, cron}
   input_data JSONB NOT NULL,
   active BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_by TEXT,
+  UNIQUE(user_id, name)
 );
 
 -- Execution results and history table
@@ -32,10 +37,13 @@ CREATE TABLE IF NOT EXISTS execution_results (
 -- Manages notification delivery for execution results
 CREATE TABLE IF NOT EXISTS user_notifications (
   id SERIAL PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  execution_result_id INTEGER REFERENCES execution_results(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  execution_result_id INTEGER NOT NULL REFERENCES execution_results(id) ON DELETE CASCADE,
   type TEXT NOT NULL CHECK (type IN ('email', 'in_app')),
-  status TEXT NOT NULL CHECK (status IN ('sent', 'delivered', 'read')),
+  status TEXT NOT NULL CHECK (status IN ('sent', 'delivered', 'read', 'failed')),
+  delivery_attempts INTEGER DEFAULT 0,
+  last_attempt_at TIMESTAMP,
+  failure_reason TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -61,3 +69,6 @@ ON user_notifications(user_id, status, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_user_notifications_execution_result
 ON user_notifications(execution_result_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_notifications_delivery_attempts
+ON user_notifications(delivery_attempts, last_attempt_at) WHERE status = 'failed';
