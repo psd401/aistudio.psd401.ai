@@ -46,6 +46,18 @@ type ArchitectWithRelations = SelectAssistantArchitect & {
   prompts?: SelectChainPrompt[];
 }
 
+// Helper function to safely parse integers with validation
+function safeParseInt(value: string, fieldName: string): number {
+  const parsed = parseInt(value, 10);
+  if (isNaN(parsed) || parsed <= 0 || parsed > Number.MAX_SAFE_INTEGER) {
+    throw ErrorFactories.validationFailed([{
+      field: fieldName,
+      message: `Invalid ${fieldName} format`
+    }]);
+  }
+  return parsed;
+}
+
 // Helper function to transform and parse prompt data consistently
 function transformPrompt(prompt: any): SelectChainPrompt {
   const transformed = transformSnakeToCamel<SelectChainPrompt>(prompt);
@@ -54,7 +66,14 @@ function transformPrompt(prompt: any): SelectChainPrompt {
   // Parse enabled_tools from JSONB array to string array
   if (transformed.enabledTools && typeof transformed.enabledTools === 'string') {
     try {
-      transformed.enabledTools = JSON.parse(transformed.enabledTools);
+      // Add length check to prevent DoS
+      if ((transformed.enabledTools as string).length > 10000) {
+        transformed.enabledTools = [];
+        return transformed;
+      }
+      const parsed = JSON.parse(transformed.enabledTools);
+      // Validate parsed data structure
+      transformed.enabledTools = Array.isArray(parsed) ? parsed : [];
     } catch {
       transformed.enabledTools = [];
     }
@@ -337,7 +356,7 @@ export async function getAssistantArchitectsAction(): Promise<
             ORDER BY position ASC
           `, [{ name: 'toolId', value: { longValue: Number(architect.id) } }]),
           executeSQL<RawDbRow>(`
-            SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, created_at, updated_at
+            SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, enabled_tools, created_at, updated_at
             FROM chain_prompts
             WHERE assistant_architect_id = :toolId
             ORDER BY position ASC
@@ -428,7 +447,7 @@ export async function getAssistantArchitectByIdAction(
         ORDER BY position ASC
       `, [{ name: 'toolId', value: { longValue: idInt } }]),
       executeSQL<RawDbRow>(`
-        SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, created_at, updated_at
+        SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, enabled_tools, created_at, updated_at
         FROM chain_prompts
         WHERE assistant_architect_id = :toolId
         ORDER BY position ASC
@@ -496,7 +515,7 @@ export async function getPendingAssistantArchitectsAction(): Promise<
             ORDER BY position ASC
           `, [{ name: 'toolId', value: { longValue: Number(tool.id) } }]),
           executeSQL<RawDbRow>(`
-            SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, created_at, updated_at
+            SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, enabled_tools, created_at, updated_at
             FROM chain_prompts
             WHERE assistant_architect_id = :toolId
             ORDER BY position ASC
@@ -1167,7 +1186,7 @@ export async function addChainPromptAction(
       INSERT INTO chain_prompts (assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, enabled_tools, created_at, updated_at)
       VALUES (:toolId, :name, :content, :systemContext, :modelId, :position, :inputMapping::jsonb, :repositoryIds::jsonb, :enabledTools::jsonb, NOW(), NOW())
     `, [
-      { name: 'toolId', value: { longValue: parseInt(architectId, 10) } },
+      { name: 'toolId', value: { longValue: safeParseInt(architectId, 'architectId') } },
       { name: 'name', value: { stringValue: data.name } },
       { name: 'content', value: { stringValue: data.content } },
       { name: 'systemContext', value: data.systemContext ? { stringValue: data.systemContext } : { isNull: true } },
@@ -1248,12 +1267,22 @@ export async function updatePromptAction(
 
     // Only tool creator or admin can update prompts
     const isAdmin = await checkUserRoleByCognitoSub(session.sub, "administrator")
-    const currentUserId = await getCurrentUserId();
-    if (!currentUserId) {
-      return { isSuccess: false, message: "User not found" }
+
+    // Get current user with proper error handling
+    const currentUser = await getCurrentUserAction();
+    if (!currentUser.isSuccess || !currentUser.data?.user?.id) {
+      log.error("Failed to get current user for authorization check");
+      throw ErrorFactories.authNoSession();
     }
+
+    const currentUserId = currentUser.data.user.id;
     if (!isAdmin && tool.userId !== currentUserId) {
-      return { isSuccess: false, message: "Forbidden" }
+      log.warn("Authorization failed - user doesn't own resource", {
+        userId: currentUserId,
+        resourceOwnerId: tool.userId,
+        isAdmin
+      });
+      throw ErrorFactories.authzToolAccessDenied("assistant_architect");
     }
 
     // Validate enabled tools if being updated
@@ -1339,9 +1368,18 @@ export async function updatePromptAction(
             // Use the serialization utility for repository IDs
             paramValue = { stringValue: serializeRepositoryIds(value) || '[]' };
           } else if (key === 'enabledTools' && Array.isArray(value)) {
-            // Handle enabled tools array
-            const cleanArray = value.filter(v => v !== undefined && v !== null);
-            paramValue = { stringValue: JSON.stringify(cleanArray) };
+            // Validate array elements and prevent prototype pollution
+            const safeArray = value.filter(item => {
+              if (typeof item !== 'string') return false;
+              // Prevent dangerous patterns in tool names
+              const dangerousPatterns = ['__proto__', 'constructor', 'prototype'];
+              return !dangerousPatterns.some(pattern => item.includes(pattern));
+            });
+            const jsonString = JSON.stringify(safeArray);
+            if (jsonString.length > 10000) {
+              throw new Error('Enabled tools array too large');
+            }
+            paramValue = { stringValue: jsonString };
           } else if (Array.isArray(value)) {
             // Always stringify arrays, even empty ones
             // This ensures empty arrays are stored as '[]' not NULL
