@@ -307,7 +307,7 @@ async function handleScheduledExecution(scheduledExecutionId, requestId) {
     // Update execution result with completion
     await updateExecutionResult(
       executionResultId,
-      'completed',
+      'success',
       result,
       executionDuration
     );
@@ -326,7 +326,7 @@ async function handleScheduledExecution(scheduledExecutionId, requestId) {
         scheduledExecutionId,
         executionResultId,
         duration: executionDuration,
-        status: 'completed'
+        status: 'success'
       })
     };
 
@@ -393,7 +393,7 @@ async function loadScheduledExecution(scheduledExecutionId, expectedUserId = nul
     const executionId = safeParseInt(scheduledExecutionId, 'scheduled execution ID');
 
     // Build SQL with conditional user authorization
-    const whereClause = expectedUserId
+    const whereClause = expectedUserId != null
       ? 'WHERE se.id = :scheduled_execution_id AND se.user_id = :user_id'
       : 'WHERE se.id = :scheduled_execution_id';
 
@@ -401,7 +401,7 @@ async function loadScheduledExecution(scheduledExecutionId, expectedUserId = nul
       { name: 'scheduled_execution_id', value: { longValue: executionId } }
     ];
 
-    if (expectedUserId) {
+    if (expectedUserId != null) {
       const userId = safeParseInt(expectedUserId, 'user ID');
       parameters.push({ name: 'user_id', value: { longValue: userId } });
     }
