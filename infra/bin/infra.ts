@@ -8,7 +8,6 @@ import { FrontendStack } from '../lib/frontend-stack';
 import { ProcessingStack } from '../lib/processing-stack';
 import { DocumentProcessingStack } from '../lib/document-processing-stack';
 import { MonitoringStack } from '../lib/monitoring-stack';
-import { SchedulerStack } from '../lib/scheduler-stack';
 import { SecretValue } from 'aws-cdk-lib';
 
 const app = new cdk.App();
@@ -106,16 +105,6 @@ devDocumentProcessingStack.addDependency(devStorageStack);
 cdk.Tags.of(devDocumentProcessingStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devDocumentProcessingStack).add(key, value));
 
-const devSchedulerStack = new SchedulerStack(app, 'AIStudio-SchedulerStack-Dev', {
-  environment: 'dev',
-  databaseResourceArn: devDbStack.databaseResourceArn,
-  databaseSecretArn: devDbStack.databaseSecretArn,
-  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
-});
-devSchedulerStack.addDependency(devDbStack);
-cdk.Tags.of(devSchedulerStack).add('Environment', 'Dev');
-Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devSchedulerStack).add(key, value));
-
 // Prod environment
 const prodDbStack = new DatabaseStack(app, 'AIStudio-DatabaseStack-Prod', {
   environment: 'prod',
@@ -160,16 +149,6 @@ prodDocumentProcessingStack.addDependency(prodDbStack);
 prodDocumentProcessingStack.addDependency(prodStorageStack);
 cdk.Tags.of(prodDocumentProcessingStack).add('Environment', 'Prod');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodDocumentProcessingStack).add(key, value));
-
-const prodSchedulerStack = new SchedulerStack(app, 'AIStudio-SchedulerStack-Prod', {
-  environment: 'prod',
-  databaseResourceArn: prodDbStack.databaseResourceArn,
-  databaseSecretArn: prodDbStack.databaseSecretArn,
-  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
-});
-prodSchedulerStack.addDependency(prodDbStack);
-cdk.Tags.of(prodSchedulerStack).add('Environment', 'Prod');
-Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodSchedulerStack).add(key, value));
 
 // Frontend stacks - created after all other stacks
 if (baseDomain) {
