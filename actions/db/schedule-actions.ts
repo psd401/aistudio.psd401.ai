@@ -6,6 +6,8 @@ import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from 
 import { handleError, ErrorFactories, createSuccess } from "@/lib/error-utils"
 import { getServerSession } from "@/lib/auth/server-session"
 import { ActionState } from "@/types"
+// Note: cron-parser had import issues, using robust regex validation instead
+import escapeHtml from "escape-html"
 
 // Types for Schedule Management
 export interface ScheduleConfig {
@@ -48,6 +50,49 @@ export interface UpdateScheduleRequest extends Partial<CreateScheduleRequest> {
 // Maximum schedules per user
 const MAX_SCHEDULES_PER_USER = 10
 
+// Maximum input data size (50KB)
+const MAX_INPUT_DATA_SIZE = 50000
+
+/**
+ * Validates and sanitizes name field
+ */
+function validateAndSanitizeName(name: string): { isValid: boolean; sanitizedName: string; errors: string[] } {
+  const errors: string[] = []
+
+  if (!name || name.trim().length === 0) {
+    errors.push('Name is required')
+    return { isValid: false, sanitizedName: '', errors }
+  }
+
+  const sanitizedName = escapeHtml(name.trim())
+
+  if (sanitizedName.length === 0) {
+    errors.push('Name cannot be empty after sanitization')
+  } else if (sanitizedName.length > 100) {
+    errors.push('Name exceeds maximum length of 100 characters')
+  }
+
+  return { isValid: errors.length === 0, sanitizedName, errors }
+}
+
+/**
+ * Validates input data size and structure
+ */
+function validateInputData(inputData: Record<string, any>): { isValid: boolean; errors: string[] } {
+  const errors: string[] = []
+
+  try {
+    const serializedData = JSON.stringify(inputData)
+    if (serializedData.length > MAX_INPUT_DATA_SIZE) {
+      errors.push(`Input data exceeds maximum size limit of ${MAX_INPUT_DATA_SIZE / 1000}KB`)
+    }
+  } catch (error) {
+    errors.push('Input data is not serializable to JSON')
+  }
+
+  return { isValid: errors.length === 0, errors }
+}
+
 /**
  * Validates schedule configuration
  */
@@ -84,10 +129,14 @@ function validateScheduleConfig(config: ScheduleConfig): { isValid: boolean; err
     if (!config.cron) {
       errors.push('cron expression is required for custom schedules')
     } else {
-      // Basic cron validation (5 fields)
+      // Comprehensive cron validation using robust regex patterns
+      const cronPattern = /^(\*|([0-5]?\d)(-([0-5]?\d))?(\/\d+)?)\s+(\*|([01]?\d|2[0-3])(-([01]?\d|2[0-3]))?(\/\d+)?)\s+(\*|([12]?\d|3[01])(-([12]?\d|3[01]))?(\/\d+)?)\s+(\*|([1-9]|1[0-2])(-([1-9]|1[0-2]))?(\/\d+)?)\s+(\*|([0-6])(-([0-6]))?(\/\d+)?)$/
       const cronFields = config.cron.trim().split(/\s+/)
+
       if (cronFields.length !== 5) {
         errors.push('cron expression must have exactly 5 fields (minute hour day month day-of-week)')
+      } else if (!cronPattern.test(config.cron.trim())) {
+        errors.push('Invalid cron expression format. Please use valid cron syntax (minute hour day month day-of-week)')
       }
     }
   }
@@ -132,9 +181,14 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
     // Validate input
     const { name, assistantArchitectId, scheduleConfig, inputData } = params
 
-    if (!name || name.trim().length === 0) {
-      throw ErrorFactories.validationFailed([{ field: 'name', message: 'Name is required' }])
+    // Validate and sanitize name
+    const nameValidation = validateAndSanitizeName(name)
+    if (!nameValidation.isValid) {
+      throw ErrorFactories.validationFailed(
+        nameValidation.errors.map(error => ({ field: 'name', message: error }))
+      )
     }
+    const sanitizedName = nameValidation.sanitizedName
 
     if (!assistantArchitectId || assistantArchitectId <= 0) {
       throw ErrorFactories.validationFailed([{ field: 'assistantArchitectId', message: 'Valid assistant architect ID is required' }])
@@ -145,6 +199,14 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
     if (!validation.isValid) {
       throw ErrorFactories.validationFailed(
         validation.errors.map(error => ({ field: 'scheduleConfig', message: error }))
+      )
+    }
+
+    // Validate input data size
+    const inputDataValidation = validateInputData(inputData)
+    if (!inputDataValidation.isValid) {
+      throw ErrorFactories.validationFailed(
+        inputDataValidation.errors.map(error => ({ field: 'inputData', message: error }))
       )
     }
 
@@ -191,7 +253,7 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
       WHERE user_id = :userId AND name = :name
     `, [
       createParameter('userId', userId),
-      createParameter('name', name.trim())
+      createParameter('name', sanitizedName)
     ])
 
     if (duplicateResult && duplicateResult.length > 0) {
@@ -208,7 +270,7 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
     `, [
       createParameter('userId', userId),
       createParameter('assistantArchitectId', assistantArchitectId),
-      createParameter('name', name.trim()),
+      createParameter('name', sanitizedName),
       createParameter('scheduleConfig', JSON.stringify(scheduleConfig)),
       createParameter('inputData', JSON.stringify(inputData)),
       createParameter('updatedBy', session.sub)
@@ -423,9 +485,14 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
     ]
 
     if (params.name !== undefined) {
-      if (!params.name || params.name.trim().length === 0) {
-        throw ErrorFactories.validationFailed([{ field: 'name', message: 'Name is required' }])
+      // Validate and sanitize name
+      const nameValidation = validateAndSanitizeName(params.name)
+      if (!nameValidation.isValid) {
+        throw ErrorFactories.validationFailed(
+          nameValidation.errors.map(error => ({ field: 'name', message: error }))
+        )
       }
+      const sanitizedName = nameValidation.sanitizedName
 
       // Check for duplicate name (excluding current schedule)
       const duplicateResult = await executeSQL<{ id: number }>(`
@@ -433,7 +500,7 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
         WHERE user_id = :userId AND name = :name AND id != :currentId
       `, [
         createParameter('userId', userId),
-        createParameter('name', params.name.trim()),
+        createParameter('name', sanitizedName),
         createParameter('currentId', id)
       ])
 
@@ -442,7 +509,7 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
       }
 
       updates.push('name = :name')
-      parameters.push(createParameter('name', params.name.trim()))
+      parameters.push(createParameter('name', sanitizedName))
     }
 
     if (params.assistantArchitectId !== undefined) {
@@ -477,6 +544,14 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
     }
 
     if (params.inputData !== undefined) {
+      // Validate input data size
+      const inputDataValidation = validateInputData(params.inputData)
+      if (!inputDataValidation.isValid) {
+        throw ErrorFactories.validationFailed(
+          inputDataValidation.errors.map(error => ({ field: 'inputData', message: error }))
+        )
+      }
+
       updates.push('input_data = :inputData')
       parameters.push(createParameter('inputData', JSON.stringify(params.inputData)))
     }

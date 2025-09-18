@@ -197,10 +197,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     log.info("Schedule updated successfully", { scheduleId: id })
     timer({ status: "success", scheduleId: id })
 
-    return NextResponse.json({
-      success: true,
-      updatedSchedule: result.data
-    }, {
+    return NextResponse.json(result.data, {
       headers: { "X-Request-Id": requestId }
     })
   } catch (error) {
