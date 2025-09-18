@@ -18,6 +18,7 @@ import {
 import { transformSnakeToCamel } from '@/lib/db/field-mapper'
 import { parseRepositoryIds, serializeRepositoryIds } from "@/lib/utils/repository-utils"
 import { getAvailableToolsForModel, getAllTools, isToolAvailableForModel } from "@/lib/tools/tool-registry"
+import { collectAndSanitizeEnabledTools } from '@/lib/assistant-architect/tool-utils'
 
 import { createJobAction, updateJobAction, getJobAction } from "@/actions/db/jobs-actions";
 import { createError, handleError, createSuccess, ErrorFactories } from "@/lib/error-utils";
@@ -145,6 +146,7 @@ async function validateEnabledTools(
     };
   }
 }
+
 
 
 // Helper function to get current user ID
@@ -2070,6 +2072,69 @@ export async function executeAssistantArchitectAction({
     
     log.info("Repository IDs collected for knowledge context", { repositoryIds });
 
+    // Collect enabled tools from all prompts in the assistant chain
+    const enabledTools = tool.prompts ? collectAndSanitizeEnabledTools(tool.prompts) : [];
+    log.info("Enabled tools collected from prompts", {
+      enabledTools,
+      toolCount: enabledTools.length
+    });
+
+    // Build tools using existing buildToolsForRequest function
+    let tools: unknown = {};
+    if (enabledTools.length > 0) {
+      try {
+        // Validate tools before building
+        const { buildToolsForRequest } = await import('@/lib/tools/tool-registry');
+        const toolValidation = await validateEnabledTools(enabledTools, modelId);
+
+        if (!toolValidation.isValid) {
+          log.error("Tool validation failed", {
+            invalidTools: toolValidation.invalidTools,
+            message: toolValidation.message
+          });
+
+          // Check for security-critical tools that should fail execution
+          const securityCriticalTools = ['webSearch', 'codeInterpreter'];
+          const hasSecurityCriticalTools = toolValidation.invalidTools?.some(tool =>
+            securityCriticalTools.includes(tool)
+          );
+
+          if (hasSecurityCriticalTools) {
+            log.error("Security-critical tool validation failed, stopping execution", {
+              securityCriticalInvalidTools: toolValidation.invalidTools?.filter(tool =>
+                securityCriticalTools.includes(tool)
+              )
+            });
+            throw ErrorFactories.validationFailed([{
+              field: 'enabledTools',
+              message: `Security-critical tools failed validation: ${toolValidation.invalidTools?.join(', ')}. ${toolValidation.message}`
+            }]);
+          }
+
+          // For non-critical tools, continue but record the warning for user notification
+          log.warn("Non-critical tool validation failed, continuing without invalid tools", {
+            invalidTools: toolValidation.invalidTools,
+            message: toolValidation.message
+          });
+          tools = {};
+        } else {
+          tools = await buildToolsForRequest(modelIdString, enabledTools, provider);
+          log.info("Tools built for assistant architect execution", {
+            enabledTools,
+            availableToolCount: Object.keys(tools || {}).length,
+            toolNames: Object.keys(tools || {})
+          });
+        }
+      } catch (toolError) {
+        log.warn("Failed to build tools, continuing without tools", {
+          error: toolError instanceof Error ? toolError.message : 'Unknown error',
+          enabledTools
+        });
+        // Don't fail the entire execution if tools can't be built
+        tools = {};
+      }
+    }
+
     // Use jobManagementService to create streaming job with assistant architect context
     const { jobManagementService } = await import('@/lib/streaming/job-management-service');
     const { getStreamingJobsQueueUrl } = await import('@/lib/aws/queue-config');
@@ -2087,7 +2152,8 @@ export async function executeAssistantArchitectAction({
         modelId: p.modelId || modelId, // Use the tool's model if prompt modelId is null
         position: p.position,
         inputMapping: (p.inputMapping && typeof p.inputMapping === 'object') ? p.inputMapping as Record<string, unknown> : {},
-        repositoryIds: p.repositoryIds ? parseRepositoryIds(p.repositoryIds) : []
+        repositoryIds: p.repositoryIds ? parseRepositoryIds(p.repositoryIds) : [],
+        enabledTools: p.enabledTools && Array.isArray(p.enabledTools) ? p.enabledTools : []
       })) || [],
       inputMapping: validatedInputs || {}
     };
@@ -2140,6 +2206,7 @@ export async function executeAssistantArchitectAction({
       },
       source: 'assistant-architect',
       sessionId: session.sub,
+      tools,
       toolMetadata
     };
 
@@ -2191,6 +2258,18 @@ export async function executeAssistantArchitectAction({
             source: {
               DataType: 'String',
               StringValue: 'assistant-architect'
+            },
+            toolsEnabled: {
+              DataType: 'String',
+              StringValue: enabledTools.length > 0 ? 'true' : 'false'
+            },
+            enabledToolsList: {
+              DataType: 'String',
+              StringValue: JSON.stringify(enabledTools)
+            },
+            toolCount: {
+              DataType: 'Number',
+              StringValue: enabledTools.length.toString()
             }
           }
         });

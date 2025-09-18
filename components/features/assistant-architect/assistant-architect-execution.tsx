@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import {
   Form,
   FormControl,
@@ -22,11 +23,12 @@ import { getJobAction } from "@/actions/db/jobs-actions"
 import { getStreamingJobAction, cancelStreamingJobAction } from "@/actions/db/streaming-job-actions"
 import { SelectJob, SelectToolInputField } from "@/types/db-types"
 import { ExecutionResultDetails } from "@/types/assistant-architect-types"
-import { Loader2, Bot, Terminal, AlertCircle, ChevronDown, ChevronRight, Copy, ThumbsUp, ThumbsDown, Sparkles, X } from "lucide-react"
+import { Loader2, Bot, Terminal, AlertCircle, ChevronDown, ChevronRight, Copy, ThumbsUp, ThumbsDown, Sparkles, X, Settings } from "lucide-react"
 import { MemoizedMarkdown } from "@/components/ui/memoized-markdown"
 import { ErrorBoundary } from "@/components/error-boundary"
 import type { AssistantArchitectWithRelations } from "@/types/assistant-architect-types"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { collectAndSanitizeEnabledTools, getToolDisplayName } from '@/lib/assistant-architect/tool-utils'
 import { AssistantArchitectChat } from "./assistant-architect-chat"
 import { ChatErrorBoundary } from "./chat-error-boundary"
 import Image from "next/image"
@@ -66,7 +68,9 @@ interface ExtendedExecutionResultDetails {
   errorMessage: string | null
   promptResults: ExtendedPromptResult[]
   assistantArchitectId?: number // Add this field for compatibility with ExecutionResultDetails
+  enabledTools?: string[] // Add enabled tools to track tool usage
 }
+
 
 export const AssistantArchitectExecution = memo(function AssistantArchitectExecution({ tool, isPreview = false }: AssistantArchitectExecutionProps) {
   const { toast } = useToast()
@@ -80,6 +84,13 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
   const [executionId, setExecutionId] = useState<number | null>(null)
   const [jobStatus, setJobStatus] = useState<'pending' | 'processing' | 'streaming' | 'completed' | 'failed' | 'cancelled'>('pending')
   const [partialContent, setPartialContent] = useState<string>('')
+  const [enabledTools, setEnabledTools] = useState<string[]>([])
+
+  // Collect enabled tools from the assistant architect when component mounts
+  useEffect(() => {
+    const tools = tool.prompts ? collectAndSanitizeEnabledTools(tool.prompts) : [];
+    setEnabledTools(tools);
+  }, [tool]);
 
   // Define base types for fields first
   const stringSchema = z.string();
@@ -168,7 +179,8 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
           completedAt: null,
           errorMessage: null,
           assistantArchitectId: tool.id,
-          promptResults: [] // Will be populated by polling
+          promptResults: [], // Will be populated by polling
+          enabledTools: enabledTools
         }
         setResults(initialResults)
         
@@ -191,7 +203,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         variant: "destructive"
       })
     }
-  }, [jobStatus, isPolling, tool.id, results, toast])
+  }, [jobStatus, isPolling, tool.id, results, toast, enabledTools])
 
 
   // Universal Polling Architecture - Poll streaming job status
@@ -272,7 +284,8 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                 completedAt: job.completedAt || new Date(),
                 errorMessage: null,
                 assistantArchitectId: tool.id,
-                promptResults: [] // Assistant architect jobs don't use traditional prompt results
+                promptResults: [], // Assistant architect jobs don't use traditional prompt results
+                enabledTools: enabledTools
               }
               setResults(finalResults)
               
@@ -362,7 +375,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
         clearInterval(intervalId)
       }
     }
-  }, [isPolling, jobId, jobStatus, streamingJob, tool.id, executionId, results, toast])
+  }, [isPolling, jobId, jobStatus, streamingJob, tool.id, executionId, results, toast, enabledTools])
 
   const togglePromptExpand = useCallback((promptResultId: string) => {
     setExpandedPrompts(prev => ({
@@ -645,6 +658,23 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
               </div>
             )}
           </div>
+
+          {/* Tool Usage Indicators */}
+          {enabledTools.length > 0 && (
+            <div className="tool-execution-status space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <Settings className="h-4 w-4" />
+                <span>Tools Available ({enabledTools.length})</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {enabledTools.map(toolName => (
+                  <Badge key={toolName} variant="outline" className="text-xs">
+                    {getToolDisplayName(toolName)}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
 
           <ErrorBoundary>
             <div className="space-y-6">

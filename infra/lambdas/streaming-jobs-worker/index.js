@@ -856,14 +856,15 @@ async function processAssistantArchitectJob(job) {
   });
 
   try {
-    const { 
-      messages, 
-      modelId, 
-      provider, 
-      systemPrompt, 
+    const {
+      messages,
+      modelId,
+      provider,
+      systemPrompt,
       options = {},
       toolMetadata,
-      repositoryIds = []
+      repositoryIds = [],
+      tools = {}
     } = job.request_data;
 
     if (!toolMetadata) {
@@ -877,7 +878,10 @@ async function processAssistantArchitectJob(job) {
       executionId,
       promptCount: prompts?.length || 0,
       hasInputMapping: !!inputMapping,
-      repositoryCount: repositoryIds.length
+      repositoryCount: repositoryIds.length,
+      hasTools: !!tools && Object.keys(tools).length > 0,
+      toolCount: tools ? Object.keys(tools).length : 0,
+      toolNames: tools ? Object.keys(tools) : []
     });
 
     // Update tool execution status to running
@@ -896,7 +900,11 @@ async function processAssistantArchitectJob(job) {
       const prompt = sortedPrompts[i];
       const isLastPrompt = i === sortedPrompts.length - 1;
       
-      console.log(`Executing prompt ${i + 1}/${sortedPrompts.length}: ${prompt.name}`);
+      console.log(`Executing prompt ${i + 1}/${sortedPrompts.length}: ${prompt.name}`, {
+        hasEnabledTools: !!(prompt.enabledTools && prompt.enabledTools.length > 0),
+        enabledTools: prompt.enabledTools || [],
+        toolCount: (prompt.enabledTools || []).length
+      });
 
       try {
         // Mark prompt as running
@@ -912,6 +920,13 @@ async function processAssistantArchitectJob(job) {
             parts: [{ type: 'text', text: processedContent }]
           }
         ];
+
+        // Simple pass-through like Nexus (which works)
+        const promptTools = tools || {};
+        console.log(`Prompt ${prompt.name} tools:`, {
+          availableTools: Object.keys(promptTools),
+          toolCount: Object.keys(promptTools).length
+        });
 
         // Create streaming request using shared core interface
         const streamRequest = {
@@ -930,19 +945,38 @@ async function processAssistantArchitectJob(job) {
             temperature: options.temperature
           },
           callbacks: {
-            onFinish: async ({ text, usage, finishReason }) => {
+            onFinish: async ({ text, usage, finishReason, toolCalls }) => {
               console.log(`Prompt ${prompt.name} finished`, {
                 hasText: !!text,
                 textLength: text?.length || 0,
-                finishReason
+                finishReason,
+                hasToolCalls: Array.isArray(toolCalls) && toolCalls.length > 0,
+                toolCallCount: Array.isArray(toolCalls) ? toolCalls.length : 0,
+                toolCallTypes: Array.isArray(toolCalls) ? toolCalls.map(tc => tc.toolName) : []
               });
             }
-          }
+          },
+          tools: promptTools
         };
 
         // Execute the prompt using unified streaming service
         const streamResponse = await unifiedStreamingService.stream(streamRequest);
         const promptResult = await streamResponse.result;
+
+        // SANITIZED LOGGING: Log execution metadata without sensitive details
+        console.log(`=== PROMPT EXECUTION COMPLETE: ${prompt.name} ===`);
+        console.log('Prompt result structure:', {
+          hasText: !!promptResult.text,
+          textLength: promptResult.text ? promptResult.text.length : 0,
+          hasToolCalls: Array.isArray(promptResult.toolCalls),
+          toolCallCount: Array.isArray(promptResult.toolCalls) ? promptResult.toolCalls.length : 0,
+          finishReason: promptResult.finishReason,
+          usage: promptResult.usage ? {
+            promptTokens: promptResult.usage.promptTokens,
+            completionTokens: promptResult.usage.completionTokens,
+            totalTokens: promptResult.usage.totalTokens
+          } : null
+        });
 
         // Extract final text result
         let finalText = '';
