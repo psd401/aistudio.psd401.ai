@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import { addChainPromptAction, deletePromptAction, updatePromptAction, getAssistantArchitectByIdAction, setPromptPositionsAction } from "@/actions/db/assistant-architect-actions"
-import { PlusIcon, Pencil, Trash2, Play } from "lucide-react"
+import { PlusIcon, Pencil, Trash2, Play, Globe, Code2, Image as ImageIcon } from "lucide-react"
 import {
   ReactFlow,
   MiniMap,
@@ -63,6 +63,7 @@ import {
 } from "@mdxeditor/editor"
 import DocumentUploadButton from "@/components/ui/document-upload-button"
 import { RepositoryBrowser } from "@/components/features/assistant-architect/repository-browser"
+import { ToolSelectionSection } from "@/components/features/assistant-architect/tool-selection-section"
 const MDXEditor = dynamic(() => import("@mdxeditor/editor").then(mod => mod.MDXEditor), { ssr: false })
 
 
@@ -244,6 +245,7 @@ interface PromptNodeData {
   systemContext?: string;
   modelId: number;
   inputMapping?: unknown;
+  enabledTools?: string[];
   prompt: SelectChainPrompt;
   onEdit: (prompt: SelectChainPrompt) => void;
   onDelete: (id: string) => void;
@@ -294,6 +296,29 @@ function PromptNode({ data, id }: NodeProps) {
         <Badge variant="secondary" className="text-xs">
           {nodeData.modelName}
         </Badge>
+
+        {nodeData.enabledTools && nodeData.enabledTools.length > 0 && (
+          <div className="flex gap-1 mt-2 flex-wrap">
+            {nodeData.enabledTools.includes('webSearch') && (
+              <Badge variant="outline" className="text-xs px-1 py-0 h-5">
+                <Globe className="h-3 w-3 mr-1" />
+                Web
+              </Badge>
+            )}
+            {nodeData.enabledTools.includes('codeInterpreter') && (
+              <Badge variant="outline" className="text-xs px-1 py-0 h-5">
+                <Code2 className="h-3 w-3 mr-1" />
+                Code
+              </Badge>
+            )}
+            {nodeData.enabledTools.includes('generateImage') && (
+              <Badge variant="outline" className="text-xs px-1 py-0 h-5">
+                <ImageIcon className="h-3 w-3 mr-1" />
+                Image
+              </Badge>
+            )}
+          </div>
+        )}
       </div>
 
       <Handle type="target" position={Position.Top} className="w-2 h-2 !bg-primary" />
@@ -490,6 +515,7 @@ const Flow = React.forwardRef<FlowHandle, {
             systemContext: prompt.systemContext,
             modelId: prompt.modelId,
             inputMapping: prompt.inputMapping,
+            enabledTools: prompt.enabledTools,
             prompt,
             onEdit,
             onDelete
@@ -669,6 +695,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
   const [isPdfContentCollapsed, setIsPdfContentCollapsed] = useState(true)
   const [promptTokens, setPromptTokens] = useState(0)
   const [flowKey, setFlowKey] = useState(0)
+  const [enabledTools, setEnabledTools] = useState<string[]>([])
   const mdxEditorRef = useRef<MDXEditorHandle>(null);
 
   // When initialPrompts changes (from server), update our local state
@@ -704,6 +731,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
           modelId: parseInt(modelId as string),
           position: typeof prompts.length === 'number' ? prompts.length : 0,
           repositoryIds: useExternalKnowledge ? selectedRepositoryIds : [],
+          enabledTools: enabledTools,
         }
       )
 
@@ -717,6 +745,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         setUseExternalKnowledge(false)
         setSelectedRepositoryIds([])
         setIsPdfContentCollapsed(true)
+        setEnabledTools([])
         
         // Get the updated prompts
         const updatedResult = await getAssistantArchitectByIdAction(assistantId);
@@ -751,9 +780,10 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         content: promptContent,
         systemContext: systemContext || undefined,
         modelId: parseInt(modelId),
-        repositoryIds: useExternalKnowledge && selectedRepositoryIds.length > 0 
-          ? selectedRepositoryIds.filter(id => id !== undefined && id !== null) 
+        repositoryIds: useExternalKnowledge && selectedRepositoryIds.length > 0
+          ? selectedRepositoryIds.filter(id => id !== undefined && id !== null)
           : [], // Send empty array to clear repositories, not undefined
+        enabledTools: enabledTools,
       };
       
       const result = await updatePromptAction(editingPrompt.id.toString(), updateData)
@@ -841,6 +871,7 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
       setModelId(latestPrompt.modelId ? latestPrompt.modelId.toString() : null)
       setUseExternalKnowledge(Boolean(latestPrompt.repositoryIds && latestPrompt.repositoryIds.length > 0))
       setSelectedRepositoryIds(latestPrompt.repositoryIds || [])
+      setEnabledTools(latestPrompt.enabledTools || [])
       setIsPdfContentCollapsed(true)
       setIsEditDialogOpen(true)
     } catch {
@@ -880,6 +911,10 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
         setPromptContent("");
         setSystemContext("");
         setModelId(null);
+        setUseExternalKnowledge(false);
+        setSelectedRepositoryIds([]);
+        setEnabledTools([]);
+        setIsPdfContentCollapsed(true);
         setIsAddDialogOpen(true);
       }}>
         <PlusIcon className="h-4 w-4 mr-2" />
@@ -925,6 +960,13 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                   hideCapabilityMissing={true}
                 />
               </div>
+              <ToolSelectionSection
+                selectedModelId={modelId && !isNaN(parseInt(modelId)) ? parseInt(modelId) : null}
+                enabledTools={enabledTools}
+                onToolsChange={setEnabledTools}
+                models={models}
+                disabled={isLoading}
+              />
               <KnowledgeSection
                 useExternalKnowledge={useExternalKnowledge}
                 setUseExternalKnowledge={setUseExternalKnowledge}
@@ -1063,6 +1105,13 @@ export function PromptsPageClient({ assistantId, prompts: initialPrompts, models
                     hideCapabilityMissing={true}
                   />
                 </div>
+                <ToolSelectionSection
+                  selectedModelId={modelId && !isNaN(parseInt(modelId)) ? parseInt(modelId) : null}
+                  enabledTools={enabledTools}
+                  onToolsChange={setEnabledTools}
+                  models={models}
+                  disabled={isLoading}
+                />
                 <KnowledgeSection
                   useExternalKnowledge={useExternalKnowledge}
                   setUseExternalKnowledge={setUseExternalKnowledge}

@@ -17,6 +17,8 @@ import {
 // CoreMessage import removed - AI completion now handled by Lambda workers
 import { transformSnakeToCamel } from '@/lib/db/field-mapper'
 import { parseRepositoryIds, serializeRepositoryIds } from "@/lib/utils/repository-utils"
+import { getAvailableToolsForModel, getAllTools, isToolAvailableForModel } from "@/lib/tools/tool-registry"
+import { collectAndSanitizeEnabledTools } from '@/lib/assistant-architect/tool-utils'
 
 import { createJobAction, updateJobAction, getJobAction } from "@/actions/db/jobs-actions";
 import { createError, handleError, createSuccess, ErrorFactories } from "@/lib/error-utils";
@@ -44,6 +46,107 @@ type ArchitectWithRelations = SelectAssistantArchitect & {
   inputFields?: SelectToolInputField[];
   prompts?: SelectChainPrompt[];
 }
+
+// Helper function to safely parse integers with validation
+function safeParseInt(value: string, fieldName: string): number {
+  const parsed = parseInt(value, 10);
+  if (isNaN(parsed) || parsed <= 0 || parsed > Number.MAX_SAFE_INTEGER) {
+    throw ErrorFactories.validationFailed([{
+      field: fieldName,
+      message: `Invalid ${fieldName} format`
+    }]);
+  }
+  return parsed;
+}
+
+// Helper function to transform and parse prompt data consistently
+function transformPrompt(prompt: any): SelectChainPrompt {
+  const transformed = transformSnakeToCamel<SelectChainPrompt>(prompt);
+  // Parse repository_ids using utility function
+  transformed.repositoryIds = parseRepositoryIds(transformed.repositoryIds);
+  // Parse enabled_tools from JSONB array to string array
+  if (transformed.enabledTools && typeof transformed.enabledTools === 'string') {
+    try {
+      // Add length check to prevent DoS
+      if ((transformed.enabledTools as string).length > 10000) {
+        transformed.enabledTools = [];
+        return transformed;
+      }
+      const parsed = JSON.parse(transformed.enabledTools);
+      // Validate parsed data structure
+      transformed.enabledTools = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      transformed.enabledTools = [];
+    }
+  } else if (!transformed.enabledTools) {
+    transformed.enabledTools = [];
+  }
+  return transformed;
+}
+
+// Helper function to validate enabled tools against model capabilities
+async function validateEnabledTools(
+  enabledTools: string[],
+  modelId: number
+): Promise<{ isValid: boolean; invalidTools: string[]; message?: string }> {
+  if (!enabledTools || enabledTools.length === 0) {
+    return { isValid: true, invalidTools: [] };
+  }
+
+  try {
+    // Get model ID string from database
+    const modelResult = await executeSQL<{ modelId: string }>(`
+      SELECT model_id FROM ai_models WHERE id = :id AND active = true
+    `, [{ name: 'id', value: { longValue: modelId } }]);
+
+    if (!modelResult || modelResult.length === 0) {
+      return {
+        isValid: false,
+        invalidTools: enabledTools,
+        message: "Model not found or inactive"
+      };
+    }
+
+    const modelIdString = modelResult[0].modelId;
+
+    // Get all available tools for the model
+    const availableTools = await getAvailableToolsForModel(modelIdString);
+    const availableToolNames = availableTools.map(tool => tool.name);
+
+    // Get all registered tools to validate tool names exist
+    const allTools = getAllTools();
+    const allToolNames = allTools.map(tool => tool.name);
+
+    // Check for unknown tools
+    const unknownTools = enabledTools.filter(toolName => !allToolNames.includes(toolName));
+    if (unknownTools.length > 0) {
+      return {
+        isValid: false,
+        invalidTools: unknownTools,
+        message: `Unknown tools: ${unknownTools.join(', ')}`
+      };
+    }
+
+    // Check for tools not available for this model
+    const unavailableTools = enabledTools.filter(toolName => !availableToolNames.includes(toolName));
+    if (unavailableTools.length > 0) {
+      return {
+        isValid: false,
+        invalidTools: unavailableTools,
+        message: `Tools not supported by this model: ${unavailableTools.join(', ')}`
+      };
+    }
+
+    return { isValid: true, invalidTools: [] };
+  } catch (error) {
+    return {
+      isValid: false,
+      invalidTools: enabledTools,
+      message: `Error validating tools: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
+  }
+}
+
 
 
 // Helper function to get current user ID
@@ -255,7 +358,7 @@ export async function getAssistantArchitectsAction(): Promise<
             ORDER BY position ASC
           `, [{ name: 'toolId', value: { longValue: Number(architect.id) } }]),
           executeSQL<RawDbRow>(`
-            SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, created_at, updated_at
+            SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, enabled_tools, created_at, updated_at
             FROM chain_prompts
             WHERE assistant_architect_id = :toolId
             ORDER BY position ASC
@@ -263,12 +366,7 @@ export async function getAssistantArchitectsAction(): Promise<
         ]);
 
         const inputFields = inputFieldsRaw.map((field) => transformSnakeToCamel<SelectToolInputField>(field));
-        const prompts = promptsRaw.map((prompt) => {
-          const transformed = transformSnakeToCamel<SelectChainPrompt>(prompt);
-          // Parse repository_ids using utility function
-          transformed.repositoryIds = parseRepositoryIds(transformed.repositoryIds);
-          return transformed;
-        });
+        const prompts = promptsRaw.map(transformPrompt);
         const transformedArchitect = transformSnakeToCamel<SelectAssistantArchitect>(architect);
 
         return {
@@ -351,7 +449,7 @@ export async function getAssistantArchitectByIdAction(
         ORDER BY position ASC
       `, [{ name: 'toolId', value: { longValue: idInt } }]),
       executeSQL<RawDbRow>(`
-        SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, created_at, updated_at
+        SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, enabled_tools, created_at, updated_at
         FROM chain_prompts
         WHERE assistant_architect_id = :toolId
         ORDER BY position ASC
@@ -360,12 +458,7 @@ export async function getAssistantArchitectByIdAction(
 
     // Transform snake_case to camelCase for frontend compatibility
     const transformedInputFields = (inputFieldsRaw || []).map((field) => transformSnakeToCamel<SelectToolInputField>(field));
-    const transformedPrompts = (promptsRaw || []).map((prompt) => {
-      const transformed = transformSnakeToCamel<SelectChainPrompt>(prompt);
-      // Parse repository_ids using utility function
-      transformed.repositoryIds = parseRepositoryIds(transformed.repositoryIds);
-      return transformed;
-    });
+    const transformedPrompts = (promptsRaw || []).map(transformPrompt);
 
     const architectWithRelations: ArchitectWithRelations = {
       ...architect,
@@ -424,7 +517,7 @@ export async function getPendingAssistantArchitectsAction(): Promise<
             ORDER BY position ASC
           `, [{ name: 'toolId', value: { longValue: Number(tool.id) } }]),
           executeSQL<RawDbRow>(`
-            SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, created_at, updated_at
+            SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, enabled_tools, created_at, updated_at
             FROM chain_prompts
             WHERE assistant_architect_id = :toolId
             ORDER BY position ASC
@@ -433,12 +526,7 @@ export async function getPendingAssistantArchitectsAction(): Promise<
 
         const transformedTool = transformSnakeToCamel<SelectAssistantArchitect>(tool);
         const inputFields = inputFieldsRaw.map((field) => transformSnakeToCamel<SelectToolInputField>(field));
-        const prompts = promptsRaw.map((prompt) => {
-          const transformed = transformSnakeToCamel<SelectChainPrompt>(prompt);
-          // Parse repository_ids using utility function
-          transformed.repositoryIds = parseRepositoryIds(transformed.repositoryIds);
-          return transformed;
-        });
+        const prompts = promptsRaw.map(transformPrompt);
 
         return {
           ...transformedTool,
@@ -1061,6 +1149,7 @@ export async function addChainPromptAction(
     position: number
     inputMapping?: Record<string, string>
     repositoryIds?: number[]
+    enabledTools?: string[]
   }
 ): Promise<ActionState<void>> {
   const requestId = generateRequestId()
@@ -1069,13 +1158,26 @@ export async function addChainPromptAction(
   
   try {
     log.info("Action started: Adding chain prompt", { architectId, promptName: data.name })
+
+    // Validate enabled tools if provided
+    if (data.enabledTools && data.enabledTools.length > 0) {
+      const toolValidation = await validateEnabledTools(data.enabledTools, data.modelId);
+      if (!toolValidation.isValid) {
+        log.warn("Invalid tools provided", { invalidTools: toolValidation.invalidTools, message: toolValidation.message });
+        return {
+          isSuccess: false,
+          message: toolValidation.message || `Invalid tools: ${toolValidation.invalidTools.join(', ')}`
+        };
+      }
+    }
+
     // If repository IDs are provided, validate user has access
     if (data.repositoryIds && data.repositoryIds.length > 0) {
       const session = await getServerSession();
       if (!session || !session.sub) {
         return { isSuccess: false, message: "Unauthorized" };
       }
-      
+
       const hasAccess = await hasToolAccess(session.sub, "knowledge-repositories");
       if (!hasAccess) {
         return { isSuccess: false, message: "Access denied. You need knowledge repository access." };
@@ -1083,17 +1185,18 @@ export async function addChainPromptAction(
     }
 
     await executeSQL<never>(`
-      INSERT INTO chain_prompts (assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, created_at, updated_at)
-      VALUES (:toolId, :name, :content, :systemContext, :modelId, :position, :inputMapping::jsonb, :repositoryIds::jsonb, NOW(), NOW())
+      INSERT INTO chain_prompts (assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, enabled_tools, created_at, updated_at)
+      VALUES (:toolId, :name, :content, :systemContext, :modelId, :position, :inputMapping::jsonb, :repositoryIds::jsonb, :enabledTools::jsonb, NOW(), NOW())
     `, [
-      { name: 'toolId', value: { longValue: parseInt(architectId, 10) } },
+      { name: 'toolId', value: { longValue: safeParseInt(architectId, 'architectId') } },
       { name: 'name', value: { stringValue: data.name } },
       { name: 'content', value: { stringValue: data.content } },
       { name: 'systemContext', value: data.systemContext ? { stringValue: data.systemContext } : { isNull: true } },
       { name: 'modelId', value: { longValue: data.modelId } },
       { name: 'position', value: { longValue: data.position } },
       { name: 'inputMapping', value: data.inputMapping ? { stringValue: JSON.stringify(data.inputMapping) } : { isNull: true } },
-      { name: 'repositoryIds', value: { stringValue: serializeRepositoryIds(data.repositoryIds) || '[]' } }
+      { name: 'repositoryIds', value: { stringValue: serializeRepositoryIds(data.repositoryIds) || '[]' } },
+      { name: 'enabledTools', value: { stringValue: JSON.stringify(data.enabledTools || []) } }
     ]);
 
     log.info("Chain prompt added successfully", { architectId })
@@ -1132,7 +1235,7 @@ export async function updatePromptAction(
 
     // Find the prompt using data API
     const promptResult = await executeSQL<RawDbRow>(`
-      SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, parallel_group, timeout_seconds, repository_ids, created_at, updated_at
+      SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, parallel_group, timeout_seconds, repository_ids, enabled_tools, created_at, updated_at
       FROM chain_prompts
       WHERE id = :id
     `, [{ name: 'id', value: { longValue: parseInt(id, 10) } }]);
@@ -1166,12 +1269,38 @@ export async function updatePromptAction(
 
     // Only tool creator or admin can update prompts
     const isAdmin = await checkUserRoleByCognitoSub(session.sub, "administrator")
-    const currentUserId = await getCurrentUserId();
-    if (!currentUserId) {
-      return { isSuccess: false, message: "User not found" }
+
+    // Get current user with proper error handling
+    const currentUser = await getCurrentUserAction();
+    if (!currentUser.isSuccess || !currentUser.data?.user?.id) {
+      log.error("Failed to get current user for authorization check");
+      throw ErrorFactories.authNoSession();
     }
+
+    const currentUserId = currentUser.data.user.id;
     if (!isAdmin && tool.userId !== currentUserId) {
-      return { isSuccess: false, message: "Forbidden" }
+      log.warn("Authorization failed - user doesn't own resource", {
+        userId: currentUserId,
+        resourceOwnerId: tool.userId,
+        isAdmin
+      });
+      throw ErrorFactories.authzToolAccessDenied("assistant_architect");
+    }
+
+    // Validate enabled tools if being updated
+    if (data.enabledTools) {
+      // Use provided modelId or fall back to existing prompt's modelId
+      const modelIdToValidate = data.modelId || prompt.modelId;
+      if (modelIdToValidate) {
+        const toolValidation = await validateEnabledTools(data.enabledTools, Number(modelIdToValidate));
+        if (!toolValidation.isValid) {
+          log.warn("Invalid tools provided for update", { invalidTools: toolValidation.invalidTools, message: toolValidation.message });
+          return {
+            isSuccess: false,
+            message: toolValidation.message || `Invalid tools: ${toolValidation.invalidTools.join(', ')}`
+          };
+        }
+      }
     }
 
     // If repository IDs are being updated, validate user has access
@@ -1182,12 +1311,20 @@ export async function updatePromptAction(
       }
     }
     
-    // Clean up data object - remove undefined or null repositoryIds
+    // Clean up data object - remove undefined or null for array fields
     // But keep empty arrays so they can be saved to clear the field
     if ('repositoryIds' in data) {
       if (data.repositoryIds === undefined || data.repositoryIds === null) {
         // Remove the key entirely if it's undefined or null
         delete data.repositoryIds;
+      }
+      // Keep empty arrays - they should be saved as '[]' in the database
+    }
+
+    if ('enabledTools' in data) {
+      if (data.enabledTools === undefined || data.enabledTools === null) {
+        // Remove the key entirely if it's undefined or null
+        delete data.enabledTools;
       }
       // Keep empty arrays - they should be saved as '[]' in the database
     }
@@ -1203,14 +1340,15 @@ export async function updatePromptAction(
     
     for (const [key, value] of definedEntries) {
         
-        const snakeKey = key === 'toolId' ? 'assistant_architect_id' : 
-                        key === 'systemContext' ? 'system_context' : 
-                        key === 'modelId' ? 'model_id' : 
-                        key === 'inputMapping' ? 'input_mapping' : 
-                        key === 'repositoryIds' ? 'repository_ids' : key;
+        const snakeKey = key === 'toolId' ? 'assistant_architect_id' :
+                        key === 'systemContext' ? 'system_context' :
+                        key === 'modelId' ? 'model_id' :
+                        key === 'inputMapping' ? 'input_mapping' :
+                        key === 'repositoryIds' ? 'repository_ids' :
+                        key === 'enabledTools' ? 'enabled_tools' : key;
         
         // Add JSONB cast for JSON columns
-        if (key === 'inputMapping' || key === 'repositoryIds') {
+        if (key === 'inputMapping' || key === 'repositoryIds' || key === 'enabledTools') {
           updateFields.push(`${snakeKey} = :param${paramIndex}::jsonb`);
         } else {
           updateFields.push(`${snakeKey} = :param${paramIndex}`);
@@ -1231,6 +1369,19 @@ export async function updatePromptAction(
           if (key === 'repositoryIds' && Array.isArray(value)) {
             // Use the serialization utility for repository IDs
             paramValue = { stringValue: serializeRepositoryIds(value) || '[]' };
+          } else if (key === 'enabledTools' && Array.isArray(value)) {
+            // Validate array elements and prevent prototype pollution
+            const safeArray = value.filter(item => {
+              if (typeof item !== 'string') return false;
+              // Prevent dangerous patterns in tool names
+              const dangerousPatterns = ['__proto__', 'constructor', 'prototype'];
+              return !dangerousPatterns.some(pattern => item.includes(pattern));
+            });
+            const jsonString = JSON.stringify(safeArray);
+            if (jsonString.length > 10000) {
+              throw new Error('Enabled tools array too large');
+            }
+            paramValue = { stringValue: jsonString };
           } else if (Array.isArray(value)) {
             // Always stringify arrays, even empty ones
             // This ensures empty arrays are stored as '[]' not NULL
@@ -1257,7 +1408,7 @@ export async function updatePromptAction(
     parameters.push({ name: 'id', value: { longValue: parseInt(id, 10) } });
     
 
-    const sql = `UPDATE chain_prompts SET ${updateFields.join(', ')}, updated_at = NOW() WHERE id = :id RETURNING id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, parallel_group, timeout_seconds, repository_ids, created_at, updated_at`;
+    const sql = `UPDATE chain_prompts SET ${updateFields.join(', ')}, updated_at = NOW() WHERE id = :id RETURNING id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, parallel_group, timeout_seconds, repository_ids, enabled_tools, created_at, updated_at`;
     
     const updatedPromptResult = await executeSQL(sql, parameters);
 
@@ -1267,7 +1418,7 @@ export async function updatePromptAction(
     return {
       isSuccess: true,
       message: "Prompt updated successfully",
-      data: transformSnakeToCamel<SelectChainPrompt>(updatedPromptResult[0])
+      data: transformPrompt(updatedPromptResult[0])
     }
   } catch (error) {
     timer({ status: "error" })
@@ -1921,6 +2072,69 @@ export async function executeAssistantArchitectAction({
     
     log.info("Repository IDs collected for knowledge context", { repositoryIds });
 
+    // Collect enabled tools from all prompts in the assistant chain
+    const enabledTools = tool.prompts ? collectAndSanitizeEnabledTools(tool.prompts) : [];
+    log.info("Enabled tools collected from prompts", {
+      enabledTools,
+      toolCount: enabledTools.length
+    });
+
+    // Build tools using existing buildToolsForRequest function
+    let tools: unknown = {};
+    if (enabledTools.length > 0) {
+      try {
+        // Validate tools before building
+        const { buildToolsForRequest } = await import('@/lib/tools/tool-registry');
+        const toolValidation = await validateEnabledTools(enabledTools, modelId);
+
+        if (!toolValidation.isValid) {
+          log.error("Tool validation failed", {
+            invalidTools: toolValidation.invalidTools,
+            message: toolValidation.message
+          });
+
+          // Check for security-critical tools that should fail execution
+          const securityCriticalTools = ['webSearch', 'codeInterpreter'];
+          const hasSecurityCriticalTools = toolValidation.invalidTools?.some(tool =>
+            securityCriticalTools.includes(tool)
+          );
+
+          if (hasSecurityCriticalTools) {
+            log.error("Security-critical tool validation failed, stopping execution", {
+              securityCriticalInvalidTools: toolValidation.invalidTools?.filter(tool =>
+                securityCriticalTools.includes(tool)
+              )
+            });
+            throw ErrorFactories.validationFailed([{
+              field: 'enabledTools',
+              message: `Security-critical tools failed validation: ${toolValidation.invalidTools?.join(', ')}. ${toolValidation.message}`
+            }]);
+          }
+
+          // For non-critical tools, continue but record the warning for user notification
+          log.warn("Non-critical tool validation failed, continuing without invalid tools", {
+            invalidTools: toolValidation.invalidTools,
+            message: toolValidation.message
+          });
+          tools = {};
+        } else {
+          tools = await buildToolsForRequest(modelIdString, enabledTools, provider);
+          log.info("Tools built for assistant architect execution", {
+            enabledTools,
+            availableToolCount: Object.keys(tools || {}).length,
+            toolNames: Object.keys(tools || {})
+          });
+        }
+      } catch (toolError) {
+        log.warn("Failed to build tools, continuing without tools", {
+          error: toolError instanceof Error ? toolError.message : 'Unknown error',
+          enabledTools
+        });
+        // Don't fail the entire execution if tools can't be built
+        tools = {};
+      }
+    }
+
     // Use jobManagementService to create streaming job with assistant architect context
     const { jobManagementService } = await import('@/lib/streaming/job-management-service');
     const { getStreamingJobsQueueUrl } = await import('@/lib/aws/queue-config');
@@ -1938,7 +2152,8 @@ export async function executeAssistantArchitectAction({
         modelId: p.modelId || modelId, // Use the tool's model if prompt modelId is null
         position: p.position,
         inputMapping: (p.inputMapping && typeof p.inputMapping === 'object') ? p.inputMapping as Record<string, unknown> : {},
-        repositoryIds: p.repositoryIds ? parseRepositoryIds(p.repositoryIds) : []
+        repositoryIds: p.repositoryIds ? parseRepositoryIds(p.repositoryIds) : [],
+        enabledTools: p.enabledTools && Array.isArray(p.enabledTools) ? p.enabledTools : []
       })) || [],
       inputMapping: validatedInputs || {}
     };
@@ -1991,6 +2206,7 @@ export async function executeAssistantArchitectAction({
       },
       source: 'assistant-architect',
       sessionId: session.sub,
+      tools,
       toolMetadata
     };
 
@@ -2042,6 +2258,18 @@ export async function executeAssistantArchitectAction({
             source: {
               DataType: 'String',
               StringValue: 'assistant-architect'
+            },
+            toolsEnabled: {
+              DataType: 'String',
+              StringValue: enabledTools.length > 0 ? 'true' : 'false'
+            },
+            enabledToolsList: {
+              DataType: 'String',
+              StringValue: JSON.stringify(enabledTools)
+            },
+            toolCount: {
+              DataType: 'Number',
+              StringValue: enabledTools.length.toString()
             }
           }
         });
@@ -2185,7 +2413,7 @@ export async function getApprovedAssistantArchitectsAction(): Promise<
       
       const promptsForArchitect = allPromptsRaw
         .filter((p) => Number(p.assistant_architect_id) === Number(architect.id))
-        .map((prompt) => transformSnakeToCamel<SelectChainPrompt>(prompt));
+        .map(transformPrompt);
       
       return {
         ...transformedArchitect,
@@ -2598,7 +2826,7 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
             [{ name: 'toolId', value: { longValue: parseInt(toolId, 10) } }]
           ),
           executeSQL(
-            `SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, parallel_group, timeout_seconds, created_at, updated_at FROM chain_prompts WHERE assistant_architect_id = :toolId ORDER BY position ASC`,
+            `SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, parallel_group, timeout_seconds, repository_ids, enabled_tools, created_at, updated_at FROM chain_prompts WHERE assistant_architect_id = :toolId ORDER BY position ASC`,
             [{ name: 'toolId', value: { longValue: parseInt(toolId, 10) } }]
           )
         ]);
@@ -2613,7 +2841,7 @@ export async function getApprovedAssistantArchitectsForAdminAction(): Promise<
         const inputFields = inputFieldsResult.map((record) => transformSnakeToCamel<SelectToolInputField>(record));
 
         // Map prompts
-        const prompts = promptsResult.map((record) => transformSnakeToCamel<SelectChainPrompt>(record))
+        const prompts = promptsResult.map(transformPrompt)
 
         return {
           ...tool,
@@ -2680,7 +2908,7 @@ export async function getAllAssistantArchitectsForAdminAction(): Promise<ActionS
         const inputFields = inputFieldsRaw.map((field) => transformSnakeToCamel<SelectToolInputField>(field));
         
         // Transform prompts to camelCase
-        const prompts = promptsRaw.map((prompt) => transformSnakeToCamel<SelectChainPrompt>(prompt));
+        const prompts = promptsRaw.map(transformPrompt);
         
         const transformedTool = transformSnakeToCamel<SelectAssistantArchitect>(tool);
         

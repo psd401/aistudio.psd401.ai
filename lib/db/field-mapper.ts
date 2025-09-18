@@ -57,6 +57,7 @@ export const fieldMap = {
   input_mapping: 'inputMapping',
   parallel_group: 'parallelGroup',
   timeout_seconds: 'timeoutSeconds',
+  enabled_tools: 'enabledTools',
   chain_prompt_id: 'chainPromptId',
   tool_execution_id: 'toolExecutionId',
   ai_model_id: 'aiModelId',

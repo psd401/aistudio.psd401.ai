@@ -17,6 +17,7 @@ export interface ModelCapabilities {
   responsesAPI: boolean
   promptCaching: boolean
   contextCaching: boolean
+  imageGeneration: boolean
 }
 
 export interface ToolConfig {
@@ -25,7 +26,7 @@ export interface ToolConfig {
   requiredCapabilities: (keyof ModelCapabilities)[]
   displayName: string
   description: string
-  category: 'search' | 'code' | 'analysis' | 'creative'
+  category: 'search' | 'code' | 'analysis' | 'creative' | 'media'
 }
 
 /**
@@ -42,12 +43,20 @@ const TOOL_REGISTRY: Record<string, ToolConfig> = {
     category: 'search'
   },
   codeInterpreter: {
-    name: 'codeInterpreter', 
+    name: 'codeInterpreter',
     tool: {}, // Placeholder for client-side usage
     requiredCapabilities: ['codeInterpreter', 'codeExecution'],
     displayName: 'Code Interpreter',
     description: 'Execute code and perform data analysis',
     category: 'code'
+  },
+  generateImage: {
+    name: 'generateImage',
+    tool: {}, // Placeholder for client-side usage
+    requiredCapabilities: ['imageGeneration'],
+    displayName: 'Image Generation',
+    description: 'Generate images from text descriptions using AI models like GPT-Image-1, DALL-E 3, and Imagen 4',
+    category: 'media'
   }
 }
 

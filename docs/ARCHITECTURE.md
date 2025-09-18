@@ -252,6 +252,348 @@ All resources defined in AWS CDK:
 3. Lambda-based automatic execution
 4. Transaction-wrapped for consistency
 
+## Assistant Architect Tool Integration
+
+### Overview
+Assistant Architect supports external tool integration, enabling AI assistants to perform actions beyond text generation. Tools are executed within isolated environments and provide capabilities like web search and code execution.
+
+### Supported Tools
+
+#### Web Search Tool
+- **Provider**: SerpAPI integration
+- **Models**: GPT-5, Gemini Pro
+- **Capabilities**: Real-time web search, current information retrieval
+- **Execution**: Asynchronous with 15-second timeout
+- **Caching**: Query-based caching with 5-minute TTL
+
+#### Code Interpreter Tool
+- **Runtime**: Python 3.9+ in isolated sandbox
+- **Models**: GPT-5, GPT-4o, Gemini Pro
+- **Libraries**: NumPy, Pandas, Matplotlib, SciPy, Scikit-learn
+- **Execution**: Stateless containers with 30-second timeout
+- **Security**: No file system access, no network access
+
+### Tool Architecture
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│                 │     │                  │     │                 │
+│  Assistant      │────▶│  Tool Registry   │────▶│  Model Capability│
+│  Architect UI   │     │  & Validation    │     │     Matrix      │
+│                 │     │                  │     │                 │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+          │                        │
+          ▼                        ▼
+┌─────────────────┐     ┌──────────────────┐
+│                 │     │                  │
+│  Prompt Chain   │────▶│  Tool Execution  │
+│  Configuration  │     │     Lambda       │
+│                 │     │                  │
+└─────────────────┘     └──────────────────┘
+                                   │
+                        ┌──────────┴──────────┐
+                        ▼                     ▼
+              ┌──────────────┐      ┌──────────────┐
+              │              │      │              │
+              │  Web Search  │      │Code Interpreter│
+              │   Service    │      │   Runtime    │
+              │              │      │              │
+              └──────────────┘      └──────────────┘
+```
+
+### Tool Selection Flow
+
+1. **Model Compatibility Check**
+   ```typescript
+   interface ModelToolMatrix {
+     [modelId: string]: {
+       supportedTools: ToolType[]
+       limitations: string[]
+       performance: PerformanceMetrics
+     }
+   }
+   ```
+
+2. **Tool Registry Lookup**
+   ```typescript
+   async function getAvailableToolsForModel(modelId: string): Promise<Tool[]> {
+     // Check model capabilities in ai_models table
+     // Return intersection of model support and enabled tools
+     // Apply user permission filtering
+   }
+   ```
+
+3. **Validation Pipeline**
+   - Model compatibility verification
+   - User permission checks
+   - Tool configuration validation
+   - Security constraint enforcement
+
+### Execution Pipeline
+
+#### 1. Tool Selection & Validation
+```typescript
+interface ToolExecution {
+  id: string
+  assistantArchitectId: number
+  promptId: string
+  enabledTools: string[]
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  results: ToolResult[]
+}
+```
+
+#### 2. Parallel Execution Engine
+- **Queue**: AWS SQS for reliable task distribution
+- **Workers**: Lambda functions with model-specific configurations
+- **Coordination**: Step Functions for complex workflows
+- **Monitoring**: CloudWatch metrics and distributed tracing
+
+#### 3. Result Integration
+```typescript
+interface ToolResult {
+  toolType: 'web_search' | 'code_interpreter'
+  status: 'success' | 'error' | 'timeout'
+  output: string
+  metadata: {
+    executionTime: number
+    resourceUsage: ResourceMetrics
+    cacheHit?: boolean
+  }
+  error?: {
+    code: string
+    message: string
+    details: unknown
+  }
+}
+```
+
+### Database Schema Extensions
+
+#### Tool Configuration
+```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
+-- Enhanced chain_prompts table
+ALTER TABLE chain_prompts ADD COLUMN enabled_tools JSONB DEFAULT '[]';
+ALTER TABLE chain_prompts ADD COLUMN tool_settings JSONB DEFAULT '{}';
+
+-- Tool execution tracking
+CREATE TABLE tool_executions (
+  id SERIAL PRIMARY KEY,
+  assistant_architect_id INTEGER REFERENCES assistant_architects(id),
+  user_id INTEGER REFERENCES users(id),
+  status VARCHAR(20) NOT NULL,
+  input_data JSONB NOT NULL,
+  started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  completed_at TIMESTAMP WITH TIME ZONE,
+  error_message TEXT
+);
+
+-- Tool result storage
+CREATE TABLE tool_results (
+  id SERIAL PRIMARY KEY,
+  execution_id INTEGER REFERENCES tool_executions(id),
+  tool_type VARCHAR(50) NOT NULL,
+  output_data TEXT,
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+#### Model Capabilities
+```sql
+-- SECURITY NOTE: The following SQL examples are for documentation purposes only.
+-- In production code, ALWAYS use parameterized queries through the executeSQL function
+-- with proper parameter binding to prevent SQL injection attacks.
+
+-- Enhanced ai_models table
+ALTER TABLE ai_models ADD COLUMN capabilities JSONB DEFAULT '{}';
+
+-- Example capabilities structure (use parameterized queries in actual implementation)
+UPDATE ai_models SET capabilities = '{
+  "tools": ["web_search", "code_interpreter"],
+  "maxToolCalls": 5,
+  "parallelExecution": true,
+  "timeoutSeconds": 30
+}' WHERE model_id = 'gpt-5';
+```
+
+### Security & Compliance
+
+#### Tool Execution Security
+
+##### Container Security & Isolation
+- **Runtime**: AWS Lambda with isolated execution contexts
+- **Container Features**:
+  - Read-only root filesystem
+  - Non-root user execution (UID 1000)
+  - No privileged access or capabilities
+  - Isolated process namespace (PID isolation)
+  - Restricted file system access (no /tmp persistence)
+- **Security Context**:
+  ```yaml
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+  ```
+
+##### Network Isolation
+- **Code Interpreter**: Complete network isolation - no outbound internet access
+- **Web Search Tool**: Restricted to approved domains only via allowlist
+- **DNS Resolution**: Limited to AWS internal DNS for security
+- **Firewall Rules**:
+  - Block all outbound traffic except HTTPS to approved endpoints
+  - No inbound network access permitted
+  - VPC security groups with explicit deny-all default
+
+##### Resource Limits & Controls
+- **Memory Limits**:
+  - Code Interpreter: 512MB maximum (configurable per model)
+  - Web Search: 256MB maximum
+  - Hard limits enforced at container level
+- **CPU Limits**:
+  - Code Interpreter: 0.5 vCPU maximum with burst capability
+  - Web Search: 0.25 vCPU maximum
+  - Timeout enforcement: 30 seconds hard limit
+- **Disk I/O**:
+  - Ephemeral storage only (no persistent volumes)
+  - 512MB maximum temporary space
+  - Automatic cleanup after execution
+
+##### Input Validation & Attack Prevention
+- **Dangerous Input Patterns Blocked**:
+  ```typescript
+  // Command injection patterns
+  /[;&|`$(){}[\]\\]/g          // Shell metacharacters
+  /\b(eval|exec|system)\b/gi   // Dangerous functions
+  /import\s+os|subprocess/gi   // System module imports
+  /__import__|getattr/gi       // Dynamic imports
+
+  // Path traversal patterns
+  /\.\.[\/\\]/g                // Directory traversal
+  /\/etc\/|\/proc\/|\/dev\//gi // System directories
+
+  // Network access patterns
+  /socket|urllib|requests/gi   // Network libraries
+  /http[s]?:\/\//gi           // URL patterns
+  ```
+
+- **Code Execution Restrictions**:
+  - No file system write access outside `/tmp`
+  - Blocked system calls: `socket`, `fork`, `exec`
+  - Import restrictions: `os`, `subprocess`, `socket`, `urllib`
+  - Memory allocation limits to prevent resource exhaustion
+
+- **Input Sanitization**:
+  - Maximum input size: 100KB for code, 10KB for search queries
+  - UTF-8 encoding validation
+  - SQL injection pattern detection
+  - XSS pattern filtering for all outputs
+
+##### Monitoring & Detection
+- **Real-time Monitoring**:
+  - Resource usage tracking (CPU, memory, disk)
+  - Network connection attempts (blocked and logged)
+  - Suspicious pattern detection in code execution
+  - Failed execution attempt analysis
+
+- **Security Alerting**:
+  - Immediate alerts for blocked dangerous patterns
+  - Resource limit violations
+  - Repeated security violations by user
+  - Anomalous execution patterns
+
+- **Audit Logging**:
+  - All tool execution inputs and outputs
+  - Security violation attempts with user context
+  - Resource usage metrics for capacity planning
+  - Performance metrics for optimization
+
+#### Data Privacy
+- **Temporary Storage**: Tool results stored with automatic cleanup
+- **Encryption**: All tool data encrypted in transit and at rest
+- **Audit Logging**: Comprehensive logging of tool usage and access
+- **Data Residency**: Configurable data processing regions
+
+### Performance Optimization
+
+#### Caching Strategy
+```typescript
+interface ToolCache {
+  webSearch: {
+    keyPattern: string // hash of query + parameters
+    ttl: number        // 5 minutes for search results
+    maxSize: number    // 1000 entries per instance
+  }
+  codeExecution: {
+    keyPattern: string // hash of code + inputs
+    ttl: number        // 1 hour for deterministic code
+    maxSize: number    // 100 entries per instance
+  }
+}
+```
+
+#### Resource Management
+- **Concurrent Execution**: Max 10 tools per user simultaneously
+- **Memory Allocation**: Dynamic scaling based on tool complexity
+- **CPU Throttling**: Intelligent resource allocation
+- **Timeout Handling**: Graceful degradation with partial results
+
+### Monitoring & Metrics
+
+#### Key Performance Indicators
+```typescript
+interface ToolMetrics {
+  executionTime: {
+    p50: number    // Target: <15s
+    p95: number    // Target: <30s
+    p99: number    // Target: <45s
+  }
+  successRate: number    // Target: >95%
+  errorRate: {
+    timeout: number      // Target: <2%
+    validation: number   // Target: <1%
+    system: number       // Target: <1%
+  }
+  resourceUtilization: {
+    memory: number
+    cpu: number
+    network: number
+  }
+}
+```
+
+#### CloudWatch Integration
+- Custom metrics for tool execution performance
+- Automated alerting for failure rate thresholds
+- Dashboard with real-time tool usage statistics
+- Log aggregation for debugging and optimization
+
+### Error Handling & Recovery
+
+#### Failure Modes
+1. **Tool Timeout**: Graceful degradation with partial results
+2. **API Rate Limiting**: Exponential backoff with queue management
+3. **Resource Exhaustion**: Load balancing and capacity scaling
+4. **Validation Failures**: Clear error messages and retry options
+
+#### Recovery Strategies
+```typescript
+interface RecoveryPolicy {
+  retryAttempts: number        // Max 3 attempts
+  backoffStrategy: 'exponential' | 'linear'
+  fallbackOptions: string[]   // Alternative tools or cached results
+  userNotification: boolean   // Inform user of degraded service
+}
+```
+
 ## Future Enhancements
 
 ### In Progress
