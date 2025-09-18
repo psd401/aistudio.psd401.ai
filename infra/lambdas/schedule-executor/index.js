@@ -67,6 +67,60 @@ function createLogger(context = {}) {
   };
 }
 
+// Security utility functions
+function safeParseInt(value, fieldName = 'value') {
+  if (value === null || value === undefined) {
+    throw new Error(`Invalid ${fieldName}: value is null or undefined`);
+  }
+
+  const stringValue = String(value).trim();
+  if (stringValue === '') {
+    throw new Error(`Invalid ${fieldName}: empty string`);
+  }
+
+  const parsed = parseInt(stringValue, 10);
+  if (isNaN(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`Invalid ${fieldName}: must be a positive integer`);
+  }
+
+  return parsed;
+}
+
+function safeJsonParse(jsonString, fallback = null, fieldName = 'JSON data') {
+  if (!jsonString) {
+    return fallback;
+  }
+
+  try {
+    return JSON.parse(jsonString);
+  } catch (error) {
+    const log = createLogger({ operation: 'safeJsonParse' });
+    log.error('JSON parse error', {
+      fieldName,
+      error: error.message,
+      jsonLength: jsonString?.length
+    });
+    return fallback;
+  }
+}
+
+function sanitizeForLogging(data) {
+  if (!data || typeof data !== 'object') {
+    return data;
+  }
+
+  const sensitiveKeys = ['password', 'token', 'secret', 'key', 'auth', 'credential'];
+  const sanitized = { ...data };
+
+  for (const key of Object.keys(sanitized)) {
+    if (sensitiveKeys.some(sensitive => key.toLowerCase().includes(sensitive))) {
+      sanitized[key] = '[REDACTED]';
+    }
+  }
+
+  return sanitized;
+}
+
 // Initialize clients
 const rdsClient = new RDSDataClient({});
 const sqsClient = new SQSClient({});
@@ -161,7 +215,11 @@ exports.handler = async (event, context) => {
     };
 
   } catch (error) {
-    log.error('Schedule executor failed', { error: error.message, stack: error.stack });
+    log.error('Schedule executor failed', {
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      requestId
+    });
     timer({ status: 'error' });
 
     // Send to DLQ if available
@@ -324,34 +382,53 @@ async function handleScheduleManagement(event, requestId) {
 
 /**
  * Load scheduled execution configuration from database
+ * @param {string|number} scheduledExecutionId - The execution ID to load
+ * @param {string|number} [expectedUserId] - Optional user ID for authorization check
  */
-async function loadScheduledExecution(scheduledExecutionId) {
-  const command = new ExecuteStatementCommand({
-    resourceArn: DATABASE_RESOURCE_ARN,
-    secretArn: DATABASE_SECRET_ARN,
-    database: DATABASE_NAME,
-    sql: `
-      SELECT
-        se.id,
-        se.user_id,
-        se.assistant_architect_id,
-        se.name,
-        se.schedule_config,
-        se.input_data,
-        se.active,
-        se.created_at,
-        aa.name as assistant_architect_name,
-        aa.prompts
-      FROM scheduled_executions se
-      JOIN assistant_architects aa ON se.assistant_architect_id = aa.id
-      WHERE se.id = :scheduled_execution_id
-    `,
-    parameters: [
-      { name: 'scheduled_execution_id', value: { longValue: parseInt(scheduledExecutionId) } }
-    ]
-  });
+async function loadScheduledExecution(scheduledExecutionId, expectedUserId = null) {
+  const log = createLogger({ operation: 'loadScheduledExecution' });
 
   try {
+    // Validate and sanitize input
+    const executionId = safeParseInt(scheduledExecutionId, 'scheduled execution ID');
+
+    // Build SQL with conditional user authorization
+    const whereClause = expectedUserId
+      ? 'WHERE se.id = :scheduled_execution_id AND se.user_id = :user_id'
+      : 'WHERE se.id = :scheduled_execution_id';
+
+    const parameters = [
+      { name: 'scheduled_execution_id', value: { longValue: executionId } }
+    ];
+
+    if (expectedUserId) {
+      const userId = safeParseInt(expectedUserId, 'user ID');
+      parameters.push({ name: 'user_id', value: { longValue: userId } });
+    }
+
+    const command = new ExecuteStatementCommand({
+      resourceArn: DATABASE_RESOURCE_ARN,
+      secretArn: DATABASE_SECRET_ARN,
+      database: DATABASE_NAME,
+      sql: `
+        SELECT
+          se.id,
+          se.user_id,
+          se.assistant_architect_id,
+          se.name,
+          se.schedule_config,
+          se.input_data,
+          se.active,
+          se.created_at,
+          aa.name as assistant_architect_name,
+          aa.prompts
+        FROM scheduled_executions se
+        JOIN assistant_architects aa ON se.assistant_architect_id = aa.id
+        ${whereClause}
+      `,
+      parameters
+    });
+
     const response = await rdsClient.send(command);
 
     if (!response.records || response.records.length === 0) {
@@ -365,15 +442,18 @@ async function loadScheduledExecution(scheduledExecutionId) {
       user_id: record[1].longValue,
       assistant_architect_id: record[2].longValue,
       name: record[3].stringValue,
-      schedule_config: JSON.parse(record[4].stringValue),
-      input_data: record[5].stringValue ? JSON.parse(record[5].stringValue) : {},
+      schedule_config: safeJsonParse(record[4].stringValue, {}, 'schedule_config'),
+      input_data: record[5].stringValue ? safeJsonParse(record[5].stringValue, {}, 'input_data') : {},
       active: record[6].booleanValue,
       created_at: record[7].stringValue,
       assistant_architect_name: record[8].stringValue,
-      prompts: JSON.parse(record[9].stringValue)
+      prompts: safeJsonParse(record[9].stringValue, [], 'prompts')
     };
   } catch (error) {
-    console.error('Failed to load scheduled execution:', error);
+    log.error('Failed to load scheduled execution', {
+      error: error.message,
+      scheduledExecutionId: sanitizeForLogging(scheduledExecutionId)
+    });
     throw error;
   }
 }
@@ -382,32 +462,39 @@ async function loadScheduledExecution(scheduledExecutionId) {
  * Create execution result record
  */
 async function createExecutionResult(scheduledExecutionId) {
-  const command = new ExecuteStatementCommand({
-    resourceArn: DATABASE_RESOURCE_ARN,
-    secretArn: DATABASE_SECRET_ARN,
-    database: DATABASE_NAME,
-    sql: `
-      INSERT INTO execution_results (
-        scheduled_execution_id,
-        status,
-        executed_at
-      ) VALUES (
-        :scheduled_execution_id,
-        'running',
-        NOW()
-      )
-      RETURNING id
-    `,
-    parameters: [
-      { name: 'scheduled_execution_id', value: { longValue: parseInt(scheduledExecutionId) } }
-    ]
-  });
+  const log = createLogger({ operation: 'createExecutionResult' });
 
   try {
+    const executionId = safeParseInt(scheduledExecutionId, 'scheduled execution ID');
+
+    const command = new ExecuteStatementCommand({
+      resourceArn: DATABASE_RESOURCE_ARN,
+      secretArn: DATABASE_SECRET_ARN,
+      database: DATABASE_NAME,
+      sql: `
+        INSERT INTO execution_results (
+          scheduled_execution_id,
+          status,
+          executed_at
+        ) VALUES (
+          :scheduled_execution_id,
+          'running',
+          NOW()
+        )
+        RETURNING id
+      `,
+      parameters: [
+        { name: 'scheduled_execution_id', value: { longValue: executionId } }
+      ]
+    });
+
     const response = await rdsClient.send(command);
     return response.records[0][0].longValue;
   } catch (error) {
-    console.error('Failed to create execution result:', error);
+    log.error('Failed to create execution result', {
+      error: error.message,
+      scheduledExecutionId: sanitizeForLogging(scheduledExecutionId)
+    });
     throw error;
   }
 }
@@ -416,40 +503,44 @@ async function createExecutionResult(scheduledExecutionId) {
  * Update execution result with completion status
  */
 async function updateExecutionResult(executionResultId, status, resultData = null, executionDuration = null, errorMessage = null) {
-  const command = new ExecuteStatementCommand({
-    resourceArn: DATABASE_RESOURCE_ARN,
-    secretArn: DATABASE_SECRET_ARN,
-    database: DATABASE_NAME,
-    sql: `
-      UPDATE execution_results
-      SET
-        status = :status,
-        result_data = :result_data::jsonb,
-        execution_duration_ms = :execution_duration_ms,
-        error_message = :error_message,
-        executed_at = NOW()
-      WHERE id = :execution_result_id
-      RETURNING id
-    `,
-    parameters: [
-      { name: 'execution_result_id', value: { longValue: parseInt(executionResultId) } },
-      { name: 'status', value: { stringValue: status } },
-      {
-        name: 'result_data',
-        value: resultData ? { stringValue: JSON.stringify(resultData) } : { isNull: true }
-      },
-      {
-        name: 'execution_duration_ms',
-        value: executionDuration ? { longValue: executionDuration } : { isNull: true }
-      },
-      {
-        name: 'error_message',
-        value: errorMessage ? { stringValue: errorMessage } : { isNull: true }
-      }
-    ]
-  });
+  const log = createLogger({ operation: 'updateExecutionResult' });
 
   try {
+    const resultId = safeParseInt(executionResultId, 'execution result ID');
+
+    const command = new ExecuteStatementCommand({
+      resourceArn: DATABASE_RESOURCE_ARN,
+      secretArn: DATABASE_SECRET_ARN,
+      database: DATABASE_NAME,
+      sql: `
+        UPDATE execution_results
+        SET
+          status = :status,
+          result_data = :result_data::jsonb,
+          execution_duration_ms = :execution_duration_ms,
+          error_message = :error_message,
+          executed_at = NOW()
+        WHERE id = :execution_result_id
+        RETURNING id
+      `,
+      parameters: [
+        { name: 'execution_result_id', value: { longValue: resultId } },
+        { name: 'status', value: { stringValue: status } },
+        {
+          name: 'result_data',
+          value: resultData ? { stringValue: JSON.stringify(resultData) } : { isNull: true }
+        },
+        {
+          name: 'execution_duration_ms',
+          value: executionDuration ? { longValue: executionDuration } : { isNull: true }
+        },
+        {
+          name: 'error_message',
+          value: errorMessage ? { stringValue: errorMessage } : { isNull: true }
+        }
+      ]
+    });
+
     const response = await rdsClient.send(command);
     const success = response.records && response.records.length > 0;
 
@@ -457,10 +548,17 @@ async function updateExecutionResult(executionResultId, status, resultData = nul
       throw new Error('Execution result update failed - no rows updated');
     }
 
-    console.log(`Execution result ${executionResultId} updated with status: ${status}`);
+    log.info('Execution result updated successfully', {
+      executionResultId: resultId,
+      status
+    });
     return true;
   } catch (error) {
-    console.error('Failed to update execution result:', error);
+    log.error('Failed to update execution result', {
+      error: error.message,
+      executionResultId: sanitizeForLogging(executionResultId),
+      status
+    });
     throw error;
   }
 }
@@ -759,26 +857,33 @@ async function deleteSchedule(params, requestId) {
  * Get user schedule count for rate limiting
  */
 async function getUserScheduleCount(userId) {
-  const command = new ExecuteStatementCommand({
-    resourceArn: DATABASE_RESOURCE_ARN,
-    secretArn: DATABASE_SECRET_ARN,
-    database: DATABASE_NAME,
-    sql: `
-      SELECT COUNT(*) as count
-      FROM scheduled_executions
-      WHERE user_id = :user_id AND active = true
-    `,
-    parameters: [
-      { name: 'user_id', value: { longValue: parseInt(userId) } }
-    ]
-  });
+  const log = createLogger({ operation: 'getUserScheduleCount' });
 
   try {
+    const validUserId = safeParseInt(userId, 'user ID');
+
+    const command = new ExecuteStatementCommand({
+      resourceArn: DATABASE_RESOURCE_ARN,
+      secretArn: DATABASE_SECRET_ARN,
+      database: DATABASE_NAME,
+      sql: `
+        SELECT COUNT(*) as count
+        FROM scheduled_executions
+        WHERE user_id = :user_id AND active = true
+      `,
+      parameters: [
+        { name: 'user_id', value: { longValue: validUserId } }
+      ]
+    });
+
     const response = await rdsClient.send(command);
     return response.records[0][0].longValue;
   } catch (error) {
-    console.error('Failed to get user schedule count:', error);
-    return 0; // Safe fallback
+    log.error('Failed to get user schedule count', {
+      error: error.message,
+      userId: sanitizeForLogging(userId)
+    });
+    return 0; // Safe fallback for rate limiting
   }
 }
 
@@ -803,13 +908,15 @@ function substituteVariables(content, context) {
     // Security: Validate variable name format to prevent injection attacks
     // Only allow alphanumeric characters, underscores, and hyphens
     if (!/^[a-zA-Z0-9_-]+$/.test(key)) {
-      console.warn(`Invalid variable name: ${key}, skipping`);
+      const log = createLogger({ operation: 'substituteVariables' });
+      log.warn('Invalid variable name - skipping', { variableName: key });
       continue;
     }
 
     // Security: Prevent excessively long variable names (potential DoS)
     if (key.length > 100) {
-      console.warn(`Variable name too long: ${key}, skipping`);
+      const log = createLogger({ operation: 'substituteVariables' });
+      log.warn('Variable name too long - skipping', { variableName: key, length: key.length });
       continue;
     }
 
@@ -826,7 +933,8 @@ function substituteVariables(content, context) {
       try {
         validatedContext[key] = JSON.stringify(value, null, 2);
       } catch (error) {
-        console.warn(`Failed to serialize variable ${key}:`, error.message);
+        const log = createLogger({ operation: 'substituteVariables' });
+        log.warn('Failed to serialize variable', { variableName: key, error: error.message });
         validatedContext[key] = String(value);
       }
     }
@@ -838,14 +946,16 @@ function substituteVariables(content, context) {
 
     // Validate variable name format
     if (!/^[a-zA-Z0-9_-]+$/.test(trimmedName)) {
-      console.warn(`Invalid variable name format: ${trimmedName}, leaving as-is`);
+      const log = createLogger({ operation: 'substituteVariables' });
+      log.warn('Invalid variable name format in double braces - leaving as-is', { variableName: trimmedName });
       return match;
     }
 
     if (validatedContext.hasOwnProperty(trimmedName)) {
       return validatedContext[trimmedName];
     }
-    console.warn(`Variable ${trimmedName} not found in context, leaving as-is`);
+    const log = createLogger({ operation: 'substituteVariables' });
+    log.warn('Variable not found in context - leaving as-is', { variableName: trimmedName, pattern: 'double-braces' });
     return match; // Leave as-is if variable not found
   });
 
@@ -855,14 +965,16 @@ function substituteVariables(content, context) {
 
     // Validate variable name format
     if (!/^[a-zA-Z0-9_-]+$/.test(trimmedName)) {
-      console.warn(`Invalid variable name format: ${trimmedName}, leaving as-is`);
+      const log = createLogger({ operation: 'substituteVariables' });
+      log.warn('Invalid variable name format in single braces - leaving as-is', { variableName: trimmedName });
       return match;
     }
 
     if (validatedContext.hasOwnProperty(trimmedName)) {
       return validatedContext[trimmedName];
     }
-    console.warn(`Variable ${trimmedName} not found in context, leaving as-is`);
+    const log = createLogger({ operation: 'substituteVariables' });
+    log.warn('Variable not found in context - leaving as-is', { variableName: trimmedName, pattern: 'single-braces' });
     return match; // Leave as-is if variable not found
   });
 

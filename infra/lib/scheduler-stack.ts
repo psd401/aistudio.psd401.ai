@@ -142,7 +142,10 @@ export class SchedulerStack extends cdk.Stack {
         'bedrock:InvokeModel',
         'bedrock:InvokeModelWithResponseStream',
       ],
-      resources: ['*'], // Bedrock model ARNs vary by region
+      resources: [
+        `arn:aws:bedrock:${this.region}:${this.account}:foundation-model/*`,
+        `arn:aws:bedrock:${this.region}:${this.account}:custom-model/*`
+      ],
     });
     this.scheduleExecutorFunction.addToRolePolicy(bedrockPolicy);
 

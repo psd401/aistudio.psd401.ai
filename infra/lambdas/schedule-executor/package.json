@@ -1,19 +1,23 @@
 {
-  "name": "schedule-executor",
+  "name": "schedule-executor-lambda",
   "version": "1.0.0",
-  "description": "Schedule Executor Lambda - Executes Assistant Architect workflows at scheduled times",
+  "description": "Lambda function for executing scheduled Assistant Architect workflows",
   "main": "index.js",
-  "dependencies": {
-    "@aws-sdk/client-rds-data": "^3.0.0",
-    "@aws-sdk/client-sqs": "^3.0.0",
-    "@aws-sdk/client-ssm": "^3.0.0",
-    "@aws-sdk/client-scheduler": "^3.0.0",
-    "@aistudio/streaming-core": "file:../../../packages/ai-streaming-core",
-    "ai": "^5.0.23",
-    "@ai-sdk/openai": "^2.0.20",
-    "@ai-sdk/google": "^2.0.8",
-    "@ai-sdk/amazon-bedrock": "^3.0.10",
-    "@ai-sdk/azure": "^2.0.20"
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["aws", "lambda", "scheduler", "eventbridge", "assistant-architect", "automation"]
+  "dependencies": {
+    "@aws-sdk/client-rds-data": "^3.890.0",
+    "@aws-sdk/client-sqs": "^3.890.0",
+    "@aws-sdk/client-scheduler": "^3.890.0",
+    "@aistudio/streaming-core": "file:../../../packages/ai-streaming-core"
+  },
+  "keywords": [
+    "lambda",
+    "scheduler",
+    "ai",
+    "assistant-architect"
+  ],
+  "author": "AI Studio",
+  "license": "MIT"
 }
