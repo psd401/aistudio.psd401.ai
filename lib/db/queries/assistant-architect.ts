@@ -42,6 +42,16 @@ export async function getAssistantArchitectsWithRelations() {
       const prompts = promptsRaw.map((prompt) => {
         const transformed = transformSnakeToCamel<SelectChainPrompt>(prompt);
         transformed.repositoryIds = parseRepositoryIds(transformed.repositoryIds);
+        // Parse enabled_tools from JSONB array to string array
+        if (transformed.enabledTools && typeof transformed.enabledTools === 'string') {
+          try {
+            transformed.enabledTools = JSON.parse(transformed.enabledTools);
+          } catch {
+            transformed.enabledTools = [];
+          }
+        } else if (!transformed.enabledTools) {
+          transformed.enabledTools = [];
+        }
         return transformed;
       });
       
@@ -94,7 +104,7 @@ export async function getToolInputFields(architectId: number) {
  */
 export async function getChainPrompts(architectId: number) {
   return executeSQL<SelectChainPrompt>(`
-    SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, created_at, updated_at
+    SELECT id, assistant_architect_id, name, content, system_context, model_id, position, input_mapping, repository_ids, enabled_tools, created_at, updated_at
     FROM chain_prompts
     WHERE assistant_architect_id = :toolId
     ORDER BY position ASC

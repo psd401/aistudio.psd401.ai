@@ -172,6 +172,7 @@ export type SelectChainPrompt = {
   parallelGroup: number | null;
   timeoutSeconds: number | null;
   repositoryIds: number[] | null;
+  enabledTools: string[] | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -228,6 +229,7 @@ export type InsertChainPrompt = {
   parallelGroup?: number;
   timeoutSeconds?: number;
   repositoryIds?: number[];
+  enabledTools?: string[];
 }
 
 export type InsertToolExecution = {
