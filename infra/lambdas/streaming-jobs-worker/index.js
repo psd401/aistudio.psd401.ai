@@ -963,22 +963,19 @@ async function processAssistantArchitectJob(job) {
         const streamResponse = await unifiedStreamingService.stream(streamRequest);
         const promptResult = await streamResponse.result;
 
-        // ENHANCED LOGGING: Capture tool execution details
+        // SANITIZED LOGGING: Log execution metadata without sensitive details
         console.log(`=== PROMPT EXECUTION COMPLETE: ${prompt.name} ===`);
-        console.log('Prompt result keys:', Object.keys(promptResult || {}));
         console.log('Prompt result structure:', {
           hasText: !!promptResult.text,
+          textLength: promptResult.text ? promptResult.text.length : 0,
           hasToolCalls: Array.isArray(promptResult.toolCalls),
-          toolCallsType: typeof promptResult.toolCalls,
           toolCallCount: Array.isArray(promptResult.toolCalls) ? promptResult.toolCalls.length : 0,
-          toolCallDetails: Array.isArray(promptResult.toolCalls) ?
-            promptResult.toolCalls.map(tc => ({
-              toolName: tc?.toolName,
-              hasArgs: !!tc?.args,
-              hasResult: !!tc?.result
-            })) : [],
           finishReason: promptResult.finishReason,
-          usage: promptResult.usage
+          usage: promptResult.usage ? {
+            promptTokens: promptResult.usage.promptTokens,
+            completionTokens: promptResult.usage.completionTokens,
+            totalTokens: promptResult.usage.totalTokens
+          } : null
         });
 
         // Extract final text result

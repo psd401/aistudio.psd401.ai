@@ -28,6 +28,7 @@ import { MemoizedMarkdown } from "@/components/ui/memoized-markdown"
 import { ErrorBoundary } from "@/components/error-boundary"
 import type { AssistantArchitectWithRelations } from "@/types/assistant-architect-types"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { collectAndSanitizeEnabledTools, getToolDisplayName } from '@/lib/assistant-architect/tool-utils'
 import { AssistantArchitectChat } from "./assistant-architect-chat"
 import { ChatErrorBoundary } from "./chat-error-boundary"
 import Image from "next/image"
@@ -70,39 +71,6 @@ interface ExtendedExecutionResultDetails {
   enabledTools?: string[] // Add enabled tools to track tool usage
 }
 
-// Helper function to collect enabled tools from prompts
-function collectEnabledToolsFromPrompts(tool: AssistantArchitectWithRelations): string[] {
-  const allTools = new Set<string>();
-
-  if (tool.prompts) {
-    tool.prompts
-      .sort((a, b) => (a.position || 0) - (b.position || 0))
-      .forEach(prompt => {
-        if (prompt.enabledTools && Array.isArray(prompt.enabledTools)) {
-          prompt.enabledTools.forEach(toolName => {
-            if (typeof toolName === 'string' && toolName.trim()) {
-              allTools.add(toolName.trim());
-            }
-          });
-        }
-      });
-  }
-
-  return Array.from(allTools);
-}
-
-// Helper function to get display name for tools
-function getToolDisplayName(toolName: string): string {
-  const toolDisplayNames: Record<string, string> = {
-    'web-search': 'Web Search',
-    'web-scraper': 'Web Scraper',
-    'file-reader': 'File Reader',
-    'code-interpreter': 'Code Interpreter',
-    'image-generator': 'Image Generator',
-    'calculator': 'Calculator'
-  };
-  return toolDisplayNames[toolName] || toolName.charAt(0).toUpperCase() + toolName.slice(1).replace(/[-_]/g, ' ');
-}
 
 export const AssistantArchitectExecution = memo(function AssistantArchitectExecution({ tool, isPreview = false }: AssistantArchitectExecutionProps) {
   const { toast } = useToast()
@@ -120,7 +88,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
 
   // Collect enabled tools from the assistant architect when component mounts
   useEffect(() => {
-    const tools = collectEnabledToolsFromPrompts(tool);
+    const tools = tool.prompts ? collectAndSanitizeEnabledTools(tool.prompts) : [];
     setEnabledTools(tools);
   }, [tool]);
 

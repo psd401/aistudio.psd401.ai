@@ -18,6 +18,7 @@ import {
 import { transformSnakeToCamel } from '@/lib/db/field-mapper'
 import { parseRepositoryIds, serializeRepositoryIds } from "@/lib/utils/repository-utils"
 import { getAvailableToolsForModel, getAllTools, isToolAvailableForModel } from "@/lib/tools/tool-registry"
+import { collectAndSanitizeEnabledTools } from '@/lib/assistant-architect/tool-utils'
 
 import { createJobAction, updateJobAction, getJobAction } from "@/actions/db/jobs-actions";
 import { createError, handleError, createSuccess, ErrorFactories } from "@/lib/error-utils";
@@ -146,25 +147,6 @@ async function validateEnabledTools(
   }
 }
 
-// Helper function to collect all unique enabled tools from prompts in execution order
-function collectEnabledTools(prompts: SelectChainPrompt[]): string[] {
-  const allTools = new Set<string>();
-
-  // Sort prompts by position to ensure correct execution order
-  prompts
-    .sort((a, b) => (a.position || 0) - (b.position || 0))
-    .forEach(prompt => {
-      if (prompt.enabledTools && Array.isArray(prompt.enabledTools)) {
-        prompt.enabledTools.forEach(tool => {
-          if (typeof tool === 'string' && tool.trim()) {
-            allTools.add(tool.trim());
-          }
-        });
-      }
-    });
-
-  return Array.from(allTools);
-}
 
 
 // Helper function to get current user ID
@@ -2091,7 +2073,7 @@ export async function executeAssistantArchitectAction({
     log.info("Repository IDs collected for knowledge context", { repositoryIds });
 
     // Collect enabled tools from all prompts in the assistant chain
-    const enabledTools = tool.prompts ? collectEnabledTools(tool.prompts) : [];
+    const enabledTools = tool.prompts ? collectAndSanitizeEnabledTools(tool.prompts) : [];
     log.info("Enabled tools collected from prompts", {
       enabledTools,
       toolCount: enabledTools.length
@@ -2106,11 +2088,34 @@ export async function executeAssistantArchitectAction({
         const toolValidation = await validateEnabledTools(enabledTools, modelId);
 
         if (!toolValidation.isValid) {
-          log.warn("Tool validation failed, continuing without tools", {
+          log.error("Tool validation failed", {
             invalidTools: toolValidation.invalidTools,
             message: toolValidation.message
           });
-          // Continue execution without tools rather than failing
+
+          // Check for security-critical tools that should fail execution
+          const securityCriticalTools = ['webSearch', 'codeInterpreter'];
+          const hasSecurityCriticalTools = toolValidation.invalidTools?.some(tool =>
+            securityCriticalTools.includes(tool)
+          );
+
+          if (hasSecurityCriticalTools) {
+            log.error("Security-critical tool validation failed, stopping execution", {
+              securityCriticalInvalidTools: toolValidation.invalidTools?.filter(tool =>
+                securityCriticalTools.includes(tool)
+              )
+            });
+            throw ErrorFactories.validationFailed([{
+              field: 'enabledTools',
+              message: `Security-critical tools failed validation: ${toolValidation.invalidTools?.join(', ')}. ${toolValidation.message}`
+            }]);
+          }
+
+          // For non-critical tools, continue but record the warning for user notification
+          log.warn("Non-critical tool validation failed, continuing without invalid tools", {
+            invalidTools: toolValidation.invalidTools,
+            message: toolValidation.message
+          });
           tools = {};
         } else {
           tools = await buildToolsForRequest(modelIdString, enabledTools, provider);
