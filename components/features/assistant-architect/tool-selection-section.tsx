@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
@@ -43,16 +43,32 @@ export function ToolSelectionSection({
 }: ToolSelectionSectionProps) {
   const [availableTools, setAvailableTools] = useState<ToolConfig[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   // Get selected model object
   const selectedModel = selectedModelId
     ? models.find(m => m.id === selectedModelId)
     : null
 
+  // Auto-disable tools that are no longer available when tools list changes
+  const filterIncompatibleTools = useCallback((tools: ToolConfig[]) => {
+    const newEnabledTools = enabledTools.filter(toolName =>
+      tools.some(tool => tool.name === toolName)
+    )
+    if (newEnabledTools.length !== enabledTools.length) {
+      log.debug('Auto-disabling unavailable tools', {
+        before: enabledTools,
+        after: newEnabledTools
+      })
+      onToolsChange(newEnabledTools)
+    }
+  }, [enabledTools, onToolsChange])
+
   // Load available tools when model changes
   useEffect(() => {
     if (!selectedModel?.modelId) {
       setAvailableTools([])
+      setError(null)
       return
     }
 
@@ -65,28 +81,19 @@ export function ToolSelectionSection({
     getAvailableToolsForModel(selectedModel.modelId)
       .then(tools => {
         log.debug('Tools loaded', { tools: tools.map(t => t.name) })
+        setError(null) // Clear any previous errors
         setAvailableTools(tools)
-
-        // Auto-disable tools that are no longer available
-        const newEnabledTools = enabledTools.filter(toolName =>
-          tools.some(tool => tool.name === toolName)
-        )
-        if (newEnabledTools.length !== enabledTools.length) {
-          log.debug('Auto-disabling unavailable tools', {
-            before: enabledTools,
-            after: newEnabledTools
-          })
-          onToolsChange(newEnabledTools)
-        }
+        filterIncompatibleTools(tools)
       })
       .catch(error => {
         log.error('Failed to load tools', { error })
+        setError('Failed to load available tools. Please try again.')
         setAvailableTools([])
       })
       .finally(() => {
         setIsLoading(false)
       })
-  }, [selectedModel?.modelId, selectedModel?.name, enabledTools, onToolsChange])
+  }, [selectedModel?.modelId, selectedModel?.name, filterIncompatibleTools])
 
   const handleToolToggle = (toolName: string, enabled: boolean) => {
     log.debug('Tool toggle', { toolName, enabled, currentEnabledTools: enabledTools })
@@ -140,7 +147,11 @@ export function ToolSelectionSection({
         )}
       </div>
 
-      {isLoading ? (
+      {error ? (
+        <div className="p-4 border rounded-lg bg-destructive/10 border-destructive/20">
+          <p className="text-sm text-destructive">{error}</p>
+        </div>
+      ) : isLoading ? (
         <div className="flex items-center justify-center p-4 border rounded-lg bg-muted/50">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <span className="ml-2 text-sm text-muted-foreground">Loading tools...</span>
@@ -194,6 +205,7 @@ export function ToolSelectionSection({
                             checked={isEnabled}
                             disabled={disabled || isLoading}
                             onCheckedChange={(checked) => handleToolToggle(tool.name, checked)}
+                            aria-label={`Enable ${tool.displayName}: ${tool.description}`}
                             className="mt-0.5"
                           />
                         </div>
