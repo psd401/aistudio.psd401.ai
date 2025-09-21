@@ -38,14 +38,10 @@ const mockLogger = {
 // Create a mock timer function
 const mockTimer = jest.fn()
 
-// Dynamic import variable
-let GET: Function
+// Import the downloadHandler directly for testing
+import { downloadHandler } from '@/app/api/execution-results/[id]/download/route'
 
 describe('Execution Results Download API', () => {
-  beforeAll(async () => {
-    const routeModule = await import('@/app/api/execution-results/[id]/download/route')
-    GET = routeModule.GET
-  })
   beforeEach(() => {
     jest.clearAllMocks()
 
@@ -72,7 +68,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
       // Assert
@@ -97,7 +93,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
       // Assert
@@ -139,7 +135,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
 
       // Assert
       expect(response.status).toBe(200)
@@ -164,7 +160,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
       // Assert
@@ -181,7 +177,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
       // Assert
@@ -198,7 +194,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
       // Assert
@@ -232,7 +228,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
 
       // Assert
       expect(response.status).toBe(200)
@@ -271,7 +267,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const content = await response.text()
 
       // Assert
@@ -314,7 +310,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const content = await response.text()
 
       // Assert
@@ -348,7 +344,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const content = await response.text()
 
       // Assert
@@ -419,7 +415,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
 
       // Assert
       expect(response.status).toBe(200)
@@ -452,7 +448,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
 
       // Assert
       const contentDisposition = response.headers.get('Content-Disposition')
@@ -492,7 +488,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
 
       // Assert
       expect(response.headers.get('Content-Type')).toBe('text/markdown; charset=utf-8')
@@ -523,7 +519,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
 
       // Assert
       const contentDisposition = response.headers.get('Content-Disposition')
@@ -555,7 +551,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const content = await response.text()
 
       // Assert
@@ -580,7 +576,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
       // Assert
@@ -614,7 +610,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
 
       // Assert
       expect(response.status).toBe(200) // Should still work with empty objects as fallback
@@ -634,7 +630,7 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
       // Assert

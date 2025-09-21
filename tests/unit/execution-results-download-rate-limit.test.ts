@@ -77,8 +77,6 @@ describe('Execution Results Download Rate Limiting', () => {
   describe('Rate Limit Enforcement Scenarios', () => {
     it('should handle rate limit exceeded scenario', async () => {
       // Test verifies that rate limiting middleware can reject requests
-      const testError = new Error('Rate limit exceeded. Too many requests.')
-
       // The rate limiting would be handled by the withRateLimit wrapper
       // This test confirms the configuration is applied
       expect(mockWithRateLimit).toHaveBeenCalled()

@@ -66,7 +66,7 @@ interface ExecutionResultWithSchedule {
   scheduleConfig: Record<string, unknown>
 }
 
-async function downloadHandler(
+export async function downloadHandler(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {

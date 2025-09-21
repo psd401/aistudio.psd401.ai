@@ -43,14 +43,10 @@ const mockLogger = {
 
 const mockTimer = jest.fn()
 
-// Dynamic import variable
-let GET: Function
+// Import the downloadHandler directly for testing
+import { downloadHandler } from '@/app/api/execution-results/[id]/download/route'
 
 describe('Execution Results Download Integration Tests', () => {
-  beforeAll(async () => {
-    const routeModule = await import('@/app/api/execution-results/[id]/download/route')
-    GET = routeModule.GET
-  })
   beforeEach(() => {
     jest.clearAllMocks()
 
@@ -113,7 +109,7 @@ describe('Execution Results Download Integration Tests', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const content = await response.text()
 
       // Assert - Response headers
@@ -201,7 +197,7 @@ describe('Execution Results Download Integration Tests', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const content = await response.text()
 
       // Assert
@@ -243,7 +239,7 @@ describe('Execution Results Download Integration Tests', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const content = await response.text()
 
       // Assert
@@ -288,7 +284,7 @@ describe('Execution Results Download Integration Tests', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const content = await response.text()
 
       // Assert
@@ -331,7 +327,7 @@ describe('Execution Results Download Integration Tests', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const content = await response.text()
 
       // Assert
@@ -387,7 +383,7 @@ describe('Execution Results Download Integration Tests', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
 
       // Assert
       expect(response.status).toBe(200)
@@ -413,7 +409,7 @@ describe('Execution Results Download Integration Tests', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
       // Assert
@@ -439,7 +435,7 @@ describe('Execution Results Download Integration Tests', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
       // Assert
@@ -464,7 +460,7 @@ describe('Execution Results Download Integration Tests', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
       // Assert
@@ -512,7 +508,7 @@ describe('Execution Results Download Integration Tests', () => {
 
       // Act
       const startTime = Date.now()
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const endTime = Date.now()
       const content = await response.text()
 
@@ -563,7 +559,7 @@ describe('Execution Results Download Integration Tests', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      const response = await GET(request, { params })
+      const response = await downloadHandler(request, { params })
       const content = await response.text()
 
       // Assert
