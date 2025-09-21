@@ -562,7 +562,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                 })
                               } else {
                                 toast({
-                                  title: "Upload Failed", 
+                                  title: "Upload Failed",
                                   description: err?.message || "Unknown error",
                                   variant: "destructive"
                                 })
@@ -591,17 +591,6 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                   <><Sparkles className="mr-2 h-4 w-4" /> Generate</>
                   )}
                 </Button>
-
-                <ScheduleModal
-                  tool={tool}
-                  inputData={form.getValues()}
-                  onScheduleCreated={() => {
-                    toast({
-                      title: "Schedule Created",
-                      description: "Your assistant execution has been scheduled successfully."
-                    })
-                  }}
-                />
 
                 {(jobStatus === 'streaming' || jobStatus === 'processing') && (
                   <Button
@@ -643,6 +632,18 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
               </div>
           </form>
         </Form>
+
+        {/* Schedule Modal moved outside the form to prevent event bubbling */}
+        <ScheduleModal
+          tool={tool}
+          inputData={form.getValues()}
+          onScheduleCreated={() => {
+            toast({
+              title: "Schedule Created",
+              description: "Your assistant execution has been scheduled successfully."
+            })
+          }}
+        />
       </div>
 
       {(jobStatus !== 'pending' || results || partialContent) && (
@@ -748,6 +749,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                       {(partialContent || (streamingJob?.responseData && streamingJob.status === 'completed')) && (
                         <div className="flex items-center gap-2 justify-end mt-4">
                           <Button
+                            type="button"
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
@@ -816,6 +818,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                             </div>
                             <div className="flex items-center gap-2 justify-end mt-4">
                               <Button
+                                type="button"
                                 variant="ghost"
                                 size="icon"
                                 className="h-7 w-7"
@@ -826,6 +829,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                 <span className="sr-only">Copy output</span>
                               </Button>
                               <Button
+                                type="button"
                                 variant={promptResult.userFeedback === 'like' ? 'default' : 'ghost'}
                                 size="icon"
                                 className={`h-7 w-7 ${promptResult.userFeedback === 'like' ? 'bg-green-500/10 hover:bg-green-500/20' : ''}`}
@@ -836,6 +840,7 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                                 <span className="sr-only">Like output</span>
                               </Button>
                               <Button
+                                type="button"
                                 variant={promptResult.userFeedback === 'dislike' ? 'destructive' : 'ghost'}
                                 size="icon"
                                 className="h-7 w-7"

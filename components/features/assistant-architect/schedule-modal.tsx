@@ -35,7 +35,7 @@ export function ScheduleModal({
   }
 
   const defaultTrigger = (
-    <Button variant="outline" className="gap-2">
+    <Button type="button" variant="outline" className="gap-2">
       <Calendar className="h-4 w-4" />
       Schedule
     </Button>

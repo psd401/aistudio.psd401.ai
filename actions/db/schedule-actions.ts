@@ -320,7 +320,7 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
       INSERT INTO scheduled_executions (
         user_id, assistant_architect_id, name, schedule_config, input_data, updated_by
       ) VALUES (
-        :userId, :assistantArchitectId, :name, :scheduleConfig, :inputData, :updatedBy
+        :userId, :assistantArchitectId, :name, :scheduleConfig::jsonb, :inputData::jsonb, :updatedBy
       ) RETURNING id
     `, [
       createParameter('userId', userId),
