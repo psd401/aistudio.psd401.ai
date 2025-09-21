@@ -343,6 +343,11 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
     }
 
     // Check for duplicate name
+    log.info("Checking for duplicate schedule name", {
+      sanitizedName,
+      userId
+    })
+
     const duplicateResult = await executeSQL<{ id: number }>(`
       SELECT id FROM scheduled_executions
       WHERE user_id = :userId AND name = :name
@@ -352,8 +357,18 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
     ])
 
     if (duplicateResult && duplicateResult.length > 0) {
-      throw ErrorFactories.validationFailed([{ field: 'name', message: 'Schedule name already exists' }])
+      log.warn("Duplicate schedule name found", {
+        duplicateName: sanitizedName,
+        existingScheduleId: duplicateResult[0].id,
+        userId
+      })
+      throw ErrorFactories.validationFailed([{
+        field: 'name',
+        message: `A schedule named "${sanitizedName}" already exists. Please choose a different name.`
+      }])
     }
+
+    log.info("No duplicate schedule name found, proceeding with creation")
 
     // Create the schedule
     const result = await executeSQL<{ id: number }>(`

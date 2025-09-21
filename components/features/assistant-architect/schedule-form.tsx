@@ -192,9 +192,12 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
         } else if (result.error?.message) {
           errorMessage = result.error.message
         } else if (result.error?.details?.fields?.length > 0) {
-          // Show specific field validation errors
-          const fieldErrors = result.error.details.fields.map((field: { message: string }) => field.message).join(', ')
-          errorMessage = `Validation failed: ${fieldErrors}`
+          // Show specific field validation errors with improved formatting
+          const fieldErrors = result.error.details.fields.map((field: { field?: string, message: string }) => {
+            // For validation errors, show just the message without "Validation failed:" prefix
+            return field.message
+          }).join('\n')
+          errorMessage = fieldErrors
         }
 
         throw new Error(errorMessage)
