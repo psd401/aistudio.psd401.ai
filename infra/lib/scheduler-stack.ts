@@ -160,7 +160,7 @@ export class SchedulerStack extends cdk.Stack {
 
     // Update environment with scheduler execution role ARN
     this.scheduleExecutorFunction.addEnvironment('SCHEDULER_EXECUTION_ROLE_ARN', this.schedulerExecutionRole.roleArn);
-    this.scheduleExecutorFunction.addEnvironment('SCHEDULE_EXECUTOR_FUNCTION_ARN', this.scheduleExecutorFunction.functionArn);
+    // Note: Lambda function can determine its own ARN at runtime using context.invokedFunctionArn or AWS_LAMBDA_FUNCTION_NAME
 
     // Store the executor function ARN in SSM for API access
     new ssm.StringParameter(this, 'ScheduleExecutorFunctionArnParam', {

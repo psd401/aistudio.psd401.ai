@@ -8,6 +8,62 @@ import winston, { Logger } from "winston"
 import { nanoid } from "nanoid"
 import { AsyncLocalStorage } from "async_hooks"
 
+// Security: CodeQL-compliant log sanitization that breaks taint flow completely
+function sanitizeForLogger(data: unknown): unknown {
+  if (data === null || data === undefined) {
+    return data
+  }
+
+  if (typeof data === "string") {
+    // CodeQL-compliant sanitization: explicit character allowlisting
+    const safe = data
+      .replace(/[^\x20-\x7E]/g, '') // Only allow printable ASCII characters (space to tilde)
+      .replace(/[\r\n\t]/g, ' ')    // Replace line breaks with spaces
+      .substring(0, 1000)           // Explicit length limit to prevent log bloat
+    return safe
+  }
+
+  if (typeof data === "number" || typeof data === "boolean") {
+    // Create new primitives to break taint flow
+    return typeof data === "number" ? Number(data) : Boolean(data)
+  }
+
+  if (Array.isArray(data)) {
+    // Create a new array with sanitized elements
+    return data.map(item => sanitizeForLogger(item))
+  }
+
+  // Enhanced: Sanitize Error objects so message, name, and stack are safe
+  if (typeof data === "object") {
+    if (data instanceof Error) {
+      // Make a new plain object with sanitized message/name/stack and all custom props
+      const safeError: Record<string, unknown> = {}
+      safeError.name = sanitizeForLogger(data.name)
+      safeError.message = sanitizeForLogger(data.message)
+      safeError.stack = typeof data.stack === "string" ? sanitizeForLogger(data.stack) : ""
+      for (const key of Object.keys(data)) {
+        if (!(key in safeError)) {
+          // Some frameworks add own props; ensure all are sanitized
+          safeError[key] = sanitizeForLogger((data as unknown as Record<string, unknown>)[key])
+        }
+      }
+      return safeError
+    } else {
+      // Create a completely new object to break taint flow
+      const sanitized: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(data)) {
+        // Sanitize both key and value to break all taint paths
+        const cleanKey = String(key).replace(/[^\w\-_.]/g, '_')
+        sanitized[cleanKey] = sanitizeForLogger(value)
+      }
+      return sanitized
+    }
+  }
+
+  // Fallback for unknown types - create new safe string
+  return String(data).slice(0, 100)
+}
+
 const isProd = process.env.NODE_ENV === "production"
 const isTest = process.env.NODE_ENV === "test"
 
@@ -198,20 +254,28 @@ export function createLogger(context: LogContext): Logger {
   return {
     ...logger,
     info: (message: string, meta?: object) => {
-      const fullContext = { ...getLogContext(), ...context }
-      logger.info(message, { ...fullContext, ...meta })
+      const safeMessage = sanitizeForLogger(message) as string
+      const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
+      const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
+      logger.info(safeMessage, { ...safeContext, ...safeMeta })
     },
     warn: (message: string, meta?: object) => {
-      const fullContext = { ...getLogContext(), ...context }
-      logger.warn(message, { ...fullContext, ...meta })
+      const safeMessage = sanitizeForLogger(message) as string
+      const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
+      const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
+      logger.warn(safeMessage, { ...safeContext, ...safeMeta })
     },
     error: (message: string, meta?: object) => {
-      const fullContext = { ...getLogContext(), ...context }
-      logger.error(message, { ...fullContext, ...meta })
+      const safeMessage = sanitizeForLogger(message) as string
+      const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
+      const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
+      logger.error(safeMessage, { ...safeContext, ...safeMeta })
     },
     debug: (message: string, meta?: object) => {
-      const fullContext = { ...getLogContext(), ...context }
-      logger.debug(message, { ...fullContext, ...meta })
+      const safeMessage = sanitizeForLogger(message) as string
+      const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
+      const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
+      logger.debug(safeMessage, { ...safeContext, ...safeMeta })
     },
   } as Logger
 }
@@ -228,7 +292,7 @@ export function withRequestId(requestId: string): Logger {
  * Sanitize data for logging (removes sensitive fields)
  */
 export function sanitizeForLogging(data: unknown): unknown {
-  return filterSensitiveData(data)
+  return filterSensitiveData(sanitizeForLogger(data))
 }
 
 /**

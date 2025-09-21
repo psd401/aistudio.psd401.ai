@@ -95,8 +95,8 @@ export const ErrorFactories = {
   dbRecordNotFound: (table: string, id: unknown, details?: Partial<DatabaseError>) =>
     createTypedError<DatabaseError>(
       ErrorCode.DB_RECORD_NOT_FOUND,
-      `Record not found in ${table} with id: ${id}`,
-      { table, details: { id }, ...details }
+      `Record not found in ${sanitizeForLogging(table) as string} with id: [user input: ${sanitizeForLogging(id) as string}]`,
+      { table: sanitizeForLogging(table) as string, details: { id: sanitizeForLogging(id) }, ...details }
     ),
   
   dbDuplicateEntry: (table: string, field: string, value: unknown, details?: Partial<DatabaseError>) =>
@@ -397,19 +397,19 @@ export function handleError(
     // Log based on error level
     switch (typedError.level) {
       case ErrorLevel.INFO:
-        log.info(typedError.technicalMessage || typedError.message, sanitizedDetails as object)
+        log.info(sanitizeForLogging(typedError.technicalMessage || typedError.message) as string, sanitizedDetails as object)
         break
       case ErrorLevel.WARN:
-        log.warn(typedError.technicalMessage || typedError.message, sanitizedDetails as object)
+        log.warn(sanitizeForLogging(typedError.technicalMessage || typedError.message) as string, sanitizedDetails as object)
         break
       case ErrorLevel.ERROR:
-        log.error(typedError.technicalMessage || typedError.message, {
+        log.error(sanitizeForLogging(typedError.technicalMessage || typedError.message) as string, {
           ...(sanitizedDetails as object),
           stack: typedError.stack
         })
         break
       case ErrorLevel.FATAL:
-        log.error(`FATAL: ${typedError.technicalMessage || typedError.message}`, {
+        log.error(sanitizeForLogging(`FATAL: ${typedError.technicalMessage || typedError.message}`) as string, {
           ...(sanitizedDetails as object),
           stack: typedError.stack
         })
@@ -439,19 +439,19 @@ export function handleError(
       ...metadata
     })
     
-    // Log based on error level
+    // Sanitize the error message before logging to prevent log injection
     switch (appError.level) {
       case ErrorLevel.INFO:
-        log.info(appError.message, sanitizedDetails as object)
+        log.info(sanitizeForLogging(appError.message) as string, sanitizedDetails as object)
         break
       case ErrorLevel.WARN:
-        log.warn(appError.message, sanitizedDetails as object)
+        log.warn(sanitizeForLogging(appError.message) as string, sanitizedDetails as object)
         break
       case ErrorLevel.ERROR:
-        log.error(appError.message, { ...(sanitizedDetails as object), stack: appError.stack })
+        log.error(sanitizeForLogging(appError.message) as string, { ...(sanitizedDetails as object), stack: appError.stack })
         break
       case ErrorLevel.FATAL:
-        log.error(`FATAL: ${appError.message}`, { ...(sanitizedDetails as object), stack: appError.stack })
+        log.error(`FATAL: ${sanitizeForLogging(appError.message) as string}`, { ...(sanitizedDetails as object), stack: appError.stack })
         break
     }
     
@@ -464,7 +464,7 @@ export function handleError(
   
   // Handle standard Error objects
   if (error instanceof Error) {
-    log.error(error.message, { 
+    log.error(sanitizeForLogging(error.message) as string, { 
       error: sanitizeForLogging(error),
       stack: error.stack,
       ...metadata
