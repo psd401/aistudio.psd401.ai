@@ -1,29 +1,122 @@
-const { RDSDataClient, ExecuteStatementCommand } = require('@aws-sdk/client-rds-data');
-const { SESClient, SendTemplatedEmailCommand } = require('@aws-sdk/client-ses');
-const { CognitoIdentityProviderClient, AdminGetUserCommand } = require('@aws-sdk/client-cognito-identity-provider');
+import { RDSDataClient, ExecuteStatementCommand } from '@aws-sdk/client-rds-data';
+import { SESClient, SendTemplatedEmailCommand } from '@aws-sdk/client-ses';
+import { CognitoIdentityProviderClient, AdminGetUserCommand } from '@aws-sdk/client-cognito-identity-provider';
+import { SQSEvent, SQSRecord, Context } from 'aws-lambda';
+
+// Type definitions
+interface Logger {
+  info: (message: string, meta?: Record<string, unknown>) => void;
+  error: (message: string, meta?: Record<string, unknown>) => void;
+  warn: (message: string, meta?: Record<string, unknown>) => void;
+  debug: (message: string, meta?: Record<string, unknown>) => void;
+}
+
+interface TimerFunction {
+  (context?: Record<string, unknown>): void;
+}
+
+interface LoggerContext {
+  timestamp?: string;
+  environment?: string;
+  service?: string;
+  requestId?: string;
+  operation?: string;
+  recordId?: string;
+  notificationId?: number;
+  [key: string]: unknown;
+}
+
+interface NotificationMessage {
+  executionResultId: number;
+  userId: number;
+  notificationType: string;
+  scheduleName?: string;
+}
+
+interface ValidationResult {
+  executionResultIdInt: number;
+  userIdInt: number;
+  notificationType: string;
+  scheduleName: string | null;
+}
+
+interface ExecutionResult {
+  id: number;
+  scheduled_execution_id: number;
+  result_data: Record<string, unknown>;
+  status: string;
+  executed_at: string;
+  execution_duration_ms: number;
+  error_message: string | null;
+  schedule_name: string;
+  user_id: number;
+  assistant_architect_name: string;
+}
+
+interface ProcessResult {
+  notificationId: number;
+  status: string;
+  email: string;
+}
+
+interface BatchResult {
+  messageId: string;
+  status: 'success' | 'error';
+  result?: ProcessResult;
+  error?: string;
+}
+
+interface LambdaResponse {
+  batchItemFailures: Array<{ itemIdentifier: string }>;
+}
+
+interface EnvironmentVariables {
+  DATABASE_RESOURCE_ARN: string;
+  DATABASE_SECRET_ARN: string;
+  DATABASE_NAME: string;
+  ENVIRONMENT: string;
+  SES_TEMPLATE_NAME: string;
+  SES_FROM_EMAIL: string;
+  APP_BASE_URL: string;
+  SES_CONFIGURATION_SET?: string;
+  NODE_ENV?: string;
+}
+
+interface TemplateData {
+  subject: string;
+  greeting: string;
+  scheduleName: string;
+  status: string;
+  executionTime: string;
+  summary: string;
+  errorMessage: string;
+  isSuccess: string;
+  resultsUrl: string;
+  manageSchedulesUrl: string;
+  unsubscribeUrl: string;
+  preferencesUrl: string;
+}
 
 // Lambda logging utilities (simplified version of main app pattern)
-function generateRequestId() {
+function generateRequestId(): string {
   return `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
-function startTimer(operation) {
+function startTimer(operation: string): TimerFunction {
   const startTime = Date.now();
-  return (context = {}) => {
+  return (context: Record<string, unknown> = {}): void => {
     const duration = Date.now() - startTime;
-    console.log(JSON.stringify({
-      level: 'INFO',
-      message: 'Operation completed',
+    const log = createLogger({ operation: 'timer' });
+    log.info('Operation completed', {
       operation,
       duration,
-      timestamp: new Date().toISOString(),
       ...context
-    }));
+    });
   };
 }
 
-function createLogger(context = {}) {
-  const baseContext = {
+function createLogger(context: LoggerContext = {}): Logger {
+  const baseContext: LoggerContext = {
     timestamp: new Date().toISOString(),
     environment: 'lambda',
     service: 'notification-sender',
@@ -31,43 +124,43 @@ function createLogger(context = {}) {
   };
 
   return {
-    info: (message, meta = {}) => {
-      console.log(JSON.stringify({
+    info: (message: string, meta: Record<string, unknown> = {}): void => {
+      process.stdout.write(JSON.stringify({
         level: 'INFO',
         message,
         ...baseContext,
         ...meta
-      }));
+      }) + '\n');
     },
-    error: (message, meta = {}) => {
-      console.error(JSON.stringify({
+    error: (message: string, meta: Record<string, unknown> = {}): void => {
+      process.stderr.write(JSON.stringify({
         level: 'ERROR',
         message,
         ...baseContext,
         ...meta
-      }));
+      }) + '\n');
     },
-    warn: (message, meta = {}) => {
-      console.warn(JSON.stringify({
+    warn: (message: string, meta: Record<string, unknown> = {}): void => {
+      process.stderr.write(JSON.stringify({
         level: 'WARN',
         message,
         ...baseContext,
         ...meta
-      }));
+      }) + '\n');
     },
-    debug: (message, meta = {}) => {
-      console.log(JSON.stringify({
+    debug: (message: string, meta: Record<string, unknown> = {}): void => {
+      process.stdout.write(JSON.stringify({
         level: 'DEBUG',
         message,
         ...baseContext,
         ...meta
-      }));
+      }) + '\n');
     }
   };
 }
 
 // Security utility functions
-function safeParseInt(value, fieldName = 'value') {
+function safeParseInt(value: unknown, fieldName = 'value'): number {
   if (value === null || value === undefined) {
     throw new Error(`Invalid ${fieldName}: value is null or undefined`);
   }
@@ -85,31 +178,31 @@ function safeParseInt(value, fieldName = 'value') {
   return parsed;
 }
 
-function safeJsonParse(jsonString, fallback = null, fieldName = 'JSON data') {
+function safeJsonParse<T>(jsonString: string | null | undefined, fallback: T, fieldName = 'JSON data'): T {
   if (!jsonString) {
     return fallback;
   }
 
   try {
-    return JSON.parse(jsonString);
+    return JSON.parse(jsonString) as T;
   } catch (error) {
     const log = createLogger({ operation: 'safeJsonParse' });
     log.error('JSON parse error', {
       fieldName,
-      error: error.message,
+      error: error instanceof Error ? error.message : 'Unknown error',
       jsonLength: jsonString?.length
     });
     return fallback;
   }
 }
 
-function sanitizeForLogging(data) {
+function sanitizeForLogging(data: unknown): unknown {
   if (!data || typeof data !== 'object') {
     return data;
   }
 
   const sensitiveKeys = ['password', 'token', 'secret', 'key', 'auth', 'credential', 'email'];
-  const sanitized = { ...data };
+  const sanitized = { ...(data as Record<string, unknown>) };
 
   for (const key of Object.keys(sanitized)) {
     if (sensitiveKeys.some(sensitive => key.toLowerCase().includes(sensitive))) {
@@ -120,13 +213,50 @@ function sanitizeForLogging(data) {
   return sanitized;
 }
 
+function sanitizeEmailContent(content: string | null | undefined, maxLength = 200): string {
+  if (!content) return '';
+  return String(content)
+    .replace(/[\r\n\t]/g, ' ')  // Remove newlines/tabs
+    .replace(/[<>"'&]/g, '')     // Remove HTML/injection chars
+    .substring(0, maxLength)
+    .trim();
+}
+
+function validateNotificationMessage(messageBody: unknown): ValidationResult {
+  if (!messageBody || typeof messageBody !== 'object') {
+    throw new Error('Invalid message body: must be an object');
+  }
+
+  const body = messageBody as Record<string, unknown>;
+  const { executionResultId, userId, notificationType, scheduleName } = body;
+
+  if (!executionResultId || !userId || !notificationType) {
+    throw new Error('Missing required fields: executionResultId, userId, notificationType');
+  }
+
+  if (scheduleName && (typeof scheduleName !== 'string' || scheduleName.length > 100)) {
+    throw new Error('Invalid scheduleName: must be string under 100 characters');
+  }
+
+  if (!['email'].includes(String(notificationType))) {
+    throw new Error(`Unsupported notification type: ${notificationType}`);
+  }
+
+  return {
+    executionResultIdInt: safeParseInt(executionResultId, 'execution result ID'),
+    userIdInt: safeParseInt(userId, 'user ID'),
+    notificationType: String(notificationType),
+    scheduleName: scheduleName ? String(scheduleName).trim() : null
+  };
+}
+
 // Initialize clients
 const rdsClient = new RDSDataClient({});
 const sesClient = new SESClient({});
 const cognitoClient = new CognitoIdentityProviderClient({});
 
 // Environment variables with startup validation
-const requiredEnvVars = {
+const requiredEnvVars: Record<string, string | undefined> = {
   DATABASE_RESOURCE_ARN: process.env.DATABASE_RESOURCE_ARN,
   DATABASE_SECRET_ARN: process.env.DATABASE_SECRET_ARN,
   DATABASE_NAME: process.env.DATABASE_NAME,
@@ -136,13 +266,13 @@ const requiredEnvVars = {
   APP_BASE_URL: process.env.APP_BASE_URL
 };
 
-const optionalEnvVars = {
+const optionalEnvVars: Record<string, string | undefined> = {
   SES_CONFIGURATION_SET: process.env.SES_CONFIGURATION_SET
 };
 
 // Validate required environment variables at startup
-function validateEnvironmentVariables() {
-  const missingVars = [];
+function validateEnvironmentVariables(): void {
+  const missingVars: string[] = [];
 
   for (const [key, value] of Object.entries(requiredEnvVars)) {
     if (!value || value.trim() === '') {
@@ -152,38 +282,35 @@ function validateEnvironmentVariables() {
 
   if (missingVars.length > 0) {
     const errorMessage = `Missing required environment variables: ${missingVars.join(', ')}`;
-    console.error(JSON.stringify({
-      level: 'ERROR',
-      message: 'Lambda startup failed - missing environment variables',
-      missingVariables: missingVars,
-      timestamp: new Date().toISOString(),
-      service: 'notification-sender'
-    }));
+    const startupLog = createLogger({ operation: 'startup' });
+    startupLog.error('Lambda startup failed - missing environment variables', {
+      missingVariables: missingVars
+    });
     throw new Error(errorMessage);
   }
 
-  console.log(JSON.stringify({
-    level: 'INFO',
-    message: 'Environment variables validated successfully',
+  const startupLog = createLogger({ operation: 'startup' });
+  startupLog.info('Environment variables validated successfully', {
     requiredVarsPresent: Object.keys(requiredEnvVars).length,
-    optionalVarsPresent: Object.values(optionalEnvVars).filter(Boolean).length,
-    timestamp: new Date().toISOString(),
-    service: 'notification-sender'
-  }));
+    optionalVarsPresent: Object.values(optionalEnvVars).filter(Boolean).length
+  });
 }
 
 // Run validation at module load time
 validateEnvironmentVariables();
 
 // Export validated environment variables
-const DATABASE_RESOURCE_ARN = requiredEnvVars.DATABASE_RESOURCE_ARN;
-const DATABASE_SECRET_ARN = requiredEnvVars.DATABASE_SECRET_ARN;
-const DATABASE_NAME = requiredEnvVars.DATABASE_NAME;
-const ENVIRONMENT = requiredEnvVars.ENVIRONMENT;
-const SES_TEMPLATE_NAME = requiredEnvVars.SES_TEMPLATE_NAME;
-const SES_FROM_EMAIL = requiredEnvVars.SES_FROM_EMAIL;
-const APP_BASE_URL = requiredEnvVars.APP_BASE_URL;
-const SES_CONFIGURATION_SET = optionalEnvVars.SES_CONFIGURATION_SET;
+const env: EnvironmentVariables = {
+  DATABASE_RESOURCE_ARN: requiredEnvVars.DATABASE_RESOURCE_ARN!,
+  DATABASE_SECRET_ARN: requiredEnvVars.DATABASE_SECRET_ARN!,
+  DATABASE_NAME: requiredEnvVars.DATABASE_NAME!,
+  ENVIRONMENT: requiredEnvVars.ENVIRONMENT!,
+  SES_TEMPLATE_NAME: requiredEnvVars.SES_TEMPLATE_NAME!,
+  SES_FROM_EMAIL: requiredEnvVars.SES_FROM_EMAIL!,
+  APP_BASE_URL: requiredEnvVars.APP_BASE_URL!,
+  SES_CONFIGURATION_SET: optionalEnvVars.SES_CONFIGURATION_SET,
+  NODE_ENV: process.env.NODE_ENV
+};
 
 /**
  * Notification Sender Lambda - SQS Handler
@@ -203,17 +330,17 @@ const SES_CONFIGURATION_SET = optionalEnvVars.SES_CONFIGURATION_SET;
  *   "scheduleName": "Weather Report - Daily"
  * }
  */
-exports.handler = async (event, context) => {
+export const handler = async (event: SQSEvent, context: Context): Promise<LambdaResponse> => {
   const requestId = generateRequestId();
   const timer = startTimer('lambda.handler');
   const log = createLogger({ requestId, operation: 'notificationSender' });
 
   log.info('Notification sender Lambda started', {
     recordCount: event.Records?.length || 0,
-    environment: ENVIRONMENT
+    environment: env.ENVIRONMENT
   });
 
-  const results = [];
+  const results: BatchResult[] = [];
 
   try {
     // Process each SQS record
@@ -222,15 +349,16 @@ exports.handler = async (event, context) => {
       const recordLog = createLogger({ requestId, recordId: record.messageId });
 
       try {
-        const messageBody = safeJsonParse(record.body, {}, 'SQS message body');
+        const messageBody = safeJsonParse<Record<string, unknown>>(record.body, {}, 'SQS message body');
+        const validatedMessage = validateNotificationMessage(messageBody);
 
         recordLog.info('Processing notification request', {
-          executionResultId: messageBody.executionResultId,
-          userId: messageBody.userId,
-          notificationType: messageBody.notificationType
+          executionResultId: validatedMessage.executionResultIdInt,
+          userId: validatedMessage.userIdInt,
+          notificationType: validatedMessage.notificationType
         });
 
-        const result = await processNotificationRequest(messageBody, requestId);
+        const result = await processNotificationRequest(validatedMessage, requestId);
 
         results.push({
           messageId: record.messageId,
@@ -243,14 +371,14 @@ exports.handler = async (event, context) => {
 
       } catch (error) {
         recordLog.error('Failed to process notification', {
-          error: error.message,
+          error: error instanceof Error ? error.message : 'Unknown error',
           messageId: record.messageId
         });
 
         results.push({
           messageId: record.messageId,
           status: 'error',
-          error: error.message
+          error: error instanceof Error ? error.message : 'Unknown error'
         });
 
         recordTimer({ status: 'error' });
@@ -275,8 +403,8 @@ exports.handler = async (event, context) => {
 
   } catch (error) {
     log.error('Notification sender failed', {
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: env.NODE_ENV === 'development' && error instanceof Error ? error.stack : undefined,
       requestId
     });
     timer({ status: 'error' });
@@ -293,17 +421,9 @@ exports.handler = async (event, context) => {
 /**
  * Process a single notification request
  */
-async function processNotificationRequest(messageBody, requestId) {
+async function processNotificationRequest(messageData: ValidationResult, requestId: string): Promise<ProcessResult> {
   const log = createLogger({ requestId, operation: 'processNotificationRequest' });
-  const { executionResultId, userId, notificationType, scheduleName } = messageBody;
-
-  // Validate required fields
-  const executionResultIdInt = safeParseInt(executionResultId, 'execution result ID');
-  const userIdInt = safeParseInt(userId, 'user ID');
-
-  if (!notificationType || notificationType !== 'email') {
-    throw new Error(`Unsupported notification type: ${notificationType}`);
-  }
+  const { executionResultIdInt, userIdInt, notificationType, scheduleName } = messageData;
 
   log.info('Processing notification request', {
     executionResultId: executionResultIdInt,
@@ -322,13 +442,15 @@ async function processNotificationRequest(messageBody, requestId) {
     // Fetch execution result data
     const executionResult = await getExecutionResult(executionResultIdInt);
     if (!executionResult) {
-      throw new Error(`Execution result not found: ${executionResultIdInt}`);
+      log.warn('Execution result lookup failed', { executionResultId: sanitizeForLogging(executionResultIdInt) });
+      throw new Error('Execution result not accessible');
     }
 
-    // Get user email from Cognito
+    // Get user email from database
     const userEmail = await getUserEmail(userIdInt);
     if (!userEmail) {
-      throw new Error(`User email not found for user: ${userIdInt}`);
+      log.warn('User email lookup failed', { userId: sanitizeForLogging(userIdInt) });
+      throw new Error('User notification preferences not available');
     }
 
     // Generate email content and send
@@ -355,12 +477,13 @@ async function processNotificationRequest(messageBody, requestId) {
 
   } catch (error) {
     log.error('Failed to process notification', {
-      error: error.message,
+      error: error instanceof Error ? error.message : 'Unknown error',
       notificationId
     });
 
     // Update notification status with failure
-    await updateNotificationStatus(notificationId, 'failed', error.message);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    await updateNotificationStatus(notificationId, 'failed', errorMessage);
     throw error;
   }
 }
@@ -368,14 +491,14 @@ async function processNotificationRequest(messageBody, requestId) {
 /**
  * Create notification record in database
  */
-async function createNotificationRecord(userId, executionResultId, type) {
+async function createNotificationRecord(userId: number, executionResultId: number, type: string): Promise<number> {
   const log = createLogger({ operation: 'createNotificationRecord' });
 
   try {
     const command = new ExecuteStatementCommand({
-      resourceArn: DATABASE_RESOURCE_ARN,
-      secretArn: DATABASE_SECRET_ARN,
-      database: DATABASE_NAME,
+      resourceArn: env.DATABASE_RESOURCE_ARN,
+      secretArn: env.DATABASE_SECRET_ARN,
+      database: env.DATABASE_NAME,
       sql: `
         INSERT INTO user_notifications (
           user_id,
@@ -402,10 +525,16 @@ async function createNotificationRecord(userId, executionResultId, type) {
     });
 
     const response = await rdsClient.send(command);
-    return response.records[0][0].longValue;
+    const notificationId = response.records?.[0]?.[0]?.longValue;
+
+    if (!notificationId) {
+      throw new Error('Failed to create notification record - no ID returned');
+    }
+
+    return notificationId;
   } catch (error) {
     log.error('Failed to create notification record', {
-      error: error.message,
+      error: error instanceof Error ? error.message : 'Unknown error',
       userId: sanitizeForLogging(userId),
       executionResultId: sanitizeForLogging(executionResultId)
     });
@@ -416,14 +545,14 @@ async function createNotificationRecord(userId, executionResultId, type) {
 /**
  * Get execution result data from database
  */
-async function getExecutionResult(executionResultId) {
+async function getExecutionResult(executionResultId: number): Promise<ExecutionResult | null> {
   const log = createLogger({ operation: 'getExecutionResult' });
 
   try {
     const command = new ExecuteStatementCommand({
-      resourceArn: DATABASE_RESOURCE_ARN,
-      secretArn: DATABASE_SECRET_ARN,
-      database: DATABASE_NAME,
+      resourceArn: env.DATABASE_RESOURCE_ARN,
+      secretArn: env.DATABASE_SECRET_ARN,
+      database: env.DATABASE_NAME,
       sql: `
         SELECT
           er.id,
@@ -455,20 +584,20 @@ async function getExecutionResult(executionResultId) {
     const record = response.records[0];
 
     return {
-      id: record[0].longValue,
-      scheduled_execution_id: record[1].longValue,
-      result_data: record[2].stringValue ? safeJsonParse(record[2].stringValue, {}, 'result_data') : {},
-      status: record[3].stringValue,
-      executed_at: record[4].stringValue,
-      execution_duration_ms: record[5].longValue,
-      error_message: record[6].stringValue,
-      schedule_name: record[7].stringValue,
-      user_id: record[8].longValue,
-      assistant_architect_name: record[9].stringValue
+      id: record[0]?.longValue || 0,
+      scheduled_execution_id: record[1]?.longValue || 0,
+      result_data: record[2]?.stringValue ? safeJsonParse<Record<string, unknown>>(record[2].stringValue, {}, 'result_data') : {},
+      status: record[3]?.stringValue || '',
+      executed_at: record[4]?.stringValue || '',
+      execution_duration_ms: record[5]?.longValue || 0,
+      error_message: record[6]?.stringValue || null,
+      schedule_name: record[7]?.stringValue || '',
+      user_id: record[8]?.longValue || 0,
+      assistant_architect_name: record[9]?.stringValue || ''
     };
   } catch (error) {
     log.error('Failed to get execution result', {
-      error: error.message,
+      error: error instanceof Error ? error.message : 'Unknown error',
       executionResultId: sanitizeForLogging(executionResultId)
     });
     throw error;
@@ -478,14 +607,14 @@ async function getExecutionResult(executionResultId) {
 /**
  * Get user email from database (stored from Cognito during user creation)
  */
-async function getUserEmail(userId) {
+async function getUserEmail(userId: number): Promise<string | null> {
   const log = createLogger({ operation: 'getUserEmail' });
 
   try {
     const command = new ExecuteStatementCommand({
-      resourceArn: DATABASE_RESOURCE_ARN,
-      secretArn: DATABASE_SECRET_ARN,
-      database: DATABASE_NAME,
+      resourceArn: env.DATABASE_RESOURCE_ARN,
+      secretArn: env.DATABASE_SECRET_ARN,
+      database: env.DATABASE_NAME,
       sql: `
         SELECT email, cognito_user_id
         FROM users
@@ -503,21 +632,21 @@ async function getUserEmail(userId) {
     }
 
     const record = response.records[0];
-    const email = record[0].stringValue;
+    const email = record[0]?.stringValue;
 
     // If email is not in our database, we can try to get it from Cognito
     // (This is a fallback, normally email should be stored during user creation)
-    if (!email && record[1].stringValue) {
+    if (!email && record[1]?.stringValue) {
       log.info('Email not in database, attempting Cognito lookup');
       // This would require additional Cognito permissions and user pool ID
       // For now, return null to indicate email not available
       return null;
     }
 
-    return email;
+    return email || null;
   } catch (error) {
     log.error('Failed to get user email', {
-      error: error.message,
+      error: error instanceof Error ? error.message : 'Unknown error',
       userId: sanitizeForLogging(userId)
     });
     throw error;
@@ -527,14 +656,14 @@ async function getUserEmail(userId) {
 /**
  * Send email notification using SES template
  */
-async function sendEmailNotification(userEmail, executionResult, scheduleName, notificationId) {
+async function sendEmailNotification(userEmail: string, executionResult: ExecutionResult, scheduleName: string, notificationId: number): Promise<string> {
   const log = createLogger({ operation: 'sendEmailNotification', notificationId });
 
   try {
     // Prepare template data
     const isSuccess = executionResult.status === 'success';
     const executionTime = new Date(executionResult.executed_at).toLocaleString('en-US', {
-      timeZone: 'America/Los_Angeles',
+      timeZone: process.env.EMAIL_TIMEZONE || 'America/Los_Angeles',
       dateStyle: 'medium',
       timeStyle: 'short'
     });
@@ -545,36 +674,36 @@ async function sendEmailNotification(userEmail, executionResult, scheduleName, n
     // Create markdown attachment
     const markdownContent = generateMarkdownAttachment(executionResult, scheduleName);
 
-    const templateData = {
-      subject: `${scheduleName} - ${isSuccess ? 'Execution Complete' : 'Execution Failed'}`,
-      greeting: `Hi there`, // Could be personalized with user name if available
-      scheduleName,
+    const templateData: TemplateData = {
+      subject: `${sanitizeEmailContent(scheduleName)} - ${isSuccess ? 'Execution Complete' : 'Execution Failed'}`,
+      greeting: 'Hi there', // Could be personalized with user name if available
+      scheduleName: sanitizeEmailContent(scheduleName),
       status: isSuccess ? 'successfully' : 'with errors',
       executionTime,
       summary: summary || (isSuccess ? 'Execution completed successfully.' : 'Execution encountered errors.'),
-      errorMessage: executionResult.error_message || '',
+      errorMessage: sanitizeEmailContent(executionResult.error_message, 500),
       isSuccess: isSuccess.toString(),
-      resultsUrl: `${APP_BASE_URL}/schedules/${executionResult.scheduled_execution_id}/results/${executionResult.id}`,
-      manageSchedulesUrl: `${APP_BASE_URL}/schedules`,
-      unsubscribeUrl: `${APP_BASE_URL}/preferences/unsubscribe`,
-      preferencesUrl: `${APP_BASE_URL}/preferences`
+      resultsUrl: `${env.APP_BASE_URL}/schedules/${executionResult.scheduled_execution_id}/results/${executionResult.id}`,
+      manageSchedulesUrl: `${env.APP_BASE_URL}/schedules`,
+      unsubscribeUrl: `${env.APP_BASE_URL}/preferences/unsubscribe`,
+      preferencesUrl: `${env.APP_BASE_URL}/preferences`
     };
 
     log.info('Sending templated email', {
-      templateName: SES_TEMPLATE_NAME,
-      hasConfigurationSet: !!SES_CONFIGURATION_SET,
+      templateName: env.SES_TEMPLATE_NAME,
+      hasConfigurationSet: !!env.SES_CONFIGURATION_SET,
       executionStatus: executionResult.status
     });
 
     const emailParams = {
-      Source: SES_FROM_EMAIL,
+      Source: env.SES_FROM_EMAIL,
       Destination: {
         ToAddresses: [userEmail]
       },
-      Template: SES_TEMPLATE_NAME,
+      Template: env.SES_TEMPLATE_NAME,
       TemplateData: JSON.stringify(templateData),
-      ...(SES_CONFIGURATION_SET && {
-        ConfigurationSetName: SES_CONFIGURATION_SET
+      ...(env.SES_CONFIGURATION_SET && {
+        ConfigurationSetName: env.SES_CONFIGURATION_SET
       }),
       // Add markdown as attachment
       ...(markdownContent && {
@@ -591,11 +720,11 @@ async function sendEmailNotification(userEmail, executionResult, scheduleName, n
       notificationId
     });
 
-    return response.MessageId;
+    return response.MessageId || '';
 
   } catch (error) {
     log.error('Failed to send email', {
-      error: error.message,
+      error: error instanceof Error ? error.message : 'Unknown error',
       notificationId,
       userEmail: sanitizeForLogging(userEmail)
     });
@@ -606,30 +735,32 @@ async function sendEmailNotification(userEmail, executionResult, scheduleName, n
 /**
  * Generate execution summary from result data
  */
-function generateExecutionSummary(resultData) {
+function generateExecutionSummary(resultData: Record<string, unknown>): string | null {
   if (!resultData || typeof resultData !== 'object') {
     return null;
   }
 
   // Extract key information from the result data
   // This would be customized based on the actual structure of Assistant Architect results
-  const summary = [];
+  const summary: string[] = [];
+  const maxSummaryLength = parseInt(process.env.MAX_SUMMARY_LENGTH || '200', 10);
 
-  if (resultData.output) {
+  if (resultData.output && typeof resultData.output === 'string') {
     // Truncate output to first 200 characters for summary
     const output = String(resultData.output);
-    if (output.length > 200) {
-      summary.push(output.substring(0, 200) + '...');
+    if (output.length > maxSummaryLength) {
+      summary.push(output.substring(0, maxSummaryLength) + '...');
     } else {
       summary.push(output);
     }
   }
 
-  if (resultData.metrics) {
-    summary.push(`Processed in ${resultData.metrics.duration || 'unknown'} ms`);
+  if (resultData.metrics && typeof resultData.metrics === 'object') {
+    const metrics = resultData.metrics as Record<string, unknown>;
+    summary.push(`Processed in ${metrics.duration || 'unknown'} ms`);
   }
 
-  if (resultData.warnings && resultData.warnings.length > 0) {
+  if (resultData.warnings && Array.isArray(resultData.warnings)) {
     summary.push(`${resultData.warnings.length} warning(s) generated`);
   }
 
@@ -639,7 +770,7 @@ function generateExecutionSummary(resultData) {
 /**
  * Generate markdown attachment content
  */
-function generateMarkdownAttachment(executionResult, scheduleName) {
+function generateMarkdownAttachment(executionResult: ExecutionResult, scheduleName: string): string {
   const executionTime = new Date(executionResult.executed_at).toISOString();
 
   let markdown = `# ${scheduleName} - Execution Results\n\n`;
@@ -675,7 +806,7 @@ function generateMarkdownAttachment(executionResult, scheduleName) {
 
   markdown += `---\n\n`;
   markdown += `*Generated by Peninsula School District AI Studio*\n`;
-  markdown += `*View full results: ${APP_BASE_URL}/schedules/${executionResult.scheduled_execution_id}/results/${executionResult.id}*`;
+  markdown += `*View full results: ${env.APP_BASE_URL}/schedules/${executionResult.scheduled_execution_id}/results/${executionResult.id}*`;
 
   return markdown;
 }
@@ -683,14 +814,14 @@ function generateMarkdownAttachment(executionResult, scheduleName) {
 /**
  * Update notification status in database
  */
-async function updateNotificationStatus(notificationId, status, failureReason = null) {
+async function updateNotificationStatus(notificationId: number, status: string, failureReason: string | null = null): Promise<boolean> {
   const log = createLogger({ operation: 'updateNotificationStatus' });
 
   try {
     const command = new ExecuteStatementCommand({
-      resourceArn: DATABASE_RESOURCE_ARN,
-      secretArn: DATABASE_SECRET_ARN,
-      database: DATABASE_NAME,
+      resourceArn: env.DATABASE_RESOURCE_ARN,
+      secretArn: env.DATABASE_SECRET_ARN,
+      database: env.DATABASE_NAME,
       sql: `
         UPDATE user_notifications
         SET
@@ -725,7 +856,7 @@ async function updateNotificationStatus(notificationId, status, failureReason = 
     return true;
   } catch (error) {
     log.error('Failed to update notification status', {
-      error: error.message,
+      error: error instanceof Error ? error.message : 'Unknown error',
       notificationId: sanitizeForLogging(notificationId),
       status
     });
