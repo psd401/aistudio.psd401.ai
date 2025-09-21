@@ -31,6 +31,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { collectAndSanitizeEnabledTools, getToolDisplayName } from '@/lib/assistant-architect/tool-utils'
 import { AssistantArchitectChat } from "./assistant-architect-chat"
 import { ChatErrorBoundary } from "./chat-error-boundary"
+import { ScheduleModal } from "./schedule-modal"
 import Image from "next/image"
 import DocumentUploadButton from "@/components/ui/document-upload-button"
 import { updatePromptResultAction } from "@/actions/db/assistant-architect-actions"
@@ -590,10 +591,22 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                   <><Sparkles className="mr-2 h-4 w-4" /> Generate</>
                   )}
                 </Button>
+
+                <ScheduleModal
+                  tool={tool}
+                  inputData={form.getValues()}
+                  onScheduleCreated={() => {
+                    toast({
+                      title: "Schedule Created",
+                      description: "Your assistant execution has been scheduled successfully."
+                    })
+                  }}
+                />
+
                 {(jobStatus === 'streaming' || jobStatus === 'processing') && (
-                  <Button 
-                    type="button" 
-                    variant="outline" 
+                  <Button
+                    type="button"
+                    variant="outline"
                     onClick={async () => {
                       if (jobId) {
                         try {
@@ -601,17 +614,17 @@ export const AssistantArchitectExecution = memo(function AssistantArchitectExecu
                           if (cancelResult.isSuccess) {
                             setJobStatus('cancelled')
                             setIsPolling(false)
-                            toast({ 
-                              title: "Execution Cancelled", 
-                              description: "The execution has been cancelled" 
+                            toast({
+                              title: "Execution Cancelled",
+                              description: "The execution has been cancelled"
                             })
                           } else {
                             // Fallback to just stopping local polling
                             setJobStatus('cancelled')
                             setIsPolling(false)
-                            toast({ 
-                              title: "Execution Stopped", 
-                              description: "Local polling stopped - job may continue on server" 
+                            toast({
+                              title: "Execution Stopped",
+                              description: "Local polling stopped - job may continue on server"
                             })
                           }
                         } catch {
