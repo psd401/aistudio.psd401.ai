@@ -126,17 +126,22 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
         throw new Error("Invalid schedule configuration")
       }
 
+      // Filter out empty string values from inputData
+      const filteredInputData = Object.entries(inputData).reduce((acc, [key, value]) => {
+        if (value !== "" && value != null && value !== undefined) {
+          acc[key] = value
+        }
+        return acc
+      }, {} as Record<string, unknown>)
+
       const requestPayload = {
         name: data.name,
         assistantArchitectId: Number(tool.id),
         scheduleConfig,
-        inputData,
+        inputData: filteredInputData,
       }
 
-      console.error("Creating schedule with payload:", {
-        ...requestPayload,
-        inputData: Object.keys(inputData).length > 0 ? `${Object.keys(inputData).length} fields` : "empty"
-      })
+      console.error("Creating schedule with payload:", requestPayload)
 
       const response = await fetch("/api/schedules", {
         method: "POST",
@@ -155,7 +160,8 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
           result,
           sentData: requestPayload
         })
-        throw new Error(result.message || `Failed to create schedule (${response.status})`)
+        const errorMessage = result.message || result.error || `Server error: ${response.status} ${response.statusText}`
+        throw new Error(errorMessage)
       }
 
       toast({
