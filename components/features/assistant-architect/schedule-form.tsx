@@ -109,23 +109,53 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
         scheduleConfig.cron = data.cron
       }
 
+      // Validate required fields
+      if (!data.name.trim()) {
+        throw new Error("Schedule name is required")
+      }
+
+      if (!tool.id || isNaN(Number(tool.id))) {
+        throw new Error("Invalid assistant architect ID")
+      }
+
+      if (!inputData || typeof inputData !== 'object') {
+        throw new Error("Invalid input data")
+      }
+
+      if (!scheduleConfig.frequency || !scheduleConfig.time) {
+        throw new Error("Invalid schedule configuration")
+      }
+
+      const requestPayload = {
+        name: data.name,
+        assistantArchitectId: Number(tool.id),
+        scheduleConfig,
+        inputData,
+      }
+
+      console.error("Creating schedule with payload:", {
+        ...requestPayload,
+        inputData: Object.keys(inputData).length > 0 ? `${Object.keys(inputData).length} fields` : "empty"
+      })
+
       const response = await fetch("/api/schedules", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          name: data.name,
-          assistantArchitectId: tool.id,
-          scheduleConfig,
-          inputData,
-        }),
+        body: JSON.stringify(requestPayload),
       })
 
       const result = await response.json()
 
       if (!response.ok) {
-        throw new Error(result.message || "Failed to create schedule")
+        console.error("Schedule creation failed:", {
+          status: response.status,
+          statusText: response.statusText,
+          result,
+          sentData: requestPayload
+        })
+        throw new Error(result.message || `Failed to create schedule (${response.status})`)
       }
 
       toast({
