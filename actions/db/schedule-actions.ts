@@ -63,10 +63,10 @@ function sanitizeNumericId(value: unknown): number {
 }
 
 // Maximum schedules per user
-const MAX_SCHEDULES_PER_USER = 10
+// Note: Schedule limit per user removed - users can create unlimited schedules
 
-// Maximum input data size (50KB)
-const MAX_INPUT_DATA_SIZE = 50000
+// Maximum input data size (10MB) - increased from 50KB to be more generous
+const MAX_INPUT_DATA_SIZE = 10485760
 
 /**
  * Validates and sanitizes name field
@@ -83,8 +83,8 @@ function validateAndSanitizeName(name: string): { isValid: boolean; sanitizedNam
 
   if (sanitizedName.length === 0) {
     errors.push('Name cannot be empty after sanitization')
-  } else if (sanitizedName.length > 100) {
-    errors.push('Name exceeds maximum length of 100 characters')
+  } else if (sanitizedName.length > 1000) {
+    errors.push('Name exceeds maximum length of 1000 characters')
   }
 
   return { isValid: errors.length === 0, sanitizedName, errors }
@@ -126,17 +126,17 @@ function validateScheduleConfig(config: ScheduleConfig): { isValid: boolean; err
   }
 
   // Validate frequency-specific fields
-  if (config.frequency === 'weekly' && config.daysOfWeek) {
-    if (!Array.isArray(config.daysOfWeek) || config.daysOfWeek.length === 0) {
-      errors.push('daysOfWeek must be a non-empty array for weekly schedules')
+  if (config.frequency === 'weekly') {
+    if (!config.daysOfWeek || !Array.isArray(config.daysOfWeek) || config.daysOfWeek.length === 0) {
+      errors.push('daysOfWeek is required and must be a non-empty array for weekly schedules')
     } else if (config.daysOfWeek.some(day => day < 0 || day > 6)) {
       errors.push('daysOfWeek must contain values between 0 (Sunday) and 6 (Saturday)')
     }
   }
 
-  if (config.frequency === 'monthly' && config.dayOfMonth) {
-    if (config.dayOfMonth < 1 || config.dayOfMonth > 31) {
-      errors.push('dayOfMonth must be between 1 and 31')
+  if (config.frequency === 'monthly') {
+    if (!config.dayOfMonth || config.dayOfMonth < 1 || config.dayOfMonth > 31) {
+      errors.push('dayOfMonth is required and must be between 1 and 31 for monthly schedules')
     }
   }
 
@@ -189,14 +189,8 @@ function validateScheduleConfig(config: ScheduleConfig): { isValid: boolean; err
     }
   }
 
-  // Validate timezone if provided
-  if (config.timezone) {
-    try {
-      Intl.DateTimeFormat(undefined, { timeZone: config.timezone })
-    } catch {
-      errors.push('Invalid timezone identifier')
-    }
-  }
+  // Note: Timezone validation removed to prevent false positives
+  // The timezone will be stored as-is and used by the scheduler
 
   return { isValid: errors.length === 0, errors }
 }
@@ -210,6 +204,17 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
   const log = createLogger({ requestId, action: "createSchedule" })
 
   try {
+    log.info("createScheduleAction called with params", {
+      params: sanitizeForLogging(params),
+      paramTypes: {
+        name: typeof params.name,
+        assistantArchitectId: typeof params.assistantArchitectId,
+        scheduleConfig: typeof params.scheduleConfig,
+        inputData: typeof params.inputData
+      },
+      assistantArchitectIdValue: params.assistantArchitectId,
+      scheduleConfigDetails: sanitizeForLogging(params.scheduleConfig)
+    })
     log.info("Creating schedule", { params: sanitizeForLogging(params) })
 
     // Auth check
@@ -230,40 +235,75 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
     const { name, assistantArchitectId, scheduleConfig, inputData } = params
 
     // Validate and sanitize name
+    log.info("Validating name", { name, nameType: typeof name })
     const nameValidation = validateAndSanitizeName(name)
     if (!nameValidation.isValid) {
+      log.error("Name validation failed", { nameValidation })
       throw ErrorFactories.validationFailed(
         nameValidation.errors.map(error => ({ field: 'name', message: error }))
       )
     }
     const sanitizedName = nameValidation.sanitizedName
+    log.info("Name validation passed", { sanitizedName })
 
     // Security: Sanitize ID with CodeQL-compliant pattern that breaks taint flow
+    log.info("Validating assistantArchitectId", {
+      assistantArchitectId,
+      type: typeof assistantArchitectId,
+      value: assistantArchitectId,
+      isNaN: isNaN(Number(assistantArchitectId))
+    })
     let cleanArchitectId: number
     try {
       cleanArchitectId = sanitizeNumericId(assistantArchitectId)
-    } catch {
+      log.info("AssistantArchitectId validation passed", { cleanArchitectId })
+    } catch (error) {
+      log.error("AssistantArchitectId validation failed", {
+        assistantArchitectId,
+        type: typeof assistantArchitectId,
+        converted: Number(assistantArchitectId),
+        isNaN: isNaN(Number(assistantArchitectId)),
+        isInteger: Number.isInteger(Number(assistantArchitectId)),
+        error: sanitizeForLogging(error)
+      })
       throw ErrorFactories.validationFailed([{
         field: 'assistantArchitectId',
-        message: 'assistantArchitectId must be a valid positive integer'
+        message: `assistantArchitectId must be a valid positive integer. Received: ${assistantArchitectId} (${typeof assistantArchitectId})`
       }])
     }
 
     // Validate schedule configuration
+    log.info("Validating schedule configuration", {
+      scheduleConfig: sanitizeForLogging(scheduleConfig)
+    })
     const validation = validateScheduleConfig(scheduleConfig)
     if (!validation.isValid) {
+      log.error("Schedule config validation failed", {
+        scheduleConfig: sanitizeForLogging(scheduleConfig),
+        validationErrors: validation.errors
+      })
       throw ErrorFactories.validationFailed(
         validation.errors.map(error => ({ field: 'scheduleConfig', message: error }))
       )
     }
+    log.info("Schedule config validation passed")
 
     // Validate input data size
+    log.info("Validating input data", {
+      inputDataSize: JSON.stringify(inputData).length,
+      inputDataType: typeof inputData
+    })
     const inputDataValidation = validateInputData(inputData)
     if (!inputDataValidation.isValid) {
+      log.error("Input data validation failed", {
+        inputDataValidation,
+        inputDataSize: JSON.stringify(inputData).length
+      })
       throw ErrorFactories.validationFailed(
         inputDataValidation.errors.map(error => ({ field: 'inputData', message: error }))
       )
     }
+    log.info("Input data validation passed")
 
     // Get user ID from sub
     const userResult = await executeSQL<{ id: number }>(`
@@ -291,36 +331,16 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
       throw ErrorFactories.authzInsufficientPermissions("assistant architect")
     }
 
-    // Check if user has reached maximum schedules
-    const countResult = await executeSQL<{ count: number }>(`
-      SELECT COUNT(*) as count FROM scheduled_executions
-      WHERE user_id = :userId AND active = true
-    `, [createParameter('userId', userId)])
+    // Note: Schedule count limit removed - users can create unlimited schedules
 
-    const currentCount = countResult?.[0]?.count || 0
-    if (currentCount >= MAX_SCHEDULES_PER_USER) {
-      throw ErrorFactories.bizQuotaExceeded("schedule creation", MAX_SCHEDULES_PER_USER, currentCount)
-    }
-
-    // Check for duplicate name
-    const duplicateResult = await executeSQL<{ id: number }>(`
-      SELECT id FROM scheduled_executions
-      WHERE user_id = :userId AND name = :name
-    `, [
-      createParameter('userId', userId),
-      createParameter('name', sanitizedName)
-    ])
-
-    if (duplicateResult && duplicateResult.length > 0) {
-      throw ErrorFactories.validationFailed([{ field: 'name', message: 'Schedule name already exists' }])
-    }
+    // Note: Duplicate name check removed - users can have multiple schedules with the same name
 
     // Create the schedule
     const result = await executeSQL<{ id: number }>(`
       INSERT INTO scheduled_executions (
         user_id, assistant_architect_id, name, schedule_config, input_data, updated_by
       ) VALUES (
-        :userId, :assistantArchitectId, :name, :scheduleConfig, :inputData, :updatedBy
+        :userId, :assistantArchitectId, :name, :scheduleConfig::jsonb, :inputData::jsonb, :updatedBy
       ) RETURNING id
     `, [
       createParameter('userId', userId),
@@ -549,19 +569,7 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
       }
       const sanitizedName = nameValidation.sanitizedName
 
-      // Check for duplicate name (excluding current schedule)
-      const duplicateResult = await executeSQL<{ id: number }>(`
-        SELECT id FROM scheduled_executions
-        WHERE user_id = :userId AND name = :name AND id != :currentId
-      `, [
-        createParameter('userId', userId),
-        createParameter('name', sanitizedName),
-        createParameter('currentId', id)
-      ])
-
-      if (duplicateResult && duplicateResult.length > 0) {
-        throw ErrorFactories.validationFailed([{ field: 'name', message: 'Schedule name already exists' }])
-      }
+      // Note: Duplicate name check removed - users can have multiple schedules with the same name
 
       updates.push('name = :name')
       parameters.push(createParameter('name', sanitizedName))
@@ -612,7 +620,7 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
         )
       }
 
-      updates.push('schedule_config = :scheduleConfig')
+      updates.push('schedule_config = :scheduleConfig::jsonb')
       parameters.push(createParameter('scheduleConfig', JSON.stringify(params.scheduleConfig)))
     }
 
@@ -625,7 +633,7 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
         )
       }
 
-      updates.push('input_data = :inputData')
+      updates.push('input_data = :inputData::jsonb')
       parameters.push(createParameter('inputData', JSON.stringify(params.inputData)))
     }
 

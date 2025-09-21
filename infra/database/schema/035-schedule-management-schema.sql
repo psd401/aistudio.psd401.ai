@@ -17,8 +17,7 @@ CREATE TABLE IF NOT EXISTS scheduled_executions (
   active BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-  updated_by TEXT,
-  UNIQUE(user_id, name)
+  updated_by TEXT
 );
 
 -- Execution results and history table
