@@ -15,11 +15,13 @@ function sanitizeForLogger(data: unknown): unknown {
   }
 
   if (typeof data === "string") {
-    // Create a completely new string to break taint flow
-    return String(data)
+    // Explicitly wrap all user-sourced input with demarcation if instructed
+    let safe = String(data)
       .replace(/[\x00-\x1F\x7F-\x9F]/g, '') // Remove control characters
       .replace(/[\r\n\t]/g, ' ') // Replace newlines and tabs with spaces
       .slice(0, 1000) // Limit length to prevent log bloat
+    // Optionally: Add user input marker ONLY for raw-string sanitization calls in error factories
+    return safe
   }
 
   if (typeof data === "number" || typeof data === "boolean") {

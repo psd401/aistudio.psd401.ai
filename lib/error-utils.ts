@@ -95,8 +95,8 @@ export const ErrorFactories = {
   dbRecordNotFound: (table: string, id: unknown, details?: Partial<DatabaseError>) =>
     createTypedError<DatabaseError>(
       ErrorCode.DB_RECORD_NOT_FOUND,
-      `Record not found in ${table} with id: ${id}`,
-      { table, details: { id }, ...details }
+      `Record not found in ${sanitizeForLogger(table)} with id: [user input: ${sanitizeForLogger(id)}]`,
+      { table: sanitizeForLogger(table), details: { id: sanitizeForLogger(id) }, ...details }
     ),
   
   dbDuplicateEntry: (table: string, field: string, value: unknown, details?: Partial<DatabaseError>) =>
