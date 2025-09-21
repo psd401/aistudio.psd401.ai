@@ -21,7 +21,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   const resolvedParams = await params
   const scheduleId = resolvedParams.id
-  log.info("GET /api/schedules/[id] - Fetching schedule", { scheduleId })
+  log.info("GET /api/schedules/[id] - Fetching schedule")
 
   try {
     const session = await getServerSession()
@@ -72,7 +72,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       })
     }
 
-    log.info("Schedule fetched successfully", { scheduleId: id })
+    log.info("Schedule fetched successfully")
     timer({ status: "success", scheduleId: id })
 
     return NextResponse.json(result.data, {
@@ -101,7 +101,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
   const resolvedParams = await params
   const scheduleId = resolvedParams.id
-  log.info("PUT /api/schedules/[id] - Updating schedule", { scheduleId })
+  log.info("PUT /api/schedules/[id] - Updating schedule")
 
   try {
     const session = await getServerSession()
@@ -194,7 +194,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       })
     }
 
-    log.info("Schedule updated successfully", { scheduleId: id })
+    log.info("Schedule updated successfully")
     timer({ status: "success", scheduleId: id })
 
     return NextResponse.json(result.data, {
@@ -223,7 +223,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
   const resolvedParams = await params
   const scheduleId = resolvedParams.id
-  log.info("DELETE /api/schedules/[id] - Deleting schedule", { scheduleId })
+  log.info("DELETE /api/schedules/[id] - Deleting schedule")
 
   try {
     const session = await getServerSession()
@@ -282,7 +282,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       })
     }
 
-    log.info("Schedule deleted successfully", { scheduleId: id })
+    log.info("Schedule deleted successfully")
     timer({ status: "success", scheduleId: id })
 
     return NextResponse.json({

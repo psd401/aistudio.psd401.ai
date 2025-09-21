@@ -129,14 +129,41 @@ function validateScheduleConfig(config: ScheduleConfig): { isValid: boolean; err
     if (!config.cron) {
       errors.push('cron expression is required for custom schedules')
     } else {
-      // Comprehensive cron validation using robust regex patterns
-      const cronPattern = /^(\*|([0-5]?\d)(-([0-5]?\d))?(\/\d+)?)\s+(\*|([01]?\d|2[0-3])(-([01]?\d|2[0-3]))?(\/\d+)?)\s+(\*|([12]?\d|3[01])(-([12]?\d|3[01]))?(\/\d+)?)\s+(\*|([1-9]|1[0-2])(-([1-9]|1[0-2]))?(\/\d+)?)\s+(\*|([0-6])(-([0-6]))?(\/\d+)?)$/
-      const cronFields = config.cron.trim().split(/\s+/)
+      // Comprehensive cron validation with strict input sanitization
+      const trimmedCron = config.cron.trim()
+      const cronFields = trimmedCron.split(/\s+/)
 
+      // Validate exact field count first
       if (cronFields.length !== 5) {
         errors.push('cron expression must have exactly 5 fields (minute hour day month day-of-week)')
-      } else if (!cronPattern.test(config.cron.trim())) {
-        errors.push('Invalid cron expression format. Please use valid cron syntax (minute hour day month day-of-week)')
+      } else {
+        // Validate each field individually to prevent bypass attempts
+        const [minute, hour, day, month, dayOfWeek] = cronFields
+
+        // Validate minute field (0-59)
+        if (!/^(\*|([0-5]?\d)(-([0-5]?\d))?(\/\d+)?)$/.test(minute)) {
+          errors.push('Invalid minute field in cron expression')
+        }
+
+        // Validate hour field (0-23)
+        if (!/^(\*|([01]?\d|2[0-3])(-([01]?\d|2[0-3]))?(\/\d+)?)$/.test(hour)) {
+          errors.push('Invalid hour field in cron expression')
+        }
+
+        // Validate day field (1-31)
+        if (!/^(\*|([12]?\d|3[01])(-([12]?\d|3[01]))?(\/\d+)?)$/.test(day)) {
+          errors.push('Invalid day field in cron expression')
+        }
+
+        // Validate month field (1-12)
+        if (!/^(\*|([1-9]|1[0-2])(-([1-9]|1[0-2]))?(\/\d+)?)$/.test(month)) {
+          errors.push('Invalid month field in cron expression')
+        }
+
+        // Validate day-of-week field (0-6)
+        if (!/^(\*|([0-6])(-([0-6]))?(\/\d+)?)$/.test(dayOfWeek)) {
+          errors.push('Invalid day-of-week field in cron expression')
+        }
       }
     }
   }
@@ -283,7 +310,7 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
     const scheduleId = result[0].id
 
     timer({ status: "success" })
-    log.info("Schedule created successfully", { scheduleId })
+    log.info("Schedule created successfully")
 
     return createSuccess({ id: scheduleId }, "Schedule created successfully")
 
@@ -431,7 +458,7 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
   const log = createLogger({ requestId, action: "updateSchedule" })
 
   try {
-    log.info("Updating schedule", { id, params: sanitizeForLogging(params) })
+    log.info("Updating schedule", { params: sanitizeForLogging(params) })
 
     // Auth check
     const session = await getServerSession()
@@ -615,7 +642,7 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
     }
 
     timer({ status: "success" })
-    log.info("Schedule updated successfully", { scheduleId: id })
+    log.info("Schedule updated successfully")
 
     return createSuccess(schedule, "Schedule updated successfully")
 
@@ -638,7 +665,7 @@ export async function deleteScheduleAction(id: number): Promise<ActionState<{ su
   const log = createLogger({ requestId, action: "deleteSchedule" })
 
   try {
-    log.info("Deleting schedule", { id })
+    log.info("Deleting schedule")
 
     // Auth check
     const session = await getServerSession()
@@ -695,7 +722,7 @@ export async function deleteScheduleAction(id: number): Promise<ActionState<{ su
     }
 
     timer({ status: "success" })
-    log.info("Schedule deleted successfully", { scheduleId: id })
+    log.info("Schedule deleted successfully")
 
     return createSuccess({ success: true }, "Schedule deleted successfully")
 
@@ -718,7 +745,7 @@ export async function getScheduleAction(id: number): Promise<ActionState<Schedul
   const log = createLogger({ requestId, action: "getSchedule" })
 
   try {
-    log.info("Getting schedule", { id })
+    log.info("Getting schedule")
 
     // Auth check
     const session = await getServerSession()
@@ -824,7 +851,7 @@ export async function getScheduleAction(id: number): Promise<ActionState<Schedul
     }
 
     timer({ status: "success" })
-    log.info("Schedule retrieved successfully", { scheduleId: id })
+    log.info("Schedule retrieved successfully")
 
     return createSuccess(schedule, "Schedule retrieved successfully")
 
