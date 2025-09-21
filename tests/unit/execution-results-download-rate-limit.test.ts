@@ -1,12 +1,14 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals'
 
 // Mock the rate limiting module
-jest.mock('@/lib/rate-limit')
+jest.mock('@/lib/rate-limit', () => ({
+  withRateLimit: jest.fn((handler) => handler)
+}))
 
 import { withRateLimit } from '@/lib/rate-limit'
 
 // Type the mocked function
-const mockedWithRateLimit = jest.mocked(withRateLimit)
+const mockedWithRateLimit = withRateLimit as jest.MockedFunction<typeof withRateLimit>
 
 describe('Execution Results Download Rate Limiting', () => {
   beforeEach(() => {

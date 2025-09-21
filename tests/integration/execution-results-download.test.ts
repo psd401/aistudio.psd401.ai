@@ -3,9 +3,13 @@ import { NextRequest } from 'next/server'
 
 // Mock the dependencies at the module level
 jest.mock('@/lib/auth/server-session')
-jest.mock('@/lib/db/data-api-adapter')
+jest.mock('@/lib/db/data-api-adapter', () => ({
+  executeSQL: jest.fn()
+}))
 jest.mock('@/lib/logger')
-jest.mock('@/lib/rate-limit')
+jest.mock('@/lib/rate-limit', () => ({
+  withRateLimit: jest.fn((handler) => handler)
+}))
 
 import { getServerSession } from '@/lib/auth/server-session'
 import { executeSQL } from '@/lib/db/data-api-adapter'
@@ -14,12 +18,12 @@ import { withRateLimit } from '@/lib/rate-limit'
 
 // Type the mocked functions
 const mockedGetServerSession = jest.mocked(getServerSession)
-const mockedExecuteSQL = jest.mocked(executeSQL)
+const mockedExecuteSQL = executeSQL as jest.MockedFunction<typeof executeSQL>
 const mockedCreateLogger = jest.mocked(createLogger)
 const mockedGenerateRequestId = jest.mocked(generateRequestId)
 const mockedStartTimer = jest.mocked(startTimer)
 const mockedSanitizeForLogging = jest.mocked(sanitizeForLogging)
-const mockedWithRateLimit = jest.mocked(withRateLimit)
+const mockedWithRateLimit = withRateLimit as jest.MockedFunction<typeof withRateLimit>
 
 const mockLogger = {
   info: jest.fn(),
@@ -38,7 +42,7 @@ describe('Execution Results Download Integration Tests', () => {
     mockedGenerateRequestId.mockReturnValue('integration-test-id')
     mockedStartTimer.mockReturnValue(mockTimer)
     mockedSanitizeForLogging.mockImplementation((data) => data)
-    mockedWithRateLimit.mockImplementation((handler) => handler)
+    // Rate limiting is mocked at module level
   })
 
   afterEach(() => {

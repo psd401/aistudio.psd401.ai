@@ -3,9 +3,13 @@ import { NextRequest, NextResponse } from 'next/server'
 
 // Mock the dependencies
 jest.mock('@/lib/auth/server-session')
-jest.mock('@/lib/db/data-api-adapter')
+jest.mock('@/lib/db/data-api-adapter', () => ({
+  executeSQL: jest.fn()
+}))
 jest.mock('@/lib/logger')
-jest.mock('@/lib/rate-limit')
+jest.mock('@/lib/rate-limit', () => ({
+  withRateLimit: jest.fn((handler) => handler)
+}))
 
 // Import mocked modules and types
 import { getServerSession } from '@/lib/auth/server-session'
@@ -22,12 +26,12 @@ const mockLogger = {
 
 // Mock implementations
 const mockedGetServerSession = jest.mocked(getServerSession)
-const mockedExecuteSQL = jest.mocked(executeSQL)
+const mockedExecuteSQL = executeSQL as jest.MockedFunction<typeof executeSQL>
 const mockedCreateLogger = jest.mocked(createLogger)
 const mockedGenerateRequestId = jest.mocked(generateRequestId)
 const mockedStartTimer = jest.mocked(startTimer)
 const mockedSanitizeForLogging = jest.mocked(sanitizeForLogging)
-const mockedWithRateLimit = jest.mocked(withRateLimit)
+const mockedWithRateLimit = withRateLimit as jest.MockedFunction<typeof withRateLimit>
 
 // Create a mock timer function
 const mockTimer = jest.fn() as any
@@ -41,7 +45,6 @@ describe('Execution Results Download API', () => {
     mockedGenerateRequestId.mockReturnValue('test-request-id')
     mockedStartTimer.mockReturnValue(mockTimer)
     mockedSanitizeForLogging.mockImplementation((data) => data)
-    mockedWithRateLimit.mockImplementation((handler) => handler)
   })
 
   afterEach(() => {
