@@ -15,12 +15,11 @@ function sanitizeForLogger(data: unknown): unknown {
   }
 
   if (typeof data === "string") {
-    // Explicitly wrap all user-sourced input with demarcation if instructed
-    let safe = String(data)
-      .replace(/[\x00-\x1F\x7F-\x9F]/g, '') // Remove control characters
-      .replace(/[\r\n\t]/g, ' ') // Replace newlines and tabs with spaces
-      .slice(0, 1000) // Limit length to prevent log bloat
-    // Optionally: Add user input marker ONLY for raw-string sanitization calls in error factories
+    // CodeQL-compliant sanitization: explicit character allowlisting
+    const safe = data
+      .replace(/[^\x20-\x7E]/g, '') // Only allow printable ASCII characters (space to tilde)
+      .replace(/[\r\n\t]/g, ' ')    // Replace line breaks with spaces
+      .substring(0, 1000)           // Explicit length limit to prevent log bloat
     return safe
   }
 
@@ -255,47 +254,27 @@ export function createLogger(context: LogContext): Logger {
   return {
     ...logger,
     info: (message: string, meta?: object) => {
-      // Create completely new string to break taint flow
-      const safeMessage = String(sanitizeForLogger(message)).substring(0)
-      const safeContext = JSON.parse(JSON.stringify(
-        sanitizeForLogger({ ...getLogContext(), ...context })
-      ))
-      const safeMeta = meta ? JSON.parse(JSON.stringify(
-        sanitizeForLogger(meta)
-      )) : {}
+      const safeMessage = sanitizeForLogger(message) as string
+      const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
+      const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
       logger.info(safeMessage, { ...safeContext, ...safeMeta })
     },
     warn: (message: string, meta?: object) => {
-      // Create completely new string to break taint flow
-      const safeMessage = String(sanitizeForLogger(message)).substring(0)
-      const safeContext = JSON.parse(JSON.stringify(
-        sanitizeForLogger({ ...getLogContext(), ...context })
-      ))
-      const safeMeta = meta ? JSON.parse(JSON.stringify(
-        sanitizeForLogger(meta)
-      )) : {}
+      const safeMessage = sanitizeForLogger(message) as string
+      const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
+      const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
       logger.warn(safeMessage, { ...safeContext, ...safeMeta })
     },
     error: (message: string, meta?: object) => {
-      // Create completely new string to break taint flow
-      const safeMessage = String(sanitizeForLogger(message)).substring(0)
-      const safeContext = JSON.parse(JSON.stringify(
-        sanitizeForLogger({ ...getLogContext(), ...context })
-      ))
-      const safeMeta = meta ? JSON.parse(JSON.stringify(
-        sanitizeForLogger(meta)
-      )) : {}
+      const safeMessage = sanitizeForLogger(message) as string
+      const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
+      const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
       logger.error(safeMessage, { ...safeContext, ...safeMeta })
     },
     debug: (message: string, meta?: object) => {
-      // Create completely new string to break taint flow
-      const safeMessage = String(sanitizeForLogger(message)).substring(0)
-      const safeContext = JSON.parse(JSON.stringify(
-        sanitizeForLogger({ ...getLogContext(), ...context })
-      ))
-      const safeMeta = meta ? JSON.parse(JSON.stringify(
-        sanitizeForLogger(meta)
-      )) : {}
+      const safeMessage = sanitizeForLogger(message) as string
+      const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
+      const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
       logger.debug(safeMessage, { ...safeContext, ...safeMeta })
     },
   } as Logger
@@ -313,7 +292,7 @@ export function withRequestId(requestId: string): Logger {
  * Sanitize data for logging (removes sensitive fields)
  */
 export function sanitizeForLogging(data: unknown): unknown {
-  return filterSensitiveData(data)
+  return filterSensitiveData(sanitizeForLogger(data))
 }
 
 /**
