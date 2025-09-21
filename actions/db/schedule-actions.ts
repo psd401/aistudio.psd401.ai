@@ -63,10 +63,10 @@ function sanitizeNumericId(value: unknown): number {
 }
 
 // Maximum schedules per user
-const MAX_SCHEDULES_PER_USER = 10
+// Note: Schedule limit per user removed - users can create unlimited schedules
 
-// Maximum input data size (50KB)
-const MAX_INPUT_DATA_SIZE = 50000
+// Maximum input data size (10MB) - increased from 50KB to be more generous
+const MAX_INPUT_DATA_SIZE = 10485760
 
 /**
  * Validates and sanitizes name field
@@ -83,8 +83,8 @@ function validateAndSanitizeName(name: string): { isValid: boolean; sanitizedNam
 
   if (sanitizedName.length === 0) {
     errors.push('Name cannot be empty after sanitization')
-  } else if (sanitizedName.length > 100) {
-    errors.push('Name exceeds maximum length of 100 characters')
+  } else if (sanitizedName.length > 1000) {
+    errors.push('Name exceeds maximum length of 1000 characters')
   }
 
   return { isValid: errors.length === 0, sanitizedName, errors }
@@ -331,51 +331,16 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
       throw ErrorFactories.authzInsufficientPermissions("assistant architect")
     }
 
-    // Check if user has reached maximum schedules
-    const countResult = await executeSQL<{ count: number }>(`
-      SELECT COUNT(*) as count FROM scheduled_executions
-      WHERE user_id = :userId AND active = true
-    `, [createParameter('userId', userId)])
+    // Note: Schedule count limit removed - users can create unlimited schedules
 
-    const currentCount = countResult?.[0]?.count || 0
-    if (currentCount >= MAX_SCHEDULES_PER_USER) {
-      throw ErrorFactories.bizQuotaExceeded("schedule creation", MAX_SCHEDULES_PER_USER, currentCount)
-    }
-
-    // Check for duplicate name
-    log.info("Checking for duplicate schedule name", {
-      sanitizedName,
-      userId
-    })
-
-    const duplicateResult = await executeSQL<{ id: number }>(`
-      SELECT id FROM scheduled_executions
-      WHERE user_id = :userId AND name = :name
-    `, [
-      createParameter('userId', userId),
-      createParameter('name', sanitizedName)
-    ])
-
-    if (duplicateResult && duplicateResult.length > 0) {
-      log.warn("Duplicate schedule name found", {
-        duplicateName: sanitizedName,
-        existingScheduleId: duplicateResult[0].id,
-        userId
-      })
-      throw ErrorFactories.validationFailed([{
-        field: 'name',
-        message: `A schedule named "${sanitizedName}" already exists. Please choose a different name.`
-      }])
-    }
-
-    log.info("No duplicate schedule name found, proceeding with creation")
+    // Note: Duplicate name check removed - users can have multiple schedules with the same name
 
     // Create the schedule
     const result = await executeSQL<{ id: number }>(`
       INSERT INTO scheduled_executions (
         user_id, assistant_architect_id, name, schedule_config, input_data, updated_by
       ) VALUES (
-        :userId, :assistantArchitectId, :name, :scheduleConfig, :inputData, :updatedBy
+        :userId, :assistantArchitectId, :name, :scheduleConfig::jsonb, :inputData::jsonb, :updatedBy
       ) RETURNING id
     `, [
       createParameter('userId', userId),
@@ -604,19 +569,7 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
       }
       const sanitizedName = nameValidation.sanitizedName
 
-      // Check for duplicate name (excluding current schedule)
-      const duplicateResult = await executeSQL<{ id: number }>(`
-        SELECT id FROM scheduled_executions
-        WHERE user_id = :userId AND name = :name AND id != :currentId
-      `, [
-        createParameter('userId', userId),
-        createParameter('name', sanitizedName),
-        createParameter('currentId', id)
-      ])
-
-      if (duplicateResult && duplicateResult.length > 0) {
-        throw ErrorFactories.validationFailed([{ field: 'name', message: 'Schedule name already exists' }])
-      }
+      // Note: Duplicate name check removed - users can have multiple schedules with the same name
 
       updates.push('name = :name')
       parameters.push(createParameter('name', sanitizedName))
@@ -667,7 +620,7 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
         )
       }
 
-      updates.push('schedule_config = :scheduleConfig')
+      updates.push('schedule_config = :scheduleConfig::jsonb')
       parameters.push(createParameter('scheduleConfig', JSON.stringify(params.scheduleConfig)))
     }
 
@@ -680,7 +633,7 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
         )
       }
 
-      updates.push('input_data = :inputData')
+      updates.push('input_data = :inputData::jsonb')
       parameters.push(createParameter('inputData', JSON.stringify(params.inputData)))
     }
 
