@@ -107,8 +107,13 @@ export async function POST(request: NextRequest) {
     let body
     try {
       body = await request.json()
-    } catch {
-      log.warn("Invalid JSON in request body")
+      log.info("Request body parsed successfully", {
+        bodyType: typeof body,
+        bodyKeys: body ? Object.keys(body) : 'null',
+        bodyContent: sanitizeForLogging(body)
+      })
+    } catch (error) {
+      log.warn("Invalid JSON in request body", { error: sanitizeForLogging(error) })
       timer({ status: "error", reason: "invalid_json" })
       return NextResponse.json(
         { isSuccess: false, message: "Invalid JSON in request body" },
@@ -119,8 +124,25 @@ export async function POST(request: NextRequest) {
     // Validate required fields
     const { name, assistantArchitectId, scheduleConfig, inputData } = body
 
+    log.info("Extracted fields from request body", {
+      name: name ? 'present' : 'missing',
+      nameType: typeof name,
+      assistantArchitectId: assistantArchitectId ? 'present' : 'missing',
+      assistantArchitectIdType: typeof assistantArchitectId,
+      assistantArchitectIdValue: assistantArchitectId,
+      scheduleConfig: scheduleConfig ? 'present' : 'missing',
+      scheduleConfigType: typeof scheduleConfig,
+      inputData: inputData ? 'present' : 'missing',
+      inputDataType: typeof inputData
+    })
+
     if (!name || !assistantArchitectId || !scheduleConfig || !inputData) {
-      log.warn("Missing required fields")
+      log.warn("Missing required fields", {
+        nameCheck: !!name,
+        assistantArchitectIdCheck: !!assistantArchitectId,
+        scheduleConfigCheck: !!scheduleConfig,
+        inputDataCheck: !!inputData
+      })
       timer({ status: "error", reason: "missing_fields" })
       return NextResponse.json(
         { isSuccess: false, message: "Missing required fields: name, assistantArchitectId, scheduleConfig, inputData" },
@@ -128,11 +150,25 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    log.info("About to call createScheduleAction", {
+      paramsToPass: {
+        name,
+        assistantArchitectId,
+        scheduleConfig: sanitizeForLogging(scheduleConfig),
+        inputData: typeof inputData
+      }
+    })
+
     const result = await createScheduleAction({
       name,
       assistantArchitectId,
       scheduleConfig,
       inputData
+    })
+
+    log.info("createScheduleAction completed", {
+      isSuccess: result.isSuccess,
+      hasMessage: !!result.message
     })
 
     if (!result.isSuccess) {
@@ -164,11 +200,17 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     timer({ status: "error" })
-    log.error("Error in create schedule API", error)
+    log.error("Unexpected error in create schedule API", {
+      error: sanitizeForLogging(error),
+      errorType: typeof error,
+      errorName: error instanceof Error ? error.name : 'unknown',
+      errorMessage: error instanceof Error ? error.message : 'unknown',
+      errorStack: error instanceof Error ? error.stack : 'unknown'
+    })
     return NextResponse.json(
       {
         isSuccess: false,
-        message: "Failed to create schedule"
+        message: "Internal server error occurred"
       },
       { status: 500, headers: { "X-Request-Id": requestId } }
     )
