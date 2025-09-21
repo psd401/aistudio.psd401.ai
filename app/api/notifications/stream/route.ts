@@ -24,18 +24,53 @@ export async function GET(request: NextRequest) {
       start(controller) {
         log.info("SSE stream started", { userId })
 
+        // Track connection state to prevent race conditions
+        let isClosed = false
+        let keepAliveInterval: NodeJS.Timeout | undefined
+        let maxConnectionTime: NodeJS.Timeout | undefined
+
+        // Centralized cleanup function to prevent race conditions
+        const closeConnection = () => {
+          if (isClosed) return
+          isClosed = true
+
+          if (keepAliveInterval) clearInterval(keepAliveInterval)
+          if (maxConnectionTime) clearTimeout(maxConnectionTime)
+
+          try {
+            controller.close()
+            log.info("SSE connection closed successfully", { userId })
+          } catch (error) {
+            // Controller already closed, this is expected in some scenarios
+            log.debug("Controller already closed", {
+              error: error instanceof Error ? error.message : 'Unknown error',
+              userId
+            })
+          }
+        }
+
         // Send initial connection message
         const encoder = new TextEncoder()
         const initialMessage = `data: ${JSON.stringify({
           type: 'connection_established',
-          timestamp: new Date().toISOString(),
-          userId
+          timestamp: new Date().toISOString()
         })}\n\n`
 
-        controller.enqueue(encoder.encode(initialMessage))
+        try {
+          controller.enqueue(encoder.encode(initialMessage))
+        } catch (error) {
+          log.error("Failed to send initial message", {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            userId
+          })
+          closeConnection()
+          return
+        }
 
         // Set up keep-alive ping every 30 seconds
-        const keepAliveInterval = setInterval(() => {
+        keepAliveInterval = setInterval(() => {
+          if (isClosed) return
+
           try {
             const pingMessage = `data: ${JSON.stringify({
               type: 'ping',
@@ -48,7 +83,7 @@ export async function GET(request: NextRequest) {
               error: error instanceof Error ? error.message : 'Unknown error',
               userId
             })
-            clearInterval(keepAliveInterval)
+            closeConnection()
           }
         }, 30000)
 
@@ -59,15 +94,13 @@ export async function GET(request: NextRequest) {
         // Handle client disconnect
         request.signal.addEventListener('abort', () => {
           log.info("SSE connection closed by client", { userId })
-          clearInterval(keepAliveInterval)
-          controller.close()
+          closeConnection()
         })
 
         // Clean up after 10 minutes to prevent resource leaks
-        const maxConnectionTime = setTimeout(() => {
+        maxConnectionTime = setTimeout(() => {
           log.info("SSE connection timed out after 10 minutes", { userId })
-          clearInterval(keepAliveInterval)
-          controller.close()
+          closeConnection()
         }, 10 * 60 * 1000)
 
         // Store cleanup functions for potential external triggers
@@ -75,8 +108,7 @@ export async function GET(request: NextRequest) {
         // system to send updates through this stream when new notifications arrive
 
         return () => {
-          clearInterval(keepAliveInterval)
-          clearTimeout(maxConnectionTime)
+          closeConnection()
         }
       },
 
