@@ -45,10 +45,19 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // Validate schedule ID
+    // Validate schedule ID with strict input validation
+    if (!/^\d+$/.test(scheduleId)) {
+      log.warn("Invalid schedule ID format")
+      timer({ status: "error", reason: "invalid_id" })
+      return NextResponse.json(
+        { isSuccess: false, message: "Invalid schedule ID" },
+        { status: 400, headers: { "X-Request-Id": requestId } }
+      )
+    }
+
     const id = parseInt(scheduleId, 10)
-    if (isNaN(id) || id <= 0) {
-      log.warn("Invalid schedule ID")
+    if (id <= 0 || id > Number.MAX_SAFE_INTEGER) {
+      log.warn("Schedule ID out of valid range")
       timer({ status: "error", reason: "invalid_id" })
       return NextResponse.json(
         { isSuccess: false, message: "Invalid schedule ID" },
@@ -73,7 +82,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     log.info("Schedule fetched successfully")
-    timer({ status: "success", scheduleId: id })
+    timer({ status: "success" })
 
     return NextResponse.json(result.data, {
       headers: { "X-Request-Id": requestId }
@@ -125,10 +134,19 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // Validate schedule ID
+    // Validate schedule ID with strict input validation
+    if (!/^\d+$/.test(scheduleId)) {
+      log.warn("Invalid schedule ID format")
+      timer({ status: "error", reason: "invalid_id" })
+      return NextResponse.json(
+        { isSuccess: false, message: "Invalid schedule ID" },
+        { status: 400, headers: { "X-Request-Id": requestId } }
+      )
+    }
+
     const id = parseInt(scheduleId, 10)
-    if (isNaN(id) || id <= 0) {
-      log.warn("Invalid schedule ID")
+    if (id <= 0 || id > Number.MAX_SAFE_INTEGER) {
+      log.warn("Schedule ID out of valid range")
       timer({ status: "error", reason: "invalid_id" })
       return NextResponse.json(
         { isSuccess: false, message: "Invalid schedule ID" },
@@ -195,7 +213,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
 
     log.info("Schedule updated successfully")
-    timer({ status: "success", scheduleId: id })
+    timer({ status: "success" })
 
     return NextResponse.json(result.data, {
       headers: { "X-Request-Id": requestId }
@@ -247,10 +265,19 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // Validate schedule ID
+    // Validate schedule ID with strict input validation
+    if (!/^\d+$/.test(scheduleId)) {
+      log.warn("Invalid schedule ID format")
+      timer({ status: "error", reason: "invalid_id" })
+      return NextResponse.json(
+        { isSuccess: false, message: "Invalid schedule ID" },
+        { status: 400, headers: { "X-Request-Id": requestId } }
+      )
+    }
+
     const id = parseInt(scheduleId, 10)
-    if (isNaN(id) || id <= 0) {
-      log.warn("Invalid schedule ID")
+    if (id <= 0 || id > Number.MAX_SAFE_INTEGER) {
+      log.warn("Schedule ID out of valid range")
       timer({ status: "error", reason: "invalid_id" })
       return NextResponse.json(
         { isSuccess: false, message: "Invalid schedule ID" },
@@ -283,7 +310,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
 
     log.info("Schedule deleted successfully")
-    timer({ status: "success", scheduleId: id })
+    timer({ status: "success" })
 
     return NextResponse.json({
       success: true

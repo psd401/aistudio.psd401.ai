@@ -131,38 +131,44 @@ function validateScheduleConfig(config: ScheduleConfig): { isValid: boolean; err
     } else {
       // Comprehensive cron validation with strict input sanitization
       const trimmedCron = config.cron.trim()
-      const cronFields = trimmedCron.split(/\s+/)
 
-      // Validate exact field count first
-      if (cronFields.length !== 5) {
-        errors.push('cron expression must have exactly 5 fields (minute hour day month day-of-week)')
+      // First, ensure the cron string only contains allowed characters
+      if (!/^[0-9\*\-\/,\s]+$/.test(trimmedCron)) {
+        errors.push('Cron expression contains invalid characters')
       } else {
-        // Validate each field individually to prevent bypass attempts
-        const [minute, hour, day, month, dayOfWeek] = cronFields
+        const cronFields = trimmedCron.split(/\s+/)
 
-        // Validate minute field (0-59)
-        if (!/^(\*|([0-5]?\d)(-([0-5]?\d))?(\/\d+)?)$/.test(minute)) {
-          errors.push('Invalid minute field in cron expression')
-        }
+        // Validate exact field count first
+        if (cronFields.length !== 5) {
+          errors.push('cron expression must have exactly 5 fields (minute hour day month day-of-week)')
+        } else {
+          // Validate each field individually to prevent bypass attempts
+          const [minute, hour, day, month, dayOfWeek] = cronFields
 
-        // Validate hour field (0-23)
-        if (!/^(\*|([01]?\d|2[0-3])(-([01]?\d|2[0-3]))?(\/\d+)?)$/.test(hour)) {
-          errors.push('Invalid hour field in cron expression')
-        }
+          // Validate minute field (0-59)
+          if (!/^(\*|([0-5]?\d)(-([0-5]?\d))?(\/\d+)?)$/.test(minute)) {
+            errors.push('Invalid minute field in cron expression')
+          }
 
-        // Validate day field (1-31)
-        if (!/^(\*|([12]?\d|3[01])(-([12]?\d|3[01]))?(\/\d+)?)$/.test(day)) {
-          errors.push('Invalid day field in cron expression')
-        }
+          // Validate hour field (0-23)
+          if (!/^(\*|([01]?\d|2[0-3])(-([01]?\d|2[0-3]))?(\/\d+)?)$/.test(hour)) {
+            errors.push('Invalid hour field in cron expression')
+          }
 
-        // Validate month field (1-12)
-        if (!/^(\*|([1-9]|1[0-2])(-([1-9]|1[0-2]))?(\/\d+)?)$/.test(month)) {
-          errors.push('Invalid month field in cron expression')
-        }
+          // Validate day field (1-31)
+          if (!/^(\*|([12]?\d|3[01])(-([12]?\d|3[01]))?(\/\d+)?)$/.test(day)) {
+            errors.push('Invalid day field in cron expression')
+          }
 
-        // Validate day-of-week field (0-6)
-        if (!/^(\*|([0-6])(-([0-6]))?(\/\d+)?)$/.test(dayOfWeek)) {
-          errors.push('Invalid day-of-week field in cron expression')
+          // Validate month field (1-12)
+          if (!/^(\*|([1-9]|1[0-2])(-([1-9]|1[0-2]))?(\/\d+)?)$/.test(month)) {
+            errors.push('Invalid month field in cron expression')
+          }
+
+          // Validate day-of-week field (0-6)
+          if (!/^(\*|([0-6])(-([0-6]))?(\/\d+)?)$/.test(dayOfWeek)) {
+            errors.push('Invalid day-of-week field in cron expression')
+          }
         }
       }
     }
@@ -501,7 +507,7 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
       throw ErrorFactories.authzResourceNotFound("schedule", id.toString())
     }
 
-    const existing = transformSnakeToCamel<any>(existingResult[0])
+    // Schedule exists and user has access, proceed with update
 
     // Build update query dynamically
     const updates: string[] = []

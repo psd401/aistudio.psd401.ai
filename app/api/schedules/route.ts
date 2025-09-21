@@ -155,8 +155,8 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    log.info("Schedule created successfully", { scheduleId: result.data?.id })
-    timer({ status: "success", scheduleId: result.data?.id })
+    log.info("Schedule created successfully")
+    timer({ status: "success" })
 
     return NextResponse.json(result, {
       status: 201,
