@@ -2,20 +2,13 @@ import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals
 import { NextRequest, NextResponse } from 'next/server'
 
 // Create simple mock functions
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockGetServerSession = jest.fn<any>()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockExecuteSQL = jest.fn<any>()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockCreateLogger = jest.fn<any>()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockGenerateRequestId = jest.fn<any>()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockStartTimer = jest.fn<any>()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockSanitizeForLogging = jest.fn<any>()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockWithRateLimit = jest.fn<any>((handler: any) => handler)
+const mockGetServerSession = jest.fn<() => Promise<{ sub?: string } | null>>()
+const mockExecuteSQL = jest.fn<(sql: string, parameters?: unknown[]) => Promise<Array<Record<string, unknown>>>>()
+const mockCreateLogger = jest.fn<() => { info: jest.Mock; warn: jest.Mock; error: jest.Mock }>()
+const mockGenerateRequestId = jest.fn<() => string>()
+const mockStartTimer = jest.fn<() => jest.Mock>()
+const mockSanitizeForLogging = jest.fn<(data: unknown) => unknown>()
+const mockWithRateLimit = jest.fn<(handler: Function, config?: unknown) => Function>()
 
 // Mock the dependencies
 jest.mock('@/lib/auth/server-session', () => ({
@@ -42,7 +35,7 @@ const mockLogger = {
 }
 
 // Create a mock timer function
-const mockTimer = jest.fn() as any
+const mockTimer = jest.fn()
 
 describe('Execution Results Download API', () => {
   beforeEach(() => {

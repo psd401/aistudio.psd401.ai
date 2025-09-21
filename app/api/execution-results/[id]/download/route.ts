@@ -14,6 +14,11 @@ function sanitizeMarkdownContent(content: string): string {
   }
 
   return content
+    // Remove null bytes first
+    .replace(/\x00/g, '')
+    .replace(/\u0000/g, '')
+    .replace(/\0/g, '')
+    // Remove dangerous HTML/XML elements
     .replace(/[<>]/g, '') // Remove angle brackets that could contain HTML/XML
     .replace(/javascript:/gi, '') // Remove javascript: URLs
     .replace(/data:/gi, '') // Remove data: URLs
@@ -21,6 +26,29 @@ function sanitizeMarkdownContent(content: string): string {
     .replace(/on\w+\s*=/gi, '') // Remove event handlers like onclick=
     .replace(/\[([^\]]*)]\(javascript:[^)]*\)/gi, '[$1](#)') // Sanitize markdown links with javascript:
     .replace(/\[([^\]]*)]\(data:[^)]*\)/gi, '[$1](#)') // Sanitize markdown links with data:
+    // Additional protections
+    .replace(/eval\s*\(/gi, 'eval (') // Break eval calls
+    .replace(/Function\s*\(/gi, 'Function (') // Break Function constructor
+}
+
+// Enhanced input validation for execution result ID
+function validateExecutionResultId(id: string): number {
+  // More robust validation
+  if (!id || typeof id !== 'string') {
+    throw ErrorFactories.invalidInput("id", id, "must be a string")
+  }
+
+  // Check for injection attempts
+  if (/[^\d]/.test(id)) {
+    throw ErrorFactories.invalidInput("id", id, "must contain only digits")
+  }
+
+  const numericId = parseInt(id, 10)
+  if (!Number.isInteger(numericId) || numericId <= 0 || numericId > Number.MAX_SAFE_INTEGER) {
+    throw ErrorFactories.invalidInput("id", id, "must be a positive integer")
+  }
+
+  return numericId
 }
 
 interface ExecutionResultWithSchedule {
@@ -50,12 +78,8 @@ async function downloadHandler(
     const { id } = await params
     log.info("Downloading execution result", { resultId: sanitizeForLogging(id) })
 
-    // Validate ID parameter
-    const resultId = parseInt(id)
-    if (isNaN(resultId) || resultId <= 0) {
-      log.warn("Invalid result ID", { id })
-      throw ErrorFactories.invalidInput("id", id, "must be a positive integer")
-    }
+    // Validate ID parameter with enhanced security checks
+    const resultId = validateExecutionResultId(id)
 
     // Auth check
     const session = await getServerSession()
@@ -170,6 +194,16 @@ async function downloadHandler(
 
     // Generate filename
     const filename = generateFilename(executionResult)
+
+    // Validate content size to prevent DoS attacks
+    const MAX_CONTENT_SIZE = 10 * 1024 * 1024 // 10MB limit
+    if (Buffer.byteLength(markdown, 'utf8') > MAX_CONTENT_SIZE) {
+      log.warn("Generated content exceeds size limit", {
+        resultId,
+        contentSize: Buffer.byteLength(markdown, 'utf8')
+      })
+      throw ErrorFactories.invalidInput("content", "generated", "content too large")
+    }
 
     timer({ status: "success" })
     log.info("Execution result downloaded successfully", {
@@ -312,12 +346,21 @@ function generateSafeFilename(scheduleName: string): string {
 
   return scheduleName
     .toLowerCase()
+    // Remove null bytes (multiple representations)
+    .replace(/\x00/g, '') // Actual null byte
+    .replace(/\u0000/g, '') // Unicode null
+    .replace(/\0/g, '') // Null character
+    // Remove path traversal patterns
+    .replace(/\.\./g, '') // Remove dot-dot
+    .replace(/\//g, '') // Remove forward slash
+    .replace(/\\/g, '') // Remove backslash
+    // Remove other special characters
     .replace(/[^a-z0-9\s-]/g, '') // Remove special characters
     .replace(/\s+/g, '-') // Replace spaces with hyphens
     .replace(/-+/g, '-') // Collapse multiple hyphens
     .replace(/^-|-$/g, '') // Remove leading/trailing hyphens
-    .replace(/\.\.|\.|\/|\\|\\x00|\\u0000/g, '') // Explicitly remove path traversal chars and null bytes
-    .replace(/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i, 'file') // Replace Windows reserved names
+    // Handle Windows reserved names
+    .replace(/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i, 'file')
     .slice(0, 50) // Limit length
     .trim() || 'execution-result' // Fallback if empty after sanitization
 }

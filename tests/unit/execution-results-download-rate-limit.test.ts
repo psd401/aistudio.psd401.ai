@@ -1,8 +1,7 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals'
 
 // Create simple mock function
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockWithRateLimit = jest.fn<any>((handler: any) => handler)
+const mockWithRateLimit = jest.fn<(handler: Function, config?: unknown) => Function>((handler: Function) => handler)
 
 // Mock the rate limiting module
 jest.mock('@/lib/rate-limit', () => ({
@@ -21,7 +20,7 @@ describe('Execution Results Download Rate Limiting', () => {
   describe('Rate Limit Configuration', () => {
     it('should apply rate limiting with correct parameters', async () => {
       // Mock the rate limit wrapper to capture the configuration
-      mockWithRateLimit.mockImplementation((handler: any, config: any) => {
+      mockWithRateLimit.mockImplementation((handler: Function, config?: unknown) => {
         // Verify the configuration is correct
         expect(config).toEqual({
           interval: 60 * 1000, // 1 minute
