@@ -126,17 +126,17 @@ function validateScheduleConfig(config: ScheduleConfig): { isValid: boolean; err
   }
 
   // Validate frequency-specific fields
-  if (config.frequency === 'weekly' && config.daysOfWeek) {
-    if (!Array.isArray(config.daysOfWeek) || config.daysOfWeek.length === 0) {
-      errors.push('daysOfWeek must be a non-empty array for weekly schedules')
+  if (config.frequency === 'weekly') {
+    if (!config.daysOfWeek || !Array.isArray(config.daysOfWeek) || config.daysOfWeek.length === 0) {
+      errors.push('daysOfWeek is required and must be a non-empty array for weekly schedules')
     } else if (config.daysOfWeek.some(day => day < 0 || day > 6)) {
       errors.push('daysOfWeek must contain values between 0 (Sunday) and 6 (Saturday)')
     }
   }
 
-  if (config.frequency === 'monthly' && config.dayOfMonth) {
-    if (config.dayOfMonth < 1 || config.dayOfMonth > 31) {
-      errors.push('dayOfMonth must be between 1 and 31')
+  if (config.frequency === 'monthly') {
+    if (!config.dayOfMonth || config.dayOfMonth < 1 || config.dayOfMonth > 31) {
+      errors.push('dayOfMonth is required and must be between 1 and 31 for monthly schedules')
     }
   }
 
@@ -246,6 +246,10 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
     // Validate schedule configuration
     const validation = validateScheduleConfig(scheduleConfig)
     if (!validation.isValid) {
+      log.error("Schedule config validation failed", {
+        scheduleConfig: sanitizeForLogging(scheduleConfig),
+        validationErrors: validation.errors
+      })
       throw ErrorFactories.validationFailed(
         validation.errors.map(error => ({ field: 'scheduleConfig', message: error }))
       )

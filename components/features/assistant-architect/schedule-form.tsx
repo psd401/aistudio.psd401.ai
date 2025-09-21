@@ -102,16 +102,16 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
       }
 
       // Add frequency-specific fields
-      if (data.frequency === "weekly" && data.daysOfWeek) {
-        scheduleConfig.daysOfWeek = data.daysOfWeek
+      if (data.frequency === "weekly") {
+        scheduleConfig.daysOfWeek = data.daysOfWeek || []
       }
 
-      if (data.frequency === "monthly" && data.dayOfMonth) {
-        scheduleConfig.dayOfMonth = data.dayOfMonth
+      if (data.frequency === "monthly") {
+        scheduleConfig.dayOfMonth = data.dayOfMonth || 1
       }
 
-      if (data.frequency === "custom" && data.cron) {
-        scheduleConfig.cron = data.cron
+      if (data.frequency === "custom") {
+        scheduleConfig.cron = data.cron || ""
       }
 
       // Validate required fields
