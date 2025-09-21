@@ -24,7 +24,7 @@ function sanitizeForLogger(data: unknown): unknown {
 
   if (typeof data === "number" || typeof data === "boolean") {
     // Create new primitives to break taint flow
-    return data === null ? null : (typeof data === "number" ? Number(data) : Boolean(data))
+    return typeof data === "number" ? Number(data) : Boolean(data)
   }
 
   if (Array.isArray(data)) {
