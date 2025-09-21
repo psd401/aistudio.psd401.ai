@@ -9,6 +9,7 @@ const mockGenerateRequestId = jest.fn<() => string>()
 const mockStartTimer = jest.fn<() => jest.Mock>()
 const mockSanitizeForLogging = jest.fn<(data: unknown) => unknown>()
 const mockWithRateLimit = jest.fn<(handler: Function, config?: unknown) => Function>()
+  .mockImplementation((handler: Function, config?: unknown) => handler)
 
 // Mock the dependencies at the module level
 jest.mock('@/lib/auth/server-session', () => ({
@@ -42,7 +43,14 @@ const mockLogger = {
 
 const mockTimer = jest.fn()
 
+// Dynamic import variable
+let GET: Function
+
 describe('Execution Results Download Integration Tests', () => {
+  beforeAll(async () => {
+    const routeModule = await import('@/app/api/execution-results/[id]/download/route')
+    GET = routeModule.GET
+  })
   beforeEach(() => {
     jest.clearAllMocks()
 

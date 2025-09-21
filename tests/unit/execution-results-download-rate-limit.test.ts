@@ -1,7 +1,8 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals'
 
 // Create simple mock function
-const mockWithRateLimit = jest.fn<(handler: Function, config?: unknown) => Function>((handler: Function) => handler)
+const mockWithRateLimit = jest.fn<(handler: Function, config?: unknown) => Function>()
+  .mockImplementation((handler: Function, config?: unknown) => handler)
 
 // Mock the rate limiting module
 jest.mock('@/lib/rate-limit', () => ({
@@ -9,12 +10,19 @@ jest.mock('@/lib/rate-limit', () => ({
 }))
 
 describe('Execution Results Download Rate Limiting', () => {
+  beforeAll(async () => {
+    // Import the module once to trigger rate limit configuration
+    await import('@/app/api/execution-results/[id]/download/route')
+  })
+
   beforeEach(() => {
-    jest.clearAllMocks()
+    // Don't clear mocks as we need to check if withRateLimit was called during import
+    // jest.clearAllMocks()
   })
 
   afterEach(() => {
-    jest.resetAllMocks()
+    // Don't reset mocks as we need to preserve call history from beforeAll
+    // jest.resetAllMocks()
   })
 
   describe('Rate Limit Configuration', () => {
@@ -30,9 +38,6 @@ describe('Execution Results Download Rate Limiting', () => {
         // Return the original handler for testing
         return handler
       })
-
-      // Import the module to trigger the rate limit configuration
-      await import('@/app/api/execution-results/[id]/download/route')
 
       // Verify withRateLimit was called with correct configuration
       expect(mockWithRateLimit).toHaveBeenCalledWith(

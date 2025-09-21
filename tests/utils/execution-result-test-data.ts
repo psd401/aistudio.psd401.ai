@@ -2,6 +2,8 @@
  * Test data factories and utilities for execution result download tests
  */
 
+import { randomInt } from 'crypto'
+
 export interface MockExecutionResult {
   id: number
   scheduled_execution_id: number
@@ -32,8 +34,8 @@ export interface MockSession {
 export class ExecutionResultFactory {
   static create(overrides: Partial<MockExecutionResult> = {}): MockExecutionResult {
     const baseResult: MockExecutionResult = {
-      id: Math.floor(Math.random() * 10000) + 1,
-      scheduled_execution_id: Math.floor(Math.random() * 10000) + 1,
+      id: randomInt(1, 10001),
+      scheduled_execution_id: randomInt(1, 10001),
       result_data: JSON.stringify({ content: 'Default test content' }),
       status: 'success',
       executed_at: new Date().toISOString(),
@@ -233,8 +235,8 @@ export class ExecutionResultFactory {
 export class UserFactory {
   static create(overrides: Partial<MockUser> = {}): MockUser {
     return {
-      id: Math.floor(Math.random() * 1000) + 1,
-      cognito_sub: `user-${Math.random().toString(36).substr(2, 9)}`,
+      id: randomInt(1, 1001),
+      cognito_sub: `user-${randomInt(100000000, 999999999).toString(36)}`,
       ...overrides
     }
   }
@@ -246,7 +248,7 @@ export class UserFactory {
 export class SessionFactory {
   static create(overrides: Partial<MockSession> = {}): MockSession {
     return {
-      sub: `user-${Math.random().toString(36).substr(2, 9)}`,
+      sub: `user-${randomInt(100000000, 999999999).toString(36)}`,
       ...overrides
     }
   }
