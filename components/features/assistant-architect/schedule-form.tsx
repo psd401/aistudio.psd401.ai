@@ -114,7 +114,7 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
         scheduleConfig.cron = data.cron || ""
       }
 
-      // Validate required fields
+      // Client-side validation
       if (!data.name.trim()) {
         throw new Error("Schedule name is required")
       }
@@ -129,6 +129,25 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
 
       if (!scheduleConfig.frequency || !scheduleConfig.time) {
         throw new Error("Invalid schedule configuration")
+      }
+
+      // Validate frequency-specific requirements
+      if (data.frequency === "weekly") {
+        if (!data.daysOfWeek || data.daysOfWeek.length === 0) {
+          throw new Error("Please select at least one day for weekly schedules")
+        }
+      }
+
+      if (data.frequency === "monthly") {
+        if (!data.dayOfMonth || data.dayOfMonth < 1 || data.dayOfMonth > 31) {
+          throw new Error("Please select a valid day of month (1-31) for monthly schedules")
+        }
+      }
+
+      if (data.frequency === "custom") {
+        if (!data.cron || data.cron.trim() === "") {
+          throw new Error("Please enter a cron expression for custom schedules")
+        }
       }
 
       // Filter out empty string values from inputData
@@ -164,7 +183,20 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
           statusText: response.statusText,
           error: result
         })
-        const errorMessage = result.message ?? result.error ?? `Server error: ${response.status} ${response.statusText}`
+
+        // Extract specific error messages for better user feedback
+        let errorMessage = `Server error: ${response.status} ${response.statusText}`
+
+        if (result.message) {
+          errorMessage = result.message
+        } else if (result.error?.message) {
+          errorMessage = result.error.message
+        } else if (result.error?.details?.fields?.length > 0) {
+          // Show specific field validation errors
+          const fieldErrors = result.error.details.fields.map((field: { message: string }) => field.message).join(', ')
+          errorMessage = `Validation failed: ${fieldErrors}`
+        }
+
         throw new Error(errorMessage)
       }
 
