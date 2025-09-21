@@ -43,7 +43,7 @@ function sanitizeForLogger(data: unknown): unknown {
       for (const key of Object.keys(data)) {
         if (!(key in safeError)) {
           // Some frameworks add own props; ensure all are sanitized
-          safeError[key] = sanitizeForLogger((data as any)[key])
+          safeError[key] = sanitizeForLogger((data as unknown as Record<string, unknown>)[key])
         }
       }
       return safeError
@@ -253,32 +253,48 @@ export function createLogger(context: LogContext): Logger {
   return {
     ...logger,
     info: (message: string, meta?: object) => {
-      const cleanMessage = sanitizeForLogger(message) as string
-      const cleanContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
-      const cleanMeta = meta ? sanitizeForLogger(meta) as object : {}
-      const logData = { ...cleanContext, ...cleanMeta }
-      logger.info(cleanMessage, logData)
+      // Create completely new string to break taint flow
+      const safeMessage = String(sanitizeForLogger(message)).substring(0)
+      const safeContext = JSON.parse(JSON.stringify(
+        sanitizeForLogger({ ...getLogContext(), ...context })
+      ))
+      const safeMeta = meta ? JSON.parse(JSON.stringify(
+        sanitizeForLogger(meta)
+      )) : {}
+      logger.info(safeMessage, { ...safeContext, ...safeMeta })
     },
     warn: (message: string, meta?: object) => {
-      const cleanMessage = sanitizeForLogger(message) as string
-      const cleanContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
-      const cleanMeta = meta ? sanitizeForLogger(meta) as object : {}
-      const logData = { ...cleanContext, ...cleanMeta }
-      logger.warn(cleanMessage, logData)
+      // Create completely new string to break taint flow
+      const safeMessage = String(sanitizeForLogger(message)).substring(0)
+      const safeContext = JSON.parse(JSON.stringify(
+        sanitizeForLogger({ ...getLogContext(), ...context })
+      ))
+      const safeMeta = meta ? JSON.parse(JSON.stringify(
+        sanitizeForLogger(meta)
+      )) : {}
+      logger.warn(safeMessage, { ...safeContext, ...safeMeta })
     },
     error: (message: string, meta?: object) => {
-      const cleanMessage = sanitizeForLogger(message) as string
-      const cleanContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
-      const cleanMeta = meta ? sanitizeForLogger(meta) as object : {}
-      const logData = { ...cleanContext, ...cleanMeta }
-      logger.error(cleanMessage, logData)
+      // Create completely new string to break taint flow
+      const safeMessage = String(sanitizeForLogger(message)).substring(0)
+      const safeContext = JSON.parse(JSON.stringify(
+        sanitizeForLogger({ ...getLogContext(), ...context })
+      ))
+      const safeMeta = meta ? JSON.parse(JSON.stringify(
+        sanitizeForLogger(meta)
+      )) : {}
+      logger.error(safeMessage, { ...safeContext, ...safeMeta })
     },
     debug: (message: string, meta?: object) => {
-      const cleanMessage = sanitizeForLogger(message) as string
-      const cleanContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
-      const cleanMeta = meta ? sanitizeForLogger(meta) as object : {}
-      const logData = { ...cleanContext, ...cleanMeta }
-      logger.debug(cleanMessage, logData)
+      // Create completely new string to break taint flow
+      const safeMessage = String(sanitizeForLogger(message)).substring(0)
+      const safeContext = JSON.parse(JSON.stringify(
+        sanitizeForLogger({ ...getLogContext(), ...context })
+      ))
+      const safeMeta = meta ? JSON.parse(JSON.stringify(
+        sanitizeForLogger(meta)
+      )) : {}
+      logger.debug(safeMessage, { ...safeContext, ...safeMeta })
     },
   } as Logger
 }

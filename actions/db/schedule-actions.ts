@@ -568,6 +568,13 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
     }
 
     if (params.assistantArchitectId !== undefined) {
+      // Security: Pre-validate user access BEFORE sanitization to prevent bypass
+      // First verify user has general assistant architect access
+      const hasAccess = await hasToolAccess(session.sub, "assistant-architect")
+      if (!hasAccess) {
+        throw ErrorFactories.authzToolAccessDenied("assistant-architect")
+      }
+
       // Security: Sanitize ID with CodeQL-compliant pattern that breaks taint flow
       let cleanArchitectId: number
       try {
@@ -579,7 +586,7 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
         }])
       }
 
-      // Check if assistant architect exists and user has access
+      // Check if assistant architect exists and user has ownership access
       const architectResult = await executeSQL<{ id: number }>(`
         SELECT id FROM assistant_architects
         WHERE id = :architectId AND user_id = :userId
