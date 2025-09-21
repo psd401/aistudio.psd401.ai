@@ -88,8 +88,19 @@ export async function updateUserRoles(userId: number, roleNames: string[]): Prom
     
     return { success: true };
   } catch (error) {
+    // Defensive: convert Error to plain object before passing to logger
+    function errorToObject(err: unknown) {
+      if (err instanceof Error) {
+        return { 
+          name: err.name, 
+          message: err.message, 
+          stack: err.stack 
+        };
+      }
+      return err;
+    }
     log.error("Failed to update user roles", {
-      error: error instanceof Error ? error.message : "Unknown error",
+      error: errorToObject(error),
       userId,
       roleNames
     });
