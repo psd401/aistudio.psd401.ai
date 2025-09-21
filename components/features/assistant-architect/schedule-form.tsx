@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/form"
 import { DialogFooter } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
+import { createLogger, generateRequestId, sanitizeForLogging } from "@/lib/logger"
 import type { AssistantArchitectWithRelations } from "@/types/assistant-architect-types"
 import type { ScheduleConfig } from "@/actions/db/schedule-actions"
 
@@ -87,9 +88,15 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
   const frequency = form.watch("frequency")
 
   const onSubmit = async (data: ScheduleFormData) => {
+    const requestId = generateRequestId()
+    const log = createLogger({ requestId, component: "ScheduleForm" })
     setIsSubmitting(true)
 
     try {
+      log.info("Starting schedule creation", {
+        assistantArchitectId: tool.id,
+        frequency: data.frequency
+      })
       const scheduleConfig: ScheduleConfig = {
         frequency: data.frequency,
         time: data.time,
@@ -141,7 +148,11 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
         inputData: filteredInputData,
       }
 
-      console.error("Creating schedule with payload:", requestPayload)
+      log.info("Creating schedule", {
+        assistantArchitectId: requestPayload.assistantArchitectId,
+        scheduleName: sanitizeForLogging(requestPayload.name),
+        frequency: requestPayload.scheduleConfig.frequency
+      })
 
       const response = await fetch("/api/schedules", {
         method: "POST",
@@ -154,11 +165,11 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
       const result = await response.json()
 
       if (!response.ok) {
-        console.error("Schedule creation failed:", {
+        log.error("Schedule creation failed", {
           status: response.status,
           statusText: response.statusText,
-          result,
-          sentData: requestPayload
+          error: sanitizeForLogging(result),
+          requestId
         })
         const errorMessage = result.message || result.error || `Server error: ${response.status} ${response.statusText}`
         throw new Error(errorMessage)
@@ -171,7 +182,10 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
 
       onSuccess()
     } catch (error) {
-      console.error("Failed to create schedule:", error)
+      log.error("Failed to create schedule", {
+        error: sanitizeForLogging(error),
+        requestId
+      })
       toast({
         title: "Failed to Create Schedule",
         description: error instanceof Error ? error.message : "An unknown error occurred",
