@@ -26,10 +26,10 @@ export async function GET() {
       )
     }
 
-    // Check if user has access to the architect tool
-    const hasAccess = await hasToolAccess(session.sub, "architect")
+    // Check if user has access to the assistant-architect tool
+    const hasAccess = await hasToolAccess(session.sub, "assistant-architect")
     if (!hasAccess) {
-      log.warn("Forbidden - User lacks architect access")
+      log.warn("Forbidden - User lacks assistant-architect access")
       timer({ status: "error", reason: "forbidden" })
       return NextResponse.json(
         { isSuccess: false, message: "Forbidden" },
@@ -90,10 +90,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if user has access to the architect tool
-    const hasAccess = await hasToolAccess(session.sub, "architect")
+    // Check if user has access to the assistant-architect tool
+    const hasAccess = await hasToolAccess(session.sub, "assistant-architect")
     if (!hasAccess) {
-      log.warn("Forbidden - User lacks architect access")
+      log.warn("Forbidden - User lacks assistant-architect access")
       timer({ status: "error", reason: "forbidden" })
       return NextResponse.json(
         { isSuccess: false, message: "Forbidden" },

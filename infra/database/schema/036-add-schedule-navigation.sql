@@ -15,7 +15,7 @@ SELECT
     true,
     'Manage automated Assistant Architect execution schedules'
 FROM tools t
-WHERE t.identifier = 'architect'
+WHERE t.identifier = 'assistant-architect'
 ON CONFLICT (label, link) DO UPDATE SET
     icon = EXCLUDED.icon,
     position = EXCLUDED.position,
