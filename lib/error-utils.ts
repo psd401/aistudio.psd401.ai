@@ -397,19 +397,19 @@ export function handleError(
     // Log based on error level
     switch (typedError.level) {
       case ErrorLevel.INFO:
-        log.info(typedError.technicalMessage || typedError.message, sanitizedDetails as object)
+        log.info(sanitizeForLogger(typedError.technicalMessage || typedError.message) as string, sanitizedDetails as object)
         break
       case ErrorLevel.WARN:
-        log.warn(typedError.technicalMessage || typedError.message, sanitizedDetails as object)
+        log.warn(sanitizeForLogger(typedError.technicalMessage || typedError.message) as string, sanitizedDetails as object)
         break
       case ErrorLevel.ERROR:
-        log.error(typedError.technicalMessage || typedError.message, {
+        log.error(sanitizeForLogger(typedError.technicalMessage || typedError.message) as string, {
           ...(sanitizedDetails as object),
           stack: typedError.stack
         })
         break
       case ErrorLevel.FATAL:
-        log.error(`FATAL: ${typedError.technicalMessage || typedError.message}`, {
+        log.error(sanitizeForLogger(`FATAL: ${typedError.technicalMessage || typedError.message}`) as string, {
           ...(sanitizedDetails as object),
           stack: typedError.stack
         })
