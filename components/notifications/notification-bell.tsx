@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { toast } from "sonner"
 import { Bell, CheckCircle, AlertCircle, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -176,7 +177,15 @@ export function NotificationBell({
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="justify-center">
-              <Button variant="ghost" size="sm" className="w-full">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={() => {
+                  toast.info("View All Notifications page coming soon")
+                  setOpen(false)
+                }}
+              >
                 View All Notifications
               </Button>
             </DropdownMenuItem>

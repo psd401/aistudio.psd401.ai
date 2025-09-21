@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { toast } from "sonner"
 import { Mail, CheckCircle, XCircle, RotateCcw, Download, Eye } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -181,8 +182,7 @@ export function MessageCenter({
                       onClick={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
-                        // Download functionality would be implemented here
-                        // TODO: Implement download functionality
+                        toast.info("Download feature coming soon")
                       }}
                     >
                       <Download className="h-3 w-3" />
@@ -198,7 +198,15 @@ export function MessageCenter({
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="justify-center">
-              <Button variant="ghost" size="sm" className="w-full">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={() => {
+                  toast.info("View All Results page coming soon")
+                  setOpen(false)
+                }}
+              >
                 View All Results
               </Button>
             </DropdownMenuItem>

@@ -187,11 +187,27 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     return () => clearInterval(interval)
   }, [fetchNotifications, isLoading])
 
-  // Set up EventSource for real-time updates
+  // Set up EventSource for real-time updates with exponential backoff
   useEffect(() => {
     let eventSource: EventSource | null = null
+    let retryCount = 0
+    const maxRetries = 10
+    const baseDelay = 5000 // 5 seconds
+
+    const getBackoffDelay = (attempt: number) => {
+      // Exponential backoff: 5s, 10s, 20s, 40s, then cap at 60s
+      const delay = Math.min(baseDelay * Math.pow(2, attempt), 60000)
+      // Add jitter (±25%) to prevent thundering herd
+      const jitter = delay * 0.25 * (Math.random() - 0.5)
+      return delay + jitter
+    }
 
     const setupEventSource = () => {
+      if (retryCount >= maxRetries) {
+        log.error('Max SSE retry attempts reached', { maxRetries })
+        return
+      }
+
       try {
         eventSource = new EventSource('/api/notifications/stream')
 
@@ -199,6 +215,9 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
           try {
             const data = JSON.parse(event.data)
             log.info('Received notification update', { type: data.type })
+
+            // Reset retry count on successful message
+            retryCount = 0
 
             if (data.type === 'notification_update') {
               // Refresh notifications when we get an update
@@ -212,20 +231,37 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
         }
 
         eventSource.onerror = (event) => {
-          log.warn('SSE connection error, will retry', { event })
+          log.warn('SSE connection error, will retry', { event, retryCount })
           eventSource?.close()
 
-          // Retry connection after 5 seconds
-          setTimeout(setupEventSource, 5000)
+          // Increment retry count and setup retry with backoff
+          retryCount++
+          const delay = getBackoffDelay(retryCount - 1)
+
+          log.info('Retrying SSE connection', {
+            retryCount,
+            delayMs: Math.round(delay),
+            maxRetries
+          })
+
+          setTimeout(setupEventSource, delay)
         }
 
         eventSource.onopen = () => {
-          log.info('SSE connection established')
+          log.info('SSE connection established', { retryCount })
+          // Reset retry count on successful connection
+          retryCount = 0
         }
       } catch (err) {
         log.error('Failed to setup SSE connection', {
-          error: err instanceof Error ? err.message : 'Unknown error'
+          error: err instanceof Error ? err.message : 'Unknown error',
+          retryCount
         })
+
+        // Increment retry count and setup retry with backoff
+        retryCount++
+        const delay = getBackoffDelay(retryCount - 1)
+        setTimeout(setupEventSource, delay)
       }
     }
 

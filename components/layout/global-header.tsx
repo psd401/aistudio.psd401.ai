@@ -2,7 +2,6 @@
 
 import Link from "next/link"
 import Image from "next/image"
-import { useRouter } from "next/navigation"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { UserButton } from "@/components/user/user-button"
@@ -23,11 +22,10 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Textarea } from "@/components/ui/textarea"
 import { useState, useRef, useEffect } from "react"
 import { createFreshserviceTicketAction } from "@/actions/create-freshservice-ticket.actions"
+import { toast } from "sonner"
 // ... rest of imports ...
 
 export function GlobalHeader() {
-  const router = useRouter()
-
   // Get notification data
   const {
     notifications,
@@ -44,13 +42,19 @@ export function GlobalHeader() {
   } = useExecutionResults({ limit: 10 })
 
   const handleViewResult = (resultId: number) => {
-    // Navigate to result details page
-    router.push(`/execution-results/${resultId}`)
+    // TODO: Implement execution results page
+    toast.info("View Result feature coming soon", {
+      description: `Result ID: ${resultId}`
+    })
+    // Future: router.push(`/execution-results/${resultId}`)
   }
 
   const handleRetryExecution = (scheduledExecutionId: number) => {
-    // Navigate to retry execution page or trigger retry
-    router.push(`/schedules/${scheduledExecutionId}/retry`)
+    // TODO: Implement retry execution functionality
+    toast.info("Retry Execution feature coming soon", {
+      description: `Schedule ID: ${scheduledExecutionId}`
+    })
+    // Future: router.push(`/schedules/${scheduledExecutionId}/retry`)
   }
 
   return (

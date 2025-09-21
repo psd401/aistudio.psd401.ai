@@ -3,8 +3,44 @@ import { getServerSession } from "@/lib/auth/server-session"
 import { createLogger, generateRequestId } from "@/lib/logger"
 
 // In-memory connection tracking (use Redis in production)
-const activeConnections = new Map<string, number>()
+const activeConnections = new Map<string, { count: number; lastCleanup: number }>()
 const MAX_CONNECTIONS_PER_USER = 3
+const MAX_TOTAL_CONNECTIONS = 1000
+const CLEANUP_INTERVAL = 5 * 60 * 1000 // 5 minutes
+const CONNECTION_TIMEOUT = 15 * 60 * 1000 // 15 minutes
+
+// Periodic cleanup to prevent memory leaks
+const cleanupStaleConnections = () => {
+  const now = Date.now()
+  let cleaned = 0
+
+  for (const [userId, data] of activeConnections.entries()) {
+    if (now - data.lastCleanup > CONNECTION_TIMEOUT) {
+      activeConnections.delete(userId)
+      cleaned++
+    }
+  }
+
+  // If we're still over the limit, remove oldest entries
+  if (activeConnections.size > MAX_TOTAL_CONNECTIONS) {
+    const entries = Array.from(activeConnections.entries())
+      .sort((a, b) => a[1].lastCleanup - b[1].lastCleanup)
+
+    const toRemove = entries.slice(0, entries.length - MAX_TOTAL_CONNECTIONS)
+    toRemove.forEach(([userId]) => {
+      activeConnections.delete(userId)
+      cleaned++
+    })
+  }
+
+  if (cleaned > 0) {
+    const cleanupLog = createLogger({ operation: 'sse-cleanup' })
+    cleanupLog.info('Cleaned up stale SSE connections', { cleaned })
+  }
+}
+
+// Run cleanup periodically
+setInterval(cleanupStaleConnections, CLEANUP_INTERVAL)
 
 export async function GET(request: NextRequest) {
   const requestId = generateRequestId()
@@ -24,11 +60,14 @@ export async function GET(request: NextRequest) {
     log.info("Establishing SSE connection for user", { userId })
 
     // Check connection limits for DoS protection
-    const currentConnections = activeConnections.get(userId) || 0
-    if (currentConnections >= MAX_CONNECTIONS_PER_USER) {
+    const now = Date.now()
+    const userConnections = activeConnections.get(userId)
+    const currentCount = userConnections?.count || 0
+
+    if (currentCount >= MAX_CONNECTIONS_PER_USER) {
       log.warn("Connection limit exceeded for user", {
         userId,
-        currentConnections,
+        currentConnections: currentCount,
         maxAllowed: MAX_CONNECTIONS_PER_USER
       })
       return new Response('Too Many Connections', {
@@ -41,7 +80,10 @@ export async function GET(request: NextRequest) {
     }
 
     // Increment connection count
-    activeConnections.set(userId, currentConnections + 1)
+    activeConnections.set(userId, {
+      count: currentCount + 1,
+      lastCleanup: now
+    })
 
     // Create a ReadableStream for SSE
     const stream = new ReadableStream({
@@ -62,18 +104,23 @@ export async function GET(request: NextRequest) {
           if (maxConnectionTime.current) clearTimeout(maxConnectionTime.current)
 
           // Decrement connection count for DoS protection
-          const currentCount = activeConnections.get(userId) || 0
-          if (currentCount > 1) {
-            activeConnections.set(userId, currentCount - 1)
-          } else {
-            activeConnections.delete(userId)
+          const userConnections = activeConnections.get(userId)
+          if (userConnections) {
+            if (userConnections.count > 1) {
+              activeConnections.set(userId, {
+                count: userConnections.count - 1,
+                lastCleanup: Date.now()
+              })
+            } else {
+              activeConnections.delete(userId)
+            }
           }
 
           try {
             controller.close()
             log.info("SSE connection closed successfully", {
               userId,
-              remainingConnections: activeConnections.get(userId) || 0
+              remainingConnections: activeConnections.get(userId)?.count || 0
             })
           } catch (error) {
             // Controller already closed, this is expected in some scenarios

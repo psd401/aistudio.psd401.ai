@@ -70,6 +70,81 @@ export function sanitizeForLogging(data: unknown): unknown {
 /**
  * Create a client-side logger with context
  */
+// Global log queue and batching configuration
+const logQueue: unknown[] = []
+const MAX_QUEUE_SIZE = 20
+const BATCH_INTERVAL = 5000 // 5 seconds
+let batchTimer: NodeJS.Timeout | null = null
+let isSending = false
+
+// Function to send batched logs
+const sendBatchedLogs = async () => {
+  if (isSending || logQueue.length === 0) return
+
+  isSending = true
+  const logsToSend = logQueue.splice(0, logQueue.length) // Clear queue
+
+  try {
+    await fetch('/api/logs/client', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        logs: logsToSend,
+        batched: true,
+        timestamp: new Date().toISOString()
+      }),
+    })
+  } catch {
+    // Silent fail - don't expose errors to user
+    // Note: We don't put logs back in queue to avoid infinite loops
+  } finally {
+    isSending = false
+  }
+}
+
+// Function to queue a log for batching
+const queueLog = (logData: unknown) => {
+  // Add to queue
+  logQueue.push(logData)
+
+  // If queue is full, send immediately
+  if (logQueue.length >= MAX_QUEUE_SIZE) {
+    if (batchTimer) {
+      clearTimeout(batchTimer)
+      batchTimer = null
+    }
+    sendBatchedLogs()
+    return
+  }
+
+  // Set timer if not already set
+  if (!batchTimer) {
+    batchTimer = setTimeout(() => {
+      batchTimer = null
+      sendBatchedLogs()
+    }, BATCH_INTERVAL)
+  }
+}
+
+// Send any remaining logs before page unload
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    if (logQueue.length > 0) {
+      // Use sendBeacon for better reliability during page unload
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/api/logs/client', JSON.stringify({
+          logs: logQueue,
+          batched: true,
+          timestamp: new Date().toISOString(),
+          unload: true
+        }))
+      }
+    }
+  })
+}
+
 export function createLogger(context: ClientLogContext = {}): ClientLogger {
   const isDev = process.env.NODE_ENV === 'development'
 
@@ -87,13 +162,9 @@ export function createLogger(context: ClientLogContext = {}): ClientLogger {
 
     const sanitizedData = sanitizeForLogging(logData)
 
-    // Send logs to backend endpoint for proper logging
-    // This replaces console logging to comply with CLAUDE.md rules
+    // Queue logs for batching (only errors and warnings to reduce noise)
     if (level === 'error' || level === 'warn') {
-      // Only send errors and warnings to reduce noise
-      sendLogToBackend(sanitizedData).catch(() => {
-        // Silent fail - don't use console even for error handling
-      })
+      queueLog(sanitizedData)
     }
 
     // Store in sessionStorage for debugging in development if needed
@@ -109,21 +180,6 @@ export function createLogger(context: ClientLogContext = {}): ClientLogger {
       } catch {
         // Silent fail if sessionStorage is not available
       }
-    }
-  }
-
-  // Helper function to send logs to backend
-  const sendLogToBackend = async (logData: unknown) => {
-    try {
-      await fetch('/api/logs/client', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(logData),
-      })
-    } catch {
-      // Silent fail - don't expose errors to user
     }
   }
 
