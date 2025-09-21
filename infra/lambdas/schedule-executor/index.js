@@ -376,37 +376,41 @@ async function executeAssistantArchitectForSchedule(scheduledExecution, executio
     inputData: Object.keys(scheduledExecution.input_data || {})
   });
 
-  // This is a simplified version that creates a job directly and sends to SQS
-  // The full execution will happen in the streaming-jobs-worker Lambda
-
-  const jobId = generateRequestId(); // Simple job ID for tracking
-
   // Get streaming jobs queue URL (this should be configured via environment)
   const queueUrl = process.env.STREAMING_JOBS_QUEUE_URL;
   if (!queueUrl) {
     throw new Error('STREAMING_JOBS_QUEUE_URL environment variable not configured');
   }
 
-  // Send job message to SQS for the streaming-jobs-worker to process
-  const jobMessage = {
-    jobId,
-    type: 'assistant-architect-scheduled',
-    assistantArchitectId: scheduledExecution.assistant_architect_id,
-    userId: scheduledExecution.user_id,
-    inputData: scheduledExecution.input_data || {},
-    executionResultId,
-    scheduledExecutionId: scheduledExecution.id,
-    timestamp: new Date().toISOString()
-  };
+  // Load assistant architect configuration and create proper streaming job
+  const assistantArchitect = await loadAssistantArchitect(scheduledExecution.assistant_architect_id);
+  if (!assistantArchitect) {
+    throw new Error(`Assistant architect not found: ${scheduledExecution.assistant_architect_id}`);
+  }
 
+  // Create streaming job in database (following main app pattern)
+  const streamingJobId = await createStreamingJob(
+    scheduledExecution,
+    assistantArchitect,
+    executionResultId,
+    requestId
+  );
+
+  log.info('Streaming job created for scheduled execution', {
+    streamingJobId,
+    executionResultId,
+    scheduledExecutionId: scheduledExecution.id
+  });
+
+  // Send job ID to SQS queue for the streaming-jobs-worker to process
   try {
     await sqsClient.send(new SendMessageCommand({
       QueueUrl: queueUrl,
-      MessageBody: JSON.stringify(jobMessage),
+      MessageBody: streamingJobId, // Send just the job ID like regular jobs
       MessageAttributes: {
         jobType: {
           DataType: 'String',
-          StringValue: 'assistant-architect-scheduled'
+          StringValue: 'ai-streaming-assistant-architect'
         },
         assistantArchitectId: {
           DataType: 'String',
@@ -419,13 +423,21 @@ async function executeAssistantArchitectForSchedule(scheduledExecution, executio
         executionResultId: {
           DataType: 'String',
           StringValue: String(executionResultId)
+        },
+        scheduledExecutionId: {
+          DataType: 'String',
+          StringValue: String(scheduledExecution.id)
+        },
+        isScheduledExecution: {
+          DataType: 'String',
+          StringValue: 'true'
         }
       }
     }));
 
-    log.info('Job sent to streaming queue successfully', { jobId });
+    log.info('Job sent to streaming queue successfully', { streamingJobId });
 
-    return { jobId };
+    return { jobId: streamingJobId };
   } catch (error) {
     log.error('Failed to send job to streaming queue', { error: error.message });
     throw error;
@@ -809,6 +821,169 @@ async function getUserScheduleCount(userId) {
     log.error('Failed to get user schedule count', {
       error: error.message,
       userId: sanitizeForLogging(userId)
+    });
+    throw error;
+  }
+}
+
+/**
+ * Load assistant architect configuration from database
+ */
+async function loadAssistantArchitect(assistantArchitectId) {
+  const log = createLogger({ operation: 'loadAssistantArchitect' });
+
+  try {
+    const architectId = safeParseInt(assistantArchitectId, 'assistant architect ID');
+
+    const command = new ExecuteStatementCommand({
+      resourceArn: DATABASE_RESOURCE_ARN,
+      secretArn: DATABASE_SECRET_ARN,
+      database: DATABASE_NAME,
+      sql: `
+        SELECT
+          aa.id,
+          aa.name,
+          aa.description,
+          aa.instructions,
+          aa.model_id,
+          aa.created_by,
+          aa.enabled_tools,
+          m.model_id as model_string,
+          m.provider,
+          m.label as model_label
+        FROM assistant_architects aa
+        JOIN ai_models m ON aa.model_id = m.id
+        WHERE aa.id = :assistant_architect_id
+      `,
+      parameters: [
+        { name: 'assistant_architect_id', value: { longValue: architectId } }
+      ]
+    });
+
+    const response = await rdsClient.send(command);
+
+    if (!response.records || response.records.length === 0) {
+      return null;
+    }
+
+    const record = response.records[0];
+
+    return {
+      id: record[0].longValue,
+      name: record[1].stringValue,
+      description: record[2].stringValue,
+      instructions: record[3].stringValue,
+      model_id: record[4].longValue,
+      created_by: record[5].longValue,
+      enabled_tools: record[6].stringValue ? safeJsonParse(record[6].stringValue, [], 'enabled_tools') : [],
+      model_string: record[7].stringValue,
+      provider: record[8].stringValue,
+      model_label: record[9].stringValue
+    };
+  } catch (error) {
+    log.error('Failed to load assistant architect', {
+      error: error.message,
+      assistantArchitectId: sanitizeForLogging(assistantArchitectId)
+    });
+    throw error;
+  }
+}
+
+/**
+ * Generate UUID for job ID (simplified version)
+ */
+function generateUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+/**
+ * Create streaming job in database (similar to JobManagementService.createJob)
+ */
+async function createStreamingJob(scheduledExecution, assistantArchitect, executionResultId, requestId) {
+  const log = createLogger({ operation: 'createStreamingJob', requestId });
+
+  try {
+    // Generate job ID
+    const jobId = generateUUID();
+
+    // Prepare fake conversation ID for scheduled jobs
+    const conversationId = `scheduled-${scheduledExecution.id}`;
+
+    // Prepare request data for streaming job
+    const requestData = {
+      messages: [], // Empty messages for assistant architect
+      modelId: assistantArchitect.model_string,
+      provider: assistantArchitect.provider,
+      systemPrompt: assistantArchitect.instructions || 'You are an AI assistant.',
+      options: {
+        responseMode: 'standard'
+      },
+      source: 'assistant-architect',
+      toolMetadata: {
+        toolId: assistantArchitect.id,
+        executionId: null, // Will be updated when execution starts
+        prompts: [], // Will be loaded by streaming worker
+        inputMapping: scheduledExecution.input_data || {}
+      },
+      // Add metadata to identify this as a scheduled execution
+      scheduledExecution: {
+        executionResultId: executionResultId,
+        scheduledExecutionId: scheduledExecution.id,
+        scheduleName: scheduledExecution.name,
+        userId: scheduledExecution.user_id
+      }
+    };
+
+    // Insert job into database
+    const command = new ExecuteStatementCommand({
+      resourceArn: DATABASE_RESOURCE_ARN,
+      secretArn: DATABASE_SECRET_ARN,
+      database: DATABASE_NAME,
+      sql: `
+        INSERT INTO ai_streaming_jobs (
+          id,
+          conversation_id,
+          user_id,
+          model_id,
+          status,
+          request_data
+        ) VALUES (
+          :id::uuid,
+          :conversation_id,
+          :user_id,
+          :model_id,
+          'pending',
+          :request_data::jsonb
+        )
+      `,
+      parameters: [
+        { name: 'id', value: { stringValue: jobId } },
+        { name: 'conversation_id', value: { stringValue: conversationId } },
+        { name: 'user_id', value: { longValue: scheduledExecution.user_id } },
+        { name: 'model_id', value: { longValue: assistantArchitect.model_id } },
+        { name: 'request_data', value: { stringValue: JSON.stringify(requestData) } }
+      ]
+    });
+
+    await rdsClient.send(command);
+
+    log.info('Streaming job created successfully', {
+      jobId,
+      assistantArchitectId: assistantArchitect.id,
+      scheduledExecutionId: scheduledExecution.id,
+      executionResultId
+    });
+
+    return jobId;
+  } catch (error) {
+    log.error('Failed to create streaming job', {
+      error: error.message,
+      assistantArchitectId: assistantArchitect?.id,
+      scheduledExecutionId: scheduledExecution?.id
     });
     throw error;
   }

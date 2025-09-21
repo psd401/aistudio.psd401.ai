@@ -9,6 +9,7 @@ import { ProcessingStack } from '../lib/processing-stack';
 import { DocumentProcessingStack } from '../lib/document-processing-stack';
 import { MonitoringStack } from '../lib/monitoring-stack';
 import { SchedulerStack } from '../lib/scheduler-stack';
+import { EmailNotificationStack } from '../lib/email-notification-stack';
 import { SecretValue } from 'aws-cdk-lib';
 
 const app = new cdk.App();
@@ -116,6 +117,16 @@ devSchedulerStack.addDependency(devDbStack);
 cdk.Tags.of(devSchedulerStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devSchedulerStack).add(key, value));
 
+const devEmailNotificationStack = new EmailNotificationStack(app, 'AIStudio-EmailNotificationStack-Dev', {
+  environment: 'dev',
+  databaseResourceArn: devDbStack.databaseResourceArn,
+  databaseSecretArn: devDbStack.databaseSecretArn,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+devEmailNotificationStack.addDependency(devDbStack);
+cdk.Tags.of(devEmailNotificationStack).add('Environment', 'Dev');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devEmailNotificationStack).add(key, value));
+
 // Prod environment
 const prodDbStack = new DatabaseStack(app, 'AIStudio-DatabaseStack-Prod', {
   environment: 'prod',
@@ -170,6 +181,16 @@ const prodSchedulerStack = new SchedulerStack(app, 'AIStudio-SchedulerStack-Prod
 prodSchedulerStack.addDependency(prodDbStack);
 cdk.Tags.of(prodSchedulerStack).add('Environment', 'Prod');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodSchedulerStack).add(key, value));
+
+const prodEmailNotificationStack = new EmailNotificationStack(app, 'AIStudio-EmailNotificationStack-Prod', {
+  environment: 'prod',
+  databaseResourceArn: prodDbStack.databaseResourceArn,
+  databaseSecretArn: prodDbStack.databaseSecretArn,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+prodEmailNotificationStack.addDependency(prodDbStack);
+cdk.Tags.of(prodEmailNotificationStack).add('Environment', 'Prod');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodEmailNotificationStack).add(key, value));
 
 // Frontend stacks - created after all other stacks
 if (baseDomain) {

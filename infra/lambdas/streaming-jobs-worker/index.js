@@ -1,6 +1,7 @@
 const { RDSDataClient, ExecuteStatementCommand } = require('@aws-sdk/client-rds-data');
 const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
 const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
 const { UnifiedStreamingService, createSettingsManager } = require('@aistudio/streaming-core');
 
 // Lambda logging utilities (simplified version of main app pattern)
@@ -71,6 +72,7 @@ function createLogger(context = {}) {
 const rdsClient = new RDSDataClient({});
 const sqsClient = new SQSClient({});
 const s3Client = new S3Client({});
+const ssmClient = new SSMClient({});
 
 // Environment variables
 const DATABASE_RESOURCE_ARN = process.env.DATABASE_RESOURCE_ARN;
@@ -1020,7 +1022,18 @@ async function processAssistantArchitectJob(job) {
 
           // Complete the streaming job
           await completeJob(job.id, responseData, finalText);
-          
+
+          // Check if this is a scheduled execution and trigger notification
+          if (job.request_data?.scheduledExecution) {
+            console.log('Triggering notification for scheduled execution', {
+              executionResultId: job.request_data.scheduledExecution.executionResultId,
+              scheduledExecutionId: job.request_data.scheduledExecution.scheduledExecutionId,
+              scheduleName: job.request_data.scheduledExecution.scheduleName
+            });
+
+            await triggerNotification(job, responseData);
+          }
+
           // Save assistant response to nexus_messages (for Nexus conversations)
           if (job.request_data?.source === 'nexus' && job.nexus_conversation_id) {
             const assistantResponseData = {
@@ -1078,10 +1091,26 @@ async function processAssistantArchitectJob(job) {
     if (job.request_data?.toolMetadata?.executionId) {
       await updateToolExecutionStatus(job.request_data.toolMetadata.executionId, 'failed', error.message);
     }
-    
+
     // Mark job as failed
     await updateJobStatus(job.id, 'failed', null, `Assistant Architect processing failed: ${error.message}`);
-    
+
+    // Check if this is a scheduled execution and trigger failure notification
+    if (job.request_data?.scheduledExecution) {
+      console.log('Triggering failure notification for scheduled execution', {
+        executionResultId: job.request_data.scheduledExecution.executionResultId,
+        scheduledExecutionId: job.request_data.scheduledExecution.scheduledExecutionId,
+        scheduleName: job.request_data.scheduledExecution.scheduleName,
+        error: error.message
+      });
+
+      try {
+        await triggerNotification(job, null, error.message);
+      } catch (notificationError) {
+        console.error('Failed to trigger failure notification', { error: notificationError.message });
+      }
+    }
+
     throw error;
   }
 }
@@ -1564,4 +1593,137 @@ function substituteVariables(content, context) {
   });
   
   return processedContent;
+}
+
+/**
+ * Trigger notification for scheduled execution completion
+ */
+async function triggerNotification(job, responseData, errorMessage = null) {
+  try {
+    const scheduledExecution = job.request_data.scheduledExecution;
+
+    console.log('Processing notification trigger', {
+      executionResultId: scheduledExecution.executionResultId,
+      scheduledExecutionId: scheduledExecution.scheduledExecutionId,
+      hasError: !!errorMessage
+    });
+
+    // Update execution result with completion data
+    await updateExecutionResult(
+      scheduledExecution.executionResultId,
+      errorMessage ? 'failed' : 'success',
+      responseData,
+      null, // execution duration will be calculated by database
+      errorMessage
+    );
+
+    // Get notification queue URL from SSM
+    const notificationQueueUrl = await getNotificationQueueUrl();
+    if (!notificationQueueUrl) {
+      console.warn('Notification queue URL not found, skipping notification');
+      return;
+    }
+
+    // Send notification message to queue
+    const notificationMessage = {
+      executionResultId: scheduledExecution.executionResultId,
+      userId: scheduledExecution.userId,
+      notificationType: 'email',
+      scheduleName: scheduledExecution.scheduleName
+    };
+
+    await sqsClient.send(new SendMessageCommand({
+      QueueUrl: notificationQueueUrl,
+      MessageBody: JSON.stringify(notificationMessage),
+      MessageAttributes: {
+        notificationType: {
+          DataType: 'String',
+          StringValue: 'email'
+        },
+        executionResultId: {
+          DataType: 'String',
+          StringValue: String(scheduledExecution.executionResultId)
+        },
+        userId: {
+          DataType: 'String',
+          StringValue: String(scheduledExecution.userId)
+        }
+      }
+    }));
+
+    console.log('Notification triggered successfully', {
+      executionResultId: scheduledExecution.executionResultId,
+      notificationQueueUrl: notificationQueueUrl.replace(/\/([^\/]+)$/, '/***')
+    });
+
+  } catch (error) {
+    console.error('Failed to trigger notification', {
+      error: error.message,
+      jobId: job.id,
+      executionResultId: job.request_data?.scheduledExecution?.executionResultId
+    });
+    // Don't throw error - notification failure shouldn't fail the job
+  }
+}
+
+/**
+ * Update execution result in database
+ */
+async function updateExecutionResult(executionResultId, status, resultData, executionDuration, errorMessage) {
+  const command = new ExecuteStatementCommand({
+    resourceArn: DATABASE_RESOURCE_ARN,
+    secretArn: DATABASE_SECRET_ARN,
+    database: DATABASE_NAME,
+    sql: `
+      UPDATE execution_results
+      SET
+        status = :status,
+        result_data = :result_data::jsonb,
+        execution_duration_ms = COALESCE(:execution_duration_ms, EXTRACT(EPOCH FROM (NOW() - executed_at)) * 1000),
+        error_message = :error_message
+      WHERE id = :execution_result_id
+      RETURNING id
+    `,
+    parameters: [
+      { name: 'execution_result_id', value: { longValue: executionResultId } },
+      { name: 'status', value: { stringValue: status } },
+      {
+        name: 'result_data',
+        value: resultData ? { stringValue: JSON.stringify(resultData) } : { isNull: true }
+      },
+      {
+        name: 'execution_duration_ms',
+        value: executionDuration ? { longValue: executionDuration } : { isNull: true }
+      },
+      {
+        name: 'error_message',
+        value: errorMessage ? { stringValue: errorMessage } : { isNull: true }
+      }
+    ]
+  });
+
+  await rdsClient.send(command);
+  console.log('Execution result updated', { executionResultId, status });
+}
+
+/**
+ * Get notification queue URL from SSM Parameter Store
+ */
+async function getNotificationQueueUrl() {
+  try {
+    const parameterName = `/aistudio/${process.env.ENVIRONMENT || 'dev'}/notification-queue-url`;
+
+    const command = new GetParameterCommand({
+      Name: parameterName
+    });
+
+    const response = await ssmClient.send(command);
+    return response.Parameter?.Value;
+  } catch (error) {
+    console.error('Failed to get notification queue URL from SSM', {
+      error: error.message,
+      parameterName: `/aistudio/${process.env.ENVIRONMENT || 'dev'}/notification-queue-url`
+    });
+    return null;
+  }
 }
