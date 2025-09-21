@@ -224,11 +224,11 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
       throw ErrorFactories.authNoSession()
     }
 
-    // Check if user has access to assistant-architect tool
-    const hasAccess = await hasToolAccess(session.sub, "assistant-architect")
+    // Check if user has access to architect tool
+    const hasAccess = await hasToolAccess(session.sub, "architect")
     if (!hasAccess) {
-      log.warn("User lacks assistant-architect access")
-      throw ErrorFactories.authzInsufficientPermissions("assistant-architect")
+      log.warn("User lacks architect access")
+      throw ErrorFactories.authzInsufficientPermissions("architect")
     }
 
     // Validate input
@@ -390,11 +390,11 @@ export async function getSchedulesAction(): Promise<ActionState<Schedule[]>> {
       throw ErrorFactories.authNoSession()
     }
 
-    // Check if user has access to assistant-architect tool
-    const hasAccess = await hasToolAccess(session.sub, "assistant-architect")
+    // Check if user has access to architect tool
+    const hasAccess = await hasToolAccess(session.sub, "architect")
     if (!hasAccess) {
-      log.warn("User lacks assistant-architect access")
-      throw ErrorFactories.authzInsufficientPermissions("assistant-architect")
+      log.warn("User lacks architect access")
+      throw ErrorFactories.authzInsufficientPermissions("architect")
     }
 
     // Get user ID from sub
@@ -515,11 +515,11 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
       throw ErrorFactories.authNoSession()
     }
 
-    // Check if user has access to assistant-architect tool
-    const hasAccess = await hasToolAccess(session.sub, "assistant-architect")
+    // Check if user has access to architect tool
+    const hasAccess = await hasToolAccess(session.sub, "architect")
     if (!hasAccess) {
-      log.warn("User lacks assistant-architect access")
-      throw ErrorFactories.authzInsufficientPermissions("assistant-architect")
+      log.warn("User lacks architect access")
+      throw ErrorFactories.authzInsufficientPermissions("architect")
     }
 
     // Get user ID from sub
@@ -728,11 +728,11 @@ export async function deleteScheduleAction(id: number): Promise<ActionState<{ su
       throw ErrorFactories.authNoSession()
     }
 
-    // Check if user has access to assistant-architect tool
-    const hasAccess = await hasToolAccess(session.sub, "assistant-architect")
+    // Check if user has access to architect tool
+    const hasAccess = await hasToolAccess(session.sub, "architect")
     if (!hasAccess) {
-      log.warn("User lacks assistant-architect access")
-      throw ErrorFactories.authzInsufficientPermissions("assistant-architect")
+      log.warn("User lacks architect access")
+      throw ErrorFactories.authzInsufficientPermissions("architect")
     }
 
     // Get user ID from sub
@@ -808,11 +808,11 @@ export async function getScheduleAction(id: number): Promise<ActionState<Schedul
       throw ErrorFactories.authNoSession()
     }
 
-    // Check if user has access to assistant-architect tool
-    const hasAccess = await hasToolAccess(session.sub, "assistant-architect")
+    // Check if user has access to architect tool
+    const hasAccess = await hasToolAccess(session.sub, "architect")
     if (!hasAccess) {
-      log.warn("User lacks assistant-architect access")
-      throw ErrorFactories.authzInsufficientPermissions("assistant-architect")
+      log.warn("User lacks architect access")
+      throw ErrorFactories.authzInsufficientPermissions("architect")
     }
 
     // Get user ID from sub
