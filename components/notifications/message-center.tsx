@@ -1,0 +1,218 @@
+"use client"
+
+import { useState } from "react"
+import { toast } from "sonner"
+import { Mail, CheckCircle, XCircle, RotateCcw, Download, Eye } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Badge } from "@/components/ui/badge"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import type { MessageCenterProps } from "@/types/notifications"
+
+export function MessageCenter({
+  messages,
+  onViewResult,
+  onRetryExecution,
+  loading = false
+}: MessageCenterProps) {
+  const [open, setOpen] = useState(false)
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'success':
+        return <CheckCircle className="h-3 w-3 text-green-500" />
+      case 'failed':
+        return <XCircle className="h-3 w-3 text-red-500" />
+      case 'running':
+        return <RotateCcw className="h-3 w-3 text-blue-500 animate-spin" />
+      default:
+        return <div className="h-3 w-3 bg-gray-400 rounded-full" />
+    }
+  }
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'success':
+        return 'Success'
+      case 'failed':
+        return 'Failed'
+      case 'running':
+        return 'Running'
+      default:
+        return 'Unknown'
+    }
+  }
+
+  const formatExecutionTime = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    })
+  }
+
+  const handleViewResult = (resultId: number, event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onViewResult(resultId)
+    setOpen(false)
+  }
+
+  const handleRetryExecution = (scheduledExecutionId: number, event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (onRetryExecution) {
+      onRetryExecution(scheduledExecutionId)
+    }
+    setOpen(false)
+  }
+
+  const recentMessages = messages.slice(0, 10)
+  const unreadCount = messages.filter(msg => msg.status === 'success').length
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative"
+          aria-label={`Messages & Results ${unreadCount > 0 ? `(${unreadCount} new)` : ''}`}
+          disabled={loading}
+        >
+          <Mail className="h-5 w-5" />
+          {unreadCount > 0 && (
+            <Badge
+              variant="destructive"
+              className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs flex items-center justify-center"
+            >
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </Badge>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-96 max-w-[calc(100vw-2rem)] sm:w-96">
+        <DropdownMenuLabel>
+          Messages & Results
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+
+        {loading ? (
+          <div className="p-4 text-center text-sm text-muted-foreground">
+            Loading messages...
+          </div>
+        ) : recentMessages.length === 0 ? (
+          <div className="p-4 text-center text-sm text-muted-foreground">
+            No execution results yet
+          </div>
+        ) : (
+          <ScrollArea className="h-[400px] max-h-[60vh]">
+            {recentMessages.map((message) => (
+              <DropdownMenuItem
+                key={message.id}
+                className="flex flex-col items-start gap-2 p-3 cursor-pointer"
+                asChild
+              >
+                <div>
+                  <div className="flex w-full items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      {getStatusIcon(message.status)}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">
+                          {message.scheduleName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {message.assistantArchitectName}
+                        </p>
+                      </div>
+                    </div>
+                    <Badge
+                      variant={message.status === 'success' ? 'default' :
+                               message.status === 'failed' ? 'destructive' : 'secondary'}
+                      className="text-xs"
+                    >
+                      {getStatusText(message.status)}
+                    </Badge>
+                  </div>
+
+                  <div className="flex w-full items-center justify-between text-xs text-muted-foreground">
+                    <span>{formatExecutionTime(message.executedAt)}</span>
+                    {message.executionDurationMs && (
+                      <span>{Math.round(message.executionDurationMs / 1000)}s</span>
+                    )}
+                  </div>
+
+                  <div className="flex w-full gap-1 mt-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs flex-1"
+                      onClick={(e) => handleViewResult(message.id, e)}
+                    >
+                      <Eye className="h-3 w-3 mr-1" />
+                      View Details
+                    </Button>
+
+                    {message.status === 'failed' && onRetryExecution && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={(e) => handleRetryExecution(message.scheduledExecutionId, e)}
+                      >
+                        <RotateCcw className="h-3 w-3 mr-1" />
+                        Retry
+                      </Button>
+                    )}
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        toast.info("Download feature coming soon")
+                      }}
+                    >
+                      <Download className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              </DropdownMenuItem>
+            ))}
+          </ScrollArea>
+        )}
+
+        {recentMessages.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="justify-center">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={() => {
+                  toast.info("View All Results page coming soon")
+                  setOpen(false)
+                }}
+              >
+                View All Results
+              </Button>
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
