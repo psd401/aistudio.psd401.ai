@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
+import { createLogger, generateRequestId, sanitizeForLogging } from "@/lib/client-logger"
 import type { Schedule } from "@/actions/db/schedule-actions"
 import { ScheduleEditForm } from "./schedule-edit-form"
 
@@ -23,6 +24,7 @@ interface ScheduleEditModalProps {
 export function ScheduleEditModal({ schedule, open, onClose, onSuccess }: ScheduleEditModalProps) {
   const [assistantArchitect, setAssistantArchitect] = useState<{ id: string; name: string; description?: string } | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const log = createLogger({ component: "ScheduleEditModal" })
 
   // Load the assistant architect details when modal opens
   const loadAssistantArchitect = useCallback(async () => {
@@ -37,12 +39,17 @@ export function ScheduleEditModal({ schedule, open, onClose, onSuccess }: Schedu
       }
       setAssistantArchitect(mockArchitect)
     } catch (error) {
-      console.error("Failed to load assistant architect:", error)
+      const requestId = generateRequestId()
+      log.error("Failed to load assistant architect", {
+        requestId,
+        assistantArchitectId: schedule.assistantArchitectId,
+        error: sanitizeForLogging(error)
+      })
       toast.error("Failed to load assistant architect details")
     } finally {
       setIsLoading(false)
     }
-  }, [schedule.assistantArchitectId])
+  }, [schedule.assistantArchitectId, log])
 
   useEffect(() => {
     if (open && schedule.assistantArchitectId) {

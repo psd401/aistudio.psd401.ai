@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/form"
 import { DialogFooter } from "@/components/ui/dialog"
 import { toast } from "sonner"
+import { createLogger, generateRequestId, sanitizeForLogging } from "@/lib/client-logger"
 import type { Schedule, ScheduleConfig } from "@/actions/db/schedule-actions"
 
 // Common timezones
@@ -65,6 +66,7 @@ interface ScheduleEditFormProps {
 
 export function ScheduleEditForm({ schedule, onSuccess, onCancel }: ScheduleEditFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const log = createLogger({ component: "ScheduleEditForm" })
 
   // Get user's timezone as default
   const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -160,10 +162,12 @@ export function ScheduleEditForm({ schedule, onSuccess, onCancel }: ScheduleEdit
       const result = await response.json()
 
       if (!response.ok) {
-        console.error("Schedule update failed:", {
+        const requestId = generateRequestId()
+        log.error("Schedule update failed", {
+          requestId,
           status: response.status,
           statusText: response.statusText,
-          error: result
+          error: sanitizeForLogging(result)
         })
 
         // Extract specific error messages for better user feedback
@@ -190,7 +194,11 @@ export function ScheduleEditForm({ schedule, onSuccess, onCancel }: ScheduleEdit
 
       onSuccess()
     } catch (error) {
-      console.error("Failed to update schedule:", error)
+      const requestId = generateRequestId()
+      log.error("Failed to update schedule", {
+        requestId,
+        error: sanitizeForLogging(error)
+      })
       toast.error("Failed to update schedule", {
         description: error instanceof Error ? error.message : "An unknown error occurred"
       })
