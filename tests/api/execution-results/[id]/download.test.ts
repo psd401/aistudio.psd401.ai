@@ -1,21 +1,38 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals'
 import { NextRequest, NextResponse } from 'next/server'
 
-// Mock the dependencies
-jest.mock('@/lib/auth/server-session')
-jest.mock('@/lib/db/data-api-adapter', () => ({
-  executeSQL: jest.fn()
-}))
-jest.mock('@/lib/logger')
-jest.mock('@/lib/rate-limit', () => ({
-  withRateLimit: jest.fn((handler) => handler)
-}))
+// Create simple mock functions
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGetServerSession = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockExecuteSQL = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockCreateLogger = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGenerateRequestId = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockStartTimer = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockSanitizeForLogging = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockWithRateLimit = jest.fn<any>((handler: any) => handler)
 
-// Import mocked modules and types
-import { getServerSession } from '@/lib/auth/server-session'
-import { executeSQL } from '@/lib/db/data-api-adapter'
-import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from '@/lib/logger'
-import { withRateLimit } from '@/lib/rate-limit'
+// Mock the dependencies
+jest.mock('@/lib/auth/server-session', () => ({
+  getServerSession: mockGetServerSession
+}))
+jest.mock('@/lib/db/data-api-adapter', () => ({
+  executeSQL: mockExecuteSQL
+}))
+jest.mock('@/lib/logger', () => ({
+  createLogger: mockCreateLogger,
+  generateRequestId: mockGenerateRequestId,
+  startTimer: mockStartTimer,
+  sanitizeForLogging: mockSanitizeForLogging
+}))
+jest.mock('@/lib/rate-limit', () => ({
+  withRateLimit: mockWithRateLimit
+}))
 
 // Import the handler function directly for unit testing
 const mockLogger = {
@@ -23,15 +40,6 @@ const mockLogger = {
   warn: jest.fn(),
   error: jest.fn()
 }
-
-// Mock implementations
-const mockedGetServerSession = jest.mocked(getServerSession)
-const mockedExecuteSQL = executeSQL as jest.MockedFunction<typeof executeSQL>
-const mockedCreateLogger = jest.mocked(createLogger)
-const mockedGenerateRequestId = jest.mocked(generateRequestId)
-const mockedStartTimer = jest.mocked(startTimer)
-const mockedSanitizeForLogging = jest.mocked(sanitizeForLogging)
-const mockedWithRateLimit = withRateLimit as jest.MockedFunction<typeof withRateLimit>
 
 // Create a mock timer function
 const mockTimer = jest.fn() as any
@@ -41,10 +49,10 @@ describe('Execution Results Download API', () => {
     jest.clearAllMocks()
 
     // Setup default mock implementations
-    mockedCreateLogger.mockReturnValue(mockLogger as any)
-    mockedGenerateRequestId.mockReturnValue('test-request-id')
-    mockedStartTimer.mockReturnValue(mockTimer)
-    mockedSanitizeForLogging.mockImplementation((data) => data)
+    mockCreateLogger.mockReturnValue(mockLogger as any)
+    mockGenerateRequestId.mockReturnValue('test-request-id')
+    mockStartTimer.mockReturnValue(mockTimer)
+    mockSanitizeForLogging.mockImplementation((data: any) => data)
   })
 
   afterEach(() => {
@@ -54,7 +62,7 @@ describe('Execution Results Download API', () => {
   describe('Authentication & Authorization', () => {
     it('should return 401 for unauthenticated requests', async () => {
       // Arrange
-      mockedGetServerSession.mockResolvedValue(null)
+      mockGetServerSession.mockResolvedValue(null)
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/123/download')
       const params = Promise.resolve({ id: '123' })
@@ -75,10 +83,10 @@ describe('Execution Results Download API', () => {
     it('should return 404 when user tries to access another user\'s execution result', async () => {
       // Arrange
       const session = { sub: 'user-123' }
-      mockedGetServerSession.mockResolvedValue(session)
+      mockGetServerSession.mockResolvedValue(session)
 
       // Mock user lookup
-      mockedExecuteSQL
+      mockExecuteSQL
         .mockResolvedValueOnce([{ id: 1 }]) // User exists
         .mockResolvedValueOnce([]) // No execution result found (access denied)
 
@@ -103,7 +111,7 @@ describe('Execution Results Download API', () => {
     it('should allow users to access their own execution results', async () => {
       // Arrange
       const session = { sub: 'user-123' }
-      mockedGetServerSession.mockResolvedValue(session)
+      mockGetServerSession.mockResolvedValue(session)
 
       const mockExecutionResult = {
         id: 456,
@@ -120,7 +128,7 @@ describe('Execution Results Download API', () => {
         assistant_architect_name: 'Test Assistant'
       }
 
-      mockedExecuteSQL
+      mockExecuteSQL
         .mockResolvedValueOnce([{ id: 1 }]) // User lookup
         .mockResolvedValueOnce([mockExecutionResult]) // Execution result
 
@@ -143,8 +151,8 @@ describe('Execution Results Download API', () => {
   describe('Input Validation', () => {
     beforeEach(() => {
       const session = { sub: 'user-123' }
-      mockedGetServerSession.mockResolvedValue(session)
-      mockedExecuteSQL.mockResolvedValueOnce([{ id: 1 }]) // User exists
+      mockGetServerSession.mockResolvedValue(session)
+      mockExecuteSQL.mockResolvedValueOnce([{ id: 1 }]) // User exists
     })
 
     it('should return 400 for non-numeric ID', async () => {
@@ -215,7 +223,7 @@ describe('Execution Results Download API', () => {
         assistant_architect_name: 'Test Assistant'
       }
 
-      mockedExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
+      mockExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/123/download')
       const params = Promise.resolve({ id: '123' })
@@ -233,8 +241,8 @@ describe('Execution Results Download API', () => {
   describe('Markdown Generation', () => {
     beforeEach(() => {
       const session = { sub: 'user-123' }
-      mockedGetServerSession.mockResolvedValue(session)
-      mockedExecuteSQL.mockResolvedValueOnce([{ id: 1 }]) // User exists
+      mockGetServerSession.mockResolvedValue(session)
+      mockExecuteSQL.mockResolvedValueOnce([{ id: 1 }]) // User exists
     })
 
     it('should generate correct markdown for successful execution', async () => {
@@ -254,7 +262,7 @@ describe('Execution Results Download API', () => {
         assistant_architect_name: 'Test Assistant'
       }
 
-      mockedExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
+      mockExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/123/download')
       const params = Promise.resolve({ id: '123' })
@@ -297,7 +305,7 @@ describe('Execution Results Download API', () => {
         assistant_architect_name: 'Test Assistant'
       }
 
-      mockedExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
+      mockExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/124/download')
       const params = Promise.resolve({ id: '124' })
@@ -331,7 +339,7 @@ describe('Execution Results Download API', () => {
         assistant_architect_name: 'Test Assistant'
       }
 
-      mockedExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
+      mockExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/125/download')
       const params = Promise.resolve({ id: '125' })
@@ -364,7 +372,7 @@ describe('Execution Results Download API', () => {
         assistant_architect_name: 'Test Assistant'
       }
 
-      mockedExecuteSQL.mockResolvedValueOnce([mockResult1])
+      mockExecuteSQL.mockResolvedValueOnce([mockResult1])
 
       const request1 = new NextRequest('http://localhost:3000/api/execution-results/126/download')
       const params1 = Promise.resolve({ id: '126' })
@@ -381,8 +389,8 @@ describe('Execution Results Download API', () => {
   describe('Filename Generation', () => {
     beforeEach(() => {
       const session = { sub: 'user-123' }
-      mockedGetServerSession.mockResolvedValue(session)
-      mockedExecuteSQL.mockResolvedValueOnce([{ id: 1 }]) // User exists
+      mockGetServerSession.mockResolvedValue(session)
+      mockExecuteSQL.mockResolvedValueOnce([{ id: 1 }]) // User exists
     })
 
     it('should generate correct filename with schedule name, date, and time', async () => {
@@ -402,7 +410,7 @@ describe('Execution Results Download API', () => {
         assistant_architect_name: 'Test Assistant'
       }
 
-      mockedExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
+      mockExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/127/download')
       const params = Promise.resolve({ id: '127' })
@@ -435,7 +443,7 @@ describe('Execution Results Download API', () => {
         assistant_architect_name: 'Test Assistant'
       }
 
-      mockedExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
+      mockExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/128/download')
       const params = Promise.resolve({ id: '128' })
@@ -454,8 +462,8 @@ describe('Execution Results Download API', () => {
   describe('HTTP Headers', () => {
     beforeEach(() => {
       const session = { sub: 'user-123' }
-      mockedGetServerSession.mockResolvedValue(session)
-      mockedExecuteSQL.mockResolvedValueOnce([{ id: 1 }]) // User exists
+      mockGetServerSession.mockResolvedValue(session)
+      mockExecuteSQL.mockResolvedValueOnce([{ id: 1 }]) // User exists
     })
 
     it('should set correct Content-Type header', async () => {
@@ -475,7 +483,7 @@ describe('Execution Results Download API', () => {
         assistant_architect_name: 'Test Assistant'
       }
 
-      mockedExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
+      mockExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/129/download')
       const params = Promise.resolve({ id: '129' })
@@ -506,7 +514,7 @@ describe('Execution Results Download API', () => {
         assistant_architect_name: 'Test Assistant'
       }
 
-      mockedExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
+      mockExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/130/download')
       const params = Promise.resolve({ id: '130' })
@@ -538,7 +546,7 @@ describe('Execution Results Download API', () => {
         assistant_architect_name: 'Test Assistant'
       }
 
-      mockedExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
+      mockExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/131/download')
       const params = Promise.resolve({ id: '131' })
@@ -558,12 +566,12 @@ describe('Execution Results Download API', () => {
   describe('Error Handling', () => {
     beforeEach(() => {
       const session = { sub: 'user-123' }
-      mockedGetServerSession.mockResolvedValue(session)
+      mockGetServerSession.mockResolvedValue(session)
     })
 
     it('should handle database connection errors', async () => {
       // Arrange
-      mockedExecuteSQL.mockRejectedValue(new Error('Database connection failed'))
+      mockExecuteSQL.mockRejectedValue(new Error('Database connection failed'))
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/132/download')
       const params = Promise.resolve({ id: '132' })
@@ -582,7 +590,7 @@ describe('Execution Results Download API', () => {
 
     it('should handle invalid JSON in result data gracefully', async () => {
       // Arrange
-      mockedExecuteSQL
+      mockExecuteSQL
         .mockResolvedValueOnce([{ id: 1 }]) // User exists
         .mockResolvedValueOnce([{
           id: 133,
@@ -617,7 +625,7 @@ describe('Execution Results Download API', () => {
 
     it('should handle user not found in database', async () => {
       // Arrange
-      mockedExecuteSQL.mockResolvedValueOnce([]) // User not found
+      mockExecuteSQL.mockResolvedValueOnce([]) // User not found
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/134/download')
       const params = Promise.resolve({ id: '134' })
@@ -637,7 +645,7 @@ describe('Execution Results Download API', () => {
   describe('Rate Limiting', () => {
     it('should apply rate limiting with correct configuration', () => {
       // The rate limiting is applied in the export, so we test that it's configured correctly
-      expect(mockedWithRateLimit).toHaveBeenCalledWith(
+      expect(mockWithRateLimit).toHaveBeenCalledWith(
         expect.any(Function),
         {
           interval: 60 * 1000, // 1 minute
@@ -650,8 +658,8 @@ describe('Execution Results Download API', () => {
   describe('Logging', () => {
     beforeEach(() => {
       const session = { sub: 'user-123' }
-      mockedGetServerSession.mockResolvedValue(session)
-      mockedExecuteSQL.mockResolvedValueOnce([{ id: 1 }]) // User exists
+      mockGetServerSession.mockResolvedValue(session)
+      mockExecuteSQL.mockResolvedValueOnce([{ id: 1 }]) // User exists
     })
 
     it('should log successful downloads with correct information', async () => {
@@ -671,7 +679,7 @@ describe('Execution Results Download API', () => {
         assistant_architect_name: 'Test Assistant'
       }
 
-      mockedExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
+      mockExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/135/download')
       const params = Promise.resolve({ id: '135' })
@@ -713,7 +721,7 @@ describe('Execution Results Download API', () => {
         assistant_architect_name: 'Test Assistant'
       }
 
-      mockedExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
+      mockExecuteSQL.mockResolvedValueOnce([mockExecutionResult])
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/136/download')
       const params = Promise.resolve({ id: '136' })
@@ -729,7 +737,7 @@ describe('Execution Results Download API', () => {
 
     it('should call timer with error status on failure', async () => {
       // Arrange
-      mockedExecuteSQL.mockRejectedValue(new Error('Database error'))
+      mockExecuteSQL.mockRejectedValue(new Error('Database error'))
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/137/download')
       const params = Promise.resolve({ id: '137' })

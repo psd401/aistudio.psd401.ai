@@ -316,7 +316,7 @@ function generateSafeFilename(scheduleName: string): string {
     .replace(/\s+/g, '-') // Replace spaces with hyphens
     .replace(/-+/g, '-') // Collapse multiple hyphens
     .replace(/^-|-$/g, '') // Remove leading/trailing hyphens
-    .replace(/\.\.|\.|\/|\\|\\x00|\0/g, '') // Explicitly remove path traversal chars and null bytes
+    .replace(/\.\.|\.|\/|\\|\\x00|\\u0000/g, '') // Explicitly remove path traversal chars and null bytes
     .replace(/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i, 'file') // Replace Windows reserved names
     .slice(0, 50) // Limit length
     .trim() || 'execution-result' // Fallback if empty after sanitization

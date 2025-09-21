@@ -1,29 +1,45 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals'
 import { NextRequest } from 'next/server'
 
+// Create simple mock functions
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGetServerSession = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockExecuteSQL = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockCreateLogger = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGenerateRequestId = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockStartTimer = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockSanitizeForLogging = jest.fn<any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockWithRateLimit = jest.fn<any>((handler: any) => handler)
+
 // Mock the dependencies at the module level
-jest.mock('@/lib/auth/server-session')
+jest.mock('@/lib/auth/server-session', () => ({
+  getServerSession: mockGetServerSession
+}))
 jest.mock('@/lib/db/data-api-adapter', () => ({
-  executeSQL: jest.fn()
+  executeSQL: mockExecuteSQL
 }))
-jest.mock('@/lib/logger')
+jest.mock('@/lib/logger', () => ({
+  createLogger: mockCreateLogger,
+  generateRequestId: mockGenerateRequestId,
+  startTimer: mockStartTimer,
+  sanitizeForLogging: mockSanitizeForLogging
+}))
 jest.mock('@/lib/rate-limit', () => ({
-  withRateLimit: jest.fn((handler) => handler)
+  withRateLimit: mockWithRateLimit
 }))
 
-import { getServerSession } from '@/lib/auth/server-session'
-import { executeSQL } from '@/lib/db/data-api-adapter'
-import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from '@/lib/logger'
-import { withRateLimit } from '@/lib/rate-limit'
-
-// Type the mocked functions
-const mockedGetServerSession = jest.mocked(getServerSession)
-const mockedExecuteSQL = executeSQL as jest.MockedFunction<typeof executeSQL>
-const mockedCreateLogger = jest.mocked(createLogger)
-const mockedGenerateRequestId = jest.mocked(generateRequestId)
-const mockedStartTimer = jest.mocked(startTimer)
-const mockedSanitizeForLogging = jest.mocked(sanitizeForLogging)
-const mockedWithRateLimit = withRateLimit as jest.MockedFunction<typeof withRateLimit>
+// Mock logger object
+const integrationMockLogger = {
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn()
+}
 
 const mockLogger = {
   info: jest.fn(),
@@ -38,11 +54,10 @@ describe('Execution Results Download Integration Tests', () => {
     jest.clearAllMocks()
 
     // Setup default mock implementations
-    mockedCreateLogger.mockReturnValue(mockLogger as any)
-    mockedGenerateRequestId.mockReturnValue('integration-test-id')
-    mockedStartTimer.mockReturnValue(mockTimer)
-    mockedSanitizeForLogging.mockImplementation((data) => data)
-    // Rate limiting is mocked at module level
+    mockCreateLogger.mockReturnValue(integrationMockLogger as any)
+    mockGenerateRequestId.mockReturnValue('integration-test-id')
+    mockStartTimer.mockReturnValue(mockTimer)
+    mockSanitizeForLogging.mockImplementation((data: any) => data)
   })
 
   afterEach(() => {
@@ -79,8 +94,8 @@ describe('Execution Results Download Integration Tests', () => {
         assistant_architect_name: 'Data Analysis Assistant'
       }
 
-      mockedGetServerSession.mockResolvedValue(session)
-      mockedExecuteSQL
+      mockGetServerSession.mockResolvedValue(session)
+      mockExecuteSQL
         .mockResolvedValueOnce([mockUser]) // User lookup
         .mockResolvedValueOnce([mockExecutionResult]) // Execution result
 
@@ -127,12 +142,12 @@ describe('Execution Results Download Integration Tests', () => {
       expect(content).toContain('View online: https://aistudio.psd401.ai/execution-results/999')
 
       // Assert - Database queries
-      expect(mockedExecuteSQL).toHaveBeenCalledTimes(2)
-      expect(mockedExecuteSQL).toHaveBeenNthCalledWith(1,
+      expect(mockExecuteSQL).toHaveBeenCalledTimes(2)
+      expect(mockExecuteSQL).toHaveBeenNthCalledWith(1,
         expect.stringContaining('SELECT id FROM users WHERE cognito_sub = :cognitoSub'),
         [{ name: 'cognitoSub', value: { stringValue: 'integration-user-123' } }]
       )
-      expect(mockedExecuteSQL).toHaveBeenNthCalledWith(2,
+      expect(mockExecuteSQL).toHaveBeenNthCalledWith(2,
         expect.stringContaining('WHERE er.id = :result_id AND se.user_id = :user_id'),
         [
           { name: 'result_id', value: { longValue: 999 } },
@@ -174,8 +189,8 @@ describe('Execution Results Download Integration Tests', () => {
         assistant_architect_name: 'API Sync Assistant'
       }
 
-      mockedGetServerSession.mockResolvedValue(session)
-      mockedExecuteSQL
+      mockGetServerSession.mockResolvedValue(session)
+      mockExecuteSQL
         .mockResolvedValueOnce([mockUser])
         .mockResolvedValueOnce([mockFailedResult])
 
@@ -216,8 +231,8 @@ describe('Execution Results Download Integration Tests', () => {
         assistant_architect_name: 'Batch Processing Assistant'
       }
 
-      mockedGetServerSession.mockResolvedValue(session)
-      mockedExecuteSQL
+      mockGetServerSession.mockResolvedValue(session)
+      mockExecuteSQL
         .mockResolvedValueOnce([mockUser])
         .mockResolvedValueOnce([mockRunningResult])
 
@@ -261,8 +276,8 @@ describe('Execution Results Download Integration Tests', () => {
         assistant_architect_name: 'Data Processing Assistant'
       }
 
-      mockedGetServerSession.mockResolvedValue(session)
-      mockedExecuteSQL
+      mockGetServerSession.mockResolvedValue(session)
+      mockExecuteSQL
         .mockResolvedValueOnce([mockUser])
         .mockResolvedValueOnce([mockComplexResult])
 
@@ -304,8 +319,8 @@ describe('Execution Results Download Integration Tests', () => {
         assistant_architect_name: 'Test Assistant'
       }
 
-      mockedGetServerSession.mockResolvedValue(session)
-      mockedExecuteSQL
+      mockGetServerSession.mockResolvedValue(session)
+      mockExecuteSQL
         .mockResolvedValueOnce([mockUser])
         .mockResolvedValueOnce([mockMalformedResult])
 
@@ -360,8 +375,8 @@ describe('Execution Results Download Integration Tests', () => {
         assistant_architect_name: 'Test Assistant'
       }
 
-      mockedGetServerSession.mockResolvedValue(session)
-      mockedExecuteSQL
+      mockGetServerSession.mockResolvedValue(session)
+      mockExecuteSQL
         .mockResolvedValueOnce([mockUser])
         .mockResolvedValueOnce([mockLongNameResult])
 
@@ -388,8 +403,8 @@ describe('Execution Results Download Integration Tests', () => {
     it('should handle database timeout errors', async () => {
       // Arrange
       const session = { sub: 'user-db-timeout' }
-      mockedGetServerSession.mockResolvedValue(session)
-      mockedExecuteSQL.mockRejectedValue(new Error('Database query timeout'))
+      mockGetServerSession.mockResolvedValue(session)
+      mockExecuteSQL.mockRejectedValue(new Error('Database query timeout'))
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/1005/download')
       const params = Promise.resolve({ id: '1005' })
@@ -415,7 +430,7 @@ describe('Execution Results Download Integration Tests', () => {
 
     it('should handle session retrieval failures', async () => {
       // Arrange
-      mockedGetServerSession.mockRejectedValue(new Error('Session service unavailable'))
+      mockGetServerSession.mockRejectedValue(new Error('Session service unavailable'))
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/1006/download')
       const params = Promise.resolve({ id: '1006' })
@@ -437,8 +452,8 @@ describe('Execution Results Download Integration Tests', () => {
       const session = { sub: 'user-cross-access' }
       const mockUser = { id: 48 }
 
-      mockedGetServerSession.mockResolvedValue(session)
-      mockedExecuteSQL
+      mockGetServerSession.mockResolvedValue(session)
+      mockExecuteSQL
         .mockResolvedValueOnce([mockUser]) // User exists
         .mockResolvedValueOnce([]) // No execution result found for this user
 
@@ -484,8 +499,8 @@ describe('Execution Results Download Integration Tests', () => {
         assistant_architect_name: 'Large Data Assistant'
       }
 
-      mockedGetServerSession.mockResolvedValue(session)
-      mockedExecuteSQL
+      mockGetServerSession.mockResolvedValue(session)
+      mockExecuteSQL
         .mockResolvedValueOnce([mockUser])
         .mockResolvedValueOnce([mockLargeResult])
 
@@ -536,8 +551,8 @@ describe('Execution Results Download Integration Tests', () => {
         assistant_architect_name: 'Spéciäl Assistant 🤖'
       }
 
-      mockedGetServerSession.mockResolvedValue(session)
-      mockedExecuteSQL
+      mockGetServerSession.mockResolvedValue(session)
+      mockExecuteSQL
         .mockResolvedValueOnce([mockUser])
         .mockResolvedValueOnce([specialCharsResult])
 

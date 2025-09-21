@@ -1,14 +1,13 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals'
 
+// Create simple mock function
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockWithRateLimit = jest.fn<any>((handler: any) => handler)
+
 // Mock the rate limiting module
 jest.mock('@/lib/rate-limit', () => ({
-  withRateLimit: jest.fn((handler) => handler)
+  withRateLimit: mockWithRateLimit
 }))
-
-import { withRateLimit } from '@/lib/rate-limit'
-
-// Type the mocked function
-const mockedWithRateLimit = withRateLimit as jest.MockedFunction<typeof withRateLimit>
 
 describe('Execution Results Download Rate Limiting', () => {
   beforeEach(() => {
@@ -22,7 +21,7 @@ describe('Execution Results Download Rate Limiting', () => {
   describe('Rate Limit Configuration', () => {
     it('should apply rate limiting with correct parameters', async () => {
       // Mock the rate limit wrapper to capture the configuration
-      mockedWithRateLimit.mockImplementation((handler, config) => {
+      mockWithRateLimit.mockImplementation((handler: any, config: any) => {
         // Verify the configuration is correct
         expect(config).toEqual({
           interval: 60 * 1000, // 1 minute
@@ -37,7 +36,7 @@ describe('Execution Results Download Rate Limiting', () => {
       await import('@/app/api/execution-results/[id]/download/route')
 
       // Verify withRateLimit was called with correct configuration
-      expect(mockedWithRateLimit).toHaveBeenCalledWith(
+      expect(mockWithRateLimit).toHaveBeenCalledWith(
         expect.any(Function),
         {
           interval: 60 * 1000,
@@ -78,13 +77,13 @@ describe('Execution Results Download Rate Limiting', () => {
 
       // The rate limiting would be handled by the withRateLimit wrapper
       // This test confirms the configuration is applied
-      expect(mockedWithRateLimit).toHaveBeenCalled()
+      expect(mockWithRateLimit).toHaveBeenCalled()
     })
 
     it('should pass through successful requests within rate limit', async () => {
       // Test verifies that valid requests pass through rate limiting
       // Rate limiting allows normal operation within limits
-      expect(mockedWithRateLimit).toHaveBeenCalledWith(
+      expect(mockWithRateLimit).toHaveBeenCalledWith(
         expect.any(Function),
         expect.objectContaining({
           interval: 60 * 1000,
@@ -173,7 +172,7 @@ describe('Execution Results Download Rate Limiting', () => {
       })
 
       // Verify rate limiting is configured to handle errors
-      expect(mockedWithRateLimit).toHaveBeenCalled()
+      expect(mockWithRateLimit).toHaveBeenCalled()
     })
 
     it('should provide informative error messages for rate limit violations', () => {

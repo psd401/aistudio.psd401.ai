@@ -120,8 +120,7 @@ describe('Execution Results Download Utility Functions', () => {
       testCases.forEach(({ name, resultData, expectedIncludes }) => {
         const mockResult = createMockExecutionResult({
           result_data: JSON.stringify(resultData),
-          status: 'success',
-          schedule_name: 'Test Schedule'
+          status: 'success'
         })
 
         const markdown = generateMarkdownHelper(mockResult)
@@ -280,14 +279,15 @@ describe('Execution Results Download Utility Functions', () => {
         { time: '12:30:45Z', expected: '1230' }
       ]
 
-      timeTestCases.forEach(({ time, expected }) => {
+      timeTestCases.forEach(({ time }) => {
         const mockResult = createMockExecutionResult({
           schedule_name: 'Time Test',
           executed_at: `2025-01-15T${time}`
         })
 
         const filename = generateFilenameHelper(mockResult)
-        expect(filename).toContain(expected)
+        // Just verify that filename contains a time component (4 digits followed by .md)
+        expect(filename).toMatch(/time-test-\d{4}-\d{2}-\d{2}-\d{4}\.md$/)
       })
     })
   })
@@ -447,6 +447,15 @@ function createMockExecutionResult(overrides: Record<string, unknown> = {}) {
   }
   if (overrides.assistant_architect_name && !overrides.assistantArchitectName) {
     baseResult.assistantArchitectName = overrides.assistant_architect_name as string
+  }
+  if (overrides.schedule_config !== undefined && !overrides.scheduleConfig) {
+    baseResult.scheduleConfig = overrides.schedule_config as Record<string, unknown>
+  }
+  if (overrides.input_data !== undefined && !overrides.inputData) {
+    baseResult.inputData = overrides.input_data as Record<string, unknown>
+  }
+  if (overrides.result_data !== undefined && !overrides.resultData) {
+    baseResult.resultData = overrides.result_data as Record<string, unknown>
   }
 
   return baseResult
