@@ -204,6 +204,17 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
   const log = createLogger({ requestId, action: "createSchedule" })
 
   try {
+    log.info("createScheduleAction called with params", {
+      params: sanitizeForLogging(params),
+      paramTypes: {
+        name: typeof params.name,
+        assistantArchitectId: typeof params.assistantArchitectId,
+        scheduleConfig: typeof params.scheduleConfig,
+        inputData: typeof params.inputData
+      },
+      assistantArchitectIdValue: params.assistantArchitectId,
+      scheduleConfigDetails: sanitizeForLogging(params.scheduleConfig)
+    })
     log.info("Creating schedule", { params: sanitizeForLogging(params) })
 
     // Auth check
@@ -224,26 +235,47 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
     const { name, assistantArchitectId, scheduleConfig, inputData } = params
 
     // Validate and sanitize name
+    log.info("Validating name", { name, nameType: typeof name })
     const nameValidation = validateAndSanitizeName(name)
     if (!nameValidation.isValid) {
+      log.error("Name validation failed", { nameValidation })
       throw ErrorFactories.validationFailed(
         nameValidation.errors.map(error => ({ field: 'name', message: error }))
       )
     }
     const sanitizedName = nameValidation.sanitizedName
+    log.info("Name validation passed", { sanitizedName })
 
     // Security: Sanitize ID with CodeQL-compliant pattern that breaks taint flow
+    log.info("Validating assistantArchitectId", {
+      assistantArchitectId,
+      type: typeof assistantArchitectId,
+      value: assistantArchitectId,
+      isNaN: isNaN(Number(assistantArchitectId))
+    })
     let cleanArchitectId: number
     try {
       cleanArchitectId = sanitizeNumericId(assistantArchitectId)
-    } catch {
+      log.info("AssistantArchitectId validation passed", { cleanArchitectId })
+    } catch (error) {
+      log.error("AssistantArchitectId validation failed", {
+        assistantArchitectId,
+        type: typeof assistantArchitectId,
+        converted: Number(assistantArchitectId),
+        isNaN: isNaN(Number(assistantArchitectId)),
+        isInteger: Number.isInteger(Number(assistantArchitectId)),
+        error: sanitizeForLogging(error)
+      })
       throw ErrorFactories.validationFailed([{
         field: 'assistantArchitectId',
-        message: 'assistantArchitectId must be a valid positive integer'
+        message: `assistantArchitectId must be a valid positive integer. Received: ${assistantArchitectId} (${typeof assistantArchitectId})`
       }])
     }
 
     // Validate schedule configuration
+    log.info("Validating schedule configuration", {
+      scheduleConfig: sanitizeForLogging(scheduleConfig)
+    })
     const validation = validateScheduleConfig(scheduleConfig)
     if (!validation.isValid) {
       log.error("Schedule config validation failed", {
@@ -254,14 +286,24 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
         validation.errors.map(error => ({ field: 'scheduleConfig', message: error }))
       )
     }
+    log.info("Schedule config validation passed")
 
     // Validate input data size
+    log.info("Validating input data", {
+      inputDataSize: JSON.stringify(inputData).length,
+      inputDataType: typeof inputData
+    })
     const inputDataValidation = validateInputData(inputData)
     if (!inputDataValidation.isValid) {
+      log.error("Input data validation failed", {
+        inputDataValidation,
+        inputDataSize: JSON.stringify(inputData).length
+      })
       throw ErrorFactories.validationFailed(
         inputDataValidation.errors.map(error => ({ field: 'inputData', message: error }))
       )
     }
+    log.info("Input data validation passed")
 
     // Get user ID from sub
     const userResult = await executeSQL<{ id: number }>(`
