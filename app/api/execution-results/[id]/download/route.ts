@@ -1,11 +1,27 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "@/lib/auth/server-session"
 import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from "@/lib/logger"
-import { handleError, ErrorFactories } from "@/lib/error-utils"
+import { ErrorFactories } from "@/lib/error-utils"
 import { executeSQL } from "@/lib/db/data-api-adapter"
 import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { withRateLimit } from "@/lib/rate-limit"
 import type { SqlParameter } from "@aws-sdk/client-rds-data"
+
+// Content sanitization for markdown to prevent XSS
+function sanitizeMarkdownContent(content: string): string {
+  if (typeof content !== 'string') {
+    return String(content || '')
+  }
+
+  return content
+    .replace(/[<>]/g, '') // Remove angle brackets that could contain HTML/XML
+    .replace(/javascript:/gi, '') // Remove javascript: URLs
+    .replace(/data:/gi, '') // Remove data: URLs
+    .replace(/vbscript:/gi, '') // Remove vbscript: URLs
+    .replace(/on\w+\s*=/gi, '') // Remove event handlers like onclick=
+    .replace(/\[([^\]]*)]\(javascript:[^)]*\)/gi, '[$1](#)') // Sanitize markdown links with javascript:
+    .replace(/\[([^\]]*)]\(data:[^)]*\)/gi, '[$1](#)') // Sanitize markdown links with data:
+}
 
 interface ExecutionResultWithSchedule {
   id: number
@@ -174,17 +190,44 @@ async function downloadHandler(
 
   } catch (error) {
     timer({ status: "error" })
+
+    // Log detailed error internally but return generic message to client
     log.error("Failed to download execution result", {
       error: error instanceof Error ? error.message : 'Unknown error',
-      resultId: (await params).id
+      resultId: sanitizeForLogging((await params).id),
+      stack: error instanceof Error ? error.stack : undefined
     })
 
+    // Determine appropriate error status and message based on error type
+    if (error && typeof error === 'object' && 'name' in error) {
+      switch (error.name) {
+        case 'InvalidInputError':
+          return NextResponse.json(
+            { error: "Invalid execution result ID" },
+            { status: 400 }
+          )
+        case 'AuthNoSessionError':
+          return NextResponse.json(
+            { error: "Authentication required" },
+            { status: 401 }
+          )
+        case 'DbRecordNotFoundError':
+          return NextResponse.json(
+            { error: "Execution result not found" },
+            { status: 404 }
+          )
+        default:
+          // Return generic error message to client for server errors
+          return NextResponse.json(
+            { error: "Unable to download execution result" },
+            { status: 500 }
+          )
+      }
+    }
+
+    // Fallback for unknown error types
     return NextResponse.json(
-      handleError(error, "Failed to download execution result", {
-        context: "GET /api/execution-results/[id]/download",
-        requestId,
-        operation: "downloadExecutionResult"
-      }),
+      { error: "Unable to download execution result" },
       { status: 500 }
     )
   }
@@ -198,9 +241,13 @@ function generateMarkdown(result: ExecutionResultWithSchedule): string {
   const statusEmoji = result.status === 'success' ? '✓' : result.status === 'failed' ? '✗' : '⏳'
   const duration = formatDuration(result.executionDurationMs)
 
-  let markdown = `# ${result.scheduleName}
+  // Sanitize user-controlled content
+  const safeScheduleName = sanitizeMarkdownContent(result.scheduleName)
+  const safeScheduleDescription = sanitizeMarkdownContent(getScheduleDescription(result.scheduleConfig))
+
+  let markdown = `# ${safeScheduleName}
 **Executed:** ${formatDateTime(executedDate)}
-**Schedule:** ${getScheduleDescription(result.scheduleConfig)}
+**Schedule:** ${safeScheduleDescription}
 **Status:** ${result.status.charAt(0).toUpperCase() + result.status.slice(1)} ${statusEmoji}
 
 `
@@ -219,23 +266,23 @@ ${formatInputData(result.inputData)}
 `
 
   if (result.status === 'success' && result.resultData) {
-    // Extract and format the main content
+    // Extract and format the main content with sanitization
     if (typeof result.resultData === 'object' && result.resultData !== null) {
       if ('content' in result.resultData && typeof result.resultData.content === 'string') {
-        markdown += result.resultData.content
+        markdown += sanitizeMarkdownContent(result.resultData.content)
       } else if ('text' in result.resultData && typeof result.resultData.text === 'string') {
-        markdown += result.resultData.text
+        markdown += sanitizeMarkdownContent(result.resultData.text)
       } else if ('output' in result.resultData && typeof result.resultData.output === 'string') {
-        markdown += result.resultData.output
+        markdown += sanitizeMarkdownContent(result.resultData.output)
       } else {
         // Fallback to JSON representation if no standard content field
         markdown += '```json\n' + JSON.stringify(result.resultData, null, 2) + '\n```'
       }
     } else {
-      markdown += String(result.resultData)
+      markdown += sanitizeMarkdownContent(String(result.resultData))
     }
   } else if (result.status === 'failed' && result.errorMessage) {
-    markdown += `**Error:** ${result.errorMessage}`
+    markdown += `**Error:** ${sanitizeMarkdownContent(result.errorMessage)}`
   } else if (result.status === 'running') {
     markdown += '**Status:** Execution is still in progress'
   } else {
@@ -248,7 +295,7 @@ ${formatInputData(result.inputData)}
 - Started: ${formatDateTime(startTime)}
 - Completed: ${formatDateTime(endTime)}
 - Duration: ${duration}
-- Assistant: ${result.assistantArchitectName}
+- Assistant: ${sanitizeMarkdownContent(result.assistantArchitectName)}
 
 ---
 Generated by AI Studio - Peninsula School District
@@ -258,19 +305,30 @@ View online: https://aistudio.psd401.ai/execution-results/${result.id}
   return markdown
 }
 
-function generateFilename(result: ExecutionResultWithSchedule): string {
-  const executedDate = new Date(result.executedAt)
-  const dateStr = executedDate.toISOString().slice(0, 10) // YYYY-MM-DD
-  const timeStr = executedDate.toTimeString().slice(0, 5).replace(':', '') // HHMM
+function generateSafeFilename(scheduleName: string): string {
+  if (typeof scheduleName !== 'string' || !scheduleName.trim()) {
+    return 'execution-result'
+  }
 
-  // Sanitize schedule name for filename
-  const safeName = result.scheduleName
+  return scheduleName
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '') // Remove special characters
     .replace(/\s+/g, '-') // Replace spaces with hyphens
     .replace(/-+/g, '-') // Collapse multiple hyphens
     .replace(/^-|-$/g, '') // Remove leading/trailing hyphens
+    .replace(/\.\.|\.|\/|\\|\\x00|\0/g, '') // Explicitly remove path traversal chars and null bytes
+    .replace(/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i, 'file') // Replace Windows reserved names
     .slice(0, 50) // Limit length
+    .trim() || 'execution-result' // Fallback if empty after sanitization
+}
+
+function generateFilename(result: ExecutionResultWithSchedule): string {
+  const executedDate = new Date(result.executedAt)
+  const dateStr = executedDate.toISOString().slice(0, 10) // YYYY-MM-DD
+  const timeStr = executedDate.toTimeString().slice(0, 5).replace(':', '') // HHMM
+
+  // Generate safe filename component
+  const safeName = generateSafeFilename(result.scheduleName)
 
   return `${safeName}-${dateStr}-${timeStr}.md`
 }
