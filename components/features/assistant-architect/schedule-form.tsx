@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
@@ -21,7 +21,6 @@ import {
 } from "@/components/ui/form"
 import { DialogFooter } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
-import { createLogger, generateRequestId, sanitizeForLogging } from "@/lib/logger"
 import type { AssistantArchitectWithRelations } from "@/types/assistant-architect-types"
 import type { ScheduleConfig } from "@/actions/db/schedule-actions"
 
@@ -86,17 +85,16 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
   })
 
   const frequency = form.watch("frequency")
+  const time = form.watch("time")
+  const timezone = form.watch("timezone")
+  const daysOfWeek = form.watch("daysOfWeek")
+  const dayOfMonth = form.watch("dayOfMonth")
+  const cron = form.watch("cron")
 
   const onSubmit = async (data: ScheduleFormData) => {
-    const requestId = generateRequestId()
-    const log = createLogger({ requestId, component: "ScheduleForm" })
     setIsSubmitting(true)
 
     try {
-      log.info("Starting schedule creation", {
-        assistantArchitectId: tool.id,
-        frequency: data.frequency
-      })
       const scheduleConfig: ScheduleConfig = {
         frequency: data.frequency,
         time: data.time,
@@ -148,11 +146,7 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
         inputData: filteredInputData,
       }
 
-      log.info("Creating schedule", {
-        assistantArchitectId: requestPayload.assistantArchitectId,
-        scheduleName: sanitizeForLogging(requestPayload.name),
-        frequency: requestPayload.scheduleConfig.frequency
-      })
+      // API call to create schedule
 
       const response = await fetch("/api/schedules", {
         method: "POST",
@@ -165,13 +159,12 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
       const result = await response.json()
 
       if (!response.ok) {
-        log.error("Schedule creation failed", {
+        console.error("Schedule creation failed:", {
           status: response.status,
           statusText: response.statusText,
-          error: sanitizeForLogging(result),
-          requestId
+          error: result
         })
-        const errorMessage = result.message || result.error || `Server error: ${response.status} ${response.statusText}`
+        const errorMessage = result.message ?? result.error ?? `Server error: ${response.status} ${response.statusText}`
         throw new Error(errorMessage)
       }
 
@@ -182,10 +175,7 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
 
       onSuccess()
     } catch (error) {
-      log.error("Failed to create schedule", {
-        error: sanitizeForLogging(error),
-        requestId
-      })
+      console.error("Failed to create schedule:", error)
       toast({
         title: "Failed to Create Schedule",
         description: error instanceof Error ? error.message : "An unknown error occurred",
@@ -196,10 +186,7 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
     }
   }
 
-  const getNextRunPreview = () => {
-    const data = form.getValues()
-    const { frequency, time, timezone } = data
-
+  const getNextRunPreview = useCallback(() => {
     if (!time || !frequency) return null
 
     try {
@@ -216,21 +203,21 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
             nextRun.setDate(nextRun.getDate() + 1)
             break
           case "weekly":
-            if (data.daysOfWeek?.length) {
+            if (daysOfWeek?.length) {
               const currentDay = now.getDay()
-              const nextDay = data.daysOfWeek.find(day => day > currentDay) || data.daysOfWeek[0]
+              const nextDay = daysOfWeek.find(day => day > currentDay) || daysOfWeek[0]
               const daysToAdd = nextDay > currentDay ? nextDay - currentDay : 7 - currentDay + nextDay
               nextRun.setDate(nextRun.getDate() + daysToAdd)
             }
             break
           case "monthly":
-            if (data.dayOfMonth) {
+            if (dayOfMonth) {
               nextRun.setMonth(nextRun.getMonth() + 1)
-              nextRun.setDate(data.dayOfMonth)
+              nextRun.setDate(dayOfMonth)
             }
             break
           case "custom":
-            return data.cron ? `Custom: ${data.cron}` : null
+            return cron ? `Custom: ${cron}` : null
         }
       }
 
@@ -246,9 +233,9 @@ export function ScheduleForm({ tool, inputData, onSuccess, onCancel }: ScheduleF
     } catch {
       return null
     }
-  }
+  }, [frequency, time, timezone, daysOfWeek, dayOfMonth, cron])
 
-  const nextRunPreview = getNextRunPreview()
+  const nextRunPreview = useMemo(() => getNextRunPreview(), [getNextRunPreview])
 
   return (
     <Form {...form}>

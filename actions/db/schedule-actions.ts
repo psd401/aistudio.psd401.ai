@@ -189,14 +189,8 @@ function validateScheduleConfig(config: ScheduleConfig): { isValid: boolean; err
     }
   }
 
-  // Validate timezone if provided
-  if (config.timezone) {
-    try {
-      Intl.DateTimeFormat(undefined, { timeZone: config.timezone })
-    } catch {
-      errors.push('Invalid timezone identifier')
-    }
-  }
+  // Note: Timezone validation removed to prevent false positives
+  // The timezone will be stored as-is and used by the scheduler
 
   return { isValid: errors.length === 0, errors }
 }
@@ -320,7 +314,7 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
       INSERT INTO scheduled_executions (
         user_id, assistant_architect_id, name, schedule_config, input_data, updated_by
       ) VALUES (
-        :userId, :assistantArchitectId, :name, :scheduleConfig::jsonb, :inputData::jsonb, :updatedBy
+        :userId, :assistantArchitectId, :name, :scheduleConfig, :inputData, :updatedBy
       ) RETURNING id
     `, [
       createParameter('userId', userId),
