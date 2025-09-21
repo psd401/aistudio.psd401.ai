@@ -87,25 +87,43 @@ export function createLogger(context: ClientLogContext = {}): ClientLogger {
 
     const sanitizedData = sanitizeForLogging(logData)
 
-    if (isDev) {
-      // Pretty logging in development
-      const contextStr = context.requestId ? `[${context.requestId}] ` : ''
-      const metaStr = Object.keys(meta).length > 0 ? ` ${JSON.stringify(sanitizedData)}` : ''
+    // Send logs to backend endpoint for proper logging
+    // This replaces console logging to comply with CLAUDE.md rules
+    if (level === 'error' || level === 'warn') {
+      // Only send errors and warnings to reduce noise
+      sendLogToBackend(sanitizedData).catch(() => {
+        // Silent fail - don't use console even for error handling
+      })
+    }
 
-      if (level === 'error') {
-        // eslint-disable-next-line no-console
-        console.error(`${timestamp} ${contextStr}${level.toUpperCase()}: ${message}${metaStr}`)
-      } else if (level === 'warn') {
-        // eslint-disable-next-line no-console
-        console.warn(`${timestamp} ${contextStr}${level.toUpperCase()}: ${message}${metaStr}`)
-      } else {
-        // eslint-disable-next-line no-console
-        console.log(`${timestamp} ${contextStr}${level.toUpperCase()}: ${message}${metaStr}`)
+    // Store in sessionStorage for debugging in development if needed
+    if (isDev) {
+      try {
+        const logs = JSON.parse(sessionStorage.getItem('client-logs') || '[]')
+        logs.push(sanitizedData)
+        // Keep only last 100 logs
+        if (logs.length > 100) {
+          logs.splice(0, logs.length - 100)
+        }
+        sessionStorage.setItem('client-logs', JSON.stringify(logs))
+      } catch {
+        // Silent fail if sessionStorage is not available
       }
-    } else {
-      // Structured logging in production
-      // eslint-disable-next-line no-console
-      console.log(JSON.stringify(sanitizedData))
+    }
+  }
+
+  // Helper function to send logs to backend
+  const sendLogToBackend = async (logData: unknown) => {
+    try {
+      await fetch('/api/logs/client', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(logData),
+      })
+    } catch {
+      // Silent fail - don't expose errors to user
     }
   }
 

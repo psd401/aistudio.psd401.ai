@@ -93,33 +93,49 @@ export async function GET(request: NextRequest) {
     const notifications: UserNotification[] = results.map((row: Record<string, unknown>) => {
       const notification = transformSnakeToCamel<Record<string, unknown>>(row)
 
-      return {
-        id: notification.id,
-        userId: notification.userId,
-        executionResultId: notification.executionResultId,
-        type: notification.type,
-        status: notification.status,
-        deliveryAttempts: notification.deliveryAttempts,
-        lastAttemptAt: notification.lastAttemptAt,
-        failureReason: notification.failureReason,
-        createdAt: notification.createdAt,
-        ...(notification.resultId && {
-          executionResult: {
-            id: notification.resultId,
-            scheduledExecutionId: notification.scheduledExecutionId,
-            resultData: typeof notification.resultData === 'string'
-              ? JSON.parse(notification.resultData)
-              : notification.resultData || {},
-            status: notification.resultStatus,
-            executedAt: notification.executedAt,
-            executionDurationMs: notification.executionDurationMs,
-            errorMessage: notification.resultErrorMessage,
-            scheduleName: notification.scheduleName,
-            userId: notification.userId,
-            assistantArchitectName: notification.assistantArchitectName
-          }
-        })
+      const baseNotification = {
+        id: Number(notification.id),
+        userId: Number(notification.userId),
+        executionResultId: Number(notification.executionResultId),
+        type: String(notification.type) as 'email' | 'in_app',
+        status: String(notification.status) as 'sent' | 'delivered' | 'read' | 'failed',
+        deliveryAttempts: Number(notification.deliveryAttempts),
+        lastAttemptAt: notification.lastAttemptAt ? String(notification.lastAttemptAt) : null,
+        failureReason: notification.failureReason ? String(notification.failureReason) : null,
+        createdAt: String(notification.createdAt)
       }
+
+      if (notification.resultId) {
+        return {
+          ...baseNotification,
+          executionResult: {
+            id: Number(notification.resultId),
+            scheduledExecutionId: Number(notification.scheduledExecutionId),
+            resultData: (() => {
+              try {
+                return typeof notification.resultData === 'string'
+                  ? JSON.parse(notification.resultData)
+                  : notification.resultData || {};
+              } catch (error) {
+                log.warn('Invalid JSON in resultData', {
+                  resultId: notification.resultId,
+                  error: error instanceof Error ? error.message : 'Unknown error'
+                });
+                return {};
+              }
+            })(),
+            status: String(notification.resultStatus) as 'success' | 'failed' | 'running',
+            executedAt: String(notification.executedAt),
+            executionDurationMs: Number(notification.executionDurationMs),
+            errorMessage: notification.resultErrorMessage ? String(notification.resultErrorMessage) : null,
+            scheduleName: String(notification.scheduleName),
+            userId: Number(notification.userId),
+            assistantArchitectName: String(notification.assistantArchitectName)
+          }
+        }
+      }
+
+      return baseNotification
     })
 
     timer({ status: "success" })

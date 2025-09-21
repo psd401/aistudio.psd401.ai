@@ -81,18 +81,28 @@ export async function GET(request: NextRequest) {
       const result = transformSnakeToCamel<Record<string, unknown>>(row)
 
       return {
-        id: result.id,
-        scheduledExecutionId: result.scheduledExecutionId,
-        resultData: typeof result.resultData === 'string'
-          ? JSON.parse(result.resultData)
-          : result.resultData || {},
-        status: result.status,
-        executedAt: result.executedAt,
-        executionDurationMs: result.executionDurationMs,
-        errorMessage: result.errorMessage,
-        scheduleName: result.scheduleName,
-        userId: result.userId,
-        assistantArchitectName: result.assistantArchitectName
+        id: Number(result.id),
+        scheduledExecutionId: Number(result.scheduledExecutionId),
+        resultData: (() => {
+          try {
+            return typeof result.resultData === 'string'
+              ? JSON.parse(result.resultData)
+              : result.resultData || {};
+          } catch (error) {
+            log.warn('Invalid JSON in resultData', {
+              resultId: result.id,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+            return {};
+          }
+        })(),
+        status: String(result.status) as 'success' | 'failed' | 'running',
+        executedAt: String(result.executedAt),
+        executionDurationMs: Number(result.executionDurationMs),
+        errorMessage: result.errorMessage ? String(result.errorMessage) : null,
+        scheduleName: String(result.scheduleName),
+        userId: Number(result.userId),
+        assistantArchitectName: String(result.assistantArchitectName)
       }
     })
 

@@ -25,9 +25,11 @@ export function NotificationBell({
 }: NotificationBellProps) {
   const [open, setOpen] = useState(false)
 
-  const handleMarkRead = (notificationId: number, event: React.MouseEvent) => {
-    event.preventDefault()
-    event.stopPropagation()
+  const handleMarkRead = (notificationId: number, event?: React.MouseEvent) => {
+    if (event) {
+      event.preventDefault()
+      event.stopPropagation()
+    }
     onMarkRead(notificationId)
   }
 
@@ -147,7 +149,7 @@ export function NotificationBell({
                 onKeyDown={(e) => {
                   if ((e.key === 'Enter' || e.key === ' ') && notification.status !== 'read') {
                     e.preventDefault()
-                    handleMarkRead(notification.id, e as React.MouseEvent<HTMLDivElement>)
+                    handleMarkRead(notification.id)
                   }
                 }}
               >

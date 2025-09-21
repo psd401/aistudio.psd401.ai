@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import Image from "next/image"
+import { useRouter } from "next/navigation"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { UserButton } from "@/components/user/user-button"
@@ -25,6 +26,8 @@ import { createFreshserviceTicketAction } from "@/actions/create-freshservice-ti
 // ... rest of imports ...
 
 export function GlobalHeader() {
+  const router = useRouter()
+
   // Get notification data
   const {
     notifications,
@@ -42,12 +45,12 @@ export function GlobalHeader() {
 
   const handleViewResult = (resultId: number) => {
     // Navigate to result details page
-    window.location.href = `/execution-results/${resultId}`
+    router.push(`/execution-results/${resultId}`)
   }
 
   const handleRetryExecution = (scheduledExecutionId: number) => {
     // Navigate to retry execution page or trigger retry
-    window.location.href = `/schedules/${scheduledExecutionId}/retry`
+    router.push(`/schedules/${scheduledExecutionId}/retry`)
   }
 
   return (
