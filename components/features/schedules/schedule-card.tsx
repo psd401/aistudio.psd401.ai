@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, memo } from "react"
 import { format, parseISO } from "date-fns"
 import {
   Calendar,
@@ -45,7 +45,7 @@ interface ScheduleCardProps {
   onRefresh: () => Promise<void>
 }
 
-export function ScheduleCard({ schedule, onDelete, onToggle, onRefresh }: ScheduleCardProps) {
+function ScheduleCardComponent({ schedule, onDelete, onToggle, onRefresh }: ScheduleCardProps) {
   const [isDeleting, setIsDeleting] = useState(false)
   const [isToggling, setIsToggling] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
@@ -288,3 +288,6 @@ export function ScheduleCard({ schedule, onDelete, onToggle, onRefresh }: Schedu
     </>
   )
 }
+
+// Memoize the component to prevent unnecessary re-renders
+export const ScheduleCard = memo(ScheduleCardComponent)

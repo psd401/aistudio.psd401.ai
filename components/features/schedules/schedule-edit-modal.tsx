@@ -27,7 +27,7 @@ export function ScheduleEditModal({ schedule, open, onClose, onSuccess }: Schedu
   const log = createLogger({ component: "ScheduleEditModal" })
 
   // Load the assistant architect details when modal opens
-  const loadAssistantArchitect = useCallback(async () => {
+  const loadAssistantArchitect = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true)
     try {
       // Note: We need to create an API endpoint to get assistant architect details
@@ -37,8 +37,19 @@ export function ScheduleEditModal({ schedule, open, onClose, onSuccess }: Schedu
         name: "Assistant Architect", // We'll enhance this later
         description: "Automated execution tool"
       }
+
+      // Check if operation was aborted
+      if (signal?.aborted) {
+        return
+      }
+
       setAssistantArchitect(mockArchitect)
     } catch (error) {
+      // Don't log errors if the operation was aborted
+      if (signal?.aborted) {
+        return
+      }
+
       const requestId = generateRequestId()
       log.error("Failed to load assistant architect", {
         requestId,
@@ -47,13 +58,20 @@ export function ScheduleEditModal({ schedule, open, onClose, onSuccess }: Schedu
       })
       toast.error("Failed to load assistant architect details")
     } finally {
-      setIsLoading(false)
+      if (!signal?.aborted) {
+        setIsLoading(false)
+      }
     }
   }, [schedule.assistantArchitectId, log])
 
   useEffect(() => {
     if (open && schedule.assistantArchitectId) {
-      loadAssistantArchitect()
+      const abortController = new AbortController()
+      loadAssistantArchitect(abortController.signal)
+
+      return () => {
+        abortController.abort()
+      }
     }
   }, [open, schedule.assistantArchitectId, loadAssistantArchitect])
 

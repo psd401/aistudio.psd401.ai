@@ -10,8 +10,8 @@ export default async function ScheduleManagementPage() {
     redirect("/sign-in")
   }
 
-  // Check if user has access to architect tool
-  const hasArchitectAccess = await hasToolAccess("architect")
+  // Check if user has access to assistant-architect tool
+  const hasArchitectAccess = await hasToolAccess("assistant-architect")
   if (!hasArchitectAccess) {
     redirect("/")
   }

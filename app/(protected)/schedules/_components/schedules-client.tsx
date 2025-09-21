@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import { createLogger, generateRequestId } from "@/lib/client-logger"
 import type { Schedule } from "@/actions/db/schedule-actions"
 import { ScheduleCard } from "@/components/features/schedules/schedule-card"
+import { ErrorBoundary } from "@/components/error-boundary"
 import Link from "next/link"
 
 const log = createLogger({ component: "SchedulesClient" })
@@ -216,13 +217,32 @@ export function SchedulesClient() {
       ) : (
         <div className="grid gap-4">
           {schedules.map(schedule => (
-            <ScheduleCard
+            <ErrorBoundary
               key={schedule.id}
-              schedule={schedule}
-              onDelete={handleDeleteSchedule}
-              onToggle={handleToggleSchedule}
-              onRefresh={loadSchedules}
-            />
+              fallback={({ reset }) => (
+                <Card className="border-destructive">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2 text-destructive">
+                      <AlertCircle className="h-5 w-5" />
+                      <p className="font-medium">Error loading schedule</p>
+                    </div>
+                    <p className="text-muted-foreground mt-2">
+                      Schedule &quot;{schedule.name}&quot; could not be displayed properly.
+                    </p>
+                    <Button onClick={reset} className="mt-4" variant="outline" size="sm">
+                      Try Again
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+            >
+              <ScheduleCard
+                schedule={schedule}
+                onDelete={handleDeleteSchedule}
+                onToggle={handleToggleSchedule}
+                onRefresh={loadSchedules}
+              />
+            </ErrorBoundary>
           ))}
         </div>
       )}
