@@ -47,6 +47,30 @@ export interface UpdateScheduleRequest extends Partial<CreateScheduleRequest> {
   active?: boolean
 }
 
+// Security: Strict numeric ID validation to prevent type confusion and bypass attacks
+function validateAndSanitizeNumericId(value: unknown, fieldName: string): number {
+  // First, ensure it's actually a number
+  const num = Number(value)
+
+  // Check for NaN, Infinity, or non-integer values
+  if (!Number.isInteger(num) || !Number.isFinite(num)) {
+    throw ErrorFactories.validationFailed([{
+      field: fieldName,
+      message: `${fieldName} must be a valid integer`
+    }])
+  }
+
+  // Check bounds (positive integer, reasonable range)
+  if (num <= 0 || num > Number.MAX_SAFE_INTEGER) {
+    throw ErrorFactories.validationFailed([{
+      field: fieldName,
+      message: `${fieldName} must be a positive integer within safe range`
+    }])
+  }
+
+  return num
+}
+
 // Maximum schedules per user
 const MAX_SCHEDULES_PER_USER = 10
 
@@ -223,9 +247,8 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
     }
     const sanitizedName = nameValidation.sanitizedName
 
-    if (!assistantArchitectId || assistantArchitectId <= 0) {
-      throw ErrorFactories.validationFailed([{ field: 'assistantArchitectId', message: 'Valid assistant architect ID is required' }])
-    }
+    // Security: Validate assistant architect ID with strict type checking
+    const validatedArchitectId = validateAndSanitizeNumericId(assistantArchitectId, 'assistantArchitectId')
 
     // Validate schedule configuration
     const validation = validateScheduleConfig(scheduleConfig)
@@ -260,7 +283,7 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
       SELECT id, name FROM assistant_architects
       WHERE id = :architectId AND user_id = :userId
     `, [
-      createParameter('architectId', assistantArchitectId),
+      createParameter('architectId', validatedArchitectId),
       createParameter('userId', userId)
     ])
 
@@ -302,7 +325,7 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
       ) RETURNING id
     `, [
       createParameter('userId', userId),
-      createParameter('assistantArchitectId', assistantArchitectId),
+      createParameter('assistantArchitectId', validatedArchitectId),
       createParameter('name', sanitizedName),
       createParameter('scheduleConfig', JSON.stringify(scheduleConfig)),
       createParameter('inputData', JSON.stringify(inputData)),
@@ -546,12 +569,15 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
     }
 
     if (params.assistantArchitectId !== undefined) {
+      // Security: Validate assistant architect ID with strict type checking
+      const validatedArchitectId = validateAndSanitizeNumericId(params.assistantArchitectId, 'assistantArchitectId')
+
       // Check if assistant architect exists and user has access
       const architectResult = await executeSQL<{ id: number }>(`
         SELECT id FROM assistant_architects
         WHERE id = :architectId AND user_id = :userId
       `, [
-        createParameter('architectId', params.assistantArchitectId),
+        createParameter('architectId', validatedArchitectId),
         createParameter('userId', userId)
       ])
 
@@ -560,7 +586,7 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
       }
 
       updates.push('assistant_architect_id = :assistantArchitectId')
-      parameters.push(createParameter('assistantArchitectId', params.assistantArchitectId))
+      parameters.push(createParameter('assistantArchitectId', validatedArchitectId))
     }
 
     if (params.scheduleConfig !== undefined) {

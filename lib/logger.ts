@@ -8,6 +8,32 @@ import winston, { Logger } from "winston"
 import { nanoid } from "nanoid"
 import { AsyncLocalStorage } from "async_hooks"
 
+// Security: Log sanitization to prevent log injection attacks
+function sanitizeLogData(data: unknown): unknown {
+  if (typeof data === "string") {
+    // Remove control characters that could be used for log injection
+    return data
+      .replace(/[\x00-\x1F\x7F-\x9F]/g, '') // Remove control characters
+      .replace(/\r?\n/g, ' ') // Replace newlines with spaces
+      .replace(/\t/g, ' ') // Replace tabs with spaces
+      .slice(0, 1000) // Limit length to prevent log bloat
+  }
+
+  if (Array.isArray(data)) {
+    return data.map(sanitizeLogData)
+  }
+
+  if (data && typeof data === "object") {
+    const sanitized: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(data)) {
+      sanitized[key] = sanitizeLogData(value)
+    }
+    return sanitized
+  }
+
+  return data
+}
+
 const isProd = process.env.NODE_ENV === "production"
 const isTest = process.env.NODE_ENV === "test"
 
@@ -199,19 +225,27 @@ export function createLogger(context: LogContext): Logger {
     ...logger,
     info: (message: string, meta?: object) => {
       const fullContext = { ...getLogContext(), ...context }
-      logger.info(message, { ...fullContext, ...meta })
+      const sanitizedMeta = meta ? sanitizeLogData(meta) as object : undefined
+      const logData = sanitizedMeta ? { ...fullContext, ...sanitizedMeta } : fullContext
+      logger.info(sanitizeLogData(message) as string, logData)
     },
     warn: (message: string, meta?: object) => {
       const fullContext = { ...getLogContext(), ...context }
-      logger.warn(message, { ...fullContext, ...meta })
+      const sanitizedMeta = meta ? sanitizeLogData(meta) as object : undefined
+      const logData = sanitizedMeta ? { ...fullContext, ...sanitizedMeta } : fullContext
+      logger.warn(sanitizeLogData(message) as string, logData)
     },
     error: (message: string, meta?: object) => {
       const fullContext = { ...getLogContext(), ...context }
-      logger.error(message, { ...fullContext, ...meta })
+      const sanitizedMeta = meta ? sanitizeLogData(meta) as object : undefined
+      const logData = sanitizedMeta ? { ...fullContext, ...sanitizedMeta } : fullContext
+      logger.error(sanitizeLogData(message) as string, logData)
     },
     debug: (message: string, meta?: object) => {
       const fullContext = { ...getLogContext(), ...context }
-      logger.debug(message, { ...fullContext, ...meta })
+      const sanitizedMeta = meta ? sanitizeLogData(meta) as object : undefined
+      const logData = sanitizedMeta ? { ...fullContext, ...sanitizedMeta } : fullContext
+      logger.debug(sanitizeLogData(message) as string, logData)
     },
   } as Logger
 }
