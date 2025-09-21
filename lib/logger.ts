@@ -32,15 +32,31 @@ function sanitizeForLogger(data: unknown): unknown {
     return data.map(item => sanitizeForLogger(item))
   }
 
+  // Enhanced: Sanitize Error objects so message, name, and stack are safe
   if (typeof data === "object") {
-    // Create a completely new object to break taint flow
-    const sanitized: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(data)) {
-      // Sanitize both key and value to break all taint paths
-      const cleanKey = String(key).replace(/[^\w\-_.]/g, '_')
-      sanitized[cleanKey] = sanitizeForLogger(value)
+    if (data instanceof Error) {
+      // Make a new plain object with sanitized message/name/stack and all custom props
+      const safeError: Record<string, unknown> = {}
+      safeError.name = sanitizeForLogger(data.name)
+      safeError.message = sanitizeForLogger(data.message)
+      safeError.stack = typeof data.stack === "string" ? sanitizeForLogger(data.stack) : ""
+      for (const key of Object.keys(data)) {
+        if (!(key in safeError)) {
+          // Some frameworks add own props; ensure all are sanitized
+          safeError[key] = sanitizeForLogger((data as any)[key])
+        }
+      }
+      return safeError
+    } else {
+      // Create a completely new object to break taint flow
+      const sanitized: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(data)) {
+        // Sanitize both key and value to break all taint paths
+        const cleanKey = String(key).replace(/[^\w\-_.]/g, '_')
+        sanitized[cleanKey] = sanitizeForLogger(value)
+      }
+      return sanitized
     }
-    return sanitized
   }
 
   // Fallback for unknown types - create new safe string

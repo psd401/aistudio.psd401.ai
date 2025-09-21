@@ -439,19 +439,19 @@ export function handleError(
       ...metadata
     })
     
-    // Log based on error level
+    // Sanitize the error message before logging to prevent log injection
     switch (appError.level) {
       case ErrorLevel.INFO:
-        log.info(appError.message, sanitizedDetails as object)
+        log.info(sanitizeForLogger(appError.message) as string, sanitizedDetails as object)
         break
       case ErrorLevel.WARN:
-        log.warn(appError.message, sanitizedDetails as object)
+        log.warn(sanitizeForLogger(appError.message) as string, sanitizedDetails as object)
         break
       case ErrorLevel.ERROR:
-        log.error(appError.message, { ...(sanitizedDetails as object), stack: appError.stack })
+        log.error(sanitizeForLogger(appError.message) as string, { ...(sanitizedDetails as object), stack: appError.stack })
         break
       case ErrorLevel.FATAL:
-        log.error(`FATAL: ${appError.message}`, { ...(sanitizedDetails as object), stack: appError.stack })
+        log.error(`FATAL: ${sanitizeForLogger(appError.message) as string}`, { ...(sanitizedDetails as object), stack: appError.stack })
         break
     }
     
@@ -464,7 +464,7 @@ export function handleError(
   
   // Handle standard Error objects
   if (error instanceof Error) {
-    log.error(error.message, { 
+    log.error(sanitizeForLogger(error.message) as string, { 
       error: sanitizeForLogging(error),
       stack: error.stack,
       ...metadata
