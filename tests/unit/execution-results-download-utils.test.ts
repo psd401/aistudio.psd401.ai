@@ -326,7 +326,9 @@ function sanitizeMarkdownContent(content: string): string {
     .replace(/javascript:/gi, '') // Remove javascript: URLs
     .replace(/data:/gi, '') // Remove data: URLs
     .replace(/vbscript:/gi, '') // Remove vbscript: URLs
-    .replace(/\bon\w+\s*=/gi, '') // Remove event handlers like onclick= (with word boundary)
+    .replace(/onclick\s*=/gi, '') // Remove onclick handlers
+    .replace(/onload\s*=/gi, '') // Remove onload handlers
+    .replace(/onerror\s*=/gi, '') // Remove onerror handlers
     .replace(/\[([^\]]*)]\(javascript:[^)]*\)/gi, '[$1](#)') // Sanitize markdown links with javascript:
     .replace(/\[([^\]]*)]\(data:[^)]*\)/gi, '[$1](#)') // Sanitize markdown links with data:
 }
@@ -526,7 +528,7 @@ ${formatInputDataHelper(inputData)}
 `
 
   if (result.status === 'success' && resultData) {
-    if (typeof resultData === 'object' && resultData !== null && resultData !== undefined) {
+    if (typeof resultData === 'object' && resultData != null) {
       if ('content' in resultData) {
         markdown += sanitizeMarkdownContent(resultData.content)
       } else if ('text' in resultData) {

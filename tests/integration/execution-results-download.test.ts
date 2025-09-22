@@ -107,9 +107,6 @@ describe.skip('Execution Results Download Integration Tests', () => {
       })
       const params = Promise.resolve({ id: '999' })
 
-      // Import and execute the handler
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
-
       // Act
       const response = await downloadHandler(request, { params })
       const content = await response.text()
