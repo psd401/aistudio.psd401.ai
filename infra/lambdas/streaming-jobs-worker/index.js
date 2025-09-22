@@ -1071,6 +1071,7 @@ async function processAssistantArchitectJob(job) {
             type: 'assistant_architect_chain',
             text: finalText,
             finalOutput: finalText, // Keep for backward compatibility
+            output: finalText, // Canonical field for email notifications
             chainContext: chainContext,
             totalPrompts: sortedPrompts.length,
             toolId: toolId,
@@ -1318,6 +1319,7 @@ async function processStreamingJob(job) {
     
     const responseData = {
       text: finalText,
+      output: finalText, // Canonical field for consistency
       usage: {
         promptTokens: finalResult.usage?.promptTokens || 0,
         completionTokens: finalResult.usage?.completionTokens || 0,

@@ -741,13 +741,15 @@ function generateExecutionSummary(resultData: Record<string, unknown>): string |
   }
 
   // Extract key information from the result data
-  // This would be customized based on the actual structure of Assistant Architect results
+  // Handle different output field names (assistant architect vs other executions)
   const summary: string[] = [];
   const maxSummaryLength = parseInt(process.env.MAX_SUMMARY_LENGTH || '200', 10);
 
-  if (resultData.output && typeof resultData.output === 'string') {
-    // Truncate output to first 200 characters for summary
-    const output = String(resultData.output);
+  // Check for assistant architect output fields first (text, finalOutput), then fallback to output
+  const assistantOutput = resultData.text || resultData.finalOutput || resultData.output;
+  if (assistantOutput && typeof assistantOutput === 'string') {
+    // Truncate output for summary
+    const output = String(assistantOutput);
     if (output.length > maxSummaryLength) {
       summary.push(output.substring(0, maxSummaryLength) + '...');
     } else {
@@ -788,8 +790,13 @@ function generateMarkdownAttachment(executionResult: ExecutionResult, scheduleNa
   if (executionResult.status === 'success' && executionResult.result_data) {
     markdown += `## Execution Output\n\n`;
 
-    if (executionResult.result_data.output) {
-      markdown += `${executionResult.result_data.output}\n\n`;
+    // Handle different output field names (assistant architect vs other executions)
+    const assistantOutput = executionResult.result_data.text ||
+                           executionResult.result_data.finalOutput ||
+                           executionResult.result_data.output;
+
+    if (assistantOutput) {
+      markdown += `${assistantOutput}\n\n`;
     }
 
     if (executionResult.result_data.metrics) {
