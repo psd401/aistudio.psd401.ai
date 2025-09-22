@@ -158,6 +158,15 @@ export class SchedulerStack extends cdk.Stack {
     // Grant SQS permissions for DLQ
     this.deadLetterQueue.grantSendMessages(this.scheduleExecutorFunction);
 
+    // Grant SQS permissions for streaming jobs queue
+    const streamingJobsQueuePolicy = new iam.PolicyStatement({
+      actions: ['sqs:SendMessage'],
+      resources: [
+        `arn:aws:sqs:${this.region}:${this.account}:aistudio-${props.environment}-streaming-jobs-queue`,
+      ],
+    });
+    this.scheduleExecutorFunction.addToRolePolicy(streamingJobsQueuePolicy);
+
     // Update environment with scheduler execution role ARN
     this.scheduleExecutorFunction.addEnvironment('SCHEDULER_EXECUTION_ROLE_ARN', this.schedulerExecutionRole.roleArn);
     // Note: Lambda function can determine its own ARN at runtime using context.invokedFunctionArn or AWS_LAMBDA_FUNCTION_NAME

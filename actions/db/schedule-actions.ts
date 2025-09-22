@@ -16,6 +16,7 @@ import {
   FlexibleTimeWindowMode,
   ScheduleState
 } from "@aws-sdk/client-scheduler"
+import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm"
 
 // Types for Schedule Management
 export interface ScheduleConfig {
@@ -76,8 +77,76 @@ function sanitizeNumericId(value: unknown): number {
 // Maximum input data size (10MB) - increased from 50KB to be more generous
 const MAX_INPUT_DATA_SIZE = 10485760
 
-// Initialize AWS Scheduler client
+// Initialize AWS clients
 const schedulerClient = new SchedulerClient({ region: process.env.AWS_REGION || 'us-east-1' })
+const ssmClient = new SSMClient({ region: process.env.AWS_REGION || 'us-east-1' })
+
+// Configuration caching
+const configCache = new Map<string, { config: { targetArn: string; roleArn: string }; timestamp: number }>()
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+// Error classification for better handling
+enum ScheduleErrorType {
+  VALIDATION_ERROR = 'validation',
+  AWS_CREDENTIALS = 'credentials',
+  SSM_PARAMETER = 'ssm_parameter',
+  EVENTBRIDGE_API = 'eventbridge_api',
+  DATABASE_ERROR = 'database'
+}
+
+/**
+ * Gets the deployment environment for AWS service configuration
+ */
+function getEnvironment(): string {
+  // Determine environment from available env vars (prioritize explicit settings)
+  return process.env.AMPLIFY_ENV ||
+         process.env.NEXT_PUBLIC_ENVIRONMENT ||
+         process.env.ENVIRONMENT ||
+         'dev'
+}
+
+/**
+ * Fetches EventBridge configuration from SSM Parameter Store with caching
+ */
+async function getEventBridgeConfig(): Promise<{ targetArn: string; roleArn: string }> {
+  const environment = getEnvironment()
+  const cacheKey = `eventbridge-config-${environment}`
+  const cached = configCache.get(cacheKey)
+
+  // Return cached config if still valid
+  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+    return cached.config
+  }
+
+  try {
+    const [targetArnParam, roleArnParam] = await Promise.all([
+      ssmClient.send(new GetParameterCommand({
+        Name: `/aistudio/${environment}/schedule-executor-function-arn`,
+        WithDecryption: true
+      })),
+      ssmClient.send(new GetParameterCommand({
+        Name: `/aistudio/${environment}/scheduler-execution-role-arn`,
+        WithDecryption: true
+      }))
+    ])
+
+    const targetArn = targetArnParam.Parameter?.Value
+    const roleArn = roleArnParam.Parameter?.Value
+
+    if (!targetArn || !roleArn) {
+      throw new Error('EventBridge configuration parameters not found in SSM')
+    }
+
+    const config = { targetArn, roleArn }
+
+    // Cache the configuration
+    configCache.set(cacheKey, { config, timestamp: Date.now() })
+
+    return config
+  } catch (error) {
+    throw new Error(`Failed to fetch EventBridge configuration from SSM: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  }
+}
 
 /**
  * Validates and sanitizes name field
@@ -253,8 +322,9 @@ async function createEventBridgeSchedule(
   const log = createLogger({ operation: 'createEventBridgeSchedule' })
 
   try {
+    const environment = getEnvironment()
     const cronExpression = convertToCronExpression(scheduleConfig)
-    const scheduleName = `aistudio-dev-schedule-${scheduleId}`
+    const scheduleName = `aistudio-${environment}-schedule-${scheduleId}`
 
     log.info('Creating EventBridge schedule', {
       scheduleName,
@@ -276,8 +346,8 @@ async function createEventBridgeSchedule(
         Arn: targetArn,
         RoleArn: roleArn,
         Input: JSON.stringify({
-          scheduleId,
-          inputData
+          source: 'aws.scheduler',
+          scheduledExecutionId: scheduleId
         })
       }
     })
@@ -311,7 +381,8 @@ async function updateEventBridgeSchedule(
   const log = createLogger({ operation: 'updateEventBridgeSchedule' })
 
   try {
-    const scheduleName = `aistudio-dev-schedule-${scheduleId}`
+    const environment = getEnvironment()
+    const scheduleName = `aistudio-${environment}-schedule-${scheduleId}`
     const cronExpression = convertToCronExpression(scheduleConfig)
 
     log.info('Updating EventBridge schedule', {
@@ -334,8 +405,8 @@ async function updateEventBridgeSchedule(
         Arn: targetArn,
         RoleArn: roleArn,
         Input: JSON.stringify({
-          scheduleId,
-          inputData
+          source: 'aws.scheduler',
+          scheduledExecutionId: scheduleId
         })
       }
     })
@@ -358,7 +429,8 @@ async function deleteEventBridgeSchedule(scheduleId: number): Promise<void> {
   const log = createLogger({ operation: 'deleteEventBridgeSchedule' })
 
   try {
-    const scheduleName = `aistudio-dev-schedule-${scheduleId}`
+    const environment = getEnvironment()
+    const scheduleName = `aistudio-${environment}-schedule-${scheduleId}`
 
     log.info('Deleting EventBridge schedule', { scheduleName, scheduleId })
 
@@ -539,19 +611,13 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
 
     const scheduleId = result[0].id
 
-    // Create EventBridge schedule
+    // Try to create EventBridge schedule
     let scheduleArn: string | undefined
-    try {
-      const targetArn = process.env.SCHEDULE_EXECUTOR_FUNCTION_ARN
-      const roleArn = process.env.SCHEDULER_EXECUTION_ROLE_ARN
+    let eventBridgeEnabled = false
+    const warnings: string[] = []
 
-      if (!targetArn || !roleArn) {
-        log.warn("Missing environment variables for EventBridge schedule", {
-          hasTargetArn: !!targetArn,
-          hasRoleArn: !!roleArn
-        })
-        throw new Error("Missing required environment variables for schedule execution")
-      }
+    try {
+      const { targetArn, roleArn } = await getEventBridgeConfig()
 
       scheduleArn = await createEventBridgeSchedule(
         scheduleId,
@@ -562,33 +628,45 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
         inputData
       )
 
+      eventBridgeEnabled = true
       log.info("EventBridge schedule created successfully", { scheduleArn, scheduleId })
-    } catch (error) {
-      log.error("Failed to create EventBridge schedule", {
-        error: sanitizeForLogging(error),
-        scheduleId
-      })
 
-      // Clean up database record if EventBridge schedule creation fails
+      // Update database with EventBridge ARN for future reference
       try {
-        await executeSQL(`DELETE FROM scheduled_executions WHERE id = :scheduleId`, [
+        await executeSQL(`UPDATE scheduled_executions SET schedule_arn = :scheduleArn WHERE id = :scheduleId`, [
+          createParameter('scheduleArn', scheduleArn),
           createParameter('scheduleId', scheduleId)
         ])
-        log.info("Cleaned up database record after EventBridge failure", { scheduleId })
-      } catch (cleanupError) {
-        log.error("Failed to cleanup database record", {
-          error: sanitizeForLogging(cleanupError),
-          scheduleId
+      } catch (updateError) {
+        log.warn("Failed to update database with EventBridge ARN", {
+          error: sanitizeForLogging(updateError),
+          scheduleId,
+          scheduleArn
         })
       }
 
-      throw error
+    } catch (error) {
+      log.warn("EventBridge schedule creation failed, continuing with database-only mode", {
+        error: sanitizeForLogging(error),
+        scheduleId
+      })
+      warnings.push("EventBridge integration unavailable - schedule saved to database only")
+      // Don't throw error - continue with database-only mode
     }
 
     timer({ status: "success" })
-    log.info("Schedule created successfully", { scheduleId, scheduleArn })
+    log.info("Schedule created successfully", {
+      scheduleId,
+      scheduleArn,
+      eventBridgeEnabled
+    })
 
-    return createSuccess({ id: scheduleId, scheduleArn }, "Schedule created successfully")
+    return createSuccess({
+      id: scheduleId,
+      scheduleArn,
+      eventBridgeEnabled,
+      warnings
+    }, "Schedule created successfully")
 
   } catch (error) {
     timer({ status: "error" })
@@ -923,43 +1001,47 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
       updatedAt: updated.updatedAt
     }
 
-    // Update EventBridge schedule if schedule-related fields changed
+    // Try to update EventBridge schedule if schedule-related fields changed
+    let eventBridgeUpdated = false
+    const warnings: string[] = []
+
     if (params.scheduleConfig !== undefined || params.active !== undefined || params.name !== undefined) {
       try {
-        const targetArn = process.env.SCHEDULE_EXECUTOR_FUNCTION_ARN
-        const roleArn = process.env.SCHEDULER_EXECUTION_ROLE_ARN
-
-        if (targetArn && roleArn) {
-          await updateEventBridgeSchedule(
-            schedule.id,
-            schedule.name,
-            schedule.scheduleConfig,
-            targetArn,
-            roleArn,
-            schedule.inputData,
-            schedule.active
-          )
-          log.info("EventBridge schedule updated successfully", { scheduleId: schedule.id })
-        } else {
-          log.warn("Missing environment variables for EventBridge schedule update", {
-            hasTargetArn: !!targetArn,
-            hasRoleArn: !!roleArn
-          })
-        }
+        const { targetArn, roleArn } = await getEventBridgeConfig()
+        await updateEventBridgeSchedule(
+          schedule.id,
+          schedule.name,
+          schedule.scheduleConfig,
+          targetArn,
+          roleArn,
+          schedule.inputData,
+          schedule.active
+        )
+        eventBridgeUpdated = true
+        log.info("EventBridge schedule updated successfully", { scheduleId: schedule.id })
       } catch (error) {
-        log.error("Failed to update EventBridge schedule", {
+        log.warn("Failed to update EventBridge schedule, database changes preserved", {
           error: sanitizeForLogging(error),
           scheduleId: schedule.id
         })
+        warnings.push("EventBridge update failed - database changes preserved")
         // Don't fail the entire update operation if EventBridge update fails
         // The database update succeeded, so we return success but log the EventBridge error
       }
     }
 
     timer({ status: "success" })
-    log.info("Schedule updated successfully")
+    log.info("Schedule updated successfully", {
+      scheduleId: schedule.id,
+      eventBridgeUpdated,
+      warningsCount: warnings.length
+    })
 
-    return createSuccess(schedule, "Schedule updated successfully")
+    return createSuccess({
+      ...schedule,
+      eventBridgeUpdated,
+      warnings
+    }, "Schedule updated successfully")
 
   } catch (error) {
     timer({ status: "error" })

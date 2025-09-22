@@ -531,11 +531,13 @@ async function createExecutionResult(scheduledExecutionId) {
         INSERT INTO execution_results (
           scheduled_execution_id,
           status,
-          executed_at
+          executed_at,
+          result_data
         ) VALUES (
           :scheduled_execution_id,
           'running',
-          NOW()
+          NOW(),
+          '{}'::jsonb
         )
         RETURNING id
       `,
@@ -584,7 +586,7 @@ async function updateExecutionResult(executionResultId, status, resultData = nul
         { name: 'status', value: { stringValue: status } },
         {
           name: 'result_data',
-          value: resultData ? { stringValue: JSON.stringify(resultData) } : { isNull: true }
+          value: { stringValue: safeJsonStringify(resultData || {}) }
         },
         {
           name: 'execution_duration_ms',
@@ -844,16 +846,21 @@ async function loadAssistantArchitect(assistantArchitectId) {
           aa.id,
           aa.name,
           aa.description,
-          aa.instructions,
-          aa.model_id,
-          aa.created_by,
-          aa.enabled_tools,
+          aa.status,
+          aa.user_id,
+          cp.id as prompt_id,
+          cp.content as instructions,
+          cp.model_id,
+          cp.enabled_tools,
           m.model_id as model_string,
           m.provider,
-          m.label as model_label
+          m.name as model_label
         FROM assistant_architects aa
-        JOIN ai_models m ON aa.model_id = m.id
+        LEFT JOIN chain_prompts cp ON cp.assistant_architect_id = aa.id
+        LEFT JOIN ai_models m ON cp.model_id = m.id
         WHERE aa.id = :assistant_architect_id
+        ORDER BY cp.position
+        LIMIT 1
       `,
       parameters: [
         { name: 'assistant_architect_id', value: { longValue: architectId } }
@@ -872,13 +879,15 @@ async function loadAssistantArchitect(assistantArchitectId) {
       id: record[0].longValue,
       name: record[1].stringValue,
       description: record[2].stringValue,
-      instructions: record[3].stringValue,
-      model_id: record[4].longValue,
-      created_by: record[5].longValue,
-      enabled_tools: record[6].stringValue ? safeJsonParse(record[6].stringValue, [], 'enabled_tools') : [],
-      model_string: record[7].stringValue,
-      provider: record[8].stringValue,
-      model_label: record[9].stringValue
+      status: record[3].stringValue,
+      user_id: record[4].longValue,
+      prompt_id: record[5]?.longValue,
+      instructions: record[6]?.stringValue,
+      model_id: record[7]?.longValue,
+      enabled_tools: record[8]?.stringValue ? safeJsonParse(record[8].stringValue, [], 'enabled_tools') : [],
+      model_string: record[9]?.stringValue,
+      provider: record[10]?.stringValue,
+      model_label: record[11]?.stringValue
     };
   } catch (error) {
     log.error('Failed to load assistant architect', {
@@ -886,6 +895,50 @@ async function loadAssistantArchitect(assistantArchitectId) {
       assistantArchitectId: sanitizeForLogging(assistantArchitectId)
     });
     throw error;
+  }
+}
+
+/**
+ * Safe JSON serialization with size limits and circular reference protection
+ */
+function safeJsonStringify(obj, maxSize = 1024 * 1024) { // 1MB limit
+  try {
+    // Check for circular references and handle special types
+    const cache = new Set();
+    const result = JSON.stringify(obj, (key, value) => {
+      // Handle circular references
+      if (typeof value === 'object' && value !== null) {
+        if (cache.has(value)) {
+          return '[Circular Reference]';
+        }
+        cache.add(value);
+      }
+
+      // Handle special types
+      if (typeof value === 'function') return '[Function]';
+      if (typeof value === 'bigint') return value.toString();
+      if (value instanceof Error) return { error: value.message, stack: value.stack };
+      if (value === undefined) return null;
+
+      return value;
+    });
+
+    // Check size limit
+    if (result.length > maxSize) {
+      return JSON.stringify({
+        error: 'Response too large',
+        size: result.length,
+        maxSize,
+        truncated: true
+      });
+    }
+
+    return result;
+  } catch (error) {
+    return JSON.stringify({
+      error: 'JSON serialization failed',
+      originalError: error.message
+    });
   }
 }
 
@@ -925,7 +978,6 @@ async function createStreamingJob(scheduledExecution, assistantArchitect, execut
       source: 'assistant-architect',
       toolMetadata: {
         toolId: assistantArchitect.id,
-        executionId: null, // Will be updated when execution starts
         prompts: [], // Will be loaded by streaming worker
         inputMapping: scheduledExecution.input_data || {}
       },
@@ -965,7 +1017,7 @@ async function createStreamingJob(scheduledExecution, assistantArchitect, execut
         { name: 'conversation_id', value: { stringValue: conversationId } },
         { name: 'user_id', value: { longValue: scheduledExecution.user_id } },
         { name: 'model_id', value: { longValue: assistantArchitect.model_id } },
-        { name: 'request_data', value: { stringValue: JSON.stringify(requestData) } }
+        { name: 'request_data', value: { stringValue: safeJsonStringify(requestData) } }
       ]
     });
 
