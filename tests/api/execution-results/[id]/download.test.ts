@@ -28,8 +28,7 @@ jest.mock('@/lib/rate-limit', () => ({
   withRateLimit: mockWithRateLimit
 }))
 
-// Import after mocks
-import { downloadHandler } from '@/app/api/execution-results/[id]/download/route'
+// Note: We'll import the handlers dynamically in each test to ensure fresh modules
 
 // Import the handler function directly for unit testing
 const mockLogger = {
@@ -46,10 +45,15 @@ describe('Execution Results Download API', () => {
     // Clear and setup mocks
     jest.clearAllMocks()
 
+    // Force reload of the route module to get fresh imports
+    jest.doMock('@/app/api/execution-results/[id]/download/route')
+
     // Setup default mock implementations
     mockCreateLogger.mockReturnValue(mockLogger as any)
     mockGenerateRequestId.mockReturnValue('test-request-id')
-    mockStartTimer.mockReturnValue(mockTimer) // Return the callable timer function
+    mockStartTimer.mockReturnValue((metadata?: object) => {
+      mockTimer(metadata)
+    })
     mockSanitizeForLogging.mockImplementation((data) => data)
 
     // Ensure timer is callable
@@ -69,7 +73,8 @@ describe('Execution Results Download API', () => {
       const params = Promise.resolve({ id: '123' })
 
       // Import and test the handler directly
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
@@ -92,7 +97,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/456/download')
       const params = Promise.resolve({ id: '456' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
@@ -132,7 +138,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/456/download')
       const params = Promise.resolve({ id: '456' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
 
       // Assert
@@ -155,7 +162,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/abc/download')
       const params = Promise.resolve({ id: 'abc' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
@@ -170,7 +178,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/-123/download')
       const params = Promise.resolve({ id: '-123' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
@@ -185,7 +194,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/0/download')
       const params = Promise.resolve({ id: '0' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
@@ -217,7 +227,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/123/download')
       const params = Promise.resolve({ id: '123' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
 
       // Assert
@@ -254,7 +265,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/123/download')
       const params = Promise.resolve({ id: '123' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
       const content = await response.text()
 
@@ -295,7 +307,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/124/download')
       const params = Promise.resolve({ id: '124' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
       const content = await response.text()
 
@@ -327,7 +340,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/125/download')
       const params = Promise.resolve({ id: '125' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
       const content = await response.text()
 
@@ -394,7 +408,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/127/download')
       const params = Promise.resolve({ id: '127' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
 
       // Assert
@@ -425,7 +440,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/128/download')
       const params = Promise.resolve({ id: '128' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
 
       // Assert
@@ -463,7 +479,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/129/download')
       const params = Promise.resolve({ id: '129' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
 
       // Assert
@@ -492,7 +509,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/130/download')
       const params = Promise.resolve({ id: '130' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
 
       // Assert
@@ -522,7 +540,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/131/download')
       const params = Promise.resolve({ id: '131' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
       const content = await response.text()
 
@@ -545,7 +564,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/132/download')
       const params = Promise.resolve({ id: '132' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
@@ -577,7 +597,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/133/download')
       const params = Promise.resolve({ id: '133' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
 
       // Assert
@@ -595,7 +616,8 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/134/download')
       const params = Promise.resolve({ id: '134' })
 
-      // Act
+      // Act - Dynamic import to get fresh module
+      const { downloadHandler } = await import('@/app/api/execution-results/[id]/download/route')
       const response = await downloadHandler(request, { params })
       const responseData = await response.json()
 
@@ -606,7 +628,10 @@ describe('Execution Results Download API', () => {
   })
 
   describe('Rate Limiting', () => {
-    it('should apply rate limiting with correct configuration', () => {
+    it('should apply rate limiting with correct configuration', async () => {
+      // Import the module to trigger rate limiting configuration
+      await import('@/app/api/execution-results/[id]/download/route')
+
       // The rate limiting is applied in the export, so we test that it's configured correctly
       expect(mockWithRateLimit).toHaveBeenCalledWith(
         expect.any(Function),
@@ -650,7 +675,8 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      await GET(request, { params })
+      const routeModule = await import('@/app/api/execution-results/[id]/download/route')
+      await routeModule.GET(request, { params })
 
       // Assert
       expect(mockLogger.info).toHaveBeenCalledWith(
@@ -692,7 +718,8 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      await GET(request, { params })
+      const routeModule = await import('@/app/api/execution-results/[id]/download/route')
+      await routeModule.GET(request, { params })
 
       // Assert
       expect(mockTimer).toHaveBeenCalledWith({ status: 'success' })
@@ -708,7 +735,8 @@ describe('Execution Results Download API', () => {
       const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
-      await GET(request, { params })
+      const routeModule = await import('@/app/api/execution-results/[id]/download/route')
+      await routeModule.GET(request, { params })
 
       // Assert
       expect(mockTimer).toHaveBeenCalledWith({ status: 'error' })
