@@ -1033,9 +1033,11 @@ async function createStreamingJob(scheduledExecution, assistantArchitect, execut
     }
 
     // Prepare request data for streaming job - SAME format as manual execution
-    // Note: modelId and provider will be determined per-prompt by the streaming worker
     const requestData = {
       messages: [], // Empty messages for assistant architect
+      modelId: firstPrompt?.model_id || 1,
+      modelIdString: firstPrompt?.model_string,
+      provider: firstPrompt?.provider,
       systemPrompt: assistantArchitect.instructions,
       options: {
         responseMode: 'standard'

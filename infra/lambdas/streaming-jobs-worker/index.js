@@ -909,6 +909,7 @@ async function processAssistantArchitectJob(job) {
     const {
       messages,
       modelId,
+      modelIdString,
       provider,
       systemPrompt,
       options = {},
@@ -994,8 +995,8 @@ async function processAssistantArchitectJob(job) {
         // Create streaming request using shared core interface
         const streamRequest = {
           messages: promptMessages,
-          modelId: modelId,
-          provider: provider,
+          modelId: prompt.model_string || modelIdString || modelId,
+          provider: prompt.provider || provider,
           userId: job.user_id.toString(),
           sessionId: `${job.id}-prompt-${prompt.id}`,
           conversationId: job.conversation_id,
