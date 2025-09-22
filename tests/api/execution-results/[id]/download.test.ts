@@ -1,5 +1,5 @@
-import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals'
-import { NextRequest, NextResponse } from 'next/server'
+import { describe, it, expect, jest, beforeEach } from '@jest/globals'
+import { NextRequest } from 'next/server'
 
 // Create simple mock functions
 const mockGetServerSession = jest.fn<() => Promise<{ sub?: string } | null>>()
@@ -61,9 +61,6 @@ describe.skip('Execution Results Download API', () => {
     mockTimer.mockClear()
   })
 
-  afterEach(() => {
-    jest.resetAllMocks()
-  })
 
   describe('Authentication & Authorization', () => {
     it('should return 401 for unauthenticated requests', async () => {

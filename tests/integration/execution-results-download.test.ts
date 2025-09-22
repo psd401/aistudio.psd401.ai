@@ -1,4 +1,4 @@
-import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals'
+import { describe, it, expect, jest, beforeEach } from '@jest/globals'
 import { NextRequest } from 'next/server'
 
 // Create simple mock functions
@@ -62,9 +62,6 @@ describe.skip('Execution Results Download Integration Tests', () => {
     mockSanitizeForLogging.mockImplementation((data) => data)
   })
 
-  afterEach(() => {
-    jest.resetAllMocks()
-  })
 
   describe('Full API Integration Tests', () => {
     it('should handle complete successful download flow', async () => {
