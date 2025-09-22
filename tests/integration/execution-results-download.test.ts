@@ -54,7 +54,9 @@ describe('Execution Results Download Integration Tests', () => {
     // Setup default mock implementations
     mockCreateLogger.mockReturnValue(integrationMockLogger)
     mockGenerateRequestId.mockReturnValue('integration-test-id')
-    mockStartTimer.mockReturnValue(mockTimer)
+    mockStartTimer.mockReturnValue((metadata?: object) => {
+      mockTimer(metadata)
+    })
     mockSanitizeForLogging.mockImplementation((data) => data)
   })
 
