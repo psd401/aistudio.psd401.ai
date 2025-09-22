@@ -6,7 +6,7 @@ const mockGetServerSession = jest.fn<() => Promise<{ sub?: string } | null>>()
 const mockExecuteSQL = jest.fn<(sql: string, parameters?: unknown[]) => Promise<Array<Record<string, unknown>>>>()
 const mockCreateLogger = jest.fn<() => { info: jest.Mock; warn: jest.Mock; error: jest.Mock }>()
 const mockGenerateRequestId = jest.fn<() => string>()
-const mockStartTimer = jest.fn<() => jest.Mock>()
+const mockStartTimer = jest.fn<(operation: string) => (metadata?: object) => void>()
 const mockSanitizeForLogging = jest.fn<(data: unknown) => unknown>()
 const mockWithRateLimit = jest.fn<(handler: Function, config?: unknown) => Function>()
   .mockImplementation((handler: Function, config?: unknown) => handler)
@@ -28,6 +28,9 @@ jest.mock('@/lib/rate-limit', () => ({
   withRateLimit: mockWithRateLimit
 }))
 
+// Import after mocks
+import { downloadHandler } from '@/app/api/execution-results/[id]/download/route'
+
 // Import the handler function directly for unit testing
 const mockLogger = {
   info: jest.fn(),
@@ -38,18 +41,19 @@ const mockLogger = {
 // Create a mock timer function
 const mockTimer = jest.fn()
 
-// Import the downloadHandler directly for testing
-import { downloadHandler } from '@/app/api/execution-results/[id]/download/route'
-
 describe('Execution Results Download API', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Clear and setup mocks
     jest.clearAllMocks()
 
     // Setup default mock implementations
     mockCreateLogger.mockReturnValue(mockLogger as any)
     mockGenerateRequestId.mockReturnValue('test-request-id')
-    mockStartTimer.mockReturnValue(mockTimer)
+    mockStartTimer.mockReturnValue(mockTimer) // Return the callable timer function
     mockSanitizeForLogging.mockImplementation((data) => data)
+
+    // Ensure timer is callable
+    mockTimer.mockClear()
   })
 
   afterEach(() => {
@@ -65,8 +69,6 @@ describe('Execution Results Download API', () => {
       const params = Promise.resolve({ id: '123' })
 
       // Import and test the handler directly
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
-
       // Act
       const response = await downloadHandler(request, { params })
       const responseData = await response.json()
@@ -89,8 +91,6 @@ describe('Execution Results Download API', () => {
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/456/download')
       const params = Promise.resolve({ id: '456' })
-
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
       const response = await downloadHandler(request, { params })
@@ -132,8 +132,6 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/456/download')
       const params = Promise.resolve({ id: '456' })
 
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
-
       // Act
       const response = await downloadHandler(request, { params })
 
@@ -157,8 +155,6 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/abc/download')
       const params = Promise.resolve({ id: 'abc' })
 
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
-
       // Act
       const response = await downloadHandler(request, { params })
       const responseData = await response.json()
@@ -174,8 +170,6 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/-123/download')
       const params = Promise.resolve({ id: '-123' })
 
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
-
       // Act
       const response = await downloadHandler(request, { params })
       const responseData = await response.json()
@@ -190,8 +184,6 @@ describe('Execution Results Download API', () => {
       // Arrange
       const request = new NextRequest('http://localhost:3000/api/execution-results/0/download')
       const params = Promise.resolve({ id: '0' })
-
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
       const response = await downloadHandler(request, { params })
@@ -224,8 +216,6 @@ describe('Execution Results Download API', () => {
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/123/download')
       const params = Promise.resolve({ id: '123' })
-
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
       const response = await downloadHandler(request, { params })
@@ -263,8 +253,6 @@ describe('Execution Results Download API', () => {
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/123/download')
       const params = Promise.resolve({ id: '123' })
-
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
       const response = await downloadHandler(request, { params })
@@ -307,8 +295,6 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/124/download')
       const params = Promise.resolve({ id: '124' })
 
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
-
       // Act
       const response = await downloadHandler(request, { params })
       const content = await response.text()
@@ -341,8 +327,6 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/125/download')
       const params = Promise.resolve({ id: '125' })
 
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
-
       // Act
       const response = await downloadHandler(request, { params })
       const content = await response.text()
@@ -374,9 +358,7 @@ describe('Execution Results Download API', () => {
       const request1 = new NextRequest('http://localhost:3000/api/execution-results/126/download')
       const params1 = Promise.resolve({ id: '126' })
 
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
-
-      const response1 = await GET(request1, { params: params1 })
+      const response1 = await downloadHandler(request1, { params: params1 })
       const content1 = await response1.text()
 
       expect(content1).toContain('Text content here')
@@ -412,8 +394,6 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/127/download')
       const params = Promise.resolve({ id: '127' })
 
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
-
       // Act
       const response = await downloadHandler(request, { params })
 
@@ -444,8 +424,6 @@ describe('Execution Results Download API', () => {
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/128/download')
       const params = Promise.resolve({ id: '128' })
-
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
       const response = await downloadHandler(request, { params })
@@ -485,8 +463,6 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/129/download')
       const params = Promise.resolve({ id: '129' })
 
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
-
       // Act
       const response = await downloadHandler(request, { params })
 
@@ -515,8 +491,6 @@ describe('Execution Results Download API', () => {
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/130/download')
       const params = Promise.resolve({ id: '130' })
-
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
       const response = await downloadHandler(request, { params })
@@ -548,8 +522,6 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/131/download')
       const params = Promise.resolve({ id: '131' })
 
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
-
       // Act
       const response = await downloadHandler(request, { params })
       const content = await response.text()
@@ -572,8 +544,6 @@ describe('Execution Results Download API', () => {
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/132/download')
       const params = Promise.resolve({ id: '132' })
-
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
       const response = await downloadHandler(request, { params })
@@ -607,8 +577,6 @@ describe('Execution Results Download API', () => {
       const request = new NextRequest('http://localhost:3000/api/execution-results/133/download')
       const params = Promise.resolve({ id: '133' })
 
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
-
       // Act
       const response = await downloadHandler(request, { params })
 
@@ -626,8 +594,6 @@ describe('Execution Results Download API', () => {
 
       const request = new NextRequest('http://localhost:3000/api/execution-results/134/download')
       const params = Promise.resolve({ id: '134' })
-
-      const { GET } = await import('@/app/api/execution-results/[id]/download/route')
 
       // Act
       const response = await downloadHandler(request, { params })

@@ -6,7 +6,7 @@ const mockGetServerSession = jest.fn<() => Promise<{ sub?: string } | null>>()
 const mockExecuteSQL = jest.fn<(sql: string, parameters?: unknown[]) => Promise<Array<Record<string, unknown>>>>()
 const mockCreateLogger = jest.fn<() => { info: jest.Mock; warn: jest.Mock; error: jest.Mock }>()
 const mockGenerateRequestId = jest.fn<() => string>()
-const mockStartTimer = jest.fn<() => jest.Mock>()
+const mockStartTimer = jest.fn<(operation: string) => (metadata?: object) => void>()
 const mockSanitizeForLogging = jest.fn<(data: unknown) => unknown>()
 const mockWithRateLimit = jest.fn<(handler: Function, config?: unknown) => Function>()
   .mockImplementation((handler: Function, config?: unknown) => handler)
@@ -28,6 +28,9 @@ jest.mock('@/lib/rate-limit', () => ({
   withRateLimit: mockWithRateLimit
 }))
 
+// Import after mocks
+import { downloadHandler } from '@/app/api/execution-results/[id]/download/route'
+
 // Mock logger object
 const integrationMockLogger = {
   info: jest.fn(),
@@ -43,11 +46,9 @@ const mockLogger = {
 
 const mockTimer = jest.fn()
 
-// Import the downloadHandler directly for testing
-import { downloadHandler } from '@/app/api/execution-results/[id]/download/route'
-
 describe('Execution Results Download Integration Tests', () => {
   beforeEach(() => {
+    // Clear and setup mocks
     jest.clearAllMocks()
 
     // Setup default mock implementations
