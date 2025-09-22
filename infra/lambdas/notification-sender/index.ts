@@ -252,7 +252,7 @@ function validateNotificationMessage(messageBody: unknown): ValidationResult {
 
 // Initialize clients
 const rdsClient = new RDSDataClient({});
-const sesClient = new SESClient({});
+const sesClient = new SESClient({ region: process.env.SES_REGION || 'us-east-1' });
 const cognitoClient = new CognitoIdentityProviderClient({});
 
 // Environment variables with startup validation
@@ -511,7 +511,7 @@ async function createNotificationRecord(userId: number, executionResultId: numbe
           :user_id,
           :execution_result_id,
           :type,
-          'pending',
+          'sent',
           0,
           NOW()
         )
@@ -616,7 +616,7 @@ async function getUserEmail(userId: number): Promise<string | null> {
       secretArn: env.DATABASE_SECRET_ARN,
       database: env.DATABASE_NAME,
       sql: `
-        SELECT email, cognito_user_id
+        SELECT email, cognito_sub
         FROM users
         WHERE id = :user_id
       `,

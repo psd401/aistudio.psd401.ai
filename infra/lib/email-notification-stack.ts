@@ -14,6 +14,13 @@ export interface EmailNotificationStackProps extends cdk.StackProps {
   // Cross-stack dependencies retrieved from SSM Parameter Store
   databaseResourceArn?: string;
   databaseSecretArn?: string;
+  // Email configuration - allows different organizations to customize
+  emailDomain?: string;
+  fromEmail?: string;
+  appBaseUrl?: string;
+  // SES resource management
+  createSesIdentity?: boolean; // Set to false if SES identity already exists
+  useDomainIdentity?: boolean; // Use domain identity for prod, email identity for dev
 }
 
 export class EmailNotificationStack extends cdk.Stack {
@@ -23,6 +30,12 @@ export class EmailNotificationStack extends cdk.Stack {
 
   constructor(scope: Construct, id: string, props: EmailNotificationStackProps) {
     super(scope, id, props);
+
+    // Email configuration with defaults for PSD401
+    const emailDomain = props.emailDomain || 'psd401.net';
+    const fromEmail = props.fromEmail || `noreply@${emailDomain}`;
+    const appBaseUrl = props.appBaseUrl ||
+      (props.environment === 'prod' ? 'https://aistudio.psd401.ai' : 'https://dev.aistudio.psd401.ai');
 
     // Retrieve values from SSM Parameter Store (or use provided props for backward compatibility)
     const databaseResourceArn = props.databaseResourceArn ||
@@ -35,15 +48,23 @@ export class EmailNotificationStack extends cdk.Stack {
         this, `/aistudio/${props.environment}/db-secret-arn`
       );
 
-    // SES Configuration for PSD401 domain
-    const sesIdentity = new ses.EmailIdentity(this, 'SESIdentity', {
-      identity: ses.Identity.domain('psd401.edu'),
-      // Note: In production, this domain needs to be verified manually
-      // For dev environment, we'll use a verified email instead
-      ...(props.environment === 'dev' && {
-        identity: ses.Identity.email('noreply@psd401.edu')
-      })
-    });
+    // SES Configuration - Configurable identity creation
+    const createSesIdentity = props.createSesIdentity !== false; // Default to true
+    const useDomainIdentity = props.useDomainIdentity || (props.environment === 'prod');
+
+    // Only create SES identity if explicitly requested
+    if (createSesIdentity) {
+      const emailIdentity = new ses.EmailIdentity(this, 'SESEmailIdentity', {
+        identity: useDomainIdentity
+          ? ses.Identity.domain(emailDomain)
+          : ses.Identity.email(fromEmail),
+      });
+
+      // Retain the identity if stack is deleted (don't break email functionality)
+      emailIdentity.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
+    }
+
+    // Note: If createSesIdentity is false, assumes the email identity is already verified externally
 
     // SES Configuration Set for tracking delivery events
     const configurationSet = new ses.ConfigurationSet(this, 'EmailConfigurationSet', {
@@ -163,7 +184,42 @@ Peninsula School District AI Studio
     this.notificationSenderFunction = new lambda.Function(this, 'NotificationSender', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/notification-sender')),
+      code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/notification-sender'), {
+        // Use a simple local bundling command that pre-compiles TypeScript
+        bundling: {
+          image: lambda.Runtime.NODEJS_20_X.bundlingImage,
+          local: {
+            tryBundle(outputDir: string) {
+              try {
+                const fs = require('fs');
+                const execSync = require('child_process').execSync;
+
+                // Check if we can compile locally
+                execSync('which npm', { stdio: 'ignore' });
+
+                const sourceDir = path.join(__dirname, '../lambdas/notification-sender');
+
+                // Copy source files
+                execSync(`cp -r ${sourceDir}/* ${outputDir}/`);
+
+                // Install dependencies
+                execSync('npm install', { cwd: outputDir, stdio: 'inherit' });
+
+                // Compile TypeScript
+                execSync('npm run build', { cwd: outputDir, stdio: 'inherit' });
+
+                // Copy compiled files to root and clean up
+                execSync(`cp -r ${outputDir}/dist/* ${outputDir}/`);
+                execSync(`rm -rf ${outputDir}/dist ${outputDir}/*.ts ${outputDir}/tsconfig.json`);
+
+                return true;
+              } catch (error) {
+                return false; // Fall back to Docker
+              }
+            }
+          }
+        }
+      }),
       functionName: `aistudio-${props.environment}-notification-sender`,
       timeout: cdk.Duration.minutes(3), // Time to process notification and send email
       memorySize: 1024, // Sufficient for email processing
@@ -175,8 +231,9 @@ Peninsula School District AI Studio
         ENVIRONMENT: props.environment,
         SES_CONFIGURATION_SET: configurationSet.configurationSetName,
         SES_TEMPLATE_NAME: templateName,
-        SES_FROM_EMAIL: props.environment === 'prod' ? 'noreply@psd401.edu' : 'noreply@psd401.edu',
-        APP_BASE_URL: props.environment === 'prod' ? 'https://aistudio.psd401.ai' : 'https://dev.aistudio.psd401.ai',
+        SES_FROM_EMAIL: fromEmail,
+        APP_BASE_URL: appBaseUrl,
+        SES_REGION: 'us-east-1', // SES identities are configured in us-east-1
       },
       logGroup: notificationLogGroup,
       // Conservative concurrency to avoid SES rate limits
@@ -214,7 +271,8 @@ Peninsula School District AI Studio
     this.notificationSenderFunction.addToRolePolicy(rdsDataApiPolicy);
     this.notificationSenderFunction.addToRolePolicy(secretsManagerPolicy);
 
-    // Grant SES permissions
+    // Grant SES permissions - SES resources are in us-east-1
+    const sesRegion = 'us-east-1'; // SES identities configured region
     const sesPolicy = new iam.PolicyStatement({
       actions: [
         'ses:SendEmail',
@@ -224,10 +282,11 @@ Peninsula School District AI Studio
         'ses:PutConfigurationSetEventDestination',
       ],
       resources: [
-        `arn:aws:ses:${this.region}:${this.account}:identity/psd401.edu`,
-        `arn:aws:ses:${this.region}:${this.account}:identity/noreply@psd401.edu`,
-        `arn:aws:ses:${this.region}:${this.account}:template/${templateName}`,
-        `arn:aws:ses:${this.region}:${this.account}:configuration-set/${configurationSet.configurationSetName}`,
+        `arn:aws:ses:${sesRegion}:${this.account}:identity/${emailDomain}`,
+        `arn:aws:ses:${sesRegion}:${this.account}:identity/${fromEmail}`,
+        `arn:aws:ses:${sesRegion}:${this.account}:identity/*@${emailDomain}`, // Allow any verified email in domain
+        `arn:aws:ses:${sesRegion}:${this.account}:template/${templateName}`,
+        `arn:aws:ses:${sesRegion}:${this.account}:configuration-set/${configurationSet.configurationSetName}`,
       ],
     });
 
