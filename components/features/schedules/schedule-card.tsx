@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, memo } from "react"
+import { useState, memo, useCallback } from "react"
 import { format, parseISO } from "date-fns"
 import {
   Calendar,
@@ -49,6 +49,18 @@ function ScheduleCardComponent({ schedule, onDelete, onToggle, onRefresh }: Sche
   const [isDeleting, setIsDeleting] = useState(false)
   const [isToggling, setIsToggling] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
+
+  const handleCloseModal = useCallback(() => {
+    setShowEditModal(false)
+  }, [])
+
+  const handleModalSuccess = useCallback(() => {
+    setShowEditModal(false)
+    // Use setTimeout to prevent rapid state updates
+    setTimeout(() => {
+      onRefresh()
+    }, 0)
+  }, [onRefresh])
 
   const handleDelete = async () => {
     setIsDeleting(true)
@@ -111,16 +123,58 @@ function ScheduleCardComponent({ schedule, onDelete, onToggle, onRefresh }: Sche
       return "Paused"
     }
 
-    if (schedule.nextExecution) {
-      try {
-        const nextDate = parseISO(schedule.nextExecution)
-        return format(nextDate, "MMM d, yyyy 'at' h:mm a")
-      } catch {
-        return "Next execution time unavailable"
-      }
+    // Calculate next execution time client-side
+    const { scheduleConfig } = schedule
+    const { frequency, time, timezone = "PST", daysOfWeek, dayOfMonth, cron } = scheduleConfig
+
+    if (!time || !frequency) {
+      return "Next execution time will be calculated"
     }
 
-    return "Next execution time will be calculated"
+    try {
+      const now = new Date()
+      const [hours, minutes] = time.split(":").map(Number)
+
+      const nextRun = new Date()
+      nextRun.setHours(hours, minutes, 0, 0)
+
+      // If time has passed today, move to next occurrence
+      if (nextRun <= now) {
+        switch (frequency) {
+          case "daily":
+            nextRun.setDate(nextRun.getDate() + 1)
+            break
+          case "weekly":
+            if (daysOfWeek?.length) {
+              const currentDay = now.getDay()
+              const nextDay = daysOfWeek.find(day => day > currentDay) || daysOfWeek[0]
+              const daysToAdd = nextDay > currentDay ? nextDay - currentDay : 7 - currentDay + nextDay
+              nextRun.setDate(nextRun.getDate() + daysToAdd)
+            }
+            break
+          case "monthly":
+            if (dayOfMonth) {
+              nextRun.setMonth(nextRun.getMonth() + 1)
+              nextRun.setDate(dayOfMonth)
+            }
+            break
+          case "custom":
+            return cron ? `Custom: ${cron}` : "Custom schedule"
+        }
+      }
+
+      return nextRun.toLocaleString("en-US", {
+        timeZone: timezone,
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short",
+      })
+    } catch {
+      return "Next execution time will be calculated"
+    }
   }
 
   const getLastExecutionText = () => {
@@ -279,11 +333,8 @@ function ScheduleCardComponent({ schedule, onDelete, onToggle, onRefresh }: Sche
       <ScheduleEditModal
         schedule={schedule}
         open={showEditModal}
-        onClose={() => setShowEditModal(false)}
-        onSuccess={() => {
-          setShowEditModal(false)
-          onRefresh()
-        }}
+        onClose={handleCloseModal}
+        onSuccess={handleModalSuccess}
       />
     </>
   )
