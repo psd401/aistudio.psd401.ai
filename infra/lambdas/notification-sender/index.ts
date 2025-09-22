@@ -743,7 +743,7 @@ function generateExecutionSummary(resultData: Record<string, unknown>): string |
   // Extract key information from the result data
   // Handle different output field names (assistant architect vs other executions)
   const summary: string[] = [];
-  const maxSummaryLength = parseInt(process.env.MAX_SUMMARY_LENGTH || '200', 10);
+  const maxSummaryLength = parseInt(process.env.MAX_SUMMARY_LENGTH || '2000', 10);
 
   // Check for assistant architect output fields first (text, finalOutput), then fallback to output
   const assistantOutput = resultData.text || resultData.finalOutput || resultData.output;

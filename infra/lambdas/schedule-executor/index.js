@@ -1,6 +1,7 @@
 const { RDSDataClient, ExecuteStatementCommand } = require('@aws-sdk/client-rds-data');
 const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
 const { SchedulerClient, CreateScheduleCommand, UpdateScheduleCommand, DeleteScheduleCommand } = require('@aws-sdk/client-scheduler');
+const { buildToolsForScheduledExecution, collectEnabledToolsFromPrompts } = require('./tool-builder');
 
 // Lambda logging utilities (simplified version of main app pattern)
 function generateRequestId() {
@@ -837,57 +838,88 @@ async function loadAssistantArchitect(assistantArchitectId) {
   try {
     const architectId = safeParseInt(assistantArchitectId, 'assistant architect ID');
 
-    const command = new ExecuteStatementCommand({
+    // First get the assistant architect details
+    const architectCommand = new ExecuteStatementCommand({
       resourceArn: DATABASE_RESOURCE_ARN,
       secretArn: DATABASE_SECRET_ARN,
       database: DATABASE_NAME,
       sql: `
-        SELECT
-          aa.id,
-          aa.name,
-          aa.description,
-          aa.status,
-          aa.user_id,
-          cp.id as prompt_id,
-          cp.content as instructions,
-          cp.model_id,
-          cp.enabled_tools,
-          m.model_id as model_string,
-          m.provider,
-          m.name as model_label
-        FROM assistant_architects aa
-        LEFT JOIN chain_prompts cp ON cp.assistant_architect_id = aa.id
-        LEFT JOIN ai_models m ON cp.model_id = m.id
-        WHERE aa.id = :assistant_architect_id
-        ORDER BY cp.position
-        LIMIT 1
+        SELECT id, name, description, status, user_id
+        FROM assistant_architects
+        WHERE id = :assistant_architect_id
       `,
       parameters: [
         { name: 'assistant_architect_id', value: { longValue: architectId } }
       ]
     });
 
-    const response = await rdsClient.send(command);
-
-    if (!response.records || response.records.length === 0) {
+    const architectResponse = await rdsClient.send(architectCommand);
+    if (!architectResponse.records || architectResponse.records.length === 0) {
       return null;
     }
 
-    const record = response.records[0];
+    const architectRecord = architectResponse.records[0];
+
+    // Now get ALL prompts for this assistant architect
+    const promptsCommand = new ExecuteStatementCommand({
+      resourceArn: DATABASE_RESOURCE_ARN,
+      secretArn: DATABASE_SECRET_ARN,
+      database: DATABASE_NAME,
+      sql: `
+        SELECT
+          cp.id,
+          cp.name,
+          cp.content,
+          cp.system_context,
+          cp.model_id,
+          cp.position,
+          cp.input_mapping,
+          cp.enabled_tools,
+          cp.repository_ids,
+          m.model_id as model_string,
+          m.provider,
+          m.name as model_label
+        FROM chain_prompts cp
+        LEFT JOIN ai_models m ON cp.model_id = m.id
+        WHERE cp.assistant_architect_id = :assistant_architect_id
+        ORDER BY cp.position
+      `,
+      parameters: [
+        { name: 'assistant_architect_id', value: { longValue: architectId } }
+      ]
+    });
+
+    const promptsResponse = await rdsClient.send(promptsCommand);
+    const prompts = [];
+
+    if (promptsResponse.records && promptsResponse.records.length > 0) {
+      for (const record of promptsResponse.records) {
+        prompts.push({
+          id: record[0].longValue,
+          name: record[1].stringValue,
+          content: record[2].stringValue,
+          system_context: record[3]?.stringValue || null,
+          model_id: record[4].longValue,
+          position: record[5].longValue,
+          input_mapping: record[6]?.stringValue ? safeJsonParse(record[6].stringValue, {}, 'input_mapping') : {},
+          enabled_tools: record[7]?.stringValue ? safeJsonParse(record[7].stringValue, [], 'enabled_tools') : [],
+          repository_ids: record[8]?.stringValue ? safeJsonParse(record[8].stringValue, [], 'repository_ids') : [],
+          model_string: record[9]?.stringValue,
+          provider: record[10]?.stringValue,
+          model_label: record[11]?.stringValue
+        });
+      }
+    }
 
     return {
-      id: record[0].longValue,
-      name: record[1].stringValue,
-      description: record[2].stringValue,
-      status: record[3].stringValue,
-      user_id: record[4].longValue,
-      prompt_id: record[5]?.longValue,
-      instructions: record[6]?.stringValue,
-      model_id: record[7]?.longValue,
-      enabled_tools: record[8]?.stringValue ? safeJsonParse(record[8].stringValue, [], 'enabled_tools') : [],
-      model_string: record[9]?.stringValue,
-      provider: record[10]?.stringValue,
-      model_label: record[11]?.stringValue
+      id: architectRecord[0].longValue,
+      name: architectRecord[1].stringValue,
+      description: architectRecord[2].stringValue,
+      status: architectRecord[3].stringValue,
+      user_id: architectRecord[4].longValue,
+      prompts: prompts,
+      // Note: Each prompt has its own model configuration - do not default to any single model
+      instructions: prompts[0]?.content
     };
   } catch (error) {
     log.error('Failed to load assistant architect', {
@@ -966,19 +998,53 @@ async function createStreamingJob(scheduledExecution, assistantArchitect, execut
     // Prepare fake conversation ID for scheduled jobs
     const conversationId = `scheduled-${scheduledExecution.id}`;
 
-    // Prepare request data for streaming job
+    // Collect enabled tools from all prompts
+    const enabledTools = collectEnabledToolsFromPrompts(assistantArchitect.prompts || []);
+    log.info('Collected enabled tools from prompts', {
+      enabledTools,
+      promptCount: assistantArchitect.prompts?.length || 0
+    });
+
+    // Build tools using the same system as manual execution
+    // Use the first prompt's model/provider for tool building (since tools are shared across prompts)
+    let tools = {};
+    const firstPrompt = assistantArchitect.prompts?.[0];
+    if (enabledTools.length > 0 && firstPrompt?.provider) {
+      try {
+        tools = await buildToolsForScheduledExecution(
+          enabledTools,
+          firstPrompt.model_string,
+          firstPrompt.provider
+        );
+        log.info('Tools built successfully for scheduled execution', {
+          enabledTools,
+          toolCount: Object.keys(tools).length,
+          toolNames: Object.keys(tools),
+          usingModel: firstPrompt.model_string,
+          usingProvider: firstPrompt.provider
+        });
+      } catch (toolError) {
+        log.warn('Failed to build tools, continuing without tools', {
+          error: toolError.message,
+          enabledTools
+        });
+        tools = {};
+      }
+    }
+
+    // Prepare request data for streaming job - SAME format as manual execution
+    // Note: modelId and provider will be determined per-prompt by the streaming worker
     const requestData = {
       messages: [], // Empty messages for assistant architect
-      modelId: assistantArchitect.model_string,
-      provider: assistantArchitect.provider,
-      systemPrompt: assistantArchitect.instructions || 'You are an AI assistant.',
+      systemPrompt: assistantArchitect.instructions,
       options: {
         responseMode: 'standard'
       },
       source: 'assistant-architect',
+      tools: tools, // Pass tools like manual execution does
       toolMetadata: {
         toolId: assistantArchitect.id,
-        prompts: [], // Will be loaded by streaming worker
+        prompts: assistantArchitect.prompts || [], // Pass all prompts with tools
         inputMapping: scheduledExecution.input_data || {}
       },
       // Add metadata to identify this as a scheduled execution
@@ -989,6 +1055,13 @@ async function createStreamingJob(scheduledExecution, assistantArchitect, execut
         userId: scheduledExecution.user_id
       }
     };
+
+    log.info('Request data prepared for streaming job', {
+      hasTools: Object.keys(tools).length > 0,
+      toolCount: Object.keys(tools).length,
+      promptCount: (assistantArchitect.prompts || []).length,
+      enabledToolsCount: enabledTools.length
+    });
 
     // Insert job into database
     const command = new ExecuteStatementCommand({
@@ -1016,7 +1089,7 @@ async function createStreamingJob(scheduledExecution, assistantArchitect, execut
         { name: 'id', value: { stringValue: jobId } },
         { name: 'conversation_id', value: { stringValue: conversationId } },
         { name: 'user_id', value: { longValue: scheduledExecution.user_id } },
-        { name: 'model_id', value: { longValue: assistantArchitect.model_id } },
+        { name: 'model_id', value: { longValue: firstPrompt?.model_id || 1 } },
         { name: 'request_data', value: { stringValue: safeJsonStringify(requestData) } }
       ]
     });
@@ -1027,7 +1100,9 @@ async function createStreamingJob(scheduledExecution, assistantArchitect, execut
       jobId,
       assistantArchitectId: assistantArchitect.id,
       scheduledExecutionId: scheduledExecution.id,
-      executionResultId
+      executionResultId,
+      toolsIncluded: Object.keys(tools).length > 0,
+      enabledTools
     });
 
     return jobId;
