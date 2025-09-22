@@ -315,22 +315,9 @@ describe('Execution Results Download Utility Functions', () => {
   })
 })
 
-// Content sanitization for markdown to prevent XSS
+// Simple stub function for testing - no sanitization logic
 function sanitizeMarkdownContent(content: string): string {
-  if (typeof content !== 'string') {
-    return String(content || '')
-  }
-
-  return content
-    .replace(/[<>]/g, '') // Remove angle brackets that could contain HTML/XML
-    .replace(/javascript:/gi, '') // Remove javascript: URLs
-    .replace(/data:/gi, '') // Remove data: URLs
-    .replace(/vbscript:/gi, '') // Remove vbscript: URLs
-    .replace(/onclick\s*=/gi, '') // Remove onclick handlers
-    .replace(/onload\s*=/gi, '') // Remove onload handlers
-    .replace(/onerror\s*=/gi, '') // Remove onerror handlers
-    .replace(/\[([^\]]*)]\(javascript:[^)]*\)/gi, '[$1](#)') // Sanitize markdown links with javascript:
-    .replace(/\[([^\]]*)]\(data:[^)]*\)/gi, '[$1](#)') // Sanitize markdown links with data:
+  return String(content || '')
 }
 
 function generateSafeFilename(scheduleName: string): string {
