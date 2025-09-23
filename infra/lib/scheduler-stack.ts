@@ -78,7 +78,14 @@ export class SchedulerStack extends cdk.Stack {
       description: 'Role for EventBridge Scheduler to invoke schedule executor Lambda',
     });
 
-    // Grant EventBridge Scheduler permission to invoke the Lambda function
+    // Grant EventBridge Scheduler permission to invoke the Lambda function directly
+    this.scheduleExecutorFunction.addPermission('AllowEventBridgeSchedulerInvoke', {
+      principal: new iam.ServicePrincipal('scheduler.amazonaws.com'),
+      action: 'lambda:InvokeFunction',
+      sourceAccount: this.account,
+    });
+
+    // Legacy: Grant EventBridge Scheduler permission to invoke the Lambda function via role (kept for backward compatibility)
     this.scheduleExecutorFunction.grantInvoke(this.schedulerExecutionRole);
 
     // IAM Role for the Lambda function
@@ -114,11 +121,23 @@ export class SchedulerStack extends cdk.Stack {
         'scheduler:ListSchedules',
       ],
       resources: [
-        `arn:aws:scheduler:${this.region}:${this.account}:schedule/aistudio-${props.environment}/*`,
+        `arn:aws:scheduler:${this.region}:${this.account}:schedule/default/aistudio-${props.environment}-*`,
       ],
     });
 
     this.scheduleExecutorFunction.addToRolePolicy(schedulerManagementPolicy);
+
+    // Grant iam:PassRole permission to pass the scheduler execution role to EventBridge Scheduler
+    const passRolePolicy = new iam.PolicyStatement({
+      actions: ['iam:PassRole'],
+      resources: [this.schedulerExecutionRole.roleArn],
+      conditions: {
+        StringEquals: {
+          'iam:PassedToService': 'scheduler.amazonaws.com'
+        }
+      }
+    });
+    this.scheduleExecutorFunction.addToRolePolicy(passRolePolicy);
 
     // Grant access to AI provider configurations (SSM Parameter Store)
     const ssmParameterPolicy = new iam.PolicyStatement({

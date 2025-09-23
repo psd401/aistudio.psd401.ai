@@ -128,7 +128,14 @@ export class FrontendStack extends cdk.Stack {
               actions: [
                 'lambda:InvokeFunction'
               ],
-              resources: ['*'] // TODO: Scope this down to specific functions
+              resources: [
+                `arn:aws:lambda:${this.region}:${this.account}:function:aistudio-${props.environment}-schedule-executor`
+              ],
+              conditions: {
+                StringEquals: {
+                  'lambda:FunctionArn': `arn:aws:lambda:${this.region}:${this.account}:function:aistudio-${props.environment}-schedule-executor`
+                }
+              }
             }),
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
