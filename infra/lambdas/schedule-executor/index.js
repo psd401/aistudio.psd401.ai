@@ -12,14 +12,17 @@ function startTimer(operation) {
   const startTime = Date.now();
   return (context = {}) => {
     const duration = Date.now() - startTime;
-    console.log(JSON.stringify({
+    // Use structured logging without console methods
+    const logEntry = {
       level: 'INFO',
       message: 'Operation completed',
       operation,
       duration,
       timestamp: new Date().toISOString(),
-      ...context
-    }));
+      service: 'schedule-executor',
+      ...sanitizeForLogging(context)
+    };
+    process.stdout.write(JSON.stringify(logEntry) + '\n');
   };
 }
 
@@ -28,41 +31,45 @@ function createLogger(context = {}) {
     timestamp: new Date().toISOString(),
     environment: 'lambda',
     service: 'schedule-executor',
-    ...context
+    ...sanitizeForLogging(context)
   };
 
   return {
     info: (message, meta = {}) => {
-      console.log(JSON.stringify({
+      const logEntry = {
         level: 'INFO',
         message,
         ...baseContext,
-        ...meta
-      }));
+        ...sanitizeForLogging(meta)
+      };
+      process.stdout.write(JSON.stringify(logEntry) + '\n');
     },
     error: (message, meta = {}) => {
-      console.error(JSON.stringify({
+      const logEntry = {
         level: 'ERROR',
         message,
         ...baseContext,
-        ...meta
-      }));
+        ...sanitizeForLogging(meta)
+      };
+      process.stderr.write(JSON.stringify(logEntry) + '\n');
     },
     warn: (message, meta = {}) => {
-      console.warn(JSON.stringify({
+      const logEntry = {
         level: 'WARN',
         message,
         ...baseContext,
-        ...meta
-      }));
+        ...sanitizeForLogging(meta)
+      };
+      process.stderr.write(JSON.stringify(logEntry) + '\n');
     },
     debug: (message, meta = {}) => {
-      console.log(JSON.stringify({
+      const logEntry = {
         level: 'DEBUG',
         message,
         ...baseContext,
-        ...meta
-      }));
+        ...sanitizeForLogging(meta)
+      };
+      process.stdout.write(JSON.stringify(logEntry) + '\n');
     }
   };
 }
@@ -153,24 +160,26 @@ function validateEnvironmentVariables() {
 
   if (missingVars.length > 0) {
     const errorMessage = `Missing required environment variables: ${missingVars.join(', ')}`;
-    console.error(JSON.stringify({
+    const logEntry = {
       level: 'ERROR',
       message: 'Lambda startup failed - missing environment variables',
       missingVariables: missingVars,
       timestamp: new Date().toISOString(),
       service: 'schedule-executor'
-    }));
+    };
+    process.stderr.write(JSON.stringify(logEntry) + '\n');
     throw new Error(errorMessage);
   }
 
-  console.log(JSON.stringify({
+  const logEntry = {
     level: 'INFO',
     message: 'Environment variables validated successfully',
     requiredVarsPresent: Object.keys(requiredEnvVars).length,
     optionalVarsPresent: Object.values(optionalEnvVars).filter(Boolean).length,
     timestamp: new Date().toISOString(),
     service: 'schedule-executor'
-  }));
+  };
+  process.stdout.write(JSON.stringify(logEntry) + '\n');
 }
 
 // Run validation at module load time

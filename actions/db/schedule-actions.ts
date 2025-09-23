@@ -322,20 +322,41 @@ async function createEventBridgeSchedule(
   const log = createLogger({ operation: 'createEventBridgeSchedule' })
 
   try {
+    // SECURITY FIX: Validate schedule configuration before cron conversion
+    const validationResult = validateScheduleConfig(scheduleConfig)
+    if (!validationResult.isValid) {
+      throw new Error(`Invalid schedule configuration: ${validationResult.errors.join(', ')}`)
+    }
+
+    // SECURITY FIX: Validate and sanitize name input (AWS schedule name limit: 64 chars)
+    const sanitizedName = name?.toString().trim().substring(0, 50) || ""
+    if (!sanitizedName || sanitizedName.length === 0) {
+      throw new Error('Schedule name is required and cannot be empty')
+    }
+
+    // SECURITY FIX: Validate environment and scheduleId are safe for interpolation
     const environment = getEnvironment()
+    const safeScheduleId = sanitizeNumericId(scheduleId)
+
     const cronExpression = convertToCronExpression(scheduleConfig)
-    const scheduleName = `aistudio-${environment}-schedule-${scheduleId}`
+    const scheduleName = `aistudio-${environment}-schedule-${safeScheduleId}`
+
+    // Validate schedule name length (AWS limit is 64 characters)
+    if (scheduleName.length > 64) {
+      throw new Error(`Schedule name too long: ${scheduleName.length} chars (max: 64)`)
+    }
 
     log.info('Creating EventBridge schedule', {
       scheduleName,
       cronExpression,
       targetArn,
-      scheduleId
+      scheduleId: safeScheduleId,
+      sanitizedName
     })
 
     const command = new CreateScheduleCommand({
       Name: scheduleName,
-      Description: `AI Studio schedule: ${name}`,
+      Description: `AI Studio schedule: ${escapeHtml(sanitizedName)}`,
       ScheduleExpression: `cron(${cronExpression})`,
       ScheduleExpressionTimezone: scheduleConfig.timezone || 'UTC',
       State: ScheduleState.ENABLED,
@@ -381,20 +402,41 @@ async function updateEventBridgeSchedule(
   const log = createLogger({ operation: 'updateEventBridgeSchedule' })
 
   try {
+    // SECURITY FIX: Validate schedule configuration before cron conversion
+    const validationResult = validateScheduleConfig(scheduleConfig)
+    if (!validationResult.isValid) {
+      throw new Error(`Invalid schedule configuration: ${validationResult.errors.join(', ')}`)
+    }
+
+    // SECURITY FIX: Validate and sanitize name input
+    const sanitizedName = name?.toString().trim().substring(0, 50) || ""
+    if (!sanitizedName || sanitizedName.length === 0) {
+      throw new Error('Schedule name is required and cannot be empty')
+    }
+
+    // SECURITY FIX: Validate environment and scheduleId are safe for interpolation
     const environment = getEnvironment()
-    const scheduleName = `aistudio-${environment}-schedule-${scheduleId}`
+    const safeScheduleId = sanitizeNumericId(scheduleId)
+
+    const scheduleName = `aistudio-${environment}-schedule-${safeScheduleId}`
     const cronExpression = convertToCronExpression(scheduleConfig)
+
+    // Validate schedule name length
+    if (scheduleName.length > 64) {
+      throw new Error(`Schedule name too long: ${scheduleName.length} chars (max: 64)`)
+    }
 
     log.info('Updating EventBridge schedule', {
       scheduleName,
       cronExpression,
       active,
-      scheduleId
+      scheduleId: safeScheduleId,
+      sanitizedName
     })
 
     const command = new UpdateScheduleCommand({
       Name: scheduleName,
-      Description: `AI Studio schedule: ${name}`,
+      Description: `AI Studio schedule: ${escapeHtml(sanitizedName)}`,
       ScheduleExpression: `cron(${cronExpression})`,
       ScheduleExpressionTimezone: scheduleConfig.timezone || 'UTC',
       State: active ? ScheduleState.ENABLED : ScheduleState.DISABLED,
@@ -484,6 +526,7 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
       log.warn("User lacks assistant-architect access")
       throw ErrorFactories.authzInsufficientPermissions("assistant-architect")
     }
+
 
     // Validate input
     const { name, assistantArchitectId, scheduleConfig, inputData } = params

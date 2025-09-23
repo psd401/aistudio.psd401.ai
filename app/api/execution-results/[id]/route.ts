@@ -53,7 +53,16 @@ async function getHandler(
       throw ErrorFactories.dbRecordNotFound("users", session.sub)
     }
 
-    const userId = Number(userResult[0].id)
+    // SECURITY FIX: Use safe parsing for user ID from database result
+    const userIdRaw = userResult[0].id
+    if (typeof userIdRaw !== 'number' && typeof userIdRaw !== 'string') {
+      throw ErrorFactories.invalidInput("userId", userIdRaw, "invalid user ID format from database")
+    }
+
+    const userId = Number(userIdRaw)
+    if (!Number.isInteger(userId) || userId <= 0) {
+      throw ErrorFactories.invalidInput("userId", userIdRaw, "must be a positive integer")
+    }
 
     // Get execution result with all related data - includes access control check
     const sql = `
@@ -198,7 +207,16 @@ async function deleteHandler(
       throw ErrorFactories.dbRecordNotFound("users", session.sub)
     }
 
-    const userId = Number(userResult[0].id)
+    // SECURITY FIX: Use safe parsing for user ID from database result
+    const userIdRaw = userResult[0].id
+    if (typeof userIdRaw !== 'number' && typeof userIdRaw !== 'string') {
+      throw ErrorFactories.invalidInput("userId", userIdRaw, "invalid user ID format from database")
+    }
+
+    const userId = Number(userIdRaw)
+    if (!Number.isInteger(userId) || userId <= 0) {
+      throw ErrorFactories.invalidInput("userId", userIdRaw, "must be a positive integer")
+    }
 
     // First check if the execution result exists and belongs to the user
     const checkSql = `

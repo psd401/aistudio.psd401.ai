@@ -30,7 +30,15 @@ async function getSettingFromDatabase(key) {
     }
     return null;
   } catch (error) {
-    console.warn(`Failed to get setting ${key} from database:`, error.message);
+    const logEntry = {
+      level: 'WARN',
+      message: 'Failed to get setting from database',
+      key,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+      service: 'schedule-executor-tool-builder'
+    };
+    process.stderr.write(JSON.stringify(logEntry) + '\n');
     return null;
   }
 }
@@ -39,12 +47,16 @@ async function getSettingFromDatabase(key) {
  * Build tools for scheduled execution - matches main app's buildToolsForRequest
  */
 async function buildToolsForScheduledExecution(enabledTools, modelId, provider) {
-  console.log('Building tools for scheduled execution', {
-    enabledTools,
+  const logEntry = {
+    level: 'INFO',
+    message: 'Building tools for scheduled execution',
     modelId,
     provider,
-    enabledToolsCount: enabledTools.length
-  });
+    enabledToolsCount: enabledTools?.length || 0,
+    timestamp: new Date().toISOString(),
+    service: 'schedule-executor-tool-builder'
+  };
+  process.stdout.write(JSON.stringify(logEntry) + '\n');
 
   if (!provider || !enabledTools || enabledTools.length === 0) {
     return {};
@@ -58,7 +70,14 @@ async function buildToolsForScheduledExecution(enabledTools, modelId, provider) 
     case 'amazon-bedrock':
       return await createBedrockNativeTools(enabledTools);
     default:
-      console.warn(`No native tools available for provider: ${provider}`);
+      const warnEntry = {
+        level: 'WARN',
+        message: 'No native tools available for provider',
+        provider,
+        timestamp: new Date().toISOString(),
+        service: 'schedule-executor-tool-builder'
+      };
+      process.stderr.write(JSON.stringify(warnEntry) + '\n');
       return {};
   }
 }
@@ -73,12 +92,18 @@ async function createOpenAINativeTools(enabledTools) {
     // Get OpenAI API key from database settings table
     const apiKey = await getSettingFromDatabase('OPENAI_API_KEY');
     if (!apiKey) {
-      console.warn('OpenAI API key not configured, skipping native tools');
+      const warnEntry = {
+        level: 'WARN',
+        message: 'OpenAI API key not configured, skipping native tools',
+        timestamp: new Date().toISOString(),
+        service: 'schedule-executor-tool-builder'
+      };
+      process.stderr.write(JSON.stringify(warnEntry) + '\n');
       return {};
     }
 
-    // Dynamically import the OpenAI SDK to avoid bundling issues
-    const { createOpenAI } = await import('@ai-sdk/openai');
+    // SECURITY FIX: Use static import instead of dynamic import for security
+    const { createOpenAI } = require('@ai-sdk/openai');
     const openai = createOpenAI({ apiKey });
 
     // Web search tool - matches main app implementation
@@ -86,17 +111,36 @@ async function createOpenAINativeTools(enabledTools) {
       tools.web_search_preview = openai.tools.webSearchPreview({
         searchContextSize: 'high',
       });
-      console.log('Added OpenAI web search preview tool');
+      const infoEntry = {
+        level: 'INFO',
+        message: 'Added OpenAI web search preview tool',
+        timestamp: new Date().toISOString(),
+        service: 'schedule-executor-tool-builder'
+      };
+      process.stdout.write(JSON.stringify(infoEntry) + '\n');
     }
 
     // Code interpreter tool - matches main app implementation
     if (enabledTools.includes('codeInterpreter')) {
       tools.code_interpreter = openai.tools.codeInterpreter({});
-      console.log('Added OpenAI code interpreter tool');
+      const infoEntry = {
+        level: 'INFO',
+        message: 'Added OpenAI code interpreter tool',
+        timestamp: new Date().toISOString(),
+        service: 'schedule-executor-tool-builder'
+      };
+      process.stdout.write(JSON.stringify(infoEntry) + '\n');
     }
 
   } catch (error) {
-    console.error('Failed to create OpenAI native tools', { error: error.message });
+    const errorEntry = {
+      level: 'ERROR',
+      message: 'Failed to create OpenAI native tools',
+      error: error.message,
+      timestamp: new Date().toISOString(),
+      service: 'schedule-executor-tool-builder'
+    };
+    process.stderr.write(JSON.stringify(errorEntry) + '\n');
   }
 
   return tools;
@@ -112,29 +156,54 @@ async function createGoogleNativeTools(enabledTools) {
     // Get Google API key from database settings table
     const apiKey = await getSettingFromDatabase('GOOGLE_API_KEY');
     if (!apiKey) {
-      console.warn('Google API key not configured, skipping native tools');
+      const warnEntry = {
+        level: 'WARN',
+        message: 'Google API key not configured, skipping native tools',
+        timestamp: new Date().toISOString(),
+        service: 'schedule-executor-tool-builder'
+      };
+      process.stderr.write(JSON.stringify(warnEntry) + '\n');
       return {};
     }
 
-    // Set environment variable for Google SDK
-    process.env.GOOGLE_GENERATIVE_AI_API_KEY = apiKey;
-
-    // Dynamically import the Google SDK
-    const { google } = await import('@ai-sdk/google');
+    // SECURITY FIX: Use static import and pass credentials directly instead of modifying process.env
+    const { google } = require('@ai-sdk/google');
+    const googleClient = google({
+      apiKey: apiKey // Pass directly, don't modify process.env
+    });
 
     // Web search tool - matches main app implementation
     if (enabledTools.includes('webSearch')) {
-      tools.google_search = google.tools.googleSearch({});
-      console.log('Added Google search tool');
+      tools.google_search = googleClient.tools.googleSearch({});
+      const infoEntry = {
+        level: 'INFO',
+        message: 'Added Google search tool',
+        timestamp: new Date().toISOString(),
+        service: 'schedule-executor-tool-builder'
+      };
+      process.stdout.write(JSON.stringify(infoEntry) + '\n');
     }
 
     // Code execution is built into Gemini models
     if (enabledTools.includes('codeInterpreter')) {
-      console.log('Code execution enabled - Gemini models have built-in support');
+      const infoEntry = {
+        level: 'INFO',
+        message: 'Code execution enabled - Gemini models have built-in support',
+        timestamp: new Date().toISOString(),
+        service: 'schedule-executor-tool-builder'
+      };
+      process.stdout.write(JSON.stringify(infoEntry) + '\n');
     }
 
   } catch (error) {
-    console.error('Failed to create Google native tools', { error: error.message });
+    const errorEntry = {
+      level: 'ERROR',
+      message: 'Failed to create Google native tools',
+      error: error.message,
+      timestamp: new Date().toISOString(),
+      service: 'schedule-executor-tool-builder'
+    };
+    process.stderr.write(JSON.stringify(errorEntry) + '\n');
   }
 
   return tools;
@@ -149,9 +218,22 @@ async function createBedrockNativeTools(enabledTools) {
   try {
     // Bedrock tools would be configured here
     // For now, return empty as Bedrock may not have native tool support
-    console.log('Bedrock native tools not implemented yet');
+    const infoEntry = {
+      level: 'INFO',
+      message: 'Bedrock native tools not implemented yet',
+      timestamp: new Date().toISOString(),
+      service: 'schedule-executor-tool-builder'
+    };
+    process.stdout.write(JSON.stringify(infoEntry) + '\n');
   } catch (error) {
-    console.error('Failed to create Bedrock native tools', { error: error.message });
+    const errorEntry = {
+      level: 'ERROR',
+      message: 'Failed to create Bedrock native tools',
+      error: error.message,
+      timestamp: new Date().toISOString(),
+      service: 'schedule-executor-tool-builder'
+    };
+    process.stderr.write(JSON.stringify(errorEntry) + '\n');
   }
 
   return tools;
