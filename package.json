@@ -68,7 +68,7 @@
     "@tanstack/react-virtual": "^3.13.12",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/marked": "^5.0.2",
-    "@types/uuid": "^10.0.0",
+    "@types/uuid": "^11.0.0",
     "@uiw/react-markdown-preview": "^5.1.5",
     "@xyflow/react": "^12.8.5",
     "ai": "^5.0.0",
