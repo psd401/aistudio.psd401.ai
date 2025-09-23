@@ -71,91 +71,7 @@ export class EmailNotificationStack extends cdk.Stack {
       configurationSetName: `aistudio-${props.environment}-email-config`,
     });
 
-    // Email Template for AI Studio notifications
-    const templateName = `aistudio-${props.environment}-notification-template`;
-    const emailTemplate = new ses.CfnTemplate(this, 'NotificationEmailTemplate', {
-      template: {
-        templateName: templateName,
-        subjectPart: '{{subject}}',
-        textPart: `Peninsula School District AI Studio
-
-{{greeting}},
-
-Your scheduled "{{scheduleName}}" execution completed {{status}} at {{executionTime}}.
-
-{{#if summary}}
-Summary:
-{{summary}}
-{{/if}}
-
-{{#if errorMessage}}
-Error Details:
-{{errorMessage}}
-{{/if}}
-
-View full results: {{resultsUrl}}
-
----
-Peninsula School District AI Studio
-`,
-        htmlPart: `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{subject}}</title>
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: #1e3a8a; color: white; padding: 20px; text-align: center; }
-        .logo { font-size: 24px; font-weight: bold; }
-        .content { padding: 20px; background: #f9fafb; }
-        .summary { background: white; padding: 15px; border-radius: 8px; margin: 15px 0; }
-        .success { border-left: 4px solid #10b981; }
-        .error { border-left: 4px solid #ef4444; }
-        .button { display: inline-block; background: #1e3a8a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 10px 0; }
-        .footer { text-align: center; color: #6b7280; font-size: 12px; padding: 20px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="logo">Peninsula School District</div>
-            <div>AI Studio</div>
-        </div>
-        <div class="content">
-            <h2>{{greeting}}</h2>
-
-            <p>Your scheduled "<strong>{{scheduleName}}</strong>" execution completed {{status}} at {{executionTime}}.</p>
-
-            {{#if summary}}
-            <div class="summary {{#if isSuccess}}success{{else}}error{{/if}}">
-                <h3>Summary</h3>
-                <p>{{summary}}</p>
-            </div>
-            {{/if}}
-
-            {{#if errorMessage}}
-            <div class="summary error">
-                <h3>Error Details</h3>
-                <p>{{errorMessage}}</p>
-            </div>
-            {{/if}}
-
-            <div style="text-align: center; margin: 20px 0;">
-                <a href="{{resultsUrl}}" class="button">View Full Results</a>
-                <a href="{{manageSchedulesUrl}}" class="button" style="background: #6b7280;">Manage Schedules</a>
-            </div>
-        </div>
-        <div class="footer">
-            <p>Peninsula School District AI Studio</p>
-            <p><a href="{{unsubscribeUrl}}">Unsubscribe</a> | <a href="{{preferencesUrl}}">Email Preferences</a></p>
-        </div>
-    </div>
-</body>
-</html>`
-      }
-    });
+    // Note: Email templates removed - now using SES v2 direct email sending
 
     // Dead Letter Queue for failed notification processing
     this.deadLetterQueue = new sqs.Queue(this, 'NotificationDLQ', {
@@ -185,36 +101,44 @@ Peninsula School District AI Studio
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/notification-sender'), {
-        // Use a simple local bundling command that pre-compiles TypeScript
         bundling: {
           image: lambda.Runtime.NODEJS_20_X.bundlingImage,
           local: {
             tryBundle(outputDir: string) {
+              const { execSync } = require('child_process');
+              const fs = require('fs');
+              const path = require('path');
+              const sourceDir = path.join(__dirname, '../lambdas/notification-sender');
+
               try {
-                const fs = require('fs');
-                const execSync = require('child_process').execSync;
+                // Build TypeScript
+                console.log('Building TypeScript...');
+                execSync('npm run build', { cwd: sourceDir, stdio: 'inherit' });
 
-                // Check if we can compile locally
-                execSync('which npm', { stdio: 'ignore' });
+                // Copy the compiled index.js to output root
+                const sourceFile = path.join(sourceDir, 'dist', 'index.js');
+                const destFile = path.join(outputDir, 'index.js');
+                fs.copyFileSync(sourceFile, destFile);
 
-                const sourceDir = path.join(__dirname, '../lambdas/notification-sender');
+                // Copy package files
+                fs.copyFileSync(
+                  path.join(sourceDir, 'package.json'),
+                  path.join(outputDir, 'package.json')
+                );
+                fs.copyFileSync(
+                  path.join(sourceDir, 'package-lock.json'),
+                  path.join(outputDir, 'package-lock.json')
+                );
 
-                // Copy source files
-                execSync(`cp -r ${sourceDir}/* ${outputDir}/`);
+                // Install production dependencies only
+                console.log('Installing production dependencies...');
+                execSync('npm ci --omit=dev', { cwd: outputDir, stdio: 'inherit' });
 
-                // Install dependencies
-                execSync('npm install', { cwd: outputDir, stdio: 'inherit' });
-
-                // Compile TypeScript
-                execSync('npm run build', { cwd: outputDir, stdio: 'inherit' });
-
-                // Copy compiled files to root and clean up
-                execSync(`cp -r ${outputDir}/dist/* ${outputDir}/`);
-                execSync(`rm -rf ${outputDir}/dist ${outputDir}/*.ts ${outputDir}/tsconfig.json`);
-
+                console.log('Bundling complete');
                 return true;
               } catch (error) {
-                return false; // Fall back to Docker
+                console.error('Local bundling failed:', error);
+                return false;
               }
             }
           }
@@ -230,10 +154,10 @@ Peninsula School District AI Studio
         DATABASE_NAME: 'aistudio',
         ENVIRONMENT: props.environment,
         SES_CONFIGURATION_SET: configurationSet.configurationSetName,
-        SES_TEMPLATE_NAME: templateName,
         SES_FROM_EMAIL: fromEmail,
         APP_BASE_URL: appBaseUrl,
         SES_REGION: 'us-east-1', // SES identities are configured in us-east-1
+        MAX_SUMMARY_LENGTH: '10000', // Increased from 2000 to allow more content
       },
       logGroup: notificationLogGroup,
       // Conservative concurrency to avoid SES rate limits
@@ -271,21 +195,19 @@ Peninsula School District AI Studio
     this.notificationSenderFunction.addToRolePolicy(rdsDataApiPolicy);
     this.notificationSenderFunction.addToRolePolicy(secretsManagerPolicy);
 
-    // Grant SES permissions - SES resources are in us-east-1
+    // Grant SES v2 permissions - SES resources are in us-east-1
     const sesRegion = 'us-east-1'; // SES identities configured region
     const sesPolicy = new iam.PolicyStatement({
       actions: [
+        'sesv2:SendEmail',
         'ses:SendEmail',
-        'ses:SendTemplatedEmail',
         'ses:SendRawEmail',
-        'ses:GetTemplate',
         'ses:PutConfigurationSetEventDestination',
       ],
       resources: [
         `arn:aws:ses:${sesRegion}:${this.account}:identity/${emailDomain}`,
         `arn:aws:ses:${sesRegion}:${this.account}:identity/${fromEmail}`,
         `arn:aws:ses:${sesRegion}:${this.account}:identity/*@${emailDomain}`, // Allow any verified email in domain
-        `arn:aws:ses:${sesRegion}:${this.account}:template/${templateName}`,
         `arn:aws:ses:${sesRegion}:${this.account}:configuration-set/${configurationSet.configurationSetName}`,
       ],
     });
@@ -328,11 +250,6 @@ Peninsula School District AI Studio
       exportName: `${props.environment}-NotificationSenderFunctionName`,
     });
 
-    new cdk.CfnOutput(this, 'SESTemplateNameOutput', {
-      value: templateName,
-      description: 'Name of the SES email template',
-      exportName: `${props.environment}-SESTemplateName`,
-    });
 
     new cdk.CfnOutput(this, 'SESConfigurationSetOutput', {
       value: configurationSet.configurationSetName,

@@ -93,7 +93,6 @@ export function MessageCenter({
   }
 
   const recentMessages = messages.slice(0, 10)
-  const unreadCount = messages.filter(msg => msg.status === 'success').length
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -102,18 +101,10 @@ export function MessageCenter({
           variant="ghost"
           size="icon"
           className="relative"
-          aria-label={`Messages & Results ${unreadCount > 0 ? `(${unreadCount} new)` : ''}`}
+          aria-label="Messages & Results"
           disabled={loading}
         >
           <Mail className="h-5 w-5" />
-          {unreadCount > 0 && (
-            <Badge
-              variant="destructive"
-              className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs flex items-center justify-center"
-            >
-              {unreadCount > 99 ? '99+' : unreadCount}
-            </Badge>
-          )}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-96 max-w-[calc(100vw-2rem)] sm:w-96">
