@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Edit } from "lucide-react"
 import {
   Dialog,
@@ -24,10 +24,11 @@ interface ScheduleEditModalProps {
 export function ScheduleEditModal({ schedule, open, onClose, onSuccess }: ScheduleEditModalProps) {
   const [assistantArchitect, setAssistantArchitect] = useState<{ id: string; name: string; description?: string } | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const log = createLogger({ component: "ScheduleEditModal" })
+  const loggerRef = useRef(createLogger({ component: "ScheduleEditModal" }))
 
   // Load the assistant architect details when modal opens
   const loadAssistantArchitect = useCallback(async (signal?: AbortSignal) => {
+    const log = loggerRef.current
     setIsLoading(true)
     try {
       // Note: We need to create an API endpoint to get assistant architect details
@@ -62,7 +63,7 @@ export function ScheduleEditModal({ schedule, open, onClose, onSuccess }: Schedu
         setIsLoading(false)
       }
     }
-  }, [schedule.assistantArchitectId, log])
+  }, [schedule.assistantArchitectId])
 
   useEffect(() => {
     if (open && schedule.assistantArchitectId) {
@@ -75,10 +76,10 @@ export function ScheduleEditModal({ schedule, open, onClose, onSuccess }: Schedu
     }
   }, [open, schedule.assistantArchitectId, loadAssistantArchitect])
 
-  const handleSuccess = () => {
+  const handleSuccess = useCallback(() => {
     onSuccess()
     onClose()
-  }
+  }, [onSuccess, onClose])
 
   return (
     <Dialog open={open} onOpenChange={(newOpen) => !newOpen && onClose()}>

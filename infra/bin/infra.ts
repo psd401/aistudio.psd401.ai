@@ -117,15 +117,28 @@ devSchedulerStack.addDependency(devDbStack);
 cdk.Tags.of(devSchedulerStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devSchedulerStack).add(key, value));
 
-const devEmailNotificationStack = new EmailNotificationStack(app, 'AIStudio-EmailNotificationStack-Dev', {
-  environment: 'dev',
-  databaseResourceArn: devDbStack.databaseResourceArn,
-  databaseSecretArn: devDbStack.databaseSecretArn,
-  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
-});
-devEmailNotificationStack.addDependency(devDbStack);
-cdk.Tags.of(devEmailNotificationStack).add('Environment', 'Dev');
-Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devEmailNotificationStack).add(key, value));
+// Get email configuration from context (required for deployment)
+const emailDomain = app.node.tryGetContext('emailDomain');
+const sesIdentityExists = app.node.tryGetContext('sesIdentityExists') === 'true';
+
+// Only create email notification stack if emailDomain is provided
+let devEmailNotificationStack: EmailNotificationStack | undefined;
+if (emailDomain) {
+  devEmailNotificationStack = new EmailNotificationStack(app, 'AIStudio-EmailNotificationStack-Dev', {
+    environment: 'dev',
+    databaseResourceArn: devDbStack.databaseResourceArn,
+    databaseSecretArn: devDbStack.databaseSecretArn,
+    // SES configuration from context
+    createSesIdentity: !sesIdentityExists, // Create if doesn't exist
+    emailDomain: emailDomain,
+    fromEmail: `noreply@${emailDomain}`,
+    appBaseUrl: baseDomain ? `https://dev.${baseDomain}` : undefined,
+    env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+  });
+  devEmailNotificationStack.addDependency(devDbStack);
+  cdk.Tags.of(devEmailNotificationStack).add('Environment', 'Dev');
+  Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devEmailNotificationStack!).add(key, value));
+}
 
 // Prod environment
 const prodDbStack = new DatabaseStack(app, 'AIStudio-DatabaseStack-Prod', {
@@ -182,15 +195,25 @@ prodSchedulerStack.addDependency(prodDbStack);
 cdk.Tags.of(prodSchedulerStack).add('Environment', 'Prod');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodSchedulerStack).add(key, value));
 
-const prodEmailNotificationStack = new EmailNotificationStack(app, 'AIStudio-EmailNotificationStack-Prod', {
-  environment: 'prod',
-  databaseResourceArn: prodDbStack.databaseResourceArn,
-  databaseSecretArn: prodDbStack.databaseSecretArn,
-  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
-});
-prodEmailNotificationStack.addDependency(prodDbStack);
-cdk.Tags.of(prodEmailNotificationStack).add('Environment', 'Prod');
-Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodEmailNotificationStack).add(key, value));
+// Only create prod email notification stack if emailDomain is provided
+let prodEmailNotificationStack: EmailNotificationStack | undefined;
+if (emailDomain) {
+  prodEmailNotificationStack = new EmailNotificationStack(app, 'AIStudio-EmailNotificationStack-Prod', {
+    environment: 'prod',
+    databaseResourceArn: prodDbStack.databaseResourceArn,
+    databaseSecretArn: prodDbStack.databaseSecretArn,
+    // Production SES configuration from context
+    createSesIdentity: true, // Always create for production (use domain identity)
+    emailDomain: emailDomain,
+    fromEmail: `noreply@${emailDomain}`,
+    appBaseUrl: baseDomain ? `https://${baseDomain}` : undefined,
+    useDomainIdentity: true, // Use domain identity for production
+    env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+  });
+  prodEmailNotificationStack.addDependency(prodDbStack);
+  cdk.Tags.of(prodEmailNotificationStack).add('Environment', 'Prod');
+  Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodEmailNotificationStack!).add(key, value));
+}
 
 // Frontend stacks - created after all other stacks
 if (baseDomain) {

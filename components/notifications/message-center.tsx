@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { toast } from "sonner"
-import { Mail, CheckCircle, XCircle, RotateCcw, Download, Eye } from "lucide-react"
+import { Mail, CheckCircle, XCircle, RotateCcw, Download, Eye, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -20,6 +20,7 @@ export function MessageCenter({
   messages,
   onViewResult,
   onRetryExecution,
+  onDeleteResult,
   loading = false
 }: MessageCenterProps) {
   const [open, setOpen] = useState(false)
@@ -51,13 +52,15 @@ export function MessageCenter({
   }
 
   const formatExecutionTime = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleString('en-US', {
+    const utcDate = new Date(dateString)
+
+    // Format in local timezone (browser automatically handles the conversion)
+    return utcDate.toLocaleString('en-US', {
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
-      hour12: true
+      timeZoneName: 'short'
     })
   }
 
@@ -77,8 +80,19 @@ export function MessageCenter({
     setOpen(false)
   }
 
+  const handleDeleteResult = (resultId: number, event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (onDeleteResult) {
+      // Show confirmation dialog
+      if (confirm("Are you sure you want to delete this execution result? This action cannot be undone.")) {
+        onDeleteResult(resultId)
+      }
+    }
+    setOpen(false)
+  }
+
   const recentMessages = messages.slice(0, 10)
-  const unreadCount = messages.filter(msg => msg.status === 'success').length
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -87,18 +101,10 @@ export function MessageCenter({
           variant="ghost"
           size="icon"
           className="relative"
-          aria-label={`Messages & Results ${unreadCount > 0 ? `(${unreadCount} new)` : ''}`}
+          aria-label="Messages & Results"
           disabled={loading}
         >
           <Mail className="h-5 w-5" />
-          {unreadCount > 0 && (
-            <Badge
-              variant="destructive"
-              className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs flex items-center justify-center"
-            >
-              {unreadCount > 99 ? '99+' : unreadCount}
-            </Badge>
-          )}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-96 max-w-[calc(100vw-2rem)] sm:w-96">
@@ -182,11 +188,30 @@ export function MessageCenter({
                       onClick={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
-                        toast.info("Download feature coming soon")
+                        // Trigger download using existing API endpoint
+                        const downloadUrl = `/api/execution-results/${message.id}/download`
+                        const link = document.createElement('a')
+                        link.href = downloadUrl
+                        link.download = `${message.scheduleName}-${new Date(message.executedAt).toISOString().slice(0, 10)}.md`
+                        document.body.appendChild(link)
+                        link.click()
+                        document.body.removeChild(link)
+                        toast.success("Download started")
                       }}
                     >
                       <Download className="h-3 w-3" />
                     </Button>
+
+                    {onDeleteResult && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                        onClick={(e) => handleDeleteResult(message.id, e)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               </DropdownMenuItem>

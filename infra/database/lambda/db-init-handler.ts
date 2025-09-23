@@ -53,8 +53,7 @@ const MIGRATION_FILES = [
   '032-remove-nexus-provider-constraint.sql',
   '033-ai-streaming-jobs.sql',
   '034-assistant-architect-enabled-tools.sql',
-  '035-schedule-management-schema.sql',
-  '036-add-schedule-navigation.sql'
+  '035-schedule-management-schema.sql'
   // ADD NEW MIGRATIONS HERE - they will run once and be tracked
 ];
 

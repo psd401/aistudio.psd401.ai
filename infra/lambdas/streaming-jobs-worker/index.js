@@ -74,12 +74,60 @@ const sqsClient = new SQSClient({});
 const s3Client = new S3Client({});
 const ssmClient = new SSMClient({});
 
-// Environment variables
-const DATABASE_RESOURCE_ARN = process.env.DATABASE_RESOURCE_ARN;
-const DATABASE_SECRET_ARN = process.env.DATABASE_SECRET_ARN;
-const DATABASE_NAME = process.env.DATABASE_NAME;
-const STREAMING_QUEUE_URL = process.env.STREAMING_QUEUE_URL;
-const DOCUMENTS_BUCKET = process.env.DOCUMENTS_BUCKET_NAME;
+// Environment variables with validation
+const requiredEnvVars = {
+  DATABASE_RESOURCE_ARN: process.env.DATABASE_RESOURCE_ARN,
+  DATABASE_SECRET_ARN: process.env.DATABASE_SECRET_ARN,
+  DATABASE_NAME: process.env.DATABASE_NAME
+};
+
+const optionalEnvVars = {
+  STREAMING_QUEUE_URL: process.env.STREAMING_QUEUE_URL,
+  DOCUMENTS_BUCKET_NAME: process.env.DOCUMENTS_BUCKET_NAME
+};
+
+// Validate required environment variables at startup
+function validateEnvironmentVariables() {
+  const missingVars = [];
+
+  for (const [key, value] of Object.entries(requiredEnvVars)) {
+    if (!value || value.trim() === '') {
+      missingVars.push(key);
+    }
+  }
+
+  if (missingVars.length > 0) {
+    const errorMessage = `Missing required environment variables: ${missingVars.join(', ')}`;
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      message: 'Lambda startup failed - missing environment variables',
+      missingVariables: missingVars,
+      timestamp: new Date().toISOString(),
+      service: 'streaming-jobs-worker'
+    }));
+    throw new Error(errorMessage);
+  }
+
+  // Log successful validation
+  console.log(JSON.stringify({
+    level: 'INFO',
+    message: 'Environment variables validated successfully',
+    requiredVarsPresent: Object.keys(requiredEnvVars).length,
+    optionalVarsPresent: Object.values(optionalEnvVars).filter(v => v).length,
+    timestamp: new Date().toISOString(),
+    service: 'streaming-jobs-worker'
+  }));
+}
+
+// Run validation at module load time
+validateEnvironmentVariables();
+
+// Export validated environment variables
+const DATABASE_RESOURCE_ARN = requiredEnvVars.DATABASE_RESOURCE_ARN;
+const DATABASE_SECRET_ARN = requiredEnvVars.DATABASE_SECRET_ARN;
+const DATABASE_NAME = requiredEnvVars.DATABASE_NAME;
+const STREAMING_QUEUE_URL = optionalEnvVars.STREAMING_QUEUE_URL;
+const DOCUMENTS_BUCKET = optionalEnvVars.DOCUMENTS_BUCKET_NAME;
 
 // Initialize unified streaming service with database-backed settings
 const settingsManager = createSettingsManager(async (key) => {
@@ -594,20 +642,20 @@ async function saveAssistantMessage(conversationId, responseData, modelId) {
     parameters: [
       { name: 'conversationId', value: { stringValue: conversationId } },
       { name: 'content', value: { stringValue: responseData.text || '' } },
-      { name: 'parts', value: { stringValue: JSON.stringify([{type: 'text', text: responseData.text || ''}]) } },
+      { name: 'parts', value: { stringValue: safeJsonStringify([{type: 'text', text: responseData.text || ''}]) } },
       { 
         name: 'modelId', 
         value: (modelId !== null && modelId !== undefined && Number.isFinite(modelId)) 
           ? { longValue: modelId } 
           : { isNull: true }
       },
-      { name: 'tokenUsage', value: { stringValue: JSON.stringify(responseData.usage || {}) } },
+      { name: 'tokenUsage', value: { stringValue: safeJsonStringify(responseData.usage || {}) } },
       { name: 'finishReason', value: { 
         stringValue: typeof responseData.finishReason === 'string' 
           ? responseData.finishReason 
           : String(responseData.finishReason || 'stop')
       } },
-      { name: 'metadata', value: { stringValue: JSON.stringify({ savedVia: 'lambda-worker' }) } }
+      { name: 'metadata', value: { stringValue: safeJsonStringify({ savedVia: 'lambda-worker' }) } }
     ]
   });
 
@@ -861,6 +909,7 @@ async function processAssistantArchitectJob(job) {
     const {
       messages,
       modelId,
+      modelIdString,
       provider,
       systemPrompt,
       options = {},
@@ -886,12 +935,23 @@ async function processAssistantArchitectJob(job) {
       toolNames: tools ? Object.keys(tools) : []
     });
 
-    // Update tool execution status to running
-    await updateToolExecutionStatus(executionId, 'running');
+    // Update tool execution status to running (skip for scheduled executions)
+    const isScheduledExecution = !!job.request_data?.scheduledExecution;
+    if (!isScheduledExecution && executionId) {
+      await updateToolExecutionStatus(executionId, 'running');
+    }
+
+    // Load prompts from database if not provided (e.g., for scheduled executions)
+    let actualPrompts = prompts;
+    if (!prompts || prompts.length === 0) {
+      console.log(`Loading prompts from database for tool ${toolId}`);
+      actualPrompts = await loadPromptsFromDatabase(toolId);
+      console.log(`Loaded ${actualPrompts.length} prompts from database`);
+    }
 
     // Sort prompts by position to ensure correct execution order
-    const sortedPrompts = [...prompts].sort((a, b) => a.position - b.position);
-    
+    const sortedPrompts = [...actualPrompts].sort((a, b) => a.position - b.position);
+
     console.log(`Executing ${sortedPrompts.length} chain prompts in sequence`);
 
     // Track context for variable substitution between prompts
@@ -909,8 +969,10 @@ async function processAssistantArchitectJob(job) {
       });
 
       try {
-        // Mark prompt as running
-        await updatePromptResultStatus(executionId, prompt.id, 'running', chainContext);
+        // Mark prompt as running (skip for scheduled executions)
+        if (!isScheduledExecution && executionId) {
+          await updatePromptResultStatus(executionId, prompt.id, 'running', chainContext);
+        }
 
         // Substitute variables in prompt content
         const processedContent = substituteVariables(prompt.content, chainContext);
@@ -933,8 +995,8 @@ async function processAssistantArchitectJob(job) {
         // Create streaming request using shared core interface
         const streamRequest = {
           messages: promptMessages,
-          modelId: modelId,
-          provider: provider,
+          modelId: prompt.model_string || modelIdString || modelId,
+          provider: prompt.provider || provider,
           userId: job.user_id.toString(),
           sessionId: `${job.id}-prompt-${prompt.id}`,
           conversationId: job.conversation_id,
@@ -990,8 +1052,10 @@ async function processAssistantArchitectJob(job) {
           finalText = String(promptResult.text || '');
         }
 
-        // Update prompt result with completion
-        await updatePromptResultStatus(executionId, prompt.id, 'completed', chainContext, finalText);
+        // Update prompt result with completion (skip for scheduled executions)
+        if (!isScheduledExecution && executionId) {
+          await updatePromptResultStatus(executionId, prompt.id, 'completed', chainContext, finalText);
+        }
 
         // Add prompt output to chain context for next prompts
         chainContext[`prompt_${prompt.position}_output`] = finalText;
@@ -1008,6 +1072,7 @@ async function processAssistantArchitectJob(job) {
             type: 'assistant_architect_chain',
             text: finalText,
             finalOutput: finalText, // Keep for backward compatibility
+            output: finalText, // Canonical field for email notifications
             chainContext: chainContext,
             totalPrompts: sortedPrompts.length,
             toolId: toolId,
@@ -1060,15 +1125,19 @@ async function processAssistantArchitectJob(job) {
       } catch (promptError) {
         console.error(`Error executing prompt ${prompt.name}:`, promptError);
         
-        // Mark prompt as failed
-        await updatePromptResultStatus(executionId, prompt.id, 'failed', chainContext, null, promptError.message);
+        // Mark prompt as failed (skip for scheduled executions)
+        if (!isScheduledExecution && executionId) {
+          await updatePromptResultStatus(executionId, prompt.id, 'failed', chainContext, null, promptError.message);
+        }
         
         throw new Error(`Prompt execution failed at step ${i + 1} (${prompt.name}): ${promptError.message}`);
       }
     }
 
-    // Mark tool execution as completed
-    await updateToolExecutionStatus(executionId, 'completed');
+    // Mark tool execution as completed (skip for scheduled executions)
+    if (!isScheduledExecution && executionId) {
+      await updateToolExecutionStatus(executionId, 'completed');
+    }
 
     console.log(`Assistant Architect job ${job.id} completed successfully`, {
       promptsExecuted: sortedPrompts.length,
@@ -1087,8 +1156,9 @@ async function processAssistantArchitectJob(job) {
   } catch (error) {
     console.error(`Error in Assistant Architect processing for job ${job.id}:`, error);
     
-    // Mark tool execution as failed
-    if (job.request_data?.toolMetadata?.executionId) {
+    // Mark tool execution as failed (skip for scheduled executions)
+    const isScheduledExecution = !!job.request_data?.scheduledExecution;
+    if (!isScheduledExecution && job.request_data?.toolMetadata?.executionId) {
       await updateToolExecutionStatus(job.request_data.toolMetadata.executionId, 'failed', error.message);
     }
 
@@ -1250,6 +1320,7 @@ async function processStreamingJob(job) {
     
     const responseData = {
       text: finalText,
+      output: finalText, // Canonical field for consistency
       usage: {
         promptTokens: finalResult.usage?.promptTokens || 0,
         completionTokens: finalResult.usage?.completionTokens || 0,
@@ -1478,7 +1549,7 @@ async function updatePromptResultStatus(executionId, promptId, status, inputData
         parameters: [
           { name: 'execution_id', value: { longValue: parseInt(executionId) } },
           { name: 'prompt_id', value: { longValue: parseInt(promptId) } },
-          { name: 'input_data', value: { stringValue: JSON.stringify(inputData) } },
+          { name: 'input_data', value: { stringValue: safeJsonStringify(inputData) } },
           { name: 'status', value: { stringValue: status } },
           { 
             name: 'output_data', 
@@ -1634,7 +1705,7 @@ async function triggerNotification(job, responseData, errorMessage = null) {
 
     await sqsClient.send(new SendMessageCommand({
       QueueUrl: notificationQueueUrl,
-      MessageBody: JSON.stringify(notificationMessage),
+      MessageBody: safeJsonStringify(notificationMessage),
       MessageAttributes: {
         notificationType: {
           DataType: 'String',
@@ -1689,7 +1760,7 @@ async function updateExecutionResult(executionResultId, status, resultData, exec
       { name: 'status', value: { stringValue: status } },
       {
         name: 'result_data',
-        value: resultData ? { stringValue: JSON.stringify(resultData) } : { isNull: true }
+        value: { stringValue: safeJsonStringify(resultData || {}) }
       },
       {
         name: 'execution_duration_ms',
@@ -1725,5 +1796,136 @@ async function getNotificationQueueUrl() {
       parameterName: `/aistudio/${process.env.ENVIRONMENT || 'dev'}/notification-queue-url`
     });
     return null;
+  }
+}
+
+/**
+ * Execute database command with retry logic
+ */
+async function executeWithRetry(command, maxRetries = 3, baseDelay = 1000) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await rdsClient.send(command);
+    } catch (error) {
+      const isLastAttempt = attempt === maxRetries - 1;
+
+      // Don't retry certain types of errors
+      if (error.name === 'ValidationException' ||
+          error.name === 'BadRequestException' ||
+          isLastAttempt) {
+        throw error;
+      }
+
+      // Exponential backoff with jitter
+      const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000;
+      console.warn(`Database operation failed (attempt ${attempt + 1}/${maxRetries}), retrying in ${delay}ms:`, error.message);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
+
+/**
+ * Safe JSON serialization with size limits and circular reference protection
+ */
+function safeJsonStringify(obj, maxSize = 1024 * 1024) { // 1MB limit
+  try {
+    // Check for circular references and handle special types
+    const cache = new Set();
+    const result = JSON.stringify(obj, (key, value) => {
+      // Handle circular references
+      if (typeof value === 'object' && value !== null) {
+        if (cache.has(value)) {
+          return '[Circular Reference]';
+        }
+        cache.add(value);
+      }
+
+      // Handle special types
+      if (typeof value === 'function') return '[Function]';
+      if (typeof value === 'bigint') return value.toString();
+      if (value instanceof Error) return { error: value.message, stack: value.stack };
+      if (value === undefined) return null;
+
+      return value;
+    });
+
+    // Check size limit
+    if (result.length > maxSize) {
+      return JSON.stringify({
+        error: 'Response too large',
+        size: result.length,
+        maxSize,
+        truncated: true
+      });
+    }
+
+    return result;
+  } catch (error) {
+    return JSON.stringify({
+      error: 'JSON serialization failed',
+      originalError: error.message
+    });
+  }
+}
+
+/**
+ * Load prompts from database for an Assistant Architect
+ */
+async function loadPromptsFromDatabase(assistantArchitectId) {
+  const command = new ExecuteStatementCommand({
+    resourceArn: DATABASE_RESOURCE_ARN,
+    secretArn: DATABASE_SECRET_ARN,
+    database: DATABASE_NAME,
+    sql: `
+      SELECT
+        id,
+        name,
+        content,
+        position,
+        model_id,
+        enabled_tools,
+        repository_ids,
+        system_context,
+        input_mapping,
+        timeout_seconds,
+        parallel_group
+      FROM chain_prompts
+      WHERE assistant_architect_id = :assistant_architect_id
+      ORDER BY position
+    `,
+    parameters: [
+      { name: 'assistant_architect_id', value: { longValue: parseInt(assistantArchitectId) } }
+    ]
+  });
+
+  try {
+    const response = await executeWithRetry(command);
+
+    if (!response.records || response.records.length === 0) {
+      console.log(`No prompts found for Assistant Architect ${assistantArchitectId}`);
+      return [];
+    }
+
+    // Transform database results to the expected format
+    const prompts = response.records.map(record => ({
+      id: record[0].longValue,
+      name: record[1].stringValue,
+      content: record[2].stringValue,
+      position: record[3].longValue,
+      model_id: record[4].longValue,
+      enabled_tools: record[5].stringValue ? JSON.parse(record[5].stringValue) : [],
+      repository_ids: record[6].stringValue ? JSON.parse(record[6].stringValue) : [],
+      system_context: record[7].stringValue || null,
+      input_mapping: record[8].stringValue ? JSON.parse(record[8].stringValue) : null,
+      timeout_seconds: record[9].longValue || null,
+      parallel_group: record[10].stringValue || null
+    }));
+
+    console.log(`Successfully loaded ${prompts.length} prompts for Assistant Architect ${assistantArchitectId}`);
+    return prompts;
+
+  } catch (error) {
+    console.error(`Failed to load prompts for Assistant Architect ${assistantArchitectId}:`, error);
+    throw error;
   }
 }

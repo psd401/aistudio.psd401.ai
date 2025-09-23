@@ -8,6 +8,15 @@ import { getServerSession } from "@/lib/auth/server-session"
 import { ActionState } from "@/types"
 // Note: cron-parser had import issues, using robust regex validation instead
 import escapeHtml from "escape-html"
+import {
+  SchedulerClient,
+  CreateScheduleCommand,
+  UpdateScheduleCommand,
+  DeleteScheduleCommand,
+  FlexibleTimeWindowMode,
+  ScheduleState
+} from "@aws-sdk/client-scheduler"
+import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm"
 
 // Types for Schedule Management
 export interface ScheduleConfig {
@@ -67,6 +76,77 @@ function sanitizeNumericId(value: unknown): number {
 
 // Maximum input data size (10MB) - increased from 50KB to be more generous
 const MAX_INPUT_DATA_SIZE = 10485760
+
+// Initialize AWS clients
+const schedulerClient = new SchedulerClient({ region: process.env.AWS_REGION || 'us-east-1' })
+const ssmClient = new SSMClient({ region: process.env.AWS_REGION || 'us-east-1' })
+
+// Configuration caching
+const configCache = new Map<string, { config: { targetArn: string; roleArn: string }; timestamp: number }>()
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+// Error classification for better handling
+enum ScheduleErrorType {
+  VALIDATION_ERROR = 'validation',
+  AWS_CREDENTIALS = 'credentials',
+  SSM_PARAMETER = 'ssm_parameter',
+  EVENTBRIDGE_API = 'eventbridge_api',
+  DATABASE_ERROR = 'database'
+}
+
+/**
+ * Gets the deployment environment for AWS service configuration
+ */
+function getEnvironment(): string {
+  // Determine environment from available env vars (prioritize explicit settings)
+  return process.env.AMPLIFY_ENV ||
+         process.env.NEXT_PUBLIC_ENVIRONMENT ||
+         process.env.ENVIRONMENT ||
+         'dev'
+}
+
+/**
+ * Fetches EventBridge configuration from SSM Parameter Store with caching
+ */
+async function getEventBridgeConfig(): Promise<{ targetArn: string; roleArn: string }> {
+  const environment = getEnvironment()
+  const cacheKey = `eventbridge-config-${environment}`
+  const cached = configCache.get(cacheKey)
+
+  // Return cached config if still valid
+  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+    return cached.config
+  }
+
+  try {
+    const [targetArnParam, roleArnParam] = await Promise.all([
+      ssmClient.send(new GetParameterCommand({
+        Name: `/aistudio/${environment}/schedule-executor-function-arn`,
+        WithDecryption: true
+      })),
+      ssmClient.send(new GetParameterCommand({
+        Name: `/aistudio/${environment}/scheduler-execution-role-arn`,
+        WithDecryption: true
+      }))
+    ])
+
+    const targetArn = targetArnParam.Parameter?.Value
+    const roleArn = roleArnParam.Parameter?.Value
+
+    if (!targetArn || !roleArn) {
+      throw new Error('EventBridge configuration parameters not found in SSM')
+    }
+
+    const config = { targetArn, roleArn }
+
+    // Cache the configuration
+    configCache.set(cacheKey, { config, timestamp: Date.now() })
+
+    return config
+  } catch (error) {
+    throw new Error(`Failed to fetch EventBridge configuration from SSM: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  }
+}
 
 /**
  * Validates and sanitizes name field
@@ -196,6 +276,222 @@ function validateScheduleConfig(config: ScheduleConfig): { isValid: boolean; err
 }
 
 /**
+ * Converts schedule configuration to cron expression for EventBridge
+ */
+function convertToCronExpression(scheduleConfig: ScheduleConfig): string {
+  const { frequency, time, timezone = 'UTC', daysOfWeek, dayOfMonth, cron } = scheduleConfig
+
+  if (frequency === 'custom' && cron) {
+    return cron
+  }
+
+  const [hours, minutes] = time.split(':').map(Number)
+
+  switch (frequency) {
+    case 'daily':
+      return `${minutes} ${hours} * * ? *`
+
+    case 'weekly':
+      if (!daysOfWeek || daysOfWeek.length === 0) {
+        throw new Error('Days of week required for weekly schedules')
+      }
+      // Convert from 0=Sunday to 1=Sunday for cron
+      const cronDays = daysOfWeek.map(day => day === 0 ? 7 : day).join(',')
+      return `${minutes} ${hours} ? * ${cronDays} *`
+
+    case 'monthly':
+      const day = dayOfMonth || 1
+      return `${minutes} ${hours} ${day} * ? *`
+
+    default:
+      throw new Error(`Unsupported frequency: ${frequency}`)
+  }
+}
+
+/**
+ * Creates an EventBridge schedule
+ */
+async function createEventBridgeSchedule(
+  scheduleId: number,
+  name: string,
+  scheduleConfig: ScheduleConfig,
+  targetArn: string,
+  roleArn: string,
+  inputData: any
+): Promise<string> {
+  const log = createLogger({ operation: 'createEventBridgeSchedule' })
+
+  try {
+    // SECURITY FIX: Validate schedule configuration before cron conversion
+    const validationResult = validateScheduleConfig(scheduleConfig)
+    if (!validationResult.isValid) {
+      throw new Error(`Invalid schedule configuration: ${validationResult.errors.join(', ')}`)
+    }
+
+    // SECURITY FIX: Validate and sanitize name input (AWS schedule name limit: 64 chars)
+    const sanitizedName = name?.toString().trim().substring(0, 50) || ""
+    if (!sanitizedName || sanitizedName.length === 0) {
+      throw new Error('Schedule name is required and cannot be empty')
+    }
+
+    // SECURITY FIX: Validate environment and scheduleId are safe for interpolation
+    const environment = getEnvironment()
+    const safeScheduleId = sanitizeNumericId(scheduleId)
+
+    const cronExpression = convertToCronExpression(scheduleConfig)
+    const scheduleName = `aistudio-${environment}-schedule-${safeScheduleId}`
+
+    // Validate schedule name length (AWS limit is 64 characters)
+    if (scheduleName.length > 64) {
+      throw new Error(`Schedule name too long: ${scheduleName.length} chars (max: 64)`)
+    }
+
+    log.info('Creating EventBridge schedule', {
+      scheduleName,
+      cronExpression,
+      targetArn,
+      scheduleId: safeScheduleId,
+      sanitizedName
+    })
+
+    const command = new CreateScheduleCommand({
+      Name: scheduleName,
+      Description: `AI Studio schedule: ${escapeHtml(sanitizedName)}`,
+      ScheduleExpression: `cron(${cronExpression})`,
+      ScheduleExpressionTimezone: scheduleConfig.timezone || 'UTC',
+      State: ScheduleState.ENABLED,
+      FlexibleTimeWindow: {
+        Mode: FlexibleTimeWindowMode.OFF
+      },
+      Target: {
+        Arn: targetArn,
+        RoleArn: roleArn,
+        Input: JSON.stringify({
+          source: 'aws.scheduler',
+          scheduledExecutionId: scheduleId
+        })
+      }
+    })
+
+    const response = await schedulerClient.send(command)
+    log.info('EventBridge schedule created successfully', { scheduleArn: response.ScheduleArn })
+
+    return response.ScheduleArn || `arn:aws:scheduler:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:schedule/default/${scheduleName}`
+  } catch (error) {
+    log.error('Failed to create EventBridge schedule', {
+      error: sanitizeForLogging(error),
+      scheduleId,
+      name
+    })
+    throw error
+  }
+}
+
+/**
+ * Updates an EventBridge schedule
+ */
+async function updateEventBridgeSchedule(
+  scheduleId: number,
+  name: string,
+  scheduleConfig: ScheduleConfig,
+  targetArn: string,
+  roleArn: string,
+  inputData: any,
+  active: boolean
+): Promise<void> {
+  const log = createLogger({ operation: 'updateEventBridgeSchedule' })
+
+  try {
+    // SECURITY FIX: Validate schedule configuration before cron conversion
+    const validationResult = validateScheduleConfig(scheduleConfig)
+    if (!validationResult.isValid) {
+      throw new Error(`Invalid schedule configuration: ${validationResult.errors.join(', ')}`)
+    }
+
+    // SECURITY FIX: Validate and sanitize name input
+    const sanitizedName = name?.toString().trim().substring(0, 50) || ""
+    if (!sanitizedName || sanitizedName.length === 0) {
+      throw new Error('Schedule name is required and cannot be empty')
+    }
+
+    // SECURITY FIX: Validate environment and scheduleId are safe for interpolation
+    const environment = getEnvironment()
+    const safeScheduleId = sanitizeNumericId(scheduleId)
+
+    const scheduleName = `aistudio-${environment}-schedule-${safeScheduleId}`
+    const cronExpression = convertToCronExpression(scheduleConfig)
+
+    // Validate schedule name length
+    if (scheduleName.length > 64) {
+      throw new Error(`Schedule name too long: ${scheduleName.length} chars (max: 64)`)
+    }
+
+    log.info('Updating EventBridge schedule', {
+      scheduleName,
+      cronExpression,
+      active,
+      scheduleId: safeScheduleId,
+      sanitizedName
+    })
+
+    const command = new UpdateScheduleCommand({
+      Name: scheduleName,
+      Description: `AI Studio schedule: ${escapeHtml(sanitizedName)}`,
+      ScheduleExpression: `cron(${cronExpression})`,
+      ScheduleExpressionTimezone: scheduleConfig.timezone || 'UTC',
+      State: active ? ScheduleState.ENABLED : ScheduleState.DISABLED,
+      FlexibleTimeWindow: {
+        Mode: FlexibleTimeWindowMode.OFF
+      },
+      Target: {
+        Arn: targetArn,
+        RoleArn: roleArn,
+        Input: JSON.stringify({
+          source: 'aws.scheduler',
+          scheduledExecutionId: scheduleId
+        })
+      }
+    })
+
+    await schedulerClient.send(command)
+    log.info('EventBridge schedule updated successfully', { scheduleId })
+  } catch (error) {
+    log.error('Failed to update EventBridge schedule', {
+      error: sanitizeForLogging(error),
+      scheduleId
+    })
+    throw error
+  }
+}
+
+/**
+ * Deletes an EventBridge schedule
+ */
+async function deleteEventBridgeSchedule(scheduleId: number): Promise<void> {
+  const log = createLogger({ operation: 'deleteEventBridgeSchedule' })
+
+  try {
+    const environment = getEnvironment()
+    const scheduleName = `aistudio-${environment}-schedule-${scheduleId}`
+
+    log.info('Deleting EventBridge schedule', { scheduleName, scheduleId })
+
+    const command = new DeleteScheduleCommand({
+      Name: scheduleName
+    })
+
+    await schedulerClient.send(command)
+    log.info('EventBridge schedule deleted successfully', { scheduleId })
+  } catch (error) {
+    log.error('Failed to delete EventBridge schedule', {
+      error: sanitizeForLogging(error),
+      scheduleId
+    })
+    // Don't throw error for delete operations - log and continue
+  }
+}
+
+/**
  * Creates a new schedule
  */
 export async function createScheduleAction(params: CreateScheduleRequest): Promise<ActionState<{ id: number; scheduleArn?: string; nextExecution?: string }>> {
@@ -230,6 +526,7 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
       log.warn("User lacks assistant-architect access")
       throw ErrorFactories.authzInsufficientPermissions("assistant-architect")
     }
+
 
     // Validate input
     const { name, assistantArchitectId, scheduleConfig, inputData } = params
@@ -357,10 +654,62 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
 
     const scheduleId = result[0].id
 
-    timer({ status: "success" })
-    log.info("Schedule created successfully")
+    // Try to create EventBridge schedule
+    let scheduleArn: string | undefined
+    let eventBridgeEnabled = false
+    const warnings: string[] = []
 
-    return createSuccess({ id: scheduleId }, "Schedule created successfully")
+    try {
+      const { targetArn, roleArn } = await getEventBridgeConfig()
+
+      scheduleArn = await createEventBridgeSchedule(
+        scheduleId,
+        sanitizedName,
+        scheduleConfig,
+        targetArn,
+        roleArn,
+        inputData
+      )
+
+      eventBridgeEnabled = true
+      log.info("EventBridge schedule created successfully", { scheduleArn, scheduleId })
+
+      // Update database with EventBridge ARN for future reference
+      try {
+        await executeSQL(`UPDATE scheduled_executions SET schedule_arn = :scheduleArn WHERE id = :scheduleId`, [
+          createParameter('scheduleArn', scheduleArn),
+          createParameter('scheduleId', scheduleId)
+        ])
+      } catch (updateError) {
+        log.warn("Failed to update database with EventBridge ARN", {
+          error: sanitizeForLogging(updateError),
+          scheduleId,
+          scheduleArn
+        })
+      }
+
+    } catch (error) {
+      log.warn("EventBridge schedule creation failed, continuing with database-only mode", {
+        error: sanitizeForLogging(error),
+        scheduleId
+      })
+      warnings.push("EventBridge integration unavailable - schedule saved to database only")
+      // Don't throw error - continue with database-only mode
+    }
+
+    timer({ status: "success" })
+    log.info("Schedule created successfully", {
+      scheduleId,
+      scheduleArn,
+      eventBridgeEnabled
+    })
+
+    return createSuccess({
+      id: scheduleId,
+      scheduleArn,
+      eventBridgeEnabled,
+      warnings
+    }, "Schedule created successfully")
 
   } catch (error) {
     timer({ status: "error" })
@@ -474,7 +823,7 @@ export async function getSchedulesAction(): Promise<ActionState<Schedule[]>> {
       // Add last execution info if available
       if (transformed.lastExecutedAt && transformed.lastExecutionStatus) {
         schedule.lastExecution = {
-          executedAt: transformed.lastExecutedAt,
+          executedAt: transformed.lastExecutedAt ? new Date(transformed.lastExecutedAt + ' UTC').toISOString() : '',
           status: transformed.lastExecutionStatus
         }
       }
@@ -695,10 +1044,47 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
       updatedAt: updated.updatedAt
     }
 
-    timer({ status: "success" })
-    log.info("Schedule updated successfully")
+    // Try to update EventBridge schedule if schedule-related fields changed
+    let eventBridgeUpdated = false
+    const warnings: string[] = []
 
-    return createSuccess(schedule, "Schedule updated successfully")
+    if (params.scheduleConfig !== undefined || params.active !== undefined || params.name !== undefined) {
+      try {
+        const { targetArn, roleArn } = await getEventBridgeConfig()
+        await updateEventBridgeSchedule(
+          schedule.id,
+          schedule.name,
+          schedule.scheduleConfig,
+          targetArn,
+          roleArn,
+          schedule.inputData,
+          schedule.active
+        )
+        eventBridgeUpdated = true
+        log.info("EventBridge schedule updated successfully", { scheduleId: schedule.id })
+      } catch (error) {
+        log.warn("Failed to update EventBridge schedule, database changes preserved", {
+          error: sanitizeForLogging(error),
+          scheduleId: schedule.id
+        })
+        warnings.push("EventBridge update failed - database changes preserved")
+        // Don't fail the entire update operation if EventBridge update fails
+        // The database update succeeded, so we return success but log the EventBridge error
+      }
+    }
+
+    timer({ status: "success" })
+    log.info("Schedule updated successfully", {
+      scheduleId: schedule.id,
+      eventBridgeUpdated,
+      warningsCount: warnings.length
+    })
+
+    return createSuccess({
+      ...schedule,
+      eventBridgeUpdated,
+      warnings
+    }, "Schedule updated successfully")
 
   } catch (error) {
     timer({ status: "error" })
@@ -773,6 +1159,19 @@ export async function deleteScheduleAction(id: number): Promise<ActionState<{ su
 
     if (!deleteResult || deleteResult.length === 0) {
       throw ErrorFactories.dbQueryFailed("DELETE FROM scheduled_executions", new Error("Failed to delete schedule"))
+    }
+
+    // Delete EventBridge schedule
+    try {
+      await deleteEventBridgeSchedule(id)
+      log.info("EventBridge schedule deleted successfully", { scheduleId: id })
+    } catch (error) {
+      log.error("Failed to delete EventBridge schedule", {
+        error: sanitizeForLogging(error),
+        scheduleId: id
+      })
+      // Don't fail the entire delete operation if EventBridge delete fails
+      // The database record is already deleted, so we continue with success
     }
 
     timer({ status: "success" })
@@ -899,7 +1298,7 @@ export async function getScheduleAction(id: number): Promise<ActionState<Schedul
     // Add last execution info if available
     if (transformed.lastExecutedAt && transformed.lastExecutionStatus) {
       schedule.lastExecution = {
-        executedAt: transformed.lastExecutedAt,
+        executedAt: transformed.lastExecutedAt ? new Date(transformed.lastExecutedAt + ' UTC').toISOString() : '',
         status: transformed.lastExecutionStatus
       }
     }

@@ -66,7 +66,7 @@ interface ExecutionResultWithSchedule {
   scheduleConfig: Record<string, unknown>
 }
 
-export async function downloadHandler(
+async function downloadHandler(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -444,7 +444,12 @@ function formatInputData(inputData: Record<string, unknown>): string {
 }
 
 // Export with rate limiting - download endpoints: 100 requests per minute (standard)
-export const GET = withRateLimit(downloadHandler, {
+const rateLimitedHandler = withRateLimit(downloadHandler, {
   interval: 60 * 1000, // 1 minute
   uniqueTokenPerInterval: 50 // 50 downloads per minute - reasonable for file downloads
 })
+
+export { rateLimitedHandler as GET }
+
+// Export for testing
+export { downloadHandler }

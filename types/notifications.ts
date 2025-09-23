@@ -36,6 +36,7 @@ export interface MessageCenterProps {
   messages: ExecutionResult[];
   onViewResult: (resultId: number) => void;
   onRetryExecution?: (scheduledExecutionId: number) => void;
+  onDeleteResult?: (resultId: number) => void;
   loading?: boolean;
 }
 

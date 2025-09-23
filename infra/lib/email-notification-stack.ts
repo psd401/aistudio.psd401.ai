@@ -14,6 +14,13 @@ export interface EmailNotificationStackProps extends cdk.StackProps {
   // Cross-stack dependencies retrieved from SSM Parameter Store
   databaseResourceArn?: string;
   databaseSecretArn?: string;
+  // Email configuration - allows different organizations to customize
+  emailDomain?: string;
+  fromEmail?: string;
+  appBaseUrl?: string;
+  // SES resource management
+  createSesIdentity?: boolean; // Set to false if SES identity already exists
+  useDomainIdentity?: boolean; // Use domain identity for prod, email identity for dev
 }
 
 export class EmailNotificationStack extends cdk.Stack {
@@ -23,6 +30,12 @@ export class EmailNotificationStack extends cdk.Stack {
 
   constructor(scope: Construct, id: string, props: EmailNotificationStackProps) {
     super(scope, id, props);
+
+    // Email configuration with defaults for PSD401
+    const emailDomain = props.emailDomain || 'psd401.net';
+    const fromEmail = props.fromEmail || `noreply@${emailDomain}`;
+    const appBaseUrl = props.appBaseUrl ||
+      (props.environment === 'prod' ? 'https://aistudio.psd401.ai' : 'https://dev.aistudio.psd401.ai');
 
     // Retrieve values from SSM Parameter Store (or use provided props for backward compatibility)
     const databaseResourceArn = props.databaseResourceArn ||
@@ -35,106 +48,30 @@ export class EmailNotificationStack extends cdk.Stack {
         this, `/aistudio/${props.environment}/db-secret-arn`
       );
 
-    // SES Configuration for PSD401 domain
-    const sesIdentity = new ses.EmailIdentity(this, 'SESIdentity', {
-      identity: ses.Identity.domain('psd401.edu'),
-      // Note: In production, this domain needs to be verified manually
-      // For dev environment, we'll use a verified email instead
-      ...(props.environment === 'dev' && {
-        identity: ses.Identity.email('noreply@psd401.edu')
-      })
-    });
+    // SES Configuration - Configurable identity creation
+    const createSesIdentity = props.createSesIdentity !== false; // Default to true
+    const useDomainIdentity = props.useDomainIdentity || (props.environment === 'prod');
+
+    // Only create SES identity if explicitly requested
+    if (createSesIdentity) {
+      const emailIdentity = new ses.EmailIdentity(this, 'SESEmailIdentity', {
+        identity: useDomainIdentity
+          ? ses.Identity.domain(emailDomain)
+          : ses.Identity.email(fromEmail),
+      });
+
+      // Retain the identity if stack is deleted (don't break email functionality)
+      emailIdentity.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
+    }
+
+    // Note: If createSesIdentity is false, assumes the email identity is already verified externally
 
     // SES Configuration Set for tracking delivery events
     const configurationSet = new ses.ConfigurationSet(this, 'EmailConfigurationSet', {
       configurationSetName: `aistudio-${props.environment}-email-config`,
     });
 
-    // Email Template for AI Studio notifications
-    const templateName = `aistudio-${props.environment}-notification-template`;
-    const emailTemplate = new ses.CfnTemplate(this, 'NotificationEmailTemplate', {
-      template: {
-        templateName: templateName,
-        subjectPart: '{{subject}}',
-        textPart: `Peninsula School District AI Studio
-
-{{greeting}},
-
-Your scheduled "{{scheduleName}}" execution completed {{status}} at {{executionTime}}.
-
-{{#if summary}}
-Summary:
-{{summary}}
-{{/if}}
-
-{{#if errorMessage}}
-Error Details:
-{{errorMessage}}
-{{/if}}
-
-View full results: {{resultsUrl}}
-
----
-Peninsula School District AI Studio
-`,
-        htmlPart: `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{subject}}</title>
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: #1e3a8a; color: white; padding: 20px; text-align: center; }
-        .logo { font-size: 24px; font-weight: bold; }
-        .content { padding: 20px; background: #f9fafb; }
-        .summary { background: white; padding: 15px; border-radius: 8px; margin: 15px 0; }
-        .success { border-left: 4px solid #10b981; }
-        .error { border-left: 4px solid #ef4444; }
-        .button { display: inline-block; background: #1e3a8a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 10px 0; }
-        .footer { text-align: center; color: #6b7280; font-size: 12px; padding: 20px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="logo">Peninsula School District</div>
-            <div>AI Studio</div>
-        </div>
-        <div class="content">
-            <h2>{{greeting}}</h2>
-
-            <p>Your scheduled "<strong>{{scheduleName}}</strong>" execution completed {{status}} at {{executionTime}}.</p>
-
-            {{#if summary}}
-            <div class="summary {{#if isSuccess}}success{{else}}error{{/if}}">
-                <h3>Summary</h3>
-                <p>{{summary}}</p>
-            </div>
-            {{/if}}
-
-            {{#if errorMessage}}
-            <div class="summary error">
-                <h3>Error Details</h3>
-                <p>{{errorMessage}}</p>
-            </div>
-            {{/if}}
-
-            <div style="text-align: center; margin: 20px 0;">
-                <a href="{{resultsUrl}}" class="button">View Full Results</a>
-                <a href="{{manageSchedulesUrl}}" class="button" style="background: #6b7280;">Manage Schedules</a>
-            </div>
-        </div>
-        <div class="footer">
-            <p>Peninsula School District AI Studio</p>
-            <p><a href="{{unsubscribeUrl}}">Unsubscribe</a> | <a href="{{preferencesUrl}}">Email Preferences</a></p>
-        </div>
-    </div>
-</body>
-</html>`
-      }
-    });
+    // Note: Email templates removed - now using SES v2 direct email sending
 
     // Dead Letter Queue for failed notification processing
     this.deadLetterQueue = new sqs.Queue(this, 'NotificationDLQ', {
@@ -163,7 +100,50 @@ Peninsula School District AI Studio
     this.notificationSenderFunction = new lambda.Function(this, 'NotificationSender', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/notification-sender')),
+      code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/notification-sender'), {
+        bundling: {
+          image: lambda.Runtime.NODEJS_20_X.bundlingImage,
+          local: {
+            tryBundle(outputDir: string) {
+              const { execSync } = require('child_process');
+              const fs = require('fs');
+              const path = require('path');
+              const sourceDir = path.join(__dirname, '../lambdas/notification-sender');
+
+              try {
+                // Build TypeScript
+                console.log('Building TypeScript...');
+                execSync('npm run build', { cwd: sourceDir, stdio: 'inherit' });
+
+                // Copy the compiled index.js to output root
+                const sourceFile = path.join(sourceDir, 'dist', 'index.js');
+                const destFile = path.join(outputDir, 'index.js');
+                fs.copyFileSync(sourceFile, destFile);
+
+                // Copy package files
+                fs.copyFileSync(
+                  path.join(sourceDir, 'package.json'),
+                  path.join(outputDir, 'package.json')
+                );
+                fs.copyFileSync(
+                  path.join(sourceDir, 'package-lock.json'),
+                  path.join(outputDir, 'package-lock.json')
+                );
+
+                // Install production dependencies only
+                console.log('Installing production dependencies...');
+                execSync('npm ci --omit=dev', { cwd: outputDir, stdio: 'inherit' });
+
+                console.log('Bundling complete');
+                return true;
+              } catch (error) {
+                console.error('Local bundling failed:', error);
+                return false;
+              }
+            }
+          }
+        }
+      }),
       functionName: `aistudio-${props.environment}-notification-sender`,
       timeout: cdk.Duration.minutes(3), // Time to process notification and send email
       memorySize: 1024, // Sufficient for email processing
@@ -174,9 +154,10 @@ Peninsula School District AI Studio
         DATABASE_NAME: 'aistudio',
         ENVIRONMENT: props.environment,
         SES_CONFIGURATION_SET: configurationSet.configurationSetName,
-        SES_TEMPLATE_NAME: templateName,
-        SES_FROM_EMAIL: props.environment === 'prod' ? 'noreply@psd401.edu' : 'noreply@psd401.edu',
-        APP_BASE_URL: props.environment === 'prod' ? 'https://aistudio.psd401.ai' : 'https://dev.aistudio.psd401.ai',
+        SES_FROM_EMAIL: fromEmail,
+        APP_BASE_URL: appBaseUrl,
+        SES_REGION: 'us-east-1', // SES identities are configured in us-east-1
+        MAX_SUMMARY_LENGTH: '10000', // Increased from 2000 to allow more content
       },
       logGroup: notificationLogGroup,
       // Conservative concurrency to avoid SES rate limits
@@ -214,20 +195,20 @@ Peninsula School District AI Studio
     this.notificationSenderFunction.addToRolePolicy(rdsDataApiPolicy);
     this.notificationSenderFunction.addToRolePolicy(secretsManagerPolicy);
 
-    // Grant SES permissions
+    // Grant SES v2 permissions - SES resources are in us-east-1
+    const sesRegion = 'us-east-1'; // SES identities configured region
     const sesPolicy = new iam.PolicyStatement({
       actions: [
+        'sesv2:SendEmail',
         'ses:SendEmail',
-        'ses:SendTemplatedEmail',
         'ses:SendRawEmail',
-        'ses:GetTemplate',
         'ses:PutConfigurationSetEventDestination',
       ],
       resources: [
-        `arn:aws:ses:${this.region}:${this.account}:identity/psd401.edu`,
-        `arn:aws:ses:${this.region}:${this.account}:identity/noreply@psd401.edu`,
-        `arn:aws:ses:${this.region}:${this.account}:template/${templateName}`,
-        `arn:aws:ses:${this.region}:${this.account}:configuration-set/${configurationSet.configurationSetName}`,
+        `arn:aws:ses:${sesRegion}:${this.account}:identity/${emailDomain}`,
+        `arn:aws:ses:${sesRegion}:${this.account}:identity/${fromEmail}`,
+        `arn:aws:ses:${sesRegion}:${this.account}:identity/*@${emailDomain}`, // Allow any verified email in domain
+        `arn:aws:ses:${sesRegion}:${this.account}:configuration-set/${configurationSet.configurationSetName}`,
       ],
     });
 
@@ -269,11 +250,6 @@ Peninsula School District AI Studio
       exportName: `${props.environment}-NotificationSenderFunctionName`,
     });
 
-    new cdk.CfnOutput(this, 'SESTemplateNameOutput', {
-      value: templateName,
-      description: 'Name of the SES email template',
-      exportName: `${props.environment}-SESTemplateName`,
-    });
 
     new cdk.CfnOutput(this, 'SESConfigurationSetOutput', {
       value: configurationSet.configurationSetName,

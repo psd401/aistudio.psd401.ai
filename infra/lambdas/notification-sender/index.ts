@@ -1,5 +1,5 @@
 import { RDSDataClient, ExecuteStatementCommand } from '@aws-sdk/client-rds-data';
-import { SESClient, SendTemplatedEmailCommand } from '@aws-sdk/client-ses';
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { CognitoIdentityProviderClient, AdminGetUserCommand } from '@aws-sdk/client-cognito-identity-provider';
 import { SQSEvent, SQSRecord, Context } from 'aws-lambda';
 
@@ -75,27 +75,12 @@ interface EnvironmentVariables {
   DATABASE_SECRET_ARN: string;
   DATABASE_NAME: string;
   ENVIRONMENT: string;
-  SES_TEMPLATE_NAME: string;
   SES_FROM_EMAIL: string;
   APP_BASE_URL: string;
   SES_CONFIGURATION_SET?: string;
   NODE_ENV?: string;
 }
 
-interface TemplateData {
-  subject: string;
-  greeting: string;
-  scheduleName: string;
-  status: string;
-  executionTime: string;
-  summary: string;
-  errorMessage: string;
-  isSuccess: string;
-  resultsUrl: string;
-  manageSchedulesUrl: string;
-  unsubscribeUrl: string;
-  preferencesUrl: string;
-}
 
 // Lambda logging utilities (simplified version of main app pattern)
 function generateRequestId(): string {
@@ -252,7 +237,7 @@ function validateNotificationMessage(messageBody: unknown): ValidationResult {
 
 // Initialize clients
 const rdsClient = new RDSDataClient({});
-const sesClient = new SESClient({});
+const sesClient = new SESv2Client({ region: process.env.SES_REGION || 'us-east-1' });
 const cognitoClient = new CognitoIdentityProviderClient({});
 
 // Environment variables with startup validation
@@ -261,7 +246,6 @@ const requiredEnvVars: Record<string, string | undefined> = {
   DATABASE_SECRET_ARN: process.env.DATABASE_SECRET_ARN,
   DATABASE_NAME: process.env.DATABASE_NAME,
   ENVIRONMENT: process.env.ENVIRONMENT,
-  SES_TEMPLATE_NAME: process.env.SES_TEMPLATE_NAME,
   SES_FROM_EMAIL: process.env.SES_FROM_EMAIL,
   APP_BASE_URL: process.env.APP_BASE_URL
 };
@@ -305,7 +289,6 @@ const env: EnvironmentVariables = {
   DATABASE_SECRET_ARN: requiredEnvVars.DATABASE_SECRET_ARN!,
   DATABASE_NAME: requiredEnvVars.DATABASE_NAME!,
   ENVIRONMENT: requiredEnvVars.ENVIRONMENT!,
-  SES_TEMPLATE_NAME: requiredEnvVars.SES_TEMPLATE_NAME!,
   SES_FROM_EMAIL: requiredEnvVars.SES_FROM_EMAIL!,
   APP_BASE_URL: requiredEnvVars.APP_BASE_URL!,
   SES_CONFIGURATION_SET: optionalEnvVars.SES_CONFIGURATION_SET,
@@ -330,7 +313,7 @@ const env: EnvironmentVariables = {
  *   "scheduleName": "Weather Report - Daily"
  * }
  */
-export const handler = async (event: SQSEvent, context: Context): Promise<LambdaResponse> => {
+const handler = async (event: SQSEvent, context: Context): Promise<LambdaResponse> => {
   const requestId = generateRequestId();
   const timer = startTimer('lambda.handler');
   const log = createLogger({ requestId, operation: 'notificationSender' });
@@ -511,7 +494,7 @@ async function createNotificationRecord(userId: number, executionResultId: numbe
           :user_id,
           :execution_result_id,
           :type,
-          'pending',
+          'sent',
           0,
           NOW()
         )
@@ -616,7 +599,7 @@ async function getUserEmail(userId: number): Promise<string | null> {
       secretArn: env.DATABASE_SECRET_ARN,
       database: env.DATABASE_NAME,
       sql: `
-        SELECT email, cognito_user_id
+        SELECT email, cognito_sub
         FROM users
         WHERE id = :user_id
       `,
@@ -654,13 +637,138 @@ async function getUserEmail(userId: number): Promise<string | null> {
 }
 
 /**
- * Send email notification using SES template
+ * Build HTML email content with improved markdown formatting
+ */
+function buildHtmlEmail(data: {
+  subject: string;
+  greeting: string;
+  scheduleName: string;
+  status: string;
+  executionTime: string;
+  summary: string;
+  errorMessage: string | null;
+  isSuccess: boolean;
+  resultsUrl: string;
+  manageSchedulesUrl: string;
+  unsubscribeUrl: string;
+  preferencesUrl: string;
+}): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${data.subject}</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #1e3a8a; color: white; padding: 20px; text-align: center; }
+        .logo { font-size: 24px; font-weight: bold; }
+        .content { padding: 20px; background: #f9fafb; }
+        .summary { background: white; padding: 15px; border-radius: 8px; margin: 15px 0; }
+        .success { border-left: 4px solid #10b981; }
+        .error { border-left: 4px solid #ef4444; }
+        .button { display: inline-block; background: #1e3a8a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 10px 0; }
+        .footer { text-align: center; color: #6b7280; font-size: 12px; padding: 20px; }
+        .code-block { background: #f3f4f6; padding: 12px; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 13px; white-space: pre-wrap; word-wrap: break-word; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">Peninsula School District</div>
+            <div>AI Studio</div>
+        </div>
+        <div class="content">
+            <h2>${data.greeting}</h2>
+
+            <p>Your scheduled "<strong>${data.scheduleName}</strong>" execution completed ${data.status} at ${data.executionTime}.</p>
+
+            ${data.summary ? `
+            <div class="summary ${data.isSuccess ? 'success' : 'error'}">
+                <h3>Summary</h3>
+                <div class="code-block">${data.summary}</div>
+            </div>
+            ` : ''}
+
+            ${data.errorMessage ? `
+            <div class="summary error">
+                <h3>Error Details</h3>
+                <div class="code-block">${data.errorMessage}</div>
+            </div>
+            ` : ''}
+
+            <div style="text-align: center; margin: 20px 0;">
+                <a href="${data.resultsUrl}" class="button">View Full Results</a>
+                <a href="${data.manageSchedulesUrl}" class="button" style="background: #6b7280;">Manage Schedules</a>
+            </div>
+        </div>
+        <div class="footer">
+            <p>Peninsula School District AI Studio</p>
+            <p><a href="${data.unsubscribeUrl}">Unsubscribe</a> | <a href="${data.preferencesUrl}">Email Preferences</a></p>
+        </div>
+    </div>
+</body>
+</html>`;
+}
+
+/**
+ * Build text email content for fallback
+ */
+function buildTextEmail(data: {
+  greeting: string;
+  scheduleName: string;
+  status: string;
+  executionTime: string;
+  summary: string;
+  errorMessage: string | null;
+  resultsUrl: string;
+  manageSchedulesUrl: string;
+  unsubscribeUrl: string;
+  preferencesUrl: string;
+}): string {
+  let text = `Peninsula School District AI Studio
+
+${data.greeting},
+
+Your scheduled "${data.scheduleName}" execution completed ${data.status} at ${data.executionTime}.
+
+`;
+
+  if (data.summary) {
+    text += `Summary:
+${data.summary}
+
+`;
+  }
+
+  if (data.errorMessage) {
+    text += `Error Details:
+${data.errorMessage}
+
+`;
+  }
+
+  text += `View full results: ${data.resultsUrl}
+Manage schedules: ${data.manageSchedulesUrl}
+
+---
+Peninsula School District AI Studio
+Unsubscribe: ${data.unsubscribeUrl}
+Email Preferences: ${data.preferencesUrl}
+`;
+
+  return text;
+}
+
+/**
+ * Send email notification using SES v2 with attachment support
  */
 async function sendEmailNotification(userEmail: string, executionResult: ExecutionResult, scheduleName: string, notificationId: number): Promise<string> {
   const log = createLogger({ operation: 'sendEmailNotification', notificationId });
 
   try {
-    // Prepare template data
+    // Prepare email data
     const isSuccess = executionResult.status === 'success';
     const executionTime = new Date(executionResult.executed_at).toLocaleString('en-US', {
       timeZone: process.env.EMAIL_TIMEZONE || 'America/Los_Angeles',
@@ -674,46 +782,83 @@ async function sendEmailNotification(userEmail: string, executionResult: Executi
     // Create markdown attachment
     const markdownContent = generateMarkdownAttachment(executionResult, scheduleName);
 
-    const templateData: TemplateData = {
-      subject: `${sanitizeEmailContent(scheduleName)} - ${isSuccess ? 'Execution Complete' : 'Execution Failed'}`,
-      greeting: 'Hi there', // Could be personalized with user name if available
+    // Create email subject
+    const subject = `${sanitizeEmailContent(scheduleName)} - ${isSuccess ? 'Execution Complete' : 'Execution Failed'}`;
+
+    // Build HTML content with better markdown formatting
+    const htmlContent = buildHtmlEmail({
+      subject,
+      greeting: 'Hi there',
       scheduleName: sanitizeEmailContent(scheduleName),
       status: isSuccess ? 'successfully' : 'with errors',
       executionTime,
       summary: summary || (isSuccess ? 'Execution completed successfully.' : 'Execution encountered errors.'),
       errorMessage: sanitizeEmailContent(executionResult.error_message, 500),
-      isSuccess: isSuccess.toString(),
-      resultsUrl: `${env.APP_BASE_URL}/schedules/${executionResult.scheduled_execution_id}/results/${executionResult.id}`,
+      isSuccess,
+      resultsUrl: `${env.APP_BASE_URL}/execution-results/${executionResult.id}`,
       manageSchedulesUrl: `${env.APP_BASE_URL}/schedules`,
       unsubscribeUrl: `${env.APP_BASE_URL}/preferences/unsubscribe`,
       preferencesUrl: `${env.APP_BASE_URL}/preferences`
-    };
-
-    log.info('Sending templated email', {
-      templateName: env.SES_TEMPLATE_NAME,
-      hasConfigurationSet: !!env.SES_CONFIGURATION_SET,
-      executionStatus: executionResult.status
     });
 
+    // Build text content for fallback
+    const textContent = buildTextEmail({
+      greeting: 'Hi there',
+      scheduleName: sanitizeEmailContent(scheduleName),
+      status: isSuccess ? 'successfully' : 'with errors',
+      executionTime,
+      summary: summary || (isSuccess ? 'Execution completed successfully.' : 'Execution encountered errors.'),
+      errorMessage: sanitizeEmailContent(executionResult.error_message, 500),
+      resultsUrl: `${env.APP_BASE_URL}/execution-results/${executionResult.id}`,
+      manageSchedulesUrl: `${env.APP_BASE_URL}/schedules`,
+      unsubscribeUrl: `${env.APP_BASE_URL}/preferences/unsubscribe`,
+      preferencesUrl: `${env.APP_BASE_URL}/preferences`
+    });
+
+    log.info('Sending email with SES v2', {
+      hasConfigurationSet: !!env.SES_CONFIGURATION_SET,
+      executionStatus: executionResult.status,
+      hasAttachment: !!markdownContent
+    });
+
+    // Prepare SES v2 email parameters with attachment
     const emailParams = {
-      Source: env.SES_FROM_EMAIL,
+      FromEmailAddress: env.SES_FROM_EMAIL,
       Destination: {
         ToAddresses: [userEmail]
       },
-      Template: env.SES_TEMPLATE_NAME,
-      TemplateData: JSON.stringify(templateData),
+      Content: {
+        Simple: {
+          Subject: {
+            Data: subject,
+            Charset: 'UTF-8'
+          },
+          Body: {
+            Text: {
+              Data: textContent,
+              Charset: 'UTF-8'
+            },
+            Html: {
+              Data: htmlContent,
+              Charset: 'UTF-8'
+            }
+          },
+          // Add attachment using SES v2 Simple format
+          ...(markdownContent && {
+            Attachments: [{
+              RawContent: Buffer.from(markdownContent),
+              FileName: `${scheduleName.replace(/[^a-zA-Z0-9-_]/g, '_')}-${new Date(executionResult.executed_at).toISOString().slice(0, 10)}.md`,
+              ContentType: 'text/markdown'
+            }]
+          })
+        }
+      },
       ...(env.SES_CONFIGURATION_SET && {
         ConfigurationSetName: env.SES_CONFIGURATION_SET
-      }),
-      // Add markdown as attachment
-      ...(markdownContent && {
-        // Note: SES templated emails don't support attachments directly
-        // For now, we'll include the markdown URL in the email body
-        // In a production system, we'd upload to S3 and include a download link
       })
     };
 
-    const response = await sesClient.send(new SendTemplatedEmailCommand(emailParams));
+    const response = await sesClient.send(new SendEmailCommand(emailParams));
 
     log.info('Email sent successfully', {
       messageId: response.MessageId,
@@ -741,13 +886,15 @@ function generateExecutionSummary(resultData: Record<string, unknown>): string |
   }
 
   // Extract key information from the result data
-  // This would be customized based on the actual structure of Assistant Architect results
+  // Handle different output field names (assistant architect vs other executions)
   const summary: string[] = [];
-  const maxSummaryLength = parseInt(process.env.MAX_SUMMARY_LENGTH || '200', 10);
+  const maxSummaryLength = parseInt(process.env.MAX_SUMMARY_LENGTH || '10000', 10);
 
-  if (resultData.output && typeof resultData.output === 'string') {
-    // Truncate output to first 200 characters for summary
-    const output = String(resultData.output);
+  // Check for assistant architect output fields first (text, finalOutput), then fallback to output
+  const assistantOutput = resultData.text || resultData.finalOutput || resultData.output;
+  if (assistantOutput && typeof assistantOutput === 'string') {
+    // Truncate output for summary
+    const output = String(assistantOutput);
     if (output.length > maxSummaryLength) {
       summary.push(output.substring(0, maxSummaryLength) + '...');
     } else {
@@ -788,8 +935,13 @@ function generateMarkdownAttachment(executionResult: ExecutionResult, scheduleNa
   if (executionResult.status === 'success' && executionResult.result_data) {
     markdown += `## Execution Output\n\n`;
 
-    if (executionResult.result_data.output) {
-      markdown += `${executionResult.result_data.output}\n\n`;
+    // Handle different output field names (assistant architect vs other executions)
+    const assistantOutput = executionResult.result_data.text ||
+                           executionResult.result_data.finalOutput ||
+                           executionResult.result_data.output;
+
+    if (assistantOutput) {
+      markdown += `${assistantOutput}\n\n`;
     }
 
     if (executionResult.result_data.metrics) {
@@ -806,7 +958,7 @@ function generateMarkdownAttachment(executionResult: ExecutionResult, scheduleNa
 
   markdown += `---\n\n`;
   markdown += `*Generated by Peninsula School District AI Studio*\n`;
-  markdown += `*View full results: ${env.APP_BASE_URL}/schedules/${executionResult.scheduled_execution_id}/results/${executionResult.id}*`;
+  markdown += `*View full results: ${env.APP_BASE_URL}/execution-results/${executionResult.id}*`;
 
   return markdown;
 }
@@ -863,3 +1015,6 @@ async function updateNotificationStatus(notificationId: number, status: string, 
     throw error;
   }
 }
+
+// Export handler for Lambda runtime
+exports.handler = handler;

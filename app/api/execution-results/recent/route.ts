@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
           }
         })(),
         status: String(result.status) as 'success' | 'failed' | 'running',
-        executedAt: String(result.executedAt),
+        executedAt: result.executedAt ? new Date(result.executedAt + ' UTC').toISOString() : '',
         executionDurationMs: Number(result.executionDurationMs),
         errorMessage: result.errorMessage ? String(result.errorMessage) : null,
         scheduleName: String(result.scheduleName),
