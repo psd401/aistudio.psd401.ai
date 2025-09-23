@@ -2,23 +2,35 @@
  * Tool builder for scheduled execution Lambda
  * This creates provider-native tools compatible with the main app's tool system
  */
-const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
+const { RDSDataClient, ExecuteStatementCommand } = require('@aws-sdk/client-rds-data');
 
-const ssmClient = new SSMClient({});
+const rdsClient = new RDSDataClient({});
+const DATABASE_RESOURCE_ARN = process.env.DATABASE_RESOURCE_ARN;
+const DATABASE_SECRET_ARN = process.env.DATABASE_SECRET_ARN;
+const DATABASE_NAME = process.env.DATABASE_NAME;
 
 /**
- * Get settings from AWS Systems Manager Parameter Store
+ * Get settings from database settings table
  */
-async function getSettingFromSSM(parameterName) {
+async function getSettingFromDatabase(key) {
   try {
-    const command = new GetParameterCommand({
-      Name: parameterName,
-      WithDecryption: true
+    const command = new ExecuteStatementCommand({
+      resourceArn: DATABASE_RESOURCE_ARN,
+      secretArn: DATABASE_SECRET_ARN,
+      database: DATABASE_NAME,
+      sql: `SELECT value FROM settings WHERE key = :key`,
+      parameters: [
+        { name: 'key', value: { stringValue: key } }
+      ]
     });
-    const response = await ssmClient.send(command);
-    return response.Parameter?.Value || null;
+
+    const response = await rdsClient.send(command);
+    if (response.records && response.records.length > 0) {
+      return response.records[0][0].stringValue;
+    }
+    return null;
   } catch (error) {
-    console.warn(`Failed to get parameter ${parameterName}:`, error.message);
+    console.warn(`Failed to get setting ${key} from database:`, error.message);
     return null;
   }
 }
@@ -58,8 +70,8 @@ async function createOpenAINativeTools(enabledTools) {
   const tools = {};
 
   try {
-    // Get OpenAI API key from SSM Parameter Store
-    const apiKey = await getSettingFromSSM('/aistudio/openai/api-key');
+    // Get OpenAI API key from database settings table
+    const apiKey = await getSettingFromDatabase('OPENAI_API_KEY');
     if (!apiKey) {
       console.warn('OpenAI API key not configured, skipping native tools');
       return {};
@@ -97,8 +109,8 @@ async function createGoogleNativeTools(enabledTools) {
   const tools = {};
 
   try {
-    // Get Google API key from SSM Parameter Store
-    const apiKey = await getSettingFromSSM('/aistudio/google/api-key');
+    // Get Google API key from database settings table
+    const apiKey = await getSettingFromDatabase('GOOGLE_API_KEY');
     if (!apiKey) {
       console.warn('Google API key not configured, skipping native tools');
       return {};
