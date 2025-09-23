@@ -703,15 +703,21 @@ async function createSchedule(params, requestId, lambdaContext) {
       State: 'ENABLED'
     });
 
-    await schedulerClient.send(command);
+    const response = await schedulerClient.send(command);
 
     log.info('EventBridge schedule created successfully', { scheduleName });
+
+    // Construct the schedule ARN
+    const region = process.env.AWS_REGION || 'us-east-1';
+    const accountId = lambdaContext.invokedFunctionArn.split(':')[4];
+    const scheduleArn = `arn:aws:scheduler:${region}:${accountId}:schedule/default/${scheduleName}`;
 
     return {
       statusCode: 200,
       body: JSON.stringify({
         message: 'Schedule created successfully',
         scheduleName,
+        scheduleArn,
         scheduledExecutionId
       })
     };

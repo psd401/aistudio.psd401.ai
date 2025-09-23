@@ -17,6 +17,7 @@ import {
   ScheduleState
 } from "@aws-sdk/client-scheduler"
 import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm"
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda"
 
 // Types for Schedule Management
 export interface ScheduleConfig {
@@ -80,6 +81,7 @@ const MAX_INPUT_DATA_SIZE = 10485760
 // Initialize AWS clients
 const schedulerClient = new SchedulerClient({ region: process.env.AWS_REGION || 'us-east-1' })
 const ssmClient = new SSMClient({ region: process.env.AWS_REGION || 'us-east-1' })
+const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION || 'us-east-1' })
 
 // Configuration caching
 const configCache = new Map<string, { config: { targetArn: string; roleArn: string }; timestamp: number }>()
@@ -146,6 +148,65 @@ async function getEventBridgeConfig(): Promise<{ targetArn: string; roleArn: str
   } catch (error) {
     throw new Error(`Failed to fetch EventBridge configuration from SSM: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
+}
+
+/**
+ * Invokes the schedule-executor Lambda function to manage EventBridge schedules
+ */
+async function invokeScheduleManager(action: string, payload: any): Promise<any> {
+  const environment = getEnvironment()
+  const functionName = `aistudio-${environment}-schedule-executor`
+
+  // Convert our payload to match the Lambda's expected format
+  let lambdaPayload: any = { action }
+
+  if (action === 'create') {
+    const cronExpression = convertToCronExpression(payload.scheduleConfig)
+    lambdaPayload = {
+      action,
+      scheduledExecutionId: payload.scheduleId,
+      cronExpression,
+      timezone: payload.scheduleConfig.timezone || 'UTC'
+    }
+  } else if (action === 'update') {
+    const cronExpression = convertToCronExpression(payload.scheduleConfig)
+    lambdaPayload = {
+      action,
+      scheduledExecutionId: payload.scheduleId,
+      cronExpression,
+      timezone: payload.scheduleConfig.timezone || 'UTC',
+      active: payload.active
+    }
+  } else if (action === 'delete') {
+    lambdaPayload = {
+      action,
+      scheduledExecutionId: payload.scheduleId
+    }
+  }
+
+  const command = new InvokeCommand({
+    FunctionName: functionName,
+    Payload: JSON.stringify(lambdaPayload)
+  })
+
+  const response = await lambdaClient.send(command)
+
+  if (response.Payload) {
+    const result = JSON.parse(new TextDecoder().decode(response.Payload))
+    if (result.errorType) {
+      throw new Error(`Lambda error: ${result.errorMessage}`)
+    }
+
+    // Extract schedule ARN from the response for create operations
+    if (action === 'create' && result.statusCode === 200) {
+      const body = JSON.parse(result.body)
+      return { scheduleArn: body.scheduleArn }
+    }
+
+    return result
+  }
+
+  throw new Error('No response from Lambda function')
 }
 
 /**
@@ -660,16 +721,14 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
     const warnings: string[] = []
 
     try {
-      const { targetArn, roleArn } = await getEventBridgeConfig()
-
-      scheduleArn = await createEventBridgeSchedule(
+      const result = await invokeScheduleManager('create', {
         scheduleId,
-        sanitizedName,
+        name: sanitizedName,
         scheduleConfig,
-        targetArn,
-        roleArn,
         inputData
-      )
+      })
+
+      scheduleArn = result.scheduleArn
 
       eventBridgeEnabled = true
       log.info("EventBridge schedule created successfully", { scheduleArn, scheduleId })
@@ -1050,16 +1109,13 @@ export async function updateScheduleAction(id: number, params: UpdateScheduleReq
 
     if (params.scheduleConfig !== undefined || params.active !== undefined || params.name !== undefined) {
       try {
-        const { targetArn, roleArn } = await getEventBridgeConfig()
-        await updateEventBridgeSchedule(
-          schedule.id,
-          schedule.name,
-          schedule.scheduleConfig,
-          targetArn,
-          roleArn,
-          schedule.inputData,
-          schedule.active
-        )
+        await invokeScheduleManager('update', {
+          scheduleId: schedule.id,
+          name: schedule.name,
+          scheduleConfig: schedule.scheduleConfig,
+          inputData: schedule.inputData,
+          active: schedule.active
+        })
         eventBridgeUpdated = true
         log.info("EventBridge schedule updated successfully", { scheduleId: schedule.id })
       } catch (error) {
