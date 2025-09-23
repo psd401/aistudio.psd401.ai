@@ -222,7 +222,6 @@ if (prodEmailDomain) {
   cdk.Tags.of(prodEmailNotificationStack).add('Environment', 'Prod');
   Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodEmailNotificationStack!).add(key, value));
 }
-
 // Frontend stacks - created after all other stacks
 if (baseDomain) {
   const devFrontendStack = new FrontendStack(app, 'AIStudio-FrontendStack-Dev', {
