@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, memo, useCallback } from "react"
-import { format, parseISO } from "date-fns"
+// No date-fns imports needed - using native Date
 import {
   Calendar,
   Clock,
@@ -80,25 +80,43 @@ function ScheduleCardComponent({ schedule, onDelete, onToggle, onRefresh }: Sche
     }
   }
 
+  // Utility function to format time consistently using browser timezone
+  const formatTimeForDisplay = (time: string): string => {
+    try {
+      const [hours, minutes] = time.split(":").map(Number)
+      const date = new Date()
+      date.setHours(hours, minutes, 0, 0)
+
+      return date.toLocaleString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short"
+      })
+    } catch {
+      return time
+    }
+  }
+
   const formatScheduleDescription = (scheduleConfig: Schedule["scheduleConfig"]) => {
-    const { frequency, time, daysOfWeek, dayOfMonth, timezone = "PST" } = scheduleConfig
+    const { frequency, time, daysOfWeek, dayOfMonth } = scheduleConfig
+    const formattedTime = formatTimeForDisplay(time)
 
     switch (frequency) {
       case "daily":
-        return `Every day at ${time} ${timezone}`
+        return `Every day at ${formattedTime}`
       case "weekly":
         if (daysOfWeek && daysOfWeek.length > 0) {
           const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
           const days = daysOfWeek.map(day => dayNames[day]).join(", ")
-          return `Every ${days} at ${time} ${timezone}`
+          return `Every ${days} at ${formattedTime}`
         }
-        return `Weekly at ${time} ${timezone}`
+        return `Weekly at ${formattedTime}`
       case "monthly":
-        return `Monthly on day ${dayOfMonth || 1} at ${time} ${timezone}`
+        return `Monthly on day ${dayOfMonth || 1} at ${formattedTime}`
       case "custom":
-        return `Custom schedule at ${time} ${timezone}`
+        return `Custom schedule at ${formattedTime}`
       default:
-        return `${frequency} at ${time} ${timezone}`
+        return `${frequency} at ${formattedTime}`
     }
   }
 
@@ -125,7 +143,7 @@ function ScheduleCardComponent({ schedule, onDelete, onToggle, onRefresh }: Sche
 
     // Calculate next execution time client-side
     const { scheduleConfig } = schedule
-    const { frequency, time, timezone = "PST", daysOfWeek, dayOfMonth, cron } = scheduleConfig
+    const { frequency, time, daysOfWeek, dayOfMonth, cron } = scheduleConfig
 
     if (!time || !frequency) {
       return "Next execution time will be calculated"
@@ -164,7 +182,6 @@ function ScheduleCardComponent({ schedule, onDelete, onToggle, onRefresh }: Sche
       }
 
       return nextRun.toLocaleString("en-US", {
-        timeZone: timezone,
         weekday: "short",
         month: "short",
         day: "numeric",
@@ -183,17 +200,32 @@ function ScheduleCardComponent({ schedule, onDelete, onToggle, onRefresh }: Sche
     }
 
     try {
-      const lastDate = parseISO(schedule.lastExecution.executedAt)
+      const utcDate = new Date(schedule.lastExecution.executedAt)
+
+      // Verify it's a valid date
+      if (isNaN(utcDate.getTime())) {
+        return `${schedule.lastExecution.status} - Invalid date`
+      }
+
       const statusIcon = schedule.lastExecution.status === "success"
         ? <CheckCircle className="h-3 w-3 text-green-600" />
         : <XCircle className="h-3 w-3 text-red-600" />
+
+      // Format in local timezone (browser automatically handles the conversion)
+      const formattedDate = utcDate.toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short"
+      })
 
       return (
         <div className="flex items-center gap-1">
           {statusIcon}
           <span className="capitalize">{schedule.lastExecution.status}</span>
           <span className="text-muted-foreground">
-            {format(lastDate, "MMM d 'at' h:mm a")}
+            {formattedDate}
           </span>
         </div>
       )

@@ -780,7 +780,7 @@ export async function getSchedulesAction(): Promise<ActionState<Schedule[]>> {
       // Add last execution info if available
       if (transformed.lastExecutedAt && transformed.lastExecutionStatus) {
         schedule.lastExecution = {
-          executedAt: transformed.lastExecutedAt,
+          executedAt: transformed.lastExecutedAt ? new Date(transformed.lastExecutedAt + ' UTC').toISOString() : '',
           status: transformed.lastExecutionStatus
         }
       }
@@ -1255,7 +1255,7 @@ export async function getScheduleAction(id: number): Promise<ActionState<Schedul
     // Add last execution info if available
     if (transformed.lastExecutedAt && transformed.lastExecutionStatus) {
       schedule.lastExecution = {
-        executedAt: transformed.lastExecutedAt,
+        executedAt: transformed.lastExecutedAt ? new Date(transformed.lastExecutedAt + ' UTC').toISOString() : '',
         status: transformed.lastExecutionStatus
       }
     }
