@@ -773,20 +773,6 @@ export async function createScheduleAction(params: CreateScheduleRequest): Promi
       eventBridgeEnabled = true
       log.info("EventBridge schedule created successfully", { scheduleArn, scheduleId })
 
-      // Update database with EventBridge ARN for future reference
-      try {
-        await executeSQL(`UPDATE scheduled_executions SET schedule_arn = :scheduleArn WHERE id = :scheduleId`, [
-          createParameter('scheduleArn', scheduleArn),
-          createParameter('scheduleId', scheduleId)
-        ])
-      } catch (updateError) {
-        log.warn("Failed to update database with EventBridge ARN", {
-          error: sanitizeForLogging(updateError),
-          scheduleId,
-          scheduleArn
-        })
-      }
-
     } catch (error) {
       log.warn("EventBridge schedule creation failed, continuing with database-only mode", {
         error: sanitizeForLogging(error),

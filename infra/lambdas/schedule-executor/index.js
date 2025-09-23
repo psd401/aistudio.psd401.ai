@@ -669,18 +669,6 @@ async function createSchedule(params, requestId, lambdaContext) {
   log.info('Creating EventBridge schedule', { scheduledExecutionId, cronExpression, timezone });
 
   try {
-    // Validate rate limiting
-    const userScheduleCount = await getUserScheduleCount(params.userId);
-    if (userScheduleCount >= 10) {
-      return {
-        statusCode: 429,
-        body: JSON.stringify({
-          error: 'Rate limit exceeded',
-          message: 'Maximum 10 schedules per user allowed'
-        })
-      };
-    }
-
     const scheduleName = `aistudio-${ENVIRONMENT}-schedule-${scheduledExecutionId}`;
     const functionArn = lambdaContext.invokedFunctionArn;
 
