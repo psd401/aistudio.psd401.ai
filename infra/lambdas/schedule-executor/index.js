@@ -1,6 +1,7 @@
 const { RDSDataClient, ExecuteStatementCommand } = require('@aws-sdk/client-rds-data');
 const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
 const { SchedulerClient, CreateScheduleCommand, UpdateScheduleCommand, DeleteScheduleCommand } = require('@aws-sdk/client-scheduler');
+const { buildToolsForScheduledExecution, collectEnabledToolsFromPrompts } = require('./tool-builder');
 
 // Lambda logging utilities (simplified version of main app pattern)
 function generateRequestId() {
@@ -11,14 +12,17 @@ function startTimer(operation) {
   const startTime = Date.now();
   return (context = {}) => {
     const duration = Date.now() - startTime;
-    console.log(JSON.stringify({
+    // Use structured logging without console methods
+    const logEntry = {
       level: 'INFO',
       message: 'Operation completed',
       operation,
       duration,
       timestamp: new Date().toISOString(),
-      ...context
-    }));
+      service: 'schedule-executor',
+      ...sanitizeForLogging(context)
+    };
+    process.stdout.write(JSON.stringify(logEntry) + '\n');
   };
 }
 
@@ -27,41 +31,45 @@ function createLogger(context = {}) {
     timestamp: new Date().toISOString(),
     environment: 'lambda',
     service: 'schedule-executor',
-    ...context
+    ...sanitizeForLogging(context)
   };
 
   return {
     info: (message, meta = {}) => {
-      console.log(JSON.stringify({
+      const logEntry = {
         level: 'INFO',
         message,
         ...baseContext,
-        ...meta
-      }));
+        ...sanitizeForLogging(meta)
+      };
+      process.stdout.write(JSON.stringify(logEntry) + '\n');
     },
     error: (message, meta = {}) => {
-      console.error(JSON.stringify({
+      const logEntry = {
         level: 'ERROR',
         message,
         ...baseContext,
-        ...meta
-      }));
+        ...sanitizeForLogging(meta)
+      };
+      process.stderr.write(JSON.stringify(logEntry) + '\n');
     },
     warn: (message, meta = {}) => {
-      console.warn(JSON.stringify({
+      const logEntry = {
         level: 'WARN',
         message,
         ...baseContext,
-        ...meta
-      }));
+        ...sanitizeForLogging(meta)
+      };
+      process.stderr.write(JSON.stringify(logEntry) + '\n');
     },
     debug: (message, meta = {}) => {
-      console.log(JSON.stringify({
+      const logEntry = {
         level: 'DEBUG',
         message,
         ...baseContext,
-        ...meta
-      }));
+        ...sanitizeForLogging(meta)
+      };
+      process.stdout.write(JSON.stringify(logEntry) + '\n');
     }
   };
 }
@@ -120,6 +128,8 @@ function sanitizeForLogging(data) {
   return sanitized;
 }
 
+<<<<<<< HEAD
+=======
 // Simple variable substitution function
 function substituteVariables(content, context) {
   if (!content || typeof content !== 'string') {
@@ -132,19 +142,74 @@ function substituteVariables(content, context) {
     return value !== undefined ? String(value) : match;
   });
 }
+>>>>>>> origin/main
 
 // Initialize clients
 const rdsClient = new RDSDataClient({});
 const sqsClient = new SQSClient({});
 const schedulerClient = new SchedulerClient({});
 
-// Environment variables
-const DATABASE_RESOURCE_ARN = process.env.DATABASE_RESOURCE_ARN;
-const DATABASE_SECRET_ARN = process.env.DATABASE_SECRET_ARN;
-const DATABASE_NAME = process.env.DATABASE_NAME;
-const ENVIRONMENT = process.env.ENVIRONMENT;
-const DLQ_URL = process.env.DLQ_URL;
+// Environment variables with startup validation
+const requiredEnvVars = {
+  DATABASE_RESOURCE_ARN: process.env.DATABASE_RESOURCE_ARN,
+  DATABASE_SECRET_ARN: process.env.DATABASE_SECRET_ARN,
+  DATABASE_NAME: process.env.DATABASE_NAME,
+  ENVIRONMENT: process.env.ENVIRONMENT,
+  STREAMING_JOBS_QUEUE_URL: process.env.STREAMING_JOBS_QUEUE_URL
+};
 
+<<<<<<< HEAD
+const optionalEnvVars = {
+  DLQ_URL: process.env.DLQ_URL,
+  SCHEDULER_EXECUTION_ROLE_ARN: process.env.SCHEDULER_EXECUTION_ROLE_ARN
+};
+
+// Validate required environment variables at startup
+function validateEnvironmentVariables() {
+  const missingVars = [];
+
+  for (const [key, value] of Object.entries(requiredEnvVars)) {
+    if (!value || value.trim() === '') {
+      missingVars.push(key);
+    }
+  }
+
+  if (missingVars.length > 0) {
+    const errorMessage = `Missing required environment variables: ${missingVars.join(', ')}`;
+    const logEntry = {
+      level: 'ERROR',
+      message: 'Lambda startup failed - missing environment variables',
+      missingVariables: missingVars,
+      timestamp: new Date().toISOString(),
+      service: 'schedule-executor'
+    };
+    process.stderr.write(JSON.stringify(logEntry) + '\n');
+    throw new Error(errorMessage);
+  }
+
+  const logEntry = {
+    level: 'INFO',
+    message: 'Environment variables validated successfully',
+    requiredVarsPresent: Object.keys(requiredEnvVars).length,
+    optionalVarsPresent: Object.values(optionalEnvVars).filter(Boolean).length,
+    timestamp: new Date().toISOString(),
+    service: 'schedule-executor'
+  };
+  process.stdout.write(JSON.stringify(logEntry) + '\n');
+}
+
+// Run validation at module load time
+validateEnvironmentVariables();
+
+// Export validated environment variables
+const DATABASE_RESOURCE_ARN = requiredEnvVars.DATABASE_RESOURCE_ARN;
+const DATABASE_SECRET_ARN = requiredEnvVars.DATABASE_SECRET_ARN;
+const DATABASE_NAME = requiredEnvVars.DATABASE_NAME;
+const ENVIRONMENT = requiredEnvVars.ENVIRONMENT;
+const DLQ_URL = optionalEnvVars.DLQ_URL;
+
+=======
+>>>>>>> origin/main
 /**
  * Schedule Executor Lambda - EventBridge Scheduler Handler
  *
@@ -339,17 +404,51 @@ async function executeAssistantArchitectForSchedule(scheduledExecution, executio
     inputData: Object.keys(scheduledExecution.input_data || {})
   });
 
+<<<<<<< HEAD
+=======
   // This is a simplified version that creates a job directly and sends to SQS
   // The full execution will happen in the streaming-jobs-worker Lambda
 
   const jobId = generateRequestId(); // Simple job ID for tracking
 
+>>>>>>> origin/main
   // Get streaming jobs queue URL (this should be configured via environment)
   const queueUrl = process.env.STREAMING_JOBS_QUEUE_URL;
   if (!queueUrl) {
     throw new Error('STREAMING_JOBS_QUEUE_URL environment variable not configured');
   }
 
+<<<<<<< HEAD
+  // Load assistant architect configuration and create proper streaming job
+  const assistantArchitect = await loadAssistantArchitect(scheduledExecution.assistant_architect_id);
+  if (!assistantArchitect) {
+    throw new Error(`Assistant architect not found: ${scheduledExecution.assistant_architect_id}`);
+  }
+
+  // Create streaming job in database (following main app pattern)
+  const streamingJobId = await createStreamingJob(
+    scheduledExecution,
+    assistantArchitect,
+    executionResultId,
+    requestId
+  );
+
+  log.info('Streaming job created for scheduled execution', {
+    streamingJobId,
+    executionResultId,
+    scheduledExecutionId: scheduledExecution.id
+  });
+
+  // Send job ID to SQS queue for the streaming-jobs-worker to process
+  try {
+    await sqsClient.send(new SendMessageCommand({
+      QueueUrl: queueUrl,
+      MessageBody: streamingJobId, // Send just the job ID like regular jobs
+      MessageAttributes: {
+        jobType: {
+          DataType: 'String',
+          StringValue: 'ai-streaming-assistant-architect'
+=======
   // Send job message to SQS for the streaming-jobs-worker to process
   const jobMessage = {
     jobId,
@@ -370,6 +469,7 @@ async function executeAssistantArchitectForSchedule(scheduledExecution, executio
         jobType: {
           DataType: 'String',
           StringValue: 'assistant-architect-scheduled'
+>>>>>>> origin/main
         },
         assistantArchitectId: {
           DataType: 'String',
@@ -382,13 +482,30 @@ async function executeAssistantArchitectForSchedule(scheduledExecution, executio
         executionResultId: {
           DataType: 'String',
           StringValue: String(executionResultId)
+<<<<<<< HEAD
+        },
+        scheduledExecutionId: {
+          DataType: 'String',
+          StringValue: String(scheduledExecution.id)
+        },
+        isScheduledExecution: {
+          DataType: 'String',
+          StringValue: 'true'
+=======
+>>>>>>> origin/main
         }
       }
     }));
 
+<<<<<<< HEAD
+    log.info('Job sent to streaming queue successfully', { streamingJobId });
+
+    return { jobId: streamingJobId };
+=======
     log.info('Job sent to streaming queue successfully', { jobId });
 
     return { jobId };
+>>>>>>> origin/main
   } catch (error) {
     log.error('Failed to send job to streaming queue', { error: error.message });
     throw error;
@@ -409,13 +526,11 @@ async function loadScheduledExecution(scheduledExecutionId, expectedUserId = nul
       : 'WHERE se.id = :scheduled_execution_id';
 
     const parameters = [
-      { name: 'scheduled_execution_id', value: { longValue: executionId } }
+      { name: 'scheduled_execution_id', value: { longValue: executionId } },
+      ...(expectedUserId != null
+        ? [{ name: 'user_id', value: { longValue: safeParseInt(expectedUserId, 'user ID') } }]
+        : [])
     ];
-
-    if (expectedUserId != null) {
-      const userId = safeParseInt(expectedUserId, 'user ID');
-      parameters.push({ name: 'user_id', value: { longValue: userId } });
-    }
 
     const command = new ExecuteStatementCommand({
       resourceArn: DATABASE_RESOURCE_ARN,
@@ -484,11 +599,13 @@ async function createExecutionResult(scheduledExecutionId) {
         INSERT INTO execution_results (
           scheduled_execution_id,
           status,
-          executed_at
+          executed_at,
+          result_data
         ) VALUES (
           :scheduled_execution_id,
           'running',
-          NOW()
+          NOW(),
+          '{}'::jsonb
         )
         RETURNING id
       `,
@@ -537,7 +654,7 @@ async function updateExecutionResult(executionResultId, status, resultData = nul
         { name: 'status', value: { stringValue: status } },
         {
           name: 'result_data',
-          value: resultData ? { stringValue: JSON.stringify(resultData) } : { isNull: true }
+          value: { stringValue: safeJsonStringify(resultData || {}) }
         },
         {
           name: 'execution_duration_ms',
@@ -610,6 +727,8 @@ async function createSchedule(params, requestId, lambdaContext) {
   log.info('Creating EventBridge schedule', { scheduledExecutionId, cronExpression, timezone });
 
   try {
+<<<<<<< HEAD
+=======
     // Validate rate limiting
     const userScheduleCount = await getUserScheduleCount(params.userId);
     if (userScheduleCount >= 10) {
@@ -622,6 +741,7 @@ async function createSchedule(params, requestId, lambdaContext) {
       };
     }
 
+>>>>>>> origin/main
     const scheduleName = `aistudio-${ENVIRONMENT}-schedule-${scheduledExecutionId}`;
     const functionArn = lambdaContext.invokedFunctionArn;
 
@@ -644,15 +764,31 @@ async function createSchedule(params, requestId, lambdaContext) {
       State: 'ENABLED'
     });
 
-    await schedulerClient.send(command);
+    const response = await schedulerClient.send(command);
 
     log.info('EventBridge schedule created successfully', { scheduleName });
+
+    // Construct the schedule ARN with validation
+    const region = process.env.AWS_REGION;
+    if (!region) {
+      throw new Error('AWS_REGION environment variable is required');
+    }
+
+    // Validate ARN format and extract account ID safely
+    const arnParts = lambdaContext.invokedFunctionArn.split(':');
+    if (arnParts.length < 5 || !arnParts[4].match(/^\d{12}$/)) {
+      throw new Error('Invalid Lambda function ARN format');
+    }
+    const accountId = arnParts[4];
+
+    const scheduleArn = `arn:aws:scheduler:${region}:${accountId}:schedule/default/${scheduleName}`;
 
     return {
       statusCode: 200,
       body: JSON.stringify({
         message: 'Schedule created successfully',
         scheduleName,
+        scheduleArn,
         scheduledExecutionId
       })
     };
@@ -777,4 +913,296 @@ async function getUserScheduleCount(userId) {
     });
     throw error;
   }
+<<<<<<< HEAD
+}
+
+/**
+ * Load assistant architect configuration from database
+ */
+async function loadAssistantArchitect(assistantArchitectId) {
+  const log = createLogger({ operation: 'loadAssistantArchitect' });
+
+  try {
+    const architectId = safeParseInt(assistantArchitectId, 'assistant architect ID');
+
+    // First get the assistant architect details
+    const architectCommand = new ExecuteStatementCommand({
+      resourceArn: DATABASE_RESOURCE_ARN,
+      secretArn: DATABASE_SECRET_ARN,
+      database: DATABASE_NAME,
+      sql: `
+        SELECT id, name, description, status, user_id
+        FROM assistant_architects
+        WHERE id = :assistant_architect_id
+      `,
+      parameters: [
+        { name: 'assistant_architect_id', value: { longValue: architectId } }
+      ]
+    });
+
+    const architectResponse = await rdsClient.send(architectCommand);
+    if (!architectResponse.records || architectResponse.records.length === 0) {
+      return null;
+    }
+
+    const architectRecord = architectResponse.records[0];
+
+    // Now get ALL prompts for this assistant architect
+    const promptsCommand = new ExecuteStatementCommand({
+      resourceArn: DATABASE_RESOURCE_ARN,
+      secretArn: DATABASE_SECRET_ARN,
+      database: DATABASE_NAME,
+      sql: `
+        SELECT
+          cp.id,
+          cp.name,
+          cp.content,
+          cp.system_context,
+          cp.model_id,
+          cp.position,
+          cp.input_mapping,
+          cp.enabled_tools,
+          cp.repository_ids,
+          m.model_id as model_string,
+          m.provider,
+          m.name as model_label
+        FROM chain_prompts cp
+        LEFT JOIN ai_models m ON cp.model_id = m.id
+        WHERE cp.assistant_architect_id = :assistant_architect_id
+        ORDER BY cp.position
+      `,
+      parameters: [
+        { name: 'assistant_architect_id', value: { longValue: architectId } }
+      ]
+    });
+
+    const promptsResponse = await rdsClient.send(promptsCommand);
+    const prompts = [];
+
+    if (promptsResponse.records && promptsResponse.records.length > 0) {
+      for (const record of promptsResponse.records) {
+        prompts.push({
+          id: record[0].longValue,
+          name: record[1].stringValue,
+          content: record[2].stringValue,
+          system_context: record[3]?.stringValue || null,
+          model_id: record[4].longValue,
+          position: record[5].longValue,
+          input_mapping: record[6]?.stringValue ? safeJsonParse(record[6].stringValue, {}, 'input_mapping') : {},
+          enabled_tools: record[7]?.stringValue ? safeJsonParse(record[7].stringValue, [], 'enabled_tools') : [],
+          repository_ids: record[8]?.stringValue ? safeJsonParse(record[8].stringValue, [], 'repository_ids') : [],
+          model_string: record[9]?.stringValue,
+          provider: record[10]?.stringValue,
+          model_label: record[11]?.stringValue
+        });
+      }
+    }
+
+    return {
+      id: architectRecord[0].longValue,
+      name: architectRecord[1].stringValue,
+      description: architectRecord[2].stringValue,
+      status: architectRecord[3].stringValue,
+      user_id: architectRecord[4].longValue,
+      prompts: prompts,
+      // Note: Each prompt has its own model configuration - do not default to any single model
+      instructions: prompts[0]?.content
+    };
+  } catch (error) {
+    log.error('Failed to load assistant architect', {
+      error: error.message,
+      assistantArchitectId: sanitizeForLogging(assistantArchitectId)
+    });
+    throw error;
+  }
+}
+
+/**
+ * Safe JSON serialization with size limits and circular reference protection
+ */
+function safeJsonStringify(obj, maxSize = 1024 * 1024) { // 1MB limit
+  try {
+    // Check for circular references and handle special types
+    const cache = new Set();
+    const result = JSON.stringify(obj, (key, value) => {
+      // Handle circular references
+      if (typeof value === 'object' && value !== null) {
+        if (cache.has(value)) {
+          return '[Circular Reference]';
+        }
+        cache.add(value);
+      }
+
+      // Handle special types
+      if (typeof value === 'function') return '[Function]';
+      if (typeof value === 'bigint') return value.toString();
+      if (value instanceof Error) return { error: value.message, stack: value.stack };
+      if (value === undefined) return null;
+
+      return value;
+    });
+
+    // Check size limit
+    if (result.length > maxSize) {
+      return JSON.stringify({
+        error: 'Response too large',
+        size: result.length,
+        maxSize,
+        truncated: true
+      });
+    }
+
+    return result;
+  } catch (error) {
+    return JSON.stringify({
+      error: 'JSON serialization failed',
+      originalError: error.message
+    });
+  }
+}
+
+/**
+ * Generate UUID for job ID (simplified version)
+ */
+function generateUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+/**
+ * Create streaming job in database (similar to JobManagementService.createJob)
+ */
+async function createStreamingJob(scheduledExecution, assistantArchitect, executionResultId, requestId) {
+  const log = createLogger({ operation: 'createStreamingJob', requestId });
+
+  try {
+    // Generate job ID
+    const jobId = generateUUID();
+
+    // Prepare fake conversation ID for scheduled jobs
+    const conversationId = `scheduled-${scheduledExecution.id}`;
+
+    // Collect enabled tools from all prompts
+    const enabledTools = collectEnabledToolsFromPrompts(assistantArchitect.prompts || []);
+    log.info('Collected enabled tools from prompts', {
+      enabledTools,
+      promptCount: assistantArchitect.prompts?.length || 0
+    });
+
+    // Build tools using the same system as manual execution
+    // Use the first prompt's model/provider for tool building (since tools are shared across prompts)
+    let tools = {};
+    const firstPrompt = assistantArchitect.prompts?.[0];
+    if (enabledTools.length > 0 && firstPrompt?.provider) {
+      try {
+        tools = await buildToolsForScheduledExecution(
+          enabledTools,
+          firstPrompt.model_string,
+          firstPrompt.provider
+        );
+        log.info('Tools built successfully for scheduled execution', {
+          enabledTools,
+          toolCount: Object.keys(tools).length,
+          toolNames: Object.keys(tools),
+          usingModel: firstPrompt.model_string,
+          usingProvider: firstPrompt.provider
+        });
+      } catch (toolError) {
+        log.warn('Failed to build tools, continuing without tools', {
+          error: toolError.message,
+          enabledTools
+        });
+        tools = {};
+      }
+    }
+
+    // Prepare request data for streaming job - SAME format as manual execution
+    const requestData = {
+      messages: [], // Empty messages for assistant architect
+      modelId: firstPrompt?.model_id || 1,
+      modelIdString: firstPrompt?.model_string,
+      provider: firstPrompt?.provider,
+      systemPrompt: assistantArchitect.instructions,
+      options: {
+        responseMode: 'standard'
+      },
+      source: 'assistant-architect',
+      tools: tools, // Pass tools like manual execution does
+      toolMetadata: {
+        toolId: assistantArchitect.id,
+        prompts: assistantArchitect.prompts || [], // Pass all prompts with tools
+        inputMapping: scheduledExecution.input_data || {}
+      },
+      // Add metadata to identify this as a scheduled execution
+      scheduledExecution: {
+        executionResultId: executionResultId,
+        scheduledExecutionId: scheduledExecution.id,
+        scheduleName: scheduledExecution.name,
+        userId: scheduledExecution.user_id
+      }
+    };
+
+    log.info('Request data prepared for streaming job', {
+      hasTools: Object.keys(tools).length > 0,
+      toolCount: Object.keys(tools).length,
+      promptCount: (assistantArchitect.prompts || []).length,
+      enabledToolsCount: enabledTools.length
+    });
+
+    // Insert job into database
+    const command = new ExecuteStatementCommand({
+      resourceArn: DATABASE_RESOURCE_ARN,
+      secretArn: DATABASE_SECRET_ARN,
+      database: DATABASE_NAME,
+      sql: `
+        INSERT INTO ai_streaming_jobs (
+          id,
+          conversation_id,
+          user_id,
+          model_id,
+          status,
+          request_data
+        ) VALUES (
+          :id::uuid,
+          :conversation_id,
+          :user_id,
+          :model_id,
+          'pending',
+          :request_data::jsonb
+        )
+      `,
+      parameters: [
+        { name: 'id', value: { stringValue: jobId } },
+        { name: 'conversation_id', value: { stringValue: conversationId } },
+        { name: 'user_id', value: { longValue: scheduledExecution.user_id } },
+        { name: 'model_id', value: { longValue: firstPrompt?.model_id || 1 } },
+        { name: 'request_data', value: { stringValue: safeJsonStringify(requestData) } }
+      ]
+    });
+
+    await rdsClient.send(command);
+
+    log.info('Streaming job created successfully', {
+      jobId,
+      assistantArchitectId: assistantArchitect.id,
+      scheduledExecutionId: scheduledExecution.id,
+      executionResultId,
+      toolsIncluded: Object.keys(tools).length > 0,
+      enabledTools
+    });
+
+    return jobId;
+  } catch (error) {
+    log.error('Failed to create streaming job', {
+      error: error.message,
+      assistantArchitectId: assistantArchitect?.id,
+      scheduledExecutionId: scheduledExecution?.id
+    });
+    throw error;
+  }
+=======
+>>>>>>> origin/main
 }

@@ -140,7 +140,18 @@ export async function PUT(
     
   } catch (error) {
     timer({ status: "error" });
-    log.error('Error updating user roles', error);
+    // Defensive: convert Error to plain object before passing to logger
+    function errorToObject(err: unknown) {
+      if (err instanceof Error) {
+        return { 
+          name: err.name, 
+          message: err.message, 
+          stack: err.stack 
+        };
+      }
+      return err;
+    }
+    log.error('Error updating user roles', errorToObject(error));
     return NextResponse.json(
       { 
         isSuccess: false, 

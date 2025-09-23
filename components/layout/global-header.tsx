@@ -2,15 +2,18 @@
 
 import Link from "next/link"
 import Image from "next/image"
+import { useRouter } from "next/navigation"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { UserButton } from "@/components/user/user-button"
+import { NotificationBell } from "@/components/notifications/notification-bell"
+import { MessageCenter } from "@/components/notifications/message-center"
+import { useNotifications } from "@/contexts/notification-context"
+import { useExecutionResults } from "@/hooks/use-execution-results"
 import {
   Search,
   Sun,
   Globe,
-  Bell,
-  Mail,
   Bug,
   Check,
   X,
@@ -20,9 +23,61 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Textarea } from "@/components/ui/textarea"
 import { useState, useRef, useEffect } from "react"
 import { createFreshserviceTicketAction } from "@/actions/create-freshservice-ticket.actions"
+import { toast } from "sonner"
 // ... rest of imports ...
 
 export function GlobalHeader() {
+  const router = useRouter()
+
+  // Get notification data
+  const {
+    notifications,
+    unreadCount,
+    isLoading: notificationsLoading,
+    markAsRead,
+    markAllAsRead,
+  } = useNotifications()
+
+  // Get execution results for message center
+  const {
+    results: executionResults,
+    isLoading: resultsLoading,
+  } = useExecutionResults({ limit: 10 })
+
+  const handleViewResult = (resultId: number) => {
+    router.push(`/execution-results/${resultId}`)
+  }
+
+  const handleRetryExecution = (scheduledExecutionId: number) => {
+    // TODO: Implement retry execution functionality
+    toast.info("Retry Execution feature coming soon", {
+      description: `Schedule ID: ${scheduledExecutionId}`
+    })
+    // Future: router.push(`/schedules/${scheduledExecutionId}/retry`)
+  }
+
+  const handleDeleteResult = async (resultId: number) => {
+    try {
+      const response = await fetch(`/api/execution-results/${resultId}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete execution result: ${response.status}`)
+      }
+
+      toast.success("Execution result deleted successfully")
+
+      // Refresh the execution results list
+      // The useExecutionResults hook should automatically refetch
+      window.location.reload()
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to delete execution result"
+      toast.error(errorMessage)
+    }
+  }
+
   return (
     <header className="fixed top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 max-w-screen-2xl items-center px-4 md:px-6">
@@ -54,20 +109,34 @@ export function GlobalHeader() {
           </div>
         </div>
 
-        {/* Right Section - Restore Icons */}
-        <div className="flex flex-1 items-center justify-end space-x-2">
-          <Button variant="ghost" size="icon" aria-label="Toggle Theme">
+        {/* Right Section - Navigation Icons with Notifications */}
+        <div className="flex flex-1 items-center justify-end space-x-1 sm:space-x-2">
+          {/* Hide theme and language buttons on mobile */}
+          <Button variant="ghost" size="icon" aria-label="Toggle Theme" className="hidden sm:flex">
             <Sun className="h-5 w-5" />
           </Button>
-          <Button variant="ghost" size="icon" aria-label="Select Language">
+          <Button variant="ghost" size="icon" aria-label="Select Language" className="hidden sm:flex">
             <Globe className="h-5 w-5" />
           </Button>
-          <Button variant="ghost" size="icon" aria-label="Messages">
-            <Mail className="h-5 w-5" />
-          </Button>
-          <Button variant="ghost" size="icon" aria-label="Notifications">
-            <Bell className="h-5 w-5" />
-          </Button>
+
+          {/* Message Center - Execution Results */}
+          <MessageCenter
+            messages={executionResults}
+            onViewResult={handleViewResult}
+            onRetryExecution={handleRetryExecution}
+            onDeleteResult={handleDeleteResult}
+            loading={resultsLoading}
+          />
+
+          {/* Notification Bell */}
+          <NotificationBell
+            unreadCount={unreadCount}
+            notifications={notifications}
+            onMarkRead={markAsRead}
+            onMarkAllRead={markAllAsRead}
+            loading={notificationsLoading}
+          />
+
           {/* Bug Report Dropdown - Always show for now, or add auth check if needed */}
           <BugReportPopover />
           <UserButton />

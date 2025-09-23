@@ -8,6 +8,8 @@ import { FrontendStack } from '../lib/frontend-stack';
 import { ProcessingStack } from '../lib/processing-stack';
 import { DocumentProcessingStack } from '../lib/document-processing-stack';
 import { MonitoringStack } from '../lib/monitoring-stack';
+import { SchedulerStack } from '../lib/scheduler-stack';
+import { EmailNotificationStack } from '../lib/email-notification-stack';
 import { SecretValue } from 'aws-cdk-lib';
 
 const app = new cdk.App();
@@ -45,17 +47,17 @@ function getCallbackAndLogoutUrls(environment: string, baseDomain?: string): { c
   } else {
     return {
       callbackUrls: [
-        baseDomain ? `https://prod.${baseDomain}/` : undefined,
-        baseDomain ? `https://dev.${baseDomain}/` : undefined,
-        baseDomain ? `https://prod.${baseDomain}/api/auth/callback/cognito` : undefined,
-        baseDomain ? `https://dev.${baseDomain}/api/auth/callback/cognito` : undefined,
-      ].filter(Boolean) as string[],
+        baseDomain ? `https://prod.${baseDomain}/` : 'https://prod.example.com/',
+        baseDomain ? `https://dev.${baseDomain}/` : 'https://dev.example.com/',
+        baseDomain ? `https://prod.${baseDomain}/api/auth/callback/cognito` : 'https://prod.example.com/api/auth/callback/cognito',
+        baseDomain ? `https://dev.${baseDomain}/api/auth/callback/cognito` : 'https://dev.example.com/api/auth/callback/cognito',
+      ],
       logoutUrls: [
-        baseDomain ? `https://prod.${baseDomain}/` : undefined,
-        baseDomain ? `https://dev.${baseDomain}/` : undefined,
-        baseDomain ? `https://prod.${baseDomain}/oauth2/idpresponse` : undefined,
-        baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : undefined,
-      ].filter(Boolean) as string[],
+        baseDomain ? `https://prod.${baseDomain}/` : 'https://prod.example.com/',
+        baseDomain ? `https://dev.${baseDomain}/` : 'https://dev.example.com/',
+        baseDomain ? `https://prod.${baseDomain}/oauth2/idpresponse` : 'https://prod.example.com/oauth2/idpresponse',
+        baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : 'https://dev.example.com/oauth2/idpresponse',
+      ],
     };
   }
 }
@@ -105,6 +107,41 @@ devDocumentProcessingStack.addDependency(devStorageStack);
 cdk.Tags.of(devDocumentProcessingStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devDocumentProcessingStack).add(key, value));
 
+const devSchedulerStack = new SchedulerStack(app, 'AIStudio-SchedulerStack-Dev', {
+  environment: 'dev',
+  databaseResourceArn: devDbStack.databaseResourceArn,
+  databaseSecretArn: devDbStack.databaseSecretArn,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+devSchedulerStack.addDependency(devDbStack);
+cdk.Tags.of(devSchedulerStack).add('Environment', 'Dev');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devSchedulerStack).add(key, value));
+
+// Get email configuration from context (environment-specific with fallback)
+const devEmailDomain = app.node.tryGetContext('devEmailDomain') || app.node.tryGetContext('emailDomain');
+const devSesIdentityExists = app.node.tryGetContext('devSesIdentityExists') === 'true' ||
+                             app.node.tryGetContext('sesIdentityExists') === 'true';
+
+// Only create dev email notification stack if emailDomain is provided
+let devEmailNotificationStack: EmailNotificationStack | undefined;
+if (devEmailDomain) {
+  devEmailNotificationStack = new EmailNotificationStack(app, 'AIStudio-EmailNotificationStack-Dev', {
+    environment: 'dev',
+    databaseResourceArn: devDbStack.databaseResourceArn,
+    databaseSecretArn: devDbStack.databaseSecretArn,
+    // SES configuration from context
+    createSesIdentity: !devSesIdentityExists,
+    emailDomain: devEmailDomain,
+    fromEmail: `noreply@${devEmailDomain}`,
+    appBaseUrl: baseDomain ? `https://dev.${baseDomain}` : undefined,
+    useDomainIdentity: false, // Dev uses email identity by default
+    env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+  });
+  devEmailNotificationStack.addDependency(devDbStack);
+  cdk.Tags.of(devEmailNotificationStack).add('Environment', 'Dev');
+  Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devEmailNotificationStack!).add(key, value));
+}
+
 // Prod environment
 const prodDbStack = new DatabaseStack(app, 'AIStudio-DatabaseStack-Prod', {
   environment: 'prod',
@@ -150,6 +187,41 @@ prodDocumentProcessingStack.addDependency(prodStorageStack);
 cdk.Tags.of(prodDocumentProcessingStack).add('Environment', 'Prod');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodDocumentProcessingStack).add(key, value));
 
+const prodSchedulerStack = new SchedulerStack(app, 'AIStudio-SchedulerStack-Prod', {
+  environment: 'prod',
+  databaseResourceArn: prodDbStack.databaseResourceArn,
+  databaseSecretArn: prodDbStack.databaseSecretArn,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+prodSchedulerStack.addDependency(prodDbStack);
+cdk.Tags.of(prodSchedulerStack).add('Environment', 'Prod');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodSchedulerStack).add(key, value));
+
+// Get prod email configuration from context (environment-specific with fallback)
+const prodEmailDomain = app.node.tryGetContext('prodEmailDomain') || app.node.tryGetContext('emailDomain');
+const prodSesIdentityExists = app.node.tryGetContext('prodSesIdentityExists') === 'true' ||
+                              app.node.tryGetContext('sesIdentityExists') === 'true';
+const prodUseDomainIdentity = app.node.tryGetContext('prodUseDomainIdentity') !== 'false';
+
+// Only create prod email notification stack if emailDomain is provided
+let prodEmailNotificationStack: EmailNotificationStack | undefined;
+if (prodEmailDomain) {
+  prodEmailNotificationStack = new EmailNotificationStack(app, 'AIStudio-EmailNotificationStack-Prod', {
+    environment: 'prod',
+    databaseResourceArn: prodDbStack.databaseResourceArn,
+    databaseSecretArn: prodDbStack.databaseSecretArn,
+    // Production SES configuration from context
+    createSesIdentity: !prodSesIdentityExists,
+    emailDomain: prodEmailDomain,
+    fromEmail: `noreply@${prodEmailDomain}`,
+    appBaseUrl: baseDomain ? `https://${baseDomain}` : undefined,
+    useDomainIdentity: prodUseDomainIdentity, // Defaults to true for production
+    env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+  });
+  prodEmailNotificationStack.addDependency(prodDbStack);
+  cdk.Tags.of(prodEmailNotificationStack).add('Environment', 'Prod');
+  Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodEmailNotificationStack!).add(key, value));
+}
 // Frontend stacks - created after all other stacks
 if (baseDomain) {
   const devFrontendStack = new FrontendStack(app, 'AIStudio-FrontendStack-Dev', {

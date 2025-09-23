@@ -286,9 +286,24 @@ export class ProcessingStack extends cdk.Stack {
         `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/google/*`,
         `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/azure/*`,
         `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/bedrock/*`,
+        // Add notification queue URL parameter access
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/notification-queue-url`,
       ],
     });
     this.streamingJobsWorker.addToRolePolicy(ssmParameterPolicy);
+
+    // Grant streaming worker access to notification queue (for scheduled execution notifications)
+    const notificationQueuePolicy = new iam.PolicyStatement({
+      actions: [
+        'sqs:SendMessage',
+        'sqs:GetQueueAttributes',
+      ],
+      resources: [
+        // Allow access to notification queue (will be created by email notification stack)
+        `arn:aws:sqs:${this.region}:${this.account}:aistudio-${props.environment}-notification-queue`,
+      ],
+    });
+    this.streamingJobsWorker.addToRolePolicy(notificationQueuePolicy);
 
     // Grant Bedrock access for AWS-hosted models (when running in Lambda)
     const bedrockPolicy = new iam.PolicyStatement({
@@ -417,6 +432,13 @@ export class ProcessingStack extends cdk.Stack {
       value: this.streamingJobsWorker.functionName,
       description: 'Name of the AI streaming jobs worker Lambda function',
       exportName: `${props.environment}-StreamingJobsWorkerFunctionName`,
+    });
+
+    // Store the streaming jobs queue URL in SSM for other stacks to reference
+    new ssm.StringParameter(this, 'StreamingJobsQueueUrlParam', {
+      parameterName: `/aistudio/${props.environment}/streaming-jobs-queue-url`,
+      stringValue: this.streamingJobsQueue.queueUrl,
+      description: 'URL of the AI streaming jobs queue for cross-stack access',
     });
   }
 }

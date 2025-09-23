@@ -14,6 +14,7 @@ import {
   IconUser,
   IconRobot,
   IconTools,
+  IconCalendar,
 } from '@tabler/icons-react';
 
 export const iconMap = {
@@ -31,7 +32,8 @@ export const iconMap = {
   IconUsersGroup,
   IconUser,
   IconRobot,
-  IconTools
+  IconTools,
+  IconCalendar
 };
 
 export type IconName = keyof typeof iconMap; 
