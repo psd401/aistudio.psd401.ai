@@ -1243,9 +1243,9 @@ export async function deleteScheduleAction(id: number): Promise<ActionState<{ su
       throw ErrorFactories.dbQueryFailed("DELETE FROM scheduled_executions", new Error("Failed to delete schedule"))
     }
 
-    // Delete EventBridge schedule
+    // Delete EventBridge schedule via Lambda proxy
     try {
-      await deleteEventBridgeSchedule(id)
+      await invokeScheduleManager('delete', { scheduleId: id }, requestId)
       log.info("EventBridge schedule deleted successfully", { scheduleId: id })
     } catch (error) {
       log.error("Failed to delete EventBridge schedule", {
