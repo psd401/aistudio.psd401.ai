@@ -707,9 +707,19 @@ async function createSchedule(params, requestId, lambdaContext) {
 
     log.info('EventBridge schedule created successfully', { scheduleName });
 
-    // Construct the schedule ARN
-    const region = process.env.AWS_REGION || 'us-east-1';
-    const accountId = lambdaContext.invokedFunctionArn.split(':')[4];
+    // Construct the schedule ARN with validation
+    const region = process.env.AWS_REGION;
+    if (!region) {
+      throw new Error('AWS_REGION environment variable is required');
+    }
+
+    // Validate ARN format and extract account ID safely
+    const arnParts = lambdaContext.invokedFunctionArn.split(':');
+    if (arnParts.length < 5 || !arnParts[4].match(/^\d{12}$/)) {
+      throw new Error('Invalid Lambda function ARN format');
+    }
+    const accountId = arnParts[4];
+
     const scheduleArn = `arn:aws:scheduler:${region}:${accountId}:schedule/default/${scheduleName}`;
 
     return {

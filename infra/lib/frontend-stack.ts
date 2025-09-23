@@ -130,7 +130,12 @@ export class FrontendStack extends cdk.Stack {
               ],
               resources: [
                 `arn:aws:lambda:${this.region}:${this.account}:function:aistudio-${props.environment}-schedule-executor`
-              ]
+              ],
+              conditions: {
+                StringEquals: {
+                  'lambda:FunctionArn': `arn:aws:lambda:${this.region}:${this.account}:function:aistudio-${props.environment}-schedule-executor`
+                }
+              }
             }),
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
@@ -153,29 +158,6 @@ export class FrontendStack extends cdk.Stack {
                 'arn:aws:bedrock:*::foundation-model/*',
                 'arn:aws:bedrock:*:*:inference-profile/*',
                 'arn:aws:bedrock:*:*:provisioned-model/*'
-              ]
-            }),
-            new iam.PolicyStatement({
-              effect: iam.Effect.ALLOW,
-              actions: [
-                'ssm:GetParameter',
-                'ssm:GetParameters'
-              ],
-              resources: [
-                `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/schedule-executor-function-arn`,
-                `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/scheduler-execution-role-arn`
-              ]
-            }),
-            new iam.PolicyStatement({
-              effect: iam.Effect.ALLOW,
-              actions: [
-                'scheduler:CreateSchedule',
-                'scheduler:UpdateSchedule',
-                'scheduler:DeleteSchedule',
-                'scheduler:GetSchedule'
-              ],
-              resources: [
-                `arn:aws:scheduler:${this.region}:${this.account}:schedule/default/aistudio-${props.environment}-schedule-*`
               ]
             })
           ]
