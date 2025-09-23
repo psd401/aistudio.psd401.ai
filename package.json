@@ -143,6 +143,9 @@
     "typescript": "^5.9.2"
   },
   "overrides": {
-    "prismjs": "^1.30.0"
+    "prismjs": "^1.30.0",
+    "openai": {
+      "zod": "^4.1.9"
+    }
   }
 }
