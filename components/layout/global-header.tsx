@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import Image from "next/image"
+import { useRouter } from "next/navigation"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { UserButton } from "@/components/user/user-button"
@@ -26,6 +27,8 @@ import { toast } from "sonner"
 // ... rest of imports ...
 
 export function GlobalHeader() {
+  const router = useRouter()
+
   // Get notification data
   const {
     notifications,
@@ -42,11 +45,7 @@ export function GlobalHeader() {
   } = useExecutionResults({ limit: 10 })
 
   const handleViewResult = (resultId: number) => {
-    // TODO: Implement execution results page
-    toast.info("View Result feature coming soon", {
-      description: `Result ID: ${resultId}`
-    })
-    // Future: router.push(`/execution-results/${resultId}`)
+    router.push(`/execution-results/${resultId}`)
   }
 
   const handleRetryExecution = (scheduledExecutionId: number) => {
@@ -55,6 +54,28 @@ export function GlobalHeader() {
       description: `Schedule ID: ${scheduledExecutionId}`
     })
     // Future: router.push(`/schedules/${scheduledExecutionId}/retry`)
+  }
+
+  const handleDeleteResult = async (resultId: number) => {
+    try {
+      const response = await fetch(`/api/execution-results/${resultId}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete execution result: ${response.status}`)
+      }
+
+      toast.success("Execution result deleted successfully")
+
+      // Refresh the execution results list
+      // The useExecutionResults hook should automatically refetch
+      window.location.reload()
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to delete execution result"
+      toast.error(errorMessage)
+    }
   }
 
   return (
@@ -103,6 +124,7 @@ export function GlobalHeader() {
             messages={executionResults}
             onViewResult={handleViewResult}
             onRetryExecution={handleRetryExecution}
+            onDeleteResult={handleDeleteResult}
             loading={resultsLoading}
           />
 

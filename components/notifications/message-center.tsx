@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { toast } from "sonner"
-import { Mail, CheckCircle, XCircle, RotateCcw, Download, Eye } from "lucide-react"
+import { Mail, CheckCircle, XCircle, RotateCcw, Download, Eye, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -20,6 +20,7 @@ export function MessageCenter({
   messages,
   onViewResult,
   onRetryExecution,
+  onDeleteResult,
   loading = false
 }: MessageCenterProps) {
   const [open, setOpen] = useState(false)
@@ -75,6 +76,18 @@ export function MessageCenter({
     event.stopPropagation()
     if (onRetryExecution) {
       onRetryExecution(scheduledExecutionId)
+    }
+    setOpen(false)
+  }
+
+  const handleDeleteResult = (resultId: number, event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (onDeleteResult) {
+      // Show confirmation dialog
+      if (confirm("Are you sure you want to delete this execution result? This action cannot be undone.")) {
+        onDeleteResult(resultId)
+      }
     }
     setOpen(false)
   }
@@ -184,11 +197,30 @@ export function MessageCenter({
                       onClick={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
-                        toast.info("Download feature coming soon")
+                        // Trigger download using existing API endpoint
+                        const downloadUrl = `/api/execution-results/${message.id}/download`
+                        const link = document.createElement('a')
+                        link.href = downloadUrl
+                        link.download = `${message.scheduleName}-${new Date(message.executedAt).toISOString().slice(0, 10)}.md`
+                        document.body.appendChild(link)
+                        link.click()
+                        document.body.removeChild(link)
+                        toast.success("Download started")
                       }}
                     >
                       <Download className="h-3 w-3" />
                     </Button>
+
+                    {onDeleteResult && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                        onClick={(e) => handleDeleteResult(message.id, e)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               </DropdownMenuItem>
