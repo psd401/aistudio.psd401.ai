@@ -18,13 +18,21 @@ interface RefreshedTokens {
 const log = createLogger({ context: "token-refresh-client" })
 
 /**
- * Checks if a token is close to expiring and should be refreshed proactively
- * Refreshes when token has less than 25% of its lifetime remaining
+ * Intelligent token refresh timing for long-running operations
+ * Adapts refresh threshold based on operation context
  *
  * @param token - JWT token to check
+ * @param options - Refresh configuration options
  * @returns boolean - true if token should be refreshed
  */
-export function shouldRefreshToken(token: JWT): boolean {
+export function shouldRefreshToken(
+  token: JWT,
+  options: {
+    isLongRunningOperation?: boolean;
+    operationType?: 'polling' | 'streaming' | 'normal';
+    estimatedDurationMs?: number;
+  } = {}
+): boolean {
   if (!token.expiresAt) {
     return false
   }
@@ -43,8 +51,24 @@ export function shouldRefreshToken(token: JWT): boolean {
   const tokenLifetime = tokenWithLifetime.tokenLifetimeMs ||
     (parseInt(process.env.COGNITO_ACCESS_TOKEN_LIFETIME_SECONDS || "3600") * 1000)
 
-  // Refresh when 25% of token lifetime remains (75% expired)
-  const refreshThresholdPercent = 0.25
+  // Adaptive refresh threshold based on operation type
+  let refreshThresholdPercent = 0.25; // Default 25%
+
+  if (options.isLongRunningOperation || options.operationType === 'polling') {
+    // For long operations, refresh much earlier to prevent mid-operation expiry
+    refreshThresholdPercent = 0.50; // 50% - refresh at 30 min for 1-hour tokens
+
+    // If we know the operation duration, ensure token lasts the entire operation
+    if (options.estimatedDurationMs) {
+      const safetyMargin = options.estimatedDurationMs * 1.5; // 50% safety margin
+      const requiredThreshold = safetyMargin / tokenLifetime;
+      refreshThresholdPercent = Math.max(refreshThresholdPercent, Math.min(requiredThreshold, 0.8));
+    }
+  } else if (options.operationType === 'streaming') {
+    // Streaming operations need consistent tokens
+    refreshThresholdPercent = 0.40; // 40%
+  }
+
   const refreshThreshold = tokenLifetime * refreshThresholdPercent
   const shouldRefresh = timeUntilExpiry <= refreshThreshold
 
@@ -54,7 +78,9 @@ export function shouldRefreshToken(token: JWT): boolean {
       timeUntilExpiryMinutes: Math.round(timeUntilExpiry / (1000 * 60)),
       refreshThresholdMinutes: Math.round(refreshThreshold / (1000 * 60)),
       tokenLifetimeHours: Math.round(tokenLifetime / (1000 * 60 * 60)),
-      thresholdPercent: refreshThresholdPercent * 100
+      thresholdPercent: Math.round(refreshThresholdPercent * 100),
+      operationType: options.operationType || 'normal',
+      isLongRunning: !!options.isLongRunningOperation
     })
   }
 
