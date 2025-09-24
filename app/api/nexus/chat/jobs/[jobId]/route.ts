@@ -1,5 +1,4 @@
-import { getServerSession } from '@/lib/auth/server-session';
-import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
+import { authenticatePollingRequest, validateJobOwnership } from '@/lib/auth/optimized-polling-auth';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { jobManagementService } from '@/lib/streaming/job-management-service';
 import type { UniversalPollingStatus } from '@/lib/streaming/job-management-service';
@@ -22,62 +21,70 @@ export async function GET(
   const requestId = generateRequestId();
   const timer = startTimer('api.nexus.chat.jobs.poll');
   const log = createLogger({ requestId, route: 'api.nexus.chat.jobs.poll' });
-  
+
   const { jobId } = await params;
-  
+
   log.info('Polling nexus job status', { jobId });
-  
+
   try {
-    // 1. Authenticate user
-    const session = await getServerSession();
-    if (!session) {
-      log.warn('Unauthorized request - no session', { jobId });
-      timer({ status: 'error', reason: 'unauthorized' });
+    // 1. High-performance authentication with intelligent caching
+    const authResult = await authenticatePollingRequest();
+    if (!authResult.isAuthorized) {
+      log.warn('Unauthorized polling request', {
+        jobId,
+        authTime: authResult.authTime,
+        authMethod: authResult.authMethod
+      });
+      timer({ status: 'error', reason: 'unauthorized', authTime: authResult.authTime });
       return new Response('Unauthorized', { status: 401 });
     }
-    
-    // 2. Get current user
-    const currentUser = await getCurrentUserAction();
-    if (!currentUser.isSuccess) {
-      log.error('Failed to get current user', { jobId });
-      return new Response('Unauthorized', { status: 401 });
+
+    // Log performance improvement
+    if (authResult.authMethod === 'cache') {
+      log.debug('Fast auth via cache', {
+        jobId,
+        userId: authResult.userId,
+        authTime: authResult.authTime
+      });
     }
     
-    // 3. Load job from database
+    // 2. Load job from database
     const job = await jobManagementService.getJob(jobId);
     if (!job) {
-      log.warn('Nexus job not found', { jobId, userId: currentUser.data.user.id });
-      timer({ status: 'error', reason: 'job_not_found' });
+      log.warn('Nexus job not found', { jobId, userId: authResult.userId });
+      timer({ status: 'error', reason: 'job_not_found', authTime: authResult.authTime });
       return new Response(JSON.stringify({
         error: 'Job not found',
         jobId,
         requestId
       }), {
         status: 404,
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          'X-Request-Id': requestId 
+          'X-Request-Id': requestId
         }
       });
     }
-    
-    // 4. Verify job ownership
-    if (job.userId !== currentUser.data.user.id) {
-      log.warn('Nexus job access denied - wrong user', { 
-        jobId, 
+
+    // 3. Verify job ownership (optimized - no additional DB calls)
+    const ownershipValidation = validateJobOwnership(authResult, job.userId, jobId);
+    if (!ownershipValidation.authorized) {
+      log.warn('Nexus job access denied', {
+        jobId,
+        reason: ownershipValidation.reason,
         jobUserId: job.userId,
-        requestUserId: currentUser.data.user.id 
+        requestUserId: authResult.userId
       });
-      timer({ status: 'error', reason: 'access_denied' });
+      timer({ status: 'error', reason: 'access_denied', authTime: authResult.authTime });
       return new Response(JSON.stringify({
         error: 'Access denied',
         jobId,
         requestId
       }), {
         status: 403,
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          'X-Request-Id': requestId 
+          'X-Request-Id': requestId
         }
       });
     }
@@ -311,62 +318,61 @@ export async function DELETE(
   const requestId = generateRequestId();
   const timer = startTimer('api.nexus.chat.jobs.cancel');
   const log = createLogger({ requestId, route: 'api.nexus.chat.jobs.cancel' });
-  
+
   const { jobId } = await params;
-  
+
   log.info('Cancelling nexus job', { jobId });
-  
+
   try {
-    // 1. Authenticate user
-    const session = await getServerSession();
-    if (!session) {
-      log.warn('Unauthorized request - no session', { jobId });
-      timer({ status: 'error', reason: 'unauthorized' });
+    // 1. High-performance authentication with intelligent caching
+    const authResult = await authenticatePollingRequest();
+    if (!authResult.isAuthorized) {
+      log.warn('Unauthorized job cancellation request', {
+        jobId,
+        authTime: authResult.authTime,
+        authMethod: authResult.authMethod
+      });
+      timer({ status: 'error', reason: 'unauthorized', authTime: authResult.authTime });
       return new Response('Unauthorized', { status: 401 });
     }
     
-    // 2. Get current user
-    const currentUser = await getCurrentUserAction();
-    if (!currentUser.isSuccess) {
-      log.error('Failed to get current user', { jobId });
-      return new Response('Unauthorized', { status: 401 });
-    }
-    
-    // 3. Load job to verify ownership
+    // 2. Load job to verify ownership
     const job = await jobManagementService.getJob(jobId);
     if (!job) {
-      log.warn('Nexus job not found for cancellation', { jobId, userId: currentUser.data.user.id });
-      timer({ status: 'error', reason: 'job_not_found' });
+      log.warn('Nexus job not found for cancellation', { jobId, userId: authResult.userId });
+      timer({ status: 'error', reason: 'job_not_found', authTime: authResult.authTime });
       return new Response(JSON.stringify({
         error: 'Job not found',
         jobId,
         requestId
       }), {
         status: 404,
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          'X-Request-Id': requestId 
+          'X-Request-Id': requestId
         }
       });
     }
-    
-    // 4. Verify job ownership
-    if (job.userId !== currentUser.data.user.id) {
-      log.warn('Nexus job cancellation denied - wrong user', { 
-        jobId, 
+
+    // 3. Verify job ownership (optimized)
+    const ownershipValidation = validateJobOwnership(authResult, job.userId, jobId);
+    if (!ownershipValidation.authorized) {
+      log.warn('Nexus job cancellation denied', {
+        jobId,
+        reason: ownershipValidation.reason,
         jobUserId: job.userId,
-        requestUserId: currentUser.data.user.id 
+        requestUserId: authResult.userId
       });
-      timer({ status: 'error', reason: 'access_denied' });
+      timer({ status: 'error', reason: 'access_denied', authTime: authResult.authTime });
       return new Response(JSON.stringify({
         error: 'Access denied',
         jobId,
         requestId
       }), {
         status: 403,
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          'X-Request-Id': requestId 
+          'X-Request-Id': requestId
         }
       });
     }
