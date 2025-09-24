@@ -206,7 +206,8 @@ export const pollingSessionCache = new PollingSessionCache({
  * Generate cache key from session data
  */
 export function generateSessionCacheKey(session: CognitoSession): string {
-  // Use sub (user ID) + session timing data for uniqueness
-  const tokenData = session.sub;
-  return `session:${tokenData}`;
+  // Use sub (user ID) + iat (issued at time) for uniqueness and security
+  // This prevents cache key collisions and adds session-specific entropy
+  const iat = (session as CognitoSession & { iat?: number }).iat || Date.now();
+  return `session:${session.sub}:${iat}`;
 }

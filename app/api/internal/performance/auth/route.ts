@@ -7,8 +7,25 @@ import { NextRequest } from 'next/server';
 import { authPerformanceMonitor } from '@/lib/monitoring/auth-performance-monitor';
 import { getAuthCacheStats } from '@/lib/auth/optimized-polling-auth';
 import { createLogger, generateRequestId } from '@/lib/logger';
+import { getServerSession } from '@/lib/auth/server-session';
+import { hasToolAccess } from '@/utils/roles';
+import { rateLimit } from '@/lib/rate-limit';
 
 const log = createLogger({ route: 'api.internal.performance.auth' });
+
+// Rate limiting configuration for monitoring endpoints
+const monitoringRateLimit = rateLimit({
+  interval: 60 * 1000, // 1 minute window
+  uniqueTokenPerInterval: 30, // Max 30 requests per minute per user
+  skipAuth: false // Use authenticated user for rate limiting
+});
+
+// More restrictive rate limiting for admin operations (reset)
+const adminActionRateLimit = rateLimit({
+  interval: 60 * 1000, // 1 minute window
+  uniqueTokenPerInterval: 5, // Max 5 admin actions per minute per user
+  skipAuth: false
+});
 
 /**
  * GET /api/internal/performance/auth
@@ -16,11 +33,40 @@ const log = createLogger({ route: 'api.internal.performance.auth' });
  */
 export async function GET(request: NextRequest) {
   const requestId = generateRequestId();
+
   try {
+    // Apply rate limiting first
+    const rateLimitResponse = await monitoringRateLimit(request);
+    if (rateLimitResponse) {
+      log.warn('Rate limit exceeded for performance API', { requestId });
+      return rateLimitResponse;
+    }
+
+    // Authenticate user
+    const session = await getServerSession();
+    if (!session) {
+      log.warn('Unauthorized request to performance API', { requestId });
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check admin permissions for performance monitoring
+    const canAccess = await hasToolAccess('internal-performance-monitoring');
+    if (!canAccess) {
+      log.warn('Forbidden request to performance API', {
+        requestId,
+        userId: session.sub
+      });
+      return Response.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const searchParams = request.nextUrl.searchParams;
     const format = searchParams.get('format') || 'summary';
 
-    log.debug('Auth performance metrics requested', { format, requestId });
+    log.debug('Auth performance metrics requested', {
+      format,
+      requestId,
+      userId: session.sub
+    });
 
     switch (format) {
       case 'detailed':
@@ -76,11 +122,40 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   const requestId = generateRequestId();
+
   try {
+    // Apply more restrictive rate limiting for admin operations
+    const rateLimitResponse = await adminActionRateLimit(request);
+    if (rateLimitResponse) {
+      log.warn('Rate limit exceeded for performance API admin action', { requestId });
+      return rateLimitResponse;
+    }
+
+    // Authenticate user
+    const session = await getServerSession();
+    if (!session) {
+      log.warn('Unauthorized request to performance API action', { requestId });
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check admin permissions for system administration (reset operations)
+    const canAccess = await hasToolAccess('internal-system-administration');
+    if (!canAccess) {
+      log.warn('Forbidden request to performance API action', {
+        requestId,
+        userId: session.sub
+      });
+      return Response.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const body = await request.json();
     const action = body.action;
 
-    log.info('Auth performance action requested', { action, requestId });
+    log.info('Auth performance action requested', {
+      action,
+      requestId,
+      userId: session.sub
+    });
 
     switch (action) {
       case 'reset':

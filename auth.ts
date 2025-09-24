@@ -141,6 +141,7 @@ export const authConfig: NextAuthConfig = {
       const isExpired = now > expiresAt
 
       // Check if this is a long-running operation by examining request context
+      // TODO: Replace with AsyncLocalStorage for better request-scoped context
       const isLongRunningOperation = (typeof global !== 'undefined' && (global as any).__POLLING_CONTEXT__)
 
       const shouldRefresh = shouldRefreshToken(token, {

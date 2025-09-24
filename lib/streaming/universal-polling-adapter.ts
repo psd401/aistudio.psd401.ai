@@ -78,6 +78,8 @@ export class UniversalPollingAdapter {
     log.info('Starting job polling', { jobId });
 
     // Set global context for JWT callback optimization
+    // TODO: Replace with AsyncLocalStorage for better request isolation
+    // This global approach works for current use case but could have race conditions in high-concurrency scenarios
     if (typeof global !== 'undefined') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (global as any).__POLLING_CONTEXT__ = true;
@@ -237,6 +239,7 @@ export class UniversalPollingAdapter {
       this.activePollers.delete(jobId);
 
       // Clear global polling context
+      // TODO: When migrating to AsyncLocalStorage, this cleanup will be automatic
       if (typeof global !== 'undefined') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         delete (global as any).__POLLING_CONTEXT__;
