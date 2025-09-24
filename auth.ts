@@ -139,7 +139,15 @@ export const authConfig: NextAuthConfig = {
       const expiresAt = token.expiresAt as number
       const now = Date.now()
       const isExpired = now > expiresAt
-      const shouldRefresh = shouldRefreshToken(token)
+
+      // Check if this is a long-running operation by examining request context
+      const isLongRunningOperation = (typeof global !== 'undefined' && (global as any).__POLLING_CONTEXT__)
+
+      const shouldRefresh = shouldRefreshToken(token, {
+        isLongRunningOperation,
+        operationType: isLongRunningOperation ? 'polling' : 'normal',
+        estimatedDurationMs: isLongRunningOperation ? 30 * 60 * 1000 : undefined // 30 minutes
+      })
 
       // Log token status for debugging
       log.debug("Token status check", {

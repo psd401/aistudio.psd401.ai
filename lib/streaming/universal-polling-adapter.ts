@@ -74,13 +74,19 @@ export class UniversalPollingAdapter {
     } = {}
   ): AsyncGenerator<{ content: string; metadata?: Record<string, unknown> }, void, unknown> {
     const { abortSignal, onProgress, onStatusChange } = options;
-    
+
     log.info('Starting job polling', { jobId });
-    
+
+    // Set global context for JWT callback optimization
+    if (typeof global !== 'undefined') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).__POLLING_CONTEXT__ = true;
+    }
+
     // Create internal abort controller for cleanup
     const internalController = new AbortController();
     const combinedSignal = this.combineAbortSignals([abortSignal, internalController.signal]);
-    
+
     // Track active poller for cleanup
     this.activePollers.set(jobId, internalController);
     
@@ -229,6 +235,13 @@ export class UniversalPollingAdapter {
     } finally {
       // Cleanup
       this.activePollers.delete(jobId);
+
+      // Clear global polling context
+      if (typeof global !== 'undefined') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        delete (global as any).__POLLING_CONTEXT__;
+      }
+
       log.debug('Job polling cleanup completed', { jobId });
     }
   }

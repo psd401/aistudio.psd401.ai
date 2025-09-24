@@ -31,10 +31,11 @@ interface CognitoRefreshResponse {
   }
 }
 
-// Rate limiting configuration with sensible defaults
-const MAX_REFRESH_ATTEMPTS = 5 // 5 attempts per user per minute
-const RATE_LIMIT_WINDOW_MS = 60 * 1000 // 1 minute window
+// Intelligent rate limiting configuration
+const MAX_REFRESH_ATTEMPTS = 8 // Increased for long polling operations
+const RATE_LIMIT_WINDOW_MS = 90 * 1000 // 90 second window for polling operations
 const MAX_RATE_LIMIT_ENTRIES = 1000 // Max users to track
+const POLLING_CONTEXT_MULTIPLIER = 1.5 // Extra allowance for polling operations
 
 // Use a Map with size-based cleanup for better memory management
 const refreshAttempts = new Map<string, { count: number; lastAttempt: number; windowStart: number }>()
@@ -93,12 +94,13 @@ function shouldRunCleanup(): boolean {
 
 /**
  * Checks if a user has exceeded the rate limit for token refresh attempts
- * Implements a sliding window rate limiter to prevent abuse
+ * Implements intelligent rate limiting with polling operation awareness
  *
  * @param userId - User identifier (token.sub)
+ * @param isPollingContext - Whether this is part of a polling operation
  * @returns boolean - true if rate limited, false if allowed
  */
-function isRateLimited(userId: string): boolean {
+function isRateLimited(userId: string, isPollingContext = false): boolean {
   const now = Date.now()
 
   // Run cleanup deterministically based on time and size
@@ -130,7 +132,12 @@ function isRateLimited(userId: string): boolean {
   }
 
   // Check if we've exceeded the limit within the current window
-  if (attempts.count >= MAX_REFRESH_ATTEMPTS) {
+  // Apply higher limits for polling contexts
+  const effectiveLimit = isPollingContext
+    ? Math.ceil(MAX_REFRESH_ATTEMPTS * POLLING_CONTEXT_MULTIPLIER)
+    : MAX_REFRESH_ATTEMPTS;
+
+  if (attempts.count >= effectiveLimit) {
     return true
   }
 
@@ -204,9 +211,13 @@ async function performTokenRefresh(
       throw new Error("Invalid token sub")
     }
 
-    // Check rate limiting
-    if (isRateLimited(params.tokenSub)) {
-      log.warn("Token refresh blocked due to rate limiting", { tokenSub: params.tokenSub })
+    // Check rate limiting with polling context awareness
+    const isPollingContext = typeof global !== 'undefined' && (global as any).__POLLING_CONTEXT__;
+    if (isRateLimited(params.tokenSub, isPollingContext)) {
+      log.warn("Token refresh blocked due to rate limiting", {
+        tokenSub: params.tokenSub,
+        isPollingContext
+      });
       throw new Error("Rate limit exceeded. Please try again later.")
     }
 
