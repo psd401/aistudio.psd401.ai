@@ -70,10 +70,17 @@ export const authConfig: NextAuthConfig = {
           const decoded = JSON.parse(payload);
 
         // Calculate token lifetime for accurate refresh timing
-        const defaultTokenLifetimeSeconds = parseInt(process.env.COGNITO_ACCESS_TOKEN_LIFETIME_SECONDS || "3600")
-        const expiresAt = account.expires_at ? account.expires_at * 1000 : Date.now() + (defaultTokenLifetimeSeconds * 1000)
         const issuedAt = decoded.iat ? decoded.iat * 1000 : Date.now()
+        const expiresAt = account.expires_at ? account.expires_at * 1000 : Date.now() + (12 * 60 * 60 * 1000) // 12 hours fallback
         const tokenLifetimeMs = expiresAt - issuedAt
+
+        // Enhanced logging for token lifecycle debugging
+        log.debug("Token lifetime information", {
+          issuedAt: new Date(issuedAt).toISOString(),
+          expiresAt: new Date(expiresAt).toISOString(),
+          tokenLifetimeHours: Math.round(tokenLifetimeMs / (1000 * 60 * 60)),
+          cognitoProvidedExpiry: !!account.expires_at
+        })
 
         const newToken: JWT = {
           sub: decoded.sub,
@@ -105,9 +112,9 @@ export const authConfig: NextAuthConfig = {
             error: error instanceof Error ? error.message : 'Unknown error'
           })
 
-          const defaultTokenLifetimeSeconds = parseInt(process.env.COGNITO_ACCESS_TOKEN_LIFETIME_SECONDS || "3600")
-          const expiresAt = account.expires_at ? account.expires_at * 1000 : Date.now() + (defaultTokenLifetimeSeconds * 1000)
-          const tokenLifetimeMs = defaultTokenLifetimeSeconds * 1000
+          const now = Date.now()
+          const expiresAt = account.expires_at ? account.expires_at * 1000 : now + (12 * 60 * 60 * 1000) // 12 hours fallback
+          const tokenLifetimeMs = 12 * 60 * 60 * 1000 // 12 hours
 
           const fallbackToken: JWT = {
             sub: account.providerAccountId,

@@ -80,6 +80,11 @@ export class AuthStack extends cdk.Stack {
       supportedIdentityProviders: [
         cognito.UserPoolClientIdentityProvider.GOOGLE,
       ],
+      // Configure token lifetimes to match application requirements
+      // This fixes the 1-hour logout issue by extending token validity
+      accessTokenValidity: cdk.Duration.hours(12),  // 12 hours instead of 1 hour default
+      idTokenValidity: cdk.Duration.hours(12),      // 12 hours instead of 1 hour default
+      refreshTokenValidity: cdk.Duration.days(30),  // 30 days (keep default)
     });
     userPoolClient.node.addDependency(googleProvider);
 
