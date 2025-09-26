@@ -127,7 +127,7 @@ export async function GET(
           `SELECT id FROM nexus_messages
            WHERE conversation_id = :conversationId::uuid
            AND role = 'assistant'
-           AND created_at >= :jobCreatedAt
+           AND created_at >= :jobCreatedAt::timestamp
            LIMIT 1`,
           [
             { name: 'conversationId', value: { stringValue: job.nexusConversationId } },
