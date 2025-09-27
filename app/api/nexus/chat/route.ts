@@ -602,7 +602,7 @@ export async function POST(req: Request) {
     
     if (!existingConversationId && conversationId) {
       responseHeaders['X-Conversation-Id'] = conversationId;
-      responseHeaders['X-Conversation-Title'] = conversationTitle || 'New Conversation';
+      responseHeaders['X-Conversation-Title'] = encodeURIComponent(conversationTitle || 'New Conversation');
     }
     
     timer({ 

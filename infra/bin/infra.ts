@@ -47,15 +47,15 @@ function getCallbackAndLogoutUrls(environment: string, baseDomain?: string): { c
   } else {
     return {
       callbackUrls: [
-        baseDomain ? `https://prod.${baseDomain}/` : 'https://prod.example.com/',
+        baseDomain ? `https://${baseDomain}/` : 'https://example.com/',
         baseDomain ? `https://dev.${baseDomain}/` : 'https://dev.example.com/',
-        baseDomain ? `https://prod.${baseDomain}/api/auth/callback/cognito` : 'https://prod.example.com/api/auth/callback/cognito',
+        baseDomain ? `https://${baseDomain}/api/auth/callback/cognito` : 'https://example.com/api/auth/callback/cognito',
         baseDomain ? `https://dev.${baseDomain}/api/auth/callback/cognito` : 'https://dev.example.com/api/auth/callback/cognito',
       ],
       logoutUrls: [
-        baseDomain ? `https://prod.${baseDomain}/` : 'https://prod.example.com/',
+        baseDomain ? `https://${baseDomain}/` : 'https://example.com/',
         baseDomain ? `https://dev.${baseDomain}/` : 'https://dev.example.com/',
-        baseDomain ? `https://prod.${baseDomain}/oauth2/idpresponse` : 'https://prod.example.com/oauth2/idpresponse',
+        baseDomain ? `https://${baseDomain}/oauth2/idpresponse` : 'https://example.com/oauth2/idpresponse',
         baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : 'https://dev.example.com/oauth2/idpresponse',
       ],
     };
