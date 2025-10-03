@@ -32,7 +32,7 @@
     "@aws-cdk/aws-route53": "^1.203.0",
     "@aws-cdk/aws-s3": "^1.203.0",
     "@aws-cdk/aws-secretsmanager": "^1.203.0",
-    "@aws-sdk/client-dynamodb": "^3.893.0",
+    "@aws-sdk/client-dynamodb": "^3.896.0",
     "@types/node-fetch": "^2.6.12",
     "aws-cdk-lib": "^2.218.0",
     "cheerio": "^1.1.2",
