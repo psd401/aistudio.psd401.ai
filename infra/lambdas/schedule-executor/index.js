@@ -128,22 +128,6 @@ function sanitizeForLogging(data) {
   return sanitized;
 }
 
-<<<<<<< HEAD
-=======
-// Simple variable substitution function
-function substituteVariables(content, context) {
-  if (!content || typeof content !== 'string') {
-    return content;
-  }
-
-  // Replace ${variableName} patterns with values from context
-  return content.replace(/\${([^}]+)}/g, (match, variableName) => {
-    const value = context[variableName];
-    return value !== undefined ? String(value) : match;
-  });
-}
->>>>>>> origin/main
-
 // Initialize clients
 const rdsClient = new RDSDataClient({});
 const sqsClient = new SQSClient({});
@@ -158,7 +142,6 @@ const requiredEnvVars = {
   STREAMING_JOBS_QUEUE_URL: process.env.STREAMING_JOBS_QUEUE_URL
 };
 
-<<<<<<< HEAD
 const optionalEnvVars = {
   DLQ_URL: process.env.DLQ_URL,
   SCHEDULER_EXECUTION_ROLE_ARN: process.env.SCHEDULER_EXECUTION_ROLE_ARN
@@ -208,8 +191,6 @@ const DATABASE_NAME = requiredEnvVars.DATABASE_NAME;
 const ENVIRONMENT = requiredEnvVars.ENVIRONMENT;
 const DLQ_URL = optionalEnvVars.DLQ_URL;
 
-=======
->>>>>>> origin/main
 /**
  * Schedule Executor Lambda - EventBridge Scheduler Handler
  *
@@ -404,21 +385,12 @@ async function executeAssistantArchitectForSchedule(scheduledExecution, executio
     inputData: Object.keys(scheduledExecution.input_data || {})
   });
 
-<<<<<<< HEAD
-=======
-  // This is a simplified version that creates a job directly and sends to SQS
-  // The full execution will happen in the streaming-jobs-worker Lambda
-
-  const jobId = generateRequestId(); // Simple job ID for tracking
-
->>>>>>> origin/main
   // Get streaming jobs queue URL (this should be configured via environment)
   const queueUrl = process.env.STREAMING_JOBS_QUEUE_URL;
   if (!queueUrl) {
     throw new Error('STREAMING_JOBS_QUEUE_URL environment variable not configured');
   }
 
-<<<<<<< HEAD
   // Load assistant architect configuration and create proper streaming job
   const assistantArchitect = await loadAssistantArchitect(scheduledExecution.assistant_architect_id);
   if (!assistantArchitect) {
@@ -448,28 +420,6 @@ async function executeAssistantArchitectForSchedule(scheduledExecution, executio
         jobType: {
           DataType: 'String',
           StringValue: 'ai-streaming-assistant-architect'
-=======
-  // Send job message to SQS for the streaming-jobs-worker to process
-  const jobMessage = {
-    jobId,
-    type: 'assistant-architect-scheduled',
-    assistantArchitectId: scheduledExecution.assistant_architect_id,
-    userId: scheduledExecution.user_id,
-    inputData: scheduledExecution.input_data || {},
-    executionResultId,
-    scheduledExecutionId: scheduledExecution.id,
-    timestamp: new Date().toISOString()
-  };
-
-  try {
-    await sqsClient.send(new SendMessageCommand({
-      QueueUrl: queueUrl,
-      MessageBody: JSON.stringify(jobMessage),
-      MessageAttributes: {
-        jobType: {
-          DataType: 'String',
-          StringValue: 'assistant-architect-scheduled'
->>>>>>> origin/main
         },
         assistantArchitectId: {
           DataType: 'String',
@@ -482,7 +432,6 @@ async function executeAssistantArchitectForSchedule(scheduledExecution, executio
         executionResultId: {
           DataType: 'String',
           StringValue: String(executionResultId)
-<<<<<<< HEAD
         },
         scheduledExecutionId: {
           DataType: 'String',
@@ -491,21 +440,13 @@ async function executeAssistantArchitectForSchedule(scheduledExecution, executio
         isScheduledExecution: {
           DataType: 'String',
           StringValue: 'true'
-=======
->>>>>>> origin/main
         }
       }
     }));
 
-<<<<<<< HEAD
     log.info('Job sent to streaming queue successfully', { streamingJobId });
 
     return { jobId: streamingJobId };
-=======
-    log.info('Job sent to streaming queue successfully', { jobId });
-
-    return { jobId };
->>>>>>> origin/main
   } catch (error) {
     log.error('Failed to send job to streaming queue', { error: error.message });
     throw error;
@@ -727,21 +668,6 @@ async function createSchedule(params, requestId, lambdaContext) {
   log.info('Creating EventBridge schedule', { scheduledExecutionId, cronExpression, timezone });
 
   try {
-<<<<<<< HEAD
-=======
-    // Validate rate limiting
-    const userScheduleCount = await getUserScheduleCount(params.userId);
-    if (userScheduleCount >= 10) {
-      return {
-        statusCode: 429,
-        body: JSON.stringify({
-          error: 'Rate limit exceeded',
-          message: 'Maximum 10 schedules per user allowed'
-        })
-      };
-    }
-
->>>>>>> origin/main
     const scheduleName = `aistudio-${ENVIRONMENT}-schedule-${scheduledExecutionId}`;
     const functionArn = lambdaContext.invokedFunctionArn;
 
@@ -913,7 +839,6 @@ async function getUserScheduleCount(userId) {
     });
     throw error;
   }
-<<<<<<< HEAD
 }
 
 /**
@@ -1203,6 +1128,4 @@ async function createStreamingJob(scheduledExecution, assistantArchitect, execut
     });
     throw error;
   }
-=======
->>>>>>> origin/main
 }
