@@ -29,7 +29,7 @@ jest.mock('@/lib/rate-limit', () => ({
 }))
 
 // Import after mocks
-import { downloadHandler } from '@/app/api/execution-results/[id]/download/route'
+import { downloadHandler } from '@/app/api/execution-results/[id]/download/handler'
 
 // Mock logger object
 const integrationMockLogger = {

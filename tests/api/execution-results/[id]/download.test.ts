@@ -34,7 +34,7 @@ jest.mock('@/lib/rate-limit', () => ({
 }))
 
 // Import after mocks to ensure proper mock application
-import { downloadHandler } from '@/app/api/execution-results/[id]/download/route'
+import { downloadHandler } from '@/app/api/execution-results/[id]/download/handler'
 
 // Import the handler function directly for unit testing
 const mockLogger = {
