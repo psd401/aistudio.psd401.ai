@@ -227,14 +227,15 @@ if (prodEmailDomain) {
 // Note: Old Amplify stacks are retained in AWS but not deployed by this code
 // To rollback, uncomment FrontendStack import and restore this block
 if (baseDomain) {
-  // Skip DNS setup in CI (when baseDomain is a dummy value like example.com)
+  // Skip DNS/certificate setup in CI (when baseDomain is a dummy value like example.com)
+  // VPC lookup will use cached context from cdk.context.json (committed to version control)
   const setupDns = baseDomain !== 'example.com';
 
   const devFrontendStack = new FrontendStackEcs(app, 'AIStudio-FrontendStack-ECS-Dev', {
     environment: 'dev',
     baseDomain,
     documentsBucketName: devStorageStack.documentsBucketName,
-    useExistingVpc: true, // Use VPC from DatabaseStack
+    useExistingVpc: true, // Always use VPC sharing pattern (cached in cdk.context.json)
     setupDns, // Skip DNS/certificate setup in CI
     env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
   });
@@ -247,7 +248,7 @@ if (baseDomain) {
     environment: 'prod',
     baseDomain,
     documentsBucketName: prodStorageStack.documentsBucketName,
-    useExistingVpc: true, // Use VPC from DatabaseStack
+    useExistingVpc: true, // Always use VPC sharing pattern (cached in cdk.context.json)
     setupDns, // Skip DNS/certificate setup in CI
     env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
   });
