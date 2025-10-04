@@ -4,7 +4,8 @@ import { InfraStack } from '../lib/infra-stack';
 import { DatabaseStack } from '../lib/database-stack';
 import { AuthStack } from '../lib/auth-stack';
 import { StorageStack } from '../lib/storage-stack';
-import { FrontendStack } from '../lib/frontend-stack';
+// import { FrontendStack } from '../lib/frontend-stack'; // Legacy Amplify stack - retained for rollback
+import { FrontendStackEcs } from '../lib/frontend-stack-ecs'; // New ECS Fargate stack
 import { ProcessingStack } from '../lib/processing-stack';
 import { DocumentProcessingStack } from '../lib/document-processing-stack';
 import { MonitoringStack } from '../lib/monitoring-stack';
@@ -222,29 +223,43 @@ if (prodEmailDomain) {
   cdk.Tags.of(prodEmailNotificationStack).add('Environment', 'Prod');
   Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodEmailNotificationStack!).add(key, value));
 }
-// Frontend stacks - created after all other stacks
+// Frontend stacks - ECS Fargate with ALB for streaming support
+// Note: Old Amplify stacks are retained in AWS but not deployed by this code
+// To rollback, uncomment FrontendStack import and restore this block
 if (baseDomain) {
-  const devFrontendStack = new FrontendStack(app, 'AIStudio-FrontendStack-Dev', {
+  // Skip DNS/certificate setup in CI (when baseDomain is a dummy value like example.com)
+  // VPC lookup will use cached context from cdk.context.json (committed to version control)
+  const setupDns = baseDomain !== 'example.com';
+
+  const devFrontendStack = new FrontendStackEcs(app, 'AIStudio-FrontendStack-ECS-Dev', {
     environment: 'dev',
-    githubToken: SecretValue.secretsManager('aistudio-github-token'),
     baseDomain,
+    documentsBucketName: devStorageStack.documentsBucketName,
+    useExistingVpc: true, // Always use VPC sharing pattern (cached in cdk.context.json)
+    setupDns, // Skip DNS/certificate setup in CI
     env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
   });
+  devFrontendStack.addDependency(devDbStack); // Need VPC from DB stack
+  devFrontendStack.addDependency(devStorageStack); // Need bucket name
   cdk.Tags.of(devFrontendStack).add('Environment', 'Dev');
   Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devFrontendStack).add(key, value));
 
-  const prodFrontendStack = new FrontendStack(app, 'AIStudio-FrontendStack-Prod', {
+  const prodFrontendStack = new FrontendStackEcs(app, 'AIStudio-FrontendStack-ECS-Prod', {
     environment: 'prod',
-    githubToken: SecretValue.secretsManager('aistudio-github-token'),
     baseDomain,
+    documentsBucketName: prodStorageStack.documentsBucketName,
+    useExistingVpc: true, // Always use VPC sharing pattern (cached in cdk.context.json)
+    setupDns, // Skip DNS/certificate setup in CI
     env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
   });
+  prodFrontendStack.addDependency(prodDbStack); // Need VPC from DB stack
+  prodFrontendStack.addDependency(prodStorageStack); // Need bucket name
   cdk.Tags.of(prodFrontendStack).add('Environment', 'Prod');
   Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodFrontendStack).add(key, value));
 
   // To deploy, use:
-  // cdk deploy AIStudio-FrontendStack-Dev --context baseDomain=yourdomain.com
-  // cdk deploy AIStudio-FrontendStack-Prod --context baseDomain=yourdomain.com
+  // cdk deploy AIStudio-FrontendStack-ECS-Dev --context baseDomain=yourdomain.com
+  // cdk deploy AIStudio-FrontendStack-ECS-Prod --context baseDomain=yourdomain.com
 }
 
 // Monitoring stacks - created after all other stacks for comprehensive monitoring

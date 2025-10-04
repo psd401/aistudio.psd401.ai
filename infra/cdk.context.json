@@ -18,5 +18,205 @@
   "acknowledged-issue-numbers": [
     34892,
     34892
-  ]
+  ],
+  "vpc-provider:account=390844780692:filter.tag:Environment=Dev:filter.tag:Project=AIStudio:region=us-east-1:returnAsymmetricSubnets=true": {
+    "vpcId": "vpc-05ec11974a207e9fd",
+    "vpcCidrBlock": "10.0.0.0/16",
+    "ownerAccountId": "390844780692",
+    "availabilityZones": [],
+    "subnetGroups": [
+      {
+        "name": "public",
+        "type": "Public",
+        "subnets": [
+          {
+            "subnetId": "subnet-0c9f8f53e016796e3",
+            "cidr": "10.0.0.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-0a46eb7fb910aec46"
+          },
+          {
+            "subnetId": "subnet-0ffc43ab7dd54a538",
+            "cidr": "10.0.1.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-087a1ca3be66d48c5"
+          }
+        ]
+      },
+      {
+        "name": "isolated",
+        "type": "Isolated",
+        "subnets": [
+          {
+            "subnetId": "subnet-0e0a7a2913f238f5a",
+            "cidr": "10.0.2.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-07a79d41dfdabc653"
+          },
+          {
+            "subnetId": "subnet-068c23b1a97af08c7",
+            "cidr": "10.0.3.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-09c8ccd7f254bf795"
+          }
+        ]
+      }
+    ]
+  },
+  "vpc-provider:account=390844780692:filter.tag:Environment=Prod:filter.tag:Project=AIStudio:region=us-east-1:returnAsymmetricSubnets=true": {
+    "vpcId": "vpc-0942f3d5502b68e56",
+    "vpcCidrBlock": "10.0.0.0/16",
+    "ownerAccountId": "390844780692",
+    "availabilityZones": [],
+    "subnetGroups": [
+      {
+        "name": "isolated",
+        "type": "Isolated",
+        "subnets": [
+          {
+            "subnetId": "subnet-0a7c718db5956a7ac",
+            "cidr": "10.0.3.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-0c79f90b79413458e"
+          },
+          {
+            "subnetId": "subnet-0ef715c11f6821d9e",
+            "cidr": "10.0.4.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-004786c7171e5366d"
+          },
+          {
+            "subnetId": "subnet-0dbf6fc45f5ad2b60",
+            "cidr": "10.0.5.0/24",
+            "availabilityZone": "us-east-1c",
+            "routeTableId": "rtb-0c7d64d45315ca02e"
+          }
+        ]
+      },
+      {
+        "name": "public",
+        "type": "Public",
+        "subnets": [
+          {
+            "subnetId": "subnet-06bbbdb4a319fe43d",
+            "cidr": "10.0.0.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-0e1fa555832ea8b7f"
+          },
+          {
+            "subnetId": "subnet-0db486354e6bf40ce",
+            "cidr": "10.0.1.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-0a3765526e99dd81a"
+          },
+          {
+            "subnetId": "subnet-0ecf7ce26d1adfc29",
+            "cidr": "10.0.2.0/24",
+            "availabilityZone": "us-east-1c",
+            "routeTableId": "rtb-0c4b280395b4d615f"
+          }
+        ]
+      }
+    ]
+  },
+  "vpc-provider:account=123456789012:filter.tag:Environment=Dev:filter.tag:Project=AIStudio:region=us-east-1:returnAsymmetricSubnets=true": {
+    "vpcId": "vpc-ci-dummy-dev",
+    "vpcCidrBlock": "10.0.0.0/16",
+    "ownerAccountId": "123456789012",
+    "availabilityZones": [],
+    "subnetGroups": [
+      {
+        "name": "public",
+        "type": "Public",
+        "subnets": [
+          {
+            "subnetId": "subnet-ci-public-1a",
+            "cidr": "10.0.0.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-ci-public"
+          },
+          {
+            "subnetId": "subnet-ci-public-1b",
+            "cidr": "10.0.1.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-ci-public"
+          }
+        ]
+      },
+      {
+        "name": "isolated",
+        "type": "Isolated",
+        "subnets": [
+          {
+            "subnetId": "subnet-ci-isolated-1a",
+            "cidr": "10.0.2.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-ci-isolated"
+          },
+          {
+            "subnetId": "subnet-ci-isolated-1b",
+            "cidr": "10.0.3.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-ci-isolated"
+          }
+        ]
+      }
+    ]
+  },
+  "vpc-provider:account=123456789012:filter.tag:Environment=Prod:filter.tag:Project=AIStudio:region=us-east-1:returnAsymmetricSubnets=true": {
+    "vpcId": "vpc-ci-dummy-prod",
+    "vpcCidrBlock": "10.0.0.0/16",
+    "ownerAccountId": "123456789012",
+    "availabilityZones": [],
+    "subnetGroups": [
+      {
+        "name": "isolated",
+        "type": "Isolated",
+        "subnets": [
+          {
+            "subnetId": "subnet-ci-isolated-prod-1a",
+            "cidr": "10.0.3.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-ci-isolated-prod"
+          },
+          {
+            "subnetId": "subnet-ci-isolated-prod-1b",
+            "cidr": "10.0.4.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-ci-isolated-prod"
+          },
+          {
+            "subnetId": "subnet-ci-isolated-prod-1c",
+            "cidr": "10.0.5.0/24",
+            "availabilityZone": "us-east-1c",
+            "routeTableId": "rtb-ci-isolated-prod"
+          }
+        ]
+      },
+      {
+        "name": "public",
+        "type": "Public",
+        "subnets": [
+          {
+            "subnetId": "subnet-ci-public-prod-1a",
+            "cidr": "10.0.0.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-ci-public-prod"
+          },
+          {
+            "subnetId": "subnet-ci-public-prod-1b",
+            "cidr": "10.0.1.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-ci-public-prod"
+          },
+          {
+            "subnetId": "subnet-ci-public-prod-1c",
+            "cidr": "10.0.2.0/24",
+            "availabilityZone": "us-east-1c",
+            "routeTableId": "rtb-ci-public-prod"
+          }
+        ]
+      }
+    ]
+  }
 }
