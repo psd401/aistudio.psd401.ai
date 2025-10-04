@@ -1,26 +1,32 @@
+# syntax=docker.io/docker/dockerfile:1
 # Multi-stage Dockerfile for Next.js AI Studio Application
-# Optimized for ECS Fargate deployment with streaming support
+# Optimized for ECS Fargate deployment with streaming support and graceful shutdown
 
 # ============================================================================
 # Stage 1: Dependencies
 # ============================================================================
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 
-# Install system dependencies for native modules
-RUN apk add --no-cache libc6-compat python3 make g++
+# Install dependencies for native packages
+RUN apk add --no-cache libc6-compat
 
 # Copy package files
 COPY package.json package-lock.json* ./
 
-# Install dependencies with legacy peer deps flag
-RUN npm ci --legacy-peer-deps --production=false
+# Install ALL dependencies (including dev) with BuildKit cache mount for 50-90% faster builds
+# Dev dependencies needed for build stage
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --legacy-peer-deps
 
 # ============================================================================
 # Stage 2: Builder
 # ============================================================================
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
+
+# Install build dependencies for native modules
+RUN apk add --no-cache python3 make g++
 
 # Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
@@ -32,21 +38,22 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
-# Build the application (standalone output)
-RUN npm run build
+# Build with cache mount for Next.js build artifacts
+RUN --mount=type=cache,target=/app/.next/cache \
+    npm run build
 
 # ============================================================================
-# Stage 3: Runner
+# Stage 3: Production Runner
 # ============================================================================
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
+
+# Install tini for proper PID 1 signal handling and curl for health checks
+RUN apk add --no-cache tini curl
 
 # Create non-root user for security
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
-
-# Install curl for health checks
-RUN apk add --no-cache curl
 
 # Set production environment
 ENV NODE_ENV=production
@@ -55,8 +62,9 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
 # Copy only necessary files from builder
+# Note: Next.js standalone output creates nested directory structure
 COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone/aistudio.psd401.ai ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 # Switch to non-root user
@@ -65,9 +73,11 @@ USER nextjs
 # Expose application port
 EXPOSE 3000
 
-# Health check endpoint
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:3000/api/health || exit 1
+# Health check with extended start period for Next.js initialization (60s -> 120s)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:3000/api/healthz || exit 1
 
-# Start the application
+# Use tini as PID 1 for proper signal handling
+# This ensures graceful shutdown when ECS sends SIGTERM
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "server.js"]
