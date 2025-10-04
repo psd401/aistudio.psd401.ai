@@ -13,7 +13,7 @@ import { WebSearchUI } from './_components/tools/web-search-ui'
 import { CodeInterpreterUI } from './_components/tools/code-interpreter-ui'
 import { useModelsWithPersistence } from '@/lib/hooks/use-models'
 import { createEnhancedNexusAttachmentAdapter } from '@/lib/nexus/enhanced-attachment-adapters'
-import { createNexusPollingAdapter } from '@/lib/nexus/nexus-polling-adapter'
+import { createNexusStreamingAdapter } from '@/lib/nexus/nexus-streaming-adapter'
 import { validateConversationId } from '@/lib/nexus/conversation-navigation'
 import type { SelectAiModel } from '@/types'
 import { createLogger } from '@/lib/client-logger'
@@ -24,25 +24,25 @@ const log = createLogger({ moduleName: 'nexus-page' })
 interface ConversationRuntimeProviderProps {
   children: React.ReactNode
   conversationId: string | null
-  pollingAdapter: ChatModelAdapter | null
+  streamingAdapter: ChatModelAdapter | null
   fallbackAdapter: ChatModelAdapter
   attachmentAdapter: AttachmentAdapter
 }
 
-function ConversationRuntimeProvider({ 
-  children, 
+function ConversationRuntimeProvider({
+  children,
   conversationId,
-  pollingAdapter,
+  streamingAdapter,
   fallbackAdapter,
-  attachmentAdapter 
+  attachmentAdapter
 }: ConversationRuntimeProviderProps) {
   const historyAdapter = useMemo(
     () => createNexusHistoryAdapter(conversationId),
     [conversationId]
   )
-  
+
   const runtime = useLocalRuntime(
-    pollingAdapter || fallbackAdapter,
+    streamingAdapter || fallbackAdapter,
     {
       adapters: {
         attachments: attachmentAdapter,
@@ -50,7 +50,7 @@ function ConversationRuntimeProvider({
       },
     }
   )
-  
+
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       {children}
@@ -180,18 +180,17 @@ function NexusPageContent() {
     }
   }, [session, sessionStatus, router])
 
-  // Create the Nexus polling adapter that handles the universal polling architecture
-  const pollingAdapter = useMemo(() => {
+  // Create the Nexus streaming adapter for native SSE streaming
+  const streamingAdapter = useMemo(() => {
     if (!selectedModel) return null;
-    
-    return createNexusPollingAdapter({
+
+    return createNexusStreamingAdapter({
       apiUrl: '/api/nexus/chat',
       bodyFn: () => ({
         modelId: selectedModel.modelId,
         provider: selectedModel.provider,
         enabledTools: enabledToolsRef.current
       }),
-      pollTimeoutMs: 120000, // 2 minutes per poll - allows for longer document processing
       conversationId: conversationId || undefined,
       onConversationIdChange: handleConversationIdChange
     });
@@ -250,7 +249,7 @@ function NexusPageContent() {
           {selectedModel ? (
             <ConversationRuntimeProvider
               conversationId={conversationId}
-              pollingAdapter={pollingAdapter}
+              streamingAdapter={streamingAdapter}
               fallbackAdapter={fallbackAdapter}
               attachmentAdapter={attachmentAdapter}
             >

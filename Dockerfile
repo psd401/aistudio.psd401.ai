@@ -38,6 +38,13 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
+# Dummy environment variables required for Next.js build
+# Real values will be injected at runtime by ECS
+ENV DOCUMENTS_BUCKET_NAME=build-time-placeholder
+ENV NEXT_PUBLIC_AWS_REGION=us-east-1
+ENV RDS_RESOURCE_ARN=arn:aws:rds:us-east-1:000000000000:cluster:build-placeholder
+ENV RDS_SECRET_ARN=arn:aws:secretsmanager:us-east-1:000000000000:secret:build-placeholder
+
 # Build with cache mount for Next.js build artifacts
 RUN --mount=type=cache,target=/app/.next/cache \
     npm run build
@@ -62,9 +69,11 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
 # Copy only necessary files from builder
-# Note: Next.js standalone output creates nested directory structure
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone/aistudio.psd401.ai ./
+# Next.js standalone output - copy everything from standalone directory first
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+# Copy public files to the root (standalone expects them here)
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+# Copy static files to the .next/static location
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 # Switch to non-root user

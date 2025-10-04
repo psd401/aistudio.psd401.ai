@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 
 export interface AuthStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
@@ -88,6 +89,23 @@ export class AuthStack extends cdk.Stack {
     });
     userPoolClient.node.addDependency(googleProvider);
 
+    // ============================================================================
+    // NextAuth Secret for JWT Signing
+    // ============================================================================
+    const authSecret = new secretsmanager.Secret(this, 'AuthSecret', {
+      secretName: `aistudio-${props.environment}-auth-secret`,
+      description: `NextAuth secret for ${props.environment} environment`,
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({}),
+        generateStringKey: 'AUTH_SECRET',
+        excludePunctuation: true,
+        passwordLength: 32,
+      },
+      removalPolicy: props.environment === 'prod'
+        ? cdk.RemovalPolicy.RETAIN
+        : cdk.RemovalPolicy.DESTROY,
+    });
+
     // Outputs
     new cdk.CfnOutput(this, 'UserPoolId', {
       value: userPool.userPoolId,
@@ -103,6 +121,11 @@ export class AuthStack extends cdk.Stack {
       value: `https://${userPoolDomain.domainName}.auth.${this.region}.amazoncognito.com`,
       description: 'Cognito Domain URL',
       exportName: `${props.environment}-CognitoDomainUrl`,
+    });
+    new cdk.CfnOutput(this, 'AuthSecretArn', {
+      value: authSecret.secretArn,
+      description: 'NextAuth secret ARN',
+      exportName: `${props.environment}-AuthSecretArn`,
     });
   }
 }
