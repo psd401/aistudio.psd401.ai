@@ -8,6 +8,7 @@ import { buildToolsForRequest } from '@/lib/tools/tool-registry';
 import { processMessagesWithAttachments } from '@/lib/services/attachment-storage-service';
 import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
 import type { StreamRequest } from '@/lib/streaming/types';
+import { getModelConfig } from '@/app/api/chat/lib/conversation-handler';
 
 // Allow streaming responses up to 5 minutes for long-running conversations
 export const maxDuration = 300;
@@ -17,7 +18,7 @@ const ChatRequestSchema = z.object({
   messages: z.array(z.any()), // Keep flexible for UI message format
   modelId: z.string(),
   provider: z.string().optional(),
-  conversationId: z.string().optional(),
+  conversationId: z.string().nullable().optional(), // Accept null, undefined, or string
   enabledTools: z.array(z.string()).optional(),
   reasoningEffort: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
   responseMode: z.enum(['standard', 'priority', 'flex']).optional()
@@ -65,11 +66,14 @@ export async function POST(req: Request) {
       enabledTools = []
     } = validationResult.data;
 
+    // Handle null conversationId (treat as undefined for new conversations)
+    const conversationIdValue = existingConversationId || undefined;
+
     log.info('Request parsed', sanitizeForLogging({
       messageCount: messages.length,
       modelId,
       provider,
-      hasConversationId: !!existingConversationId,
+      hasConversationId: !!conversationIdValue,
       enabledTools
     }));
 
@@ -92,17 +96,10 @@ export async function POST(req: Request) {
 
     const userId = currentUser.data.user.id;
 
-    // 4. Get model configuration from database
-    const modelResult = await executeSQL(
-      `SELECT id, provider, model_id, nexus_capabilities, chat_enabled
-       FROM ai_models
-       WHERE model_id = :modelId
-       AND active = true
-       LIMIT 1`,
-      [{ name: 'modelId', value: { stringValue: modelId } }]
-    );
+    // 4. Get model configuration using shared helper (ensures proper field mapping)
+    const modelConfig = await getModelConfig(modelId);
 
-    if (modelResult.length === 0) {
+    if (!modelConfig) {
       log.error('Model not found', { modelId });
       return new Response(
         JSON.stringify({ error: 'Selected model not found' }),
@@ -110,40 +107,33 @@ export async function POST(req: Request) {
       );
     }
 
-    const modelConfig = modelResult[0];
-    const dbModelId = modelConfig.id as number;
-    const capabilities = typeof modelConfig.nexusCapabilities === 'string'
-      ? (() => {
-          try {
-            return JSON.parse(modelConfig.nexusCapabilities);
-          } catch (error) {
-            log.error('Failed to parse nexus capabilities', {
-              modelId,
-              capabilities: modelConfig.nexusCapabilities,
-              error: error instanceof Error ? error.message : String(error)
-            });
-            return null;
-          }
-        })()
-      : modelConfig.nexusCapabilities;
-    const isImageGenerationModel = capabilities?.imageGeneration === true;
-    const isChatEnabled = modelConfig.chatEnabled || modelConfig.chat_enabled;
+    const dbModelId = modelConfig.id;
 
-    // Image generation models don't need chat_enabled=true since they work differently
-    if (!isImageGenerationModel && !isChatEnabled) {
-      log.error('Model not enabled for chat', { modelId, isChatEnabled });
-      return new Response(
-        JSON.stringify({ error: 'Selected model not enabled for chat' }),
-        { status: 404, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
+    // Check if this is an image generation model
+    // Note: getModelConfig doesn't return nexus_capabilities, so we query it separately if needed
+    const nexusCapabilitiesResult = await executeSQL(
+      `SELECT nexus_capabilities FROM ai_models WHERE id = :id LIMIT 1`,
+      [{ name: 'id', value: { longValue: dbModelId } }]
+    );
+
+    const capabilities = nexusCapabilitiesResult.length > 0 && nexusCapabilitiesResult[0].nexus_capabilities
+      ? (typeof nexusCapabilitiesResult[0].nexus_capabilities === 'string'
+          ? JSON.parse(nexusCapabilitiesResult[0].nexus_capabilities)
+          : nexusCapabilitiesResult[0].nexus_capabilities)
+      : null;
+
+    const isImageGenerationModel = capabilities?.imageGeneration === true;
+
+    // Note: getModelConfig already filters by chat_enabled=true, so if we got a model, it's chat-enabled
+    // Image generation models are handled separately below
 
     log.info('Model configured', sanitizeForLogging({
       provider: modelConfig.provider,
       modelId: modelConfig.model_id,
       dbId: dbModelId,
       isImageGeneration: isImageGenerationModel,
-      isChatEnabled
+      modelIdType: typeof modelConfig.model_id,
+      providerType: typeof modelConfig.provider
     }));
 
     // 5. Handle image generation models separately (not via streaming)
@@ -219,7 +209,7 @@ export async function POST(req: Request) {
     }
 
     // 6. Handle conversation (create new or use existing)
-    let conversationId: string = existingConversationId || '';
+    let conversationId: string = conversationIdValue || '';
     let conversationTitle = 'New Conversation';
 
     if (!conversationId) {
@@ -444,15 +434,26 @@ export async function POST(req: Request) {
       conversationId
     });
 
+    // Add debug logging before streaming
+    log.info('StreamRequest validation', {
+      hasModelId: !!modelConfig.model_id,
+      modelIdType: typeof modelConfig.model_id,
+      modelIdValue: modelConfig.model_id,
+      hasProvider: !!modelConfig.provider,
+      providerValue: modelConfig.provider,
+      hasMessages: !!lightweightMessages,
+      messageCount: lightweightMessages?.length
+    });
+
     // Create streaming request with callbacks
     const streamRequest: StreamRequest = {
       messages: lightweightMessages as UIMessage[],
-      modelId: modelConfig.model_id as string,
-      provider: modelConfig.provider as string,
+      modelId: modelConfig.model_id, // getModelConfig returns proper string type
+      provider: modelConfig.provider, // getModelConfig returns proper string type
       userId: userId.toString(),
       sessionId: session.sub,
       conversationId,
-      source: 'chat', // Using 'chat' as source since 'nexus' is not in the type
+      source: 'nexus',
       systemPrompt,
       tools,
       options: {
@@ -557,7 +558,7 @@ export async function POST(req: Request) {
     };
 
     // Only send conversation ID header for new conversations
-    if (!existingConversationId && conversationId) {
+    if (!conversationIdValue && conversationId) {
       responseHeaders['X-Conversation-Id'] = conversationId;
       responseHeaders['X-Conversation-Title'] = encodeURIComponent(conversationTitle || 'New Conversation');
     }

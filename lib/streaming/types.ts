@@ -16,7 +16,7 @@ export interface StreamRequest {
   conversationId?: string | number;
   
   // Request source and metadata
-  source: 'chat' | 'compare' | 'assistant_execution' | 'ai-helpers';
+  source: 'chat' | 'compare' | 'assistant_execution' | 'ai-helpers' | 'nexus';
   executionId?: number;
   documentId?: string;
   
