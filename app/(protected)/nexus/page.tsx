@@ -1,10 +1,11 @@
 'use client'
 
-import { AssistantRuntimeProvider, useLocalRuntime, type ChatModelAdapter, type AttachmentAdapter } from '@assistant-ui/react'
+import { AssistantRuntimeProvider, type AttachmentAdapter } from '@assistant-ui/react'
+import { useChatRuntime, AssistantChatTransport } from '@assistant-ui/react-ai-sdk'
 import { Thread } from '@/components/assistant-ui/thread'
 import { useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useCallback, useState, useRef, Suspense } from 'react'
+import { useEffect, useMemo, useCallback, useState, Suspense } from 'react'
 import { NexusShell } from './_components/layout/nexus-shell'
 import { ErrorBoundary } from './_components/error-boundary'
 import { ConversationPanel } from './_components/conversation-panel'
@@ -13,27 +14,26 @@ import { WebSearchUI } from './_components/tools/web-search-ui'
 import { CodeInterpreterUI } from './_components/tools/code-interpreter-ui'
 import { useModelsWithPersistence } from '@/lib/hooks/use-models'
 import { createEnhancedNexusAttachmentAdapter } from '@/lib/nexus/enhanced-attachment-adapters'
-import { createNexusStreamingAdapter } from '@/lib/nexus/nexus-streaming-adapter'
 import { validateConversationId } from '@/lib/nexus/conversation-navigation'
 import type { SelectAiModel } from '@/types'
 import { createLogger } from '@/lib/client-logger'
 
 const log = createLogger({ moduleName: 'nexus-page' })
 
-// Stable ConversationRuntime component - no remounting when conversationId changes
+// Stable ConversationRuntime component using official AI SDK runtime
 interface ConversationRuntimeProviderProps {
   children: React.ReactNode
   conversationId: string | null
-  streamingAdapter: ChatModelAdapter | null
-  fallbackAdapter: ChatModelAdapter
+  selectedModel: SelectAiModel | null
+  enabledTools: string[]
   attachmentAdapter: AttachmentAdapter
 }
 
 function ConversationRuntimeProvider({
   children,
   conversationId,
-  streamingAdapter,
-  fallbackAdapter,
+  selectedModel,
+  enabledTools,
   attachmentAdapter
 }: ConversationRuntimeProviderProps) {
   const historyAdapter = useMemo(
@@ -41,15 +41,23 @@ function ConversationRuntimeProvider({
     [conversationId]
   )
 
-  const runtime = useLocalRuntime(
-    streamingAdapter || fallbackAdapter,
-    {
-      adapters: {
-        attachments: attachmentAdapter,
-        history: historyAdapter,
-      },
+  // Use official useChatRuntime from @assistant-ui/react-ai-sdk
+  // This natively understands AI SDK's streaming format
+  const runtime = useChatRuntime({
+    transport: new AssistantChatTransport({
+      api: '/api/nexus/chat',
+      body: selectedModel ? {
+        modelId: selectedModel.modelId,
+        provider: selectedModel.provider,
+        enabledTools,
+        conversationId: conversationId || undefined
+      } : {}
+    }),
+    adapters: {
+      attachments: attachmentAdapter,
+      history: historyAdapter,
     }
-  )
+  })
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -88,22 +96,16 @@ function NexusPageContent() {
   
   // Tool management state
   const [enabledTools, setEnabledTools] = useState<string[]>([])
-  const enabledToolsRef = useRef(enabledTools)
-  
+
   // Attachment processing state
   const [processingAttachments, setProcessingAttachments] = useState<Set<string>>(new Set())
-  
+
   // Conversation continuity state - initialize from validated URL parameter
   const [conversationId, setConversationId] = useState<string | null>(validatedConversationId)
-  
-  
+
+
   // Conversation context for history adapter
   const conversationContext = useConversationContext()
-  
-  // Keep ref in sync with state
-  useEffect(() => {
-    enabledToolsRef.current = enabledTools
-  }, [enabledTools])
   
   // Debug logging for enabled tools
   useEffect(() => {
@@ -147,13 +149,13 @@ function NexusPageContent() {
   const handleConversationIdChange = useCallback((newConversationId: string) => {
     setConversationId(newConversationId)
     conversationContext.setConversationId(newConversationId)
-    
+
     // Update URL to reflect the current conversation
     const newUrl = `/nexus?id=${newConversationId}`
     router.push(newUrl, { scroll: false })
-    
-    log.debug('Conversation ID updated', { 
-      previousId: conversationId, 
+
+    log.debug('Conversation ID updated', {
+      previousId: conversationId,
       newId: newConversationId,
       newUrl
     })
@@ -179,34 +181,6 @@ function NexusPageContent() {
       return
     }
   }, [session, sessionStatus, router])
-
-  // Create the Nexus streaming adapter for native SSE streaming
-  const streamingAdapter = useMemo(() => {
-    if (!selectedModel) return null;
-
-    return createNexusStreamingAdapter({
-      apiUrl: '/api/nexus/chat',
-      bodyFn: () => ({
-        modelId: selectedModel.modelId,
-        provider: selectedModel.provider,
-        enabledTools: enabledToolsRef.current
-      }),
-      conversationId: conversationId || undefined,
-      onConversationIdChange: handleConversationIdChange
-    });
-  }, [selectedModel, conversationId, handleConversationIdChange]);
-
-  // Fallback adapter for when no model is selected
-  const fallbackAdapter = useMemo(() => ({
-    async run() {
-      return {
-        content: [{ 
-          type: 'text' as const, 
-          text: 'Please select a model to start chatting.' 
-        }]
-      }
-    }
-  }), [])
 
   // Create attachment adapter with processing callbacks
   const attachmentAdapter = useMemo(() => {
@@ -249,8 +223,8 @@ function NexusPageContent() {
           {selectedModel ? (
             <ConversationRuntimeProvider
               conversationId={conversationId}
-              streamingAdapter={streamingAdapter}
-              fallbackAdapter={fallbackAdapter}
+              selectedModel={selectedModel}
+              enabledTools={enabledTools}
               attachmentAdapter={attachmentAdapter}
             >
               {/* Register tool UI components */}
