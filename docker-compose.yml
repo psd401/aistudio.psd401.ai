@@ -20,6 +20,10 @@ services:
       # Next.js configuration
       - NEXT_TELEMETRY_DISABLED=1
 
+      # Memory optimization - 70% of container memory (2GB = 1400MB)
+      # Adjust based on actual resource limits below
+      - NODE_OPTIONS=--max-old-space-size=1400
+
       # AWS Configuration (for local testing, use your own credentials)
       # In production, these come from ECS task role
       - AWS_REGION=${AWS_REGION:-us-west-2}

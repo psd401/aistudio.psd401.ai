@@ -14,9 +14,10 @@ RUN apk add --no-cache libc6-compat
 # Copy package files
 COPY package.json package-lock.json* ./
 
-# Install dependencies with BuildKit cache mount for 50-90% faster builds
+# Install ALL dependencies (including dev) with BuildKit cache mount for 50-90% faster builds
+# Dev dependencies needed for build stage
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --legacy-peer-deps --omit=dev
+    npm ci --legacy-peer-deps
 
 # ============================================================================
 # Stage 2: Builder
@@ -59,10 +60,6 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
-
-# Memory optimization - set to 70% of container memory (assuming 2GB = 1400MB)
-# Adjust NODE_OPTIONS based on actual ECS task memory allocation
-ENV NODE_OPTIONS="--max-old-space-size=1400"
 
 # Copy only necessary files from builder
 COPY --from=builder /app/public ./public

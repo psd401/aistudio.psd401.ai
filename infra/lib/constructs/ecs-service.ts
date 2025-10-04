@@ -273,11 +273,22 @@ export class EcsServiceConstruct extends Construct {
         // AUTH_SECRET: ecs.Secret.fromSecretsManager(),
         // etc.
       },
-      // Security: Read-only root filesystem
-      readonlyRootFilesystem: false, // Next.js needs to write to /tmp
+      // Security: Read-only root filesystem with tmpfs mounts for writable directories
+      readonlyRootFilesystem: true,
       // Enable init process for proper signal handling (tini)
       linuxParameters: new ecs.LinuxParameters(this, 'LinuxParameters', {
         initProcessEnabled: true, // Critical for graceful shutdown
+        // Add tmpfs mounts for Next.js writable directories
+        tmpfs: [
+          {
+            containerPath: '/tmp',
+            size: 512, // MB
+          },
+          {
+            containerPath: '/app/.next/cache',
+            size: 256, // MB
+          },
+        ],
       }),
       // File descriptor limits
       ulimits: [

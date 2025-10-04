@@ -1,5 +1,6 @@
 /* eslint-disable logging/require-request-id */
 import { NextResponse } from "next/server"
+import { createLogger } from "@/lib/logger"
 
 /**
  * Lightweight Health Check Endpoint for ECS/Container Health Checks
@@ -15,17 +16,36 @@ import { NextResponse } from "next/server"
  * Note: Request ID generation is disabled for this endpoint to keep it lightweight.
  */
 export async function GET() {
-  return NextResponse.json(
-    {
-      status: "ok",
-      timestamp: new Date().toISOString()
-    },
-    {
-      status: 200,
-      headers: {
-        "Cache-Control": "no-store, no-cache, must-revalidate",
-        "Content-Type": "application/json"
+  const log = createLogger({ context: "healthz" })
+
+  try {
+    return NextResponse.json(
+      {
+        status: "ok",
+        timestamp: new Date().toISOString()
+      },
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+          "Content-Type": "application/json"
+        }
       }
-    }
-  )
+    )
+  } catch (error) {
+    log.error("Health check failed", { error })
+    return NextResponse.json(
+      {
+        status: "error",
+        timestamp: new Date().toISOString()
+      },
+      {
+        status: 503,
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+          "Content-Type": "application/json"
+        }
+      }
+    )
+  }
 }
