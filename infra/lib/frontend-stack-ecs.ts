@@ -18,6 +18,11 @@ export interface FrontendStackEcsProps extends cdk.StackProps {
    * If false, will create a new VPC for ECS (not recommended - prefer VPC sharing)
    */
   useExistingVpc?: boolean;
+  /**
+   * If false, skip DNS and certificate setup.
+   * Useful for CI/CD validation where hosted zones don't exist.
+   */
+  setupDns?: boolean;
 }
 
 /**
@@ -82,6 +87,7 @@ export class FrontendStackEcs extends cdk.Stack {
       documentsBucketName,
       enableContainerInsights: true,
       enableFargateSpot: environment === 'dev', // Cost optimization for dev
+      createHttpListener: false, // We'll create HTTP listener with redirect below
     });
 
     // ============================================================================
@@ -89,45 +95,54 @@ export class FrontendStackEcs extends cdk.Stack {
     // ============================================================================
     const subdomain = environment === 'dev' ? `dev.${baseDomain}` : baseDomain;
 
-    // Look up hosted zone
-    const hostedZone = route53.HostedZone.fromLookup(this, 'HostedZone', {
-      domainName: baseDomain,
-    });
+    if (props.setupDns !== false) {
 
-    // Create SSL certificate
-    const certificate = new acm.Certificate(this, 'Certificate', {
-      domainName: subdomain,
-      validation: acm.CertificateValidation.fromDns(hostedZone),
-    });
+      // Look up hosted zone
+      const hostedZone = route53.HostedZone.fromLookup(this, 'HostedZone', {
+        domainName: baseDomain,
+      });
 
-    // Add HTTPS listener with certificate
-    const httpsListener = this.ecsService.loadBalancer.addListener('HttpsListener', {
-      port: 443,
-      protocol: elbv2.ApplicationProtocol.HTTPS,
-      certificates: [certificate],
-      defaultTargetGroups: [this.ecsService.targetGroup],
-    });
+      // Create SSL certificate
+      const certificate = new acm.Certificate(this, 'Certificate', {
+        domainName: subdomain,
+        validation: acm.CertificateValidation.fromDns(hostedZone),
+      });
 
-    // Get the HTTP listener and configure it to redirect to HTTPS
-    const httpListener = this.ecsService.loadBalancer.listeners[0];
-    // Remove existing default action by configuring new default action
-    httpListener.addAction('DefaultRedirectToHttps', {
-      action: elbv2.ListenerAction.redirect({
-        protocol: 'HTTPS',
-        port: '443',
-        permanent: true,
-      }),
-      priority: 1,
-    });
+      // Add HTTPS listener with certificate
+      const httpsListener = this.ecsService.loadBalancer.addListener('HttpsListener', {
+        port: 443,
+        protocol: elbv2.ApplicationProtocol.HTTPS,
+        certificates: [certificate],
+        defaultTargetGroups: [this.ecsService.targetGroup],
+      });
 
-    // Create DNS record pointing to ALB
-    new route53.ARecord(this, 'AliasRecord', {
-      zone: hostedZone,
-      recordName: subdomain,
-      target: route53.RecordTarget.fromAlias(
-        new targets.LoadBalancerTarget(this.ecsService.loadBalancer)
-      ),
-    });
+      // Create HTTP listener that redirects to HTTPS
+      this.ecsService.loadBalancer.addListener('HttpListener', {
+        port: 80,
+        protocol: elbv2.ApplicationProtocol.HTTP,
+        defaultAction: elbv2.ListenerAction.redirect({
+          protocol: 'HTTPS',
+          port: '443',
+          permanent: true,
+        }),
+      });
+
+      // Create DNS record pointing to ALB
+      new route53.ARecord(this, 'AliasRecord', {
+        zone: hostedZone,
+        recordName: subdomain,
+        target: route53.RecordTarget.fromAlias(
+          new targets.LoadBalancerTarget(this.ecsService.loadBalancer)
+        ),
+      });
+    } else {
+      // No DNS setup - create HTTP listener only for development/CI
+      this.ecsService.loadBalancer.addListener('HttpListener', {
+        port: 80,
+        protocol: elbv2.ApplicationProtocol.HTTP,
+        defaultTargetGroups: [this.ecsService.targetGroup],
+      });
+    }
 
     // ============================================================================
     // AWS WAF for Application Protection

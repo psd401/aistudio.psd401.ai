@@ -15,6 +15,11 @@ export interface EcsServiceConstructProps {
   documentsBucketName: string;
   enableContainerInsights?: boolean;
   enableFargateSpot?: boolean;
+  /**
+   * If false, HTTP listener will not be created automatically.
+   * This allows the parent stack to configure HTTPS and HTTP->HTTPS redirect.
+   */
+  createHttpListener?: boolean;
 }
 
 /**
@@ -126,7 +131,10 @@ export class EcsServiceConstruct extends Construct {
         'secretsmanager:GetSecretValue',
         'secretsmanager:DescribeSecret',
       ],
-      resources: ['*'], // TODO: Scope to specific secrets
+      resources: [
+        `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:aistudio-${environment}-*`,
+        `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:aistudio/${environment}/*`,
+      ],
     }));
 
     // Task Role - for application permissions (same as current SSR Compute Role)
@@ -145,7 +153,9 @@ export class EcsServiceConstruct extends Construct {
                 'rds-data:CommitTransaction',
                 'rds-data:RollbackTransaction',
               ],
-              resources: ['*'],
+              resources: [
+                `arn:aws:rds:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:cluster:aistudio-${environment}`,
+              ],
             }),
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
@@ -153,7 +163,10 @@ export class EcsServiceConstruct extends Construct {
                 'secretsmanager:GetSecretValue',
                 'secretsmanager:DescribeSecret',
               ],
-              resources: ['*'],
+              resources: [
+                `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:aistudio-${environment}-*`,
+                `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:aistudio/${environment}/*`,
+              ],
             }),
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
@@ -177,7 +190,9 @@ export class EcsServiceConstruct extends Construct {
                 'sqs:GetQueueAttributes',
                 'sqs:GetQueueUrl',
               ],
-              resources: ['*'], // TODO: Scope to specific queues
+              resources: [
+                `arn:aws:sqs:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:aistudio-${environment}-*`,
+              ],
             }),
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
@@ -195,7 +210,9 @@ export class EcsServiceConstruct extends Construct {
                 'dynamodb:Query',
                 'dynamodb:Scan',
               ],
-              resources: ['*'], // TODO: Scope to specific tables
+              resources: [
+                `arn:aws:dynamodb:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:table/aistudio-${environment}-*`,
+              ],
             }),
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
@@ -234,6 +251,9 @@ export class EcsServiceConstruct extends Construct {
     const container = taskDefinition.addContainer('NextJsContainer', {
       containerName: 'nextjs-app',
       image: ecs.ContainerImage.fromEcrRepository(this.repository, 'latest'),
+      memoryLimitMiB: memory,
+      memoryReservationMiB: Math.floor(memory * 0.8), // Soft limit for better resource management
+      cpu,
       logging: ecs.LogDrivers.awsLogs({
         logGroup,
         streamPrefix: 'frontend',
@@ -332,13 +352,15 @@ export class EcsServiceConstruct extends Construct {
       targets: [this.service],
     });
 
-    // HTTP Listener - primary listener for ECS communication
-    // SSL/TLS termination will be added via ACM certificate after domain setup
-    this.loadBalancer.addListener('HttpListener', {
-      port: 80,
-      protocol: elbv2.ApplicationProtocol.HTTP,
-      defaultTargetGroups: [this.targetGroup],
-    });
+    // HTTP Listener - only create if explicitly requested
+    // For production, parent stack should configure HTTPS and HTTP->HTTPS redirect
+    if (props.createHttpListener !== false) {
+      this.loadBalancer.addListener('HttpListener', {
+        port: 80,
+        protocol: elbv2.ApplicationProtocol.HTTP,
+        defaultTargetGroups: [this.targetGroup],
+      });
+    }
 
     // ============================================================================
     // Auto Scaling
