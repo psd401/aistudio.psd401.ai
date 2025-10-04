@@ -263,6 +263,8 @@ export class EcsServiceConstruct extends Construct {
         AWS_REGION: cdk.Stack.of(this).region,
         NEXT_PUBLIC_AWS_REGION: cdk.Stack.of(this).region,
         PORT: '3000',
+        // Memory optimization - 70% of container memory
+        NODE_OPTIONS: `--max-old-space-size=${Math.floor(memory * 0.7)}`,
       },
       // Secrets will be injected from Secrets Manager/SSM at runtime
       secrets: {
@@ -271,12 +273,26 @@ export class EcsServiceConstruct extends Construct {
         // AUTH_SECRET: ecs.Secret.fromSecretsManager(),
         // etc.
       },
+      // Security: Read-only root filesystem
+      readonlyRootFilesystem: false, // Next.js needs to write to /tmp
+      // Enable init process for proper signal handling (tini)
+      linuxParameters: new ecs.LinuxParameters(this, 'LinuxParameters', {
+        initProcessEnabled: true, // Critical for graceful shutdown
+      }),
+      // File descriptor limits
+      ulimits: [
+        {
+          name: ecs.UlimitName.NOFILE,
+          softLimit: 65536,
+          hardLimit: 65536,
+        },
+      ],
       healthCheck: {
-        command: ['CMD-SHELL', 'curl -f http://localhost:3000/api/health || exit 1'],
+        command: ['CMD-SHELL', 'curl -f http://localhost:3000/api/healthz || exit 1'],
         interval: cdk.Duration.seconds(30),
         timeout: cdk.Duration.seconds(5),
         retries: 3,
-        startPeriod: cdk.Duration.seconds(60),
+        startPeriod: cdk.Duration.seconds(120), // Increased from 60s for Next.js startup
       },
     });
 
@@ -340,7 +356,7 @@ export class EcsServiceConstruct extends Construct {
       protocol: elbv2.ApplicationProtocol.HTTP,
       targetType: elbv2.TargetType.IP,
       healthCheck: {
-        path: '/api/health',
+        path: '/api/healthz', // Use lightweight endpoint for ALB health checks
         interval: cdk.Duration.seconds(30),
         timeout: cdk.Duration.seconds(5),
         healthyThresholdCount: 2,

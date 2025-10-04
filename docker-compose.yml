@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # Next.js Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Enable BuildKit for cache mounts
+      args:
+        DOCKER_BUILDKIT: 1
+    ports:
+      - "3000:3000"
+    environment:
+      # Node environment
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+
+      # Next.js configuration
+      - NEXT_TELEMETRY_DISABLED=1
+
+      # AWS Configuration (for local testing, use your own credentials)
+      # In production, these come from ECS task role
+      - AWS_REGION=${AWS_REGION:-us-west-2}
+      - NEXT_PUBLIC_AWS_REGION=${NEXT_PUBLIC_AWS_REGION:-us-west-2}
+
+      # Authentication (Cognito)
+      - AUTH_URL=${AUTH_URL}
+      - AUTH_SECRET=${AUTH_SECRET}
+      - AUTH_COGNITO_CLIENT_ID=${AUTH_COGNITO_CLIENT_ID}
+      - AUTH_COGNITO_ISSUER=${AUTH_COGNITO_ISSUER}
+      - NEXT_PUBLIC_COGNITO_USER_POOL_ID=${NEXT_PUBLIC_COGNITO_USER_POOL_ID}
+      - NEXT_PUBLIC_COGNITO_CLIENT_ID=${NEXT_PUBLIC_COGNITO_CLIENT_ID}
+      - NEXT_PUBLIC_COGNITO_DOMAIN=${NEXT_PUBLIC_COGNITO_DOMAIN}
+
+      # Database (RDS)
+      - RDS_RESOURCE_ARN=${RDS_RESOURCE_ARN}
+      - RDS_SECRET_ARN=${RDS_SECRET_ARN}
+
+      # Optional: AWS Credentials (for local development only)
+      # In production, use ECS task role
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+    # Enable init process for proper signal handling
+    init: true
+
+    restart: unless-stopped
+
+networks:
+  default:
+    name: aistudio-network

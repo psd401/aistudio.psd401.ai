@@ -6,6 +6,7 @@ yarn-error.log*
 
 # Next.js
 .next
+.next/cache
 out
 
 # Testing
@@ -56,3 +57,8 @@ playwright.config.ts
 # Build artifacts
 dist
 build
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
