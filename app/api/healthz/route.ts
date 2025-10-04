@@ -1,6 +1,5 @@
-/* eslint-disable logging/require-request-id */
 import { NextResponse } from "next/server"
-import { createLogger } from "@/lib/logger"
+import { createLogger, generateRequestId } from "@/lib/logger"
 
 /**
  * Lightweight Health Check Endpoint for ECS/Container Health Checks
@@ -12,11 +11,10 @@ import { createLogger } from "@/lib/logger"
  *
  * Returns 200 OK if the Next.js server is running and responsive.
  * For detailed health checks including database connectivity, use /api/health instead.
- *
- * Note: Request ID generation is disabled for this endpoint to keep it lightweight.
  */
 export async function GET() {
-  const log = createLogger({ context: "healthz" })
+  const requestId = generateRequestId()
+  const log = createLogger({ requestId, context: "healthz" })
 
   try {
     return NextResponse.json(

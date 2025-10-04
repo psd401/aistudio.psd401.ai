@@ -244,6 +244,15 @@ export class EcsServiceConstruct extends Construct {
         cpuArchitecture: ecs.CpuArchitecture.ARM64,
         operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
       },
+      // Add tmpfs volumes for read-only filesystem support
+      volumes: [
+        {
+          name: 'tmp',
+        },
+        {
+          name: 'nextjs-cache',
+        },
+      ],
     });
 
     // Retrieve environment variables from SSM Parameter Store
@@ -278,17 +287,6 @@ export class EcsServiceConstruct extends Construct {
       // Enable init process for proper signal handling (tini)
       linuxParameters: new ecs.LinuxParameters(this, 'LinuxParameters', {
         initProcessEnabled: true, // Critical for graceful shutdown
-        // Add tmpfs mounts for Next.js writable directories
-        tmpfs: [
-          {
-            containerPath: '/tmp',
-            size: 512, // MB
-          },
-          {
-            containerPath: '/app/.next/cache',
-            size: 256, // MB
-          },
-        ],
       }),
       // File descriptor limits
       ulimits: [
@@ -305,6 +303,18 @@ export class EcsServiceConstruct extends Construct {
         retries: 3,
         startPeriod: cdk.Duration.seconds(120), // Increased from 60s for Next.js startup
       },
+    });
+
+    // Add tmpfs mount points for writable directories in read-only filesystem
+    container.addMountPoints({
+      containerPath: '/tmp',
+      sourceVolume: 'tmp',
+      readOnly: false,
+    });
+    container.addMountPoints({
+      containerPath: '/app/.next/cache',
+      sourceVolume: 'nextjs-cache',
+      readOnly: false,
     });
 
     container.addPortMappings({

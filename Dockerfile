@@ -62,8 +62,9 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
 # Copy only necessary files from builder
+# Note: Next.js standalone output creates nested directory structure
 COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone/aistudio.psd401.ai ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 # Switch to non-root user
