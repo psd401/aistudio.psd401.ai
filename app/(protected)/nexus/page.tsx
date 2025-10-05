@@ -10,8 +10,7 @@ import { NexusShell } from './_components/layout/nexus-shell'
 import { ErrorBoundary } from './_components/error-boundary'
 import { ConversationPanel } from './_components/conversation-panel'
 import { useConversationContext, createNexusHistoryAdapter } from '@/lib/nexus/history-adapter'
-import { WebSearchUI } from './_components/tools/web-search-ui'
-import { CodeInterpreterUI } from './_components/tools/code-interpreter-ui'
+import { MultiProviderToolUIs } from './_components/tools/multi-provider-tools'
 import { useModelsWithPersistence } from '@/lib/hooks/use-models'
 import { createEnhancedNexusAttachmentAdapter } from '@/lib/nexus/enhanced-attachment-adapters'
 import { validateConversationId } from '@/lib/nexus/conversation-navigation'
@@ -227,14 +226,13 @@ function NexusPageContent() {
               enabledTools={enabledTools}
               attachmentAdapter={attachmentAdapter}
             >
-              {/* Register tool UI components */}
-              <WebSearchUI />
-              <CodeInterpreterUI />
-              
+              {/* Register tool UI components for all providers */}
+              <MultiProviderToolUIs />
+
               <div className="flex h-full flex-col">
                 <Thread processingAttachments={processingAttachments} conversationId={conversationId} />
               </div>
-              <ConversationPanel 
+              <ConversationPanel
                 selectedConversationId={conversationId}
               />
             </ConversationRuntimeProvider>
