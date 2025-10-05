@@ -26,6 +26,7 @@ interface ConversationRuntimeProviderProps {
   selectedModel: SelectAiModel | null
   enabledTools: string[]
   attachmentAdapter: AttachmentAdapter
+  onConversationIdChange?: (conversationId: string) => void
 }
 
 function ConversationRuntimeProvider({
@@ -33,7 +34,8 @@ function ConversationRuntimeProvider({
   conversationId,
   selectedModel,
   enabledTools,
-  attachmentAdapter
+  attachmentAdapter,
+  onConversationIdChange
 }: ConversationRuntimeProviderProps) {
   const historyAdapter = useMemo(
     () => createNexusHistoryAdapter(conversationId),
@@ -46,16 +48,46 @@ function ConversationRuntimeProvider({
     enabledToolsRef.current = enabledTools
   }, [enabledTools])
 
+  // Use ref for conversation ID to ensure synchronous updates
+  // This prevents race conditions when sending multiple messages quickly
+  const conversationIdRef = useRef(conversationId)
+  useEffect(() => {
+    conversationIdRef.current = conversationId
+  }, [conversationId])
+
+  // Custom fetch to intercept X-Conversation-Id header for conversation continuity
+  const customFetch = useCallback(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await fetch(input, init)
+
+    // Extract conversation ID from response header (new conversations only)
+    const newConversationId = response.headers.get('X-Conversation-Id')
+    if (newConversationId && newConversationId !== conversationIdRef.current) {
+      log.debug('Received new conversation ID from server', {
+        newConversationId,
+        currentConversationId: conversationIdRef.current
+      })
+      // Update ref immediately for synchronous access in next message
+      conversationIdRef.current = newConversationId
+      // Update parent state for URL and component updates
+      if (onConversationIdChange) {
+        onConversationIdChange(newConversationId)
+      }
+    }
+
+    return response
+  }, [onConversationIdChange])
+
   // Use official useChatRuntime from @assistant-ui/react-ai-sdk
   // This natively understands AI SDK's streaming format
   const runtime = useChatRuntime({
     transport: new AssistantChatTransport({
       api: '/api/nexus/chat',
+      fetch: customFetch,
       body: () => selectedModel ? {
         modelId: selectedModel.modelId,
         provider: selectedModel.provider,
         enabledTools: enabledToolsRef.current,
-        conversationId: conversationId || undefined
+        conversationId: conversationIdRef.current || undefined
       } : {}
     }),
     adapters: {
@@ -232,6 +264,7 @@ function NexusPageContent() {
               selectedModel={selectedModel}
               enabledTools={enabledTools}
               attachmentAdapter={attachmentAdapter}
+              onConversationIdChange={handleConversationIdChange}
             >
               {/* Register tool UI components for all providers */}
               <MultiProviderToolUIs />
