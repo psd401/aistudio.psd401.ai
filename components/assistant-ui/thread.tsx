@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MarkdownText } from "./markdown-text";
 import { ToolFallback } from "./tool-fallback";
+import { ToolGroup } from "@/app/(protected)/nexus/_components/tools/tool-group";
 import {
   ComposerAttachments,
   ComposerAddAttachment,
@@ -300,6 +301,7 @@ const AssistantMessage: FC = () => {
           <MessagePrimitive.Content
             components={{
               Text: MarkdownText,
+              ToolGroup: ToolGroup,
               tools: { Fallback: ToolFallback },
             }}
           />

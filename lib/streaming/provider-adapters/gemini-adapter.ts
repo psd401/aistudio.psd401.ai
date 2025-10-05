@@ -1,4 +1,5 @@
-import { google } from '@ai-sdk/google';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import type { ToolSet } from 'ai';
 import { createLogger } from '@/lib/logger';
 import { Settings } from '@/lib/settings-manager';
 import { ErrorFactories } from '@/lib/error-utils';
@@ -16,7 +17,8 @@ const log = createLogger({ module: 'gemini-adapter' });
  */
 export class GeminiAdapter extends BaseProviderAdapter {
   protected providerName = 'google';
-  
+  private googleClient?: ReturnType<typeof createGoogleGenerativeAI>;
+
   async createModel(modelId: string) {
     try {
       const apiKey = await Settings.getGoogleAI();
@@ -24,13 +26,15 @@ export class GeminiAdapter extends BaseProviderAdapter {
         log.error('Google API key not configured');
         throw ErrorFactories.sysConfigurationError('Google API key not configured');
       }
-      
+
       log.debug(`Creating Gemini model: ${modelId}`, { modelId });
-      
-      // Set environment variable for Google SDK
-      process.env.GOOGLE_GENERATIVE_AI_API_KEY = apiKey;
-      
-      return google(modelId);
+
+      // Create and store client instance with API key
+      this.googleClient = createGoogleGenerativeAI({ apiKey });
+      this.providerClient = this.googleClient;
+
+      // Return model from configured client
+      return this.googleClient(modelId);
       
     } catch (error) {
       log.error('Failed to create Gemini model', {
@@ -40,7 +44,56 @@ export class GeminiAdapter extends BaseProviderAdapter {
       throw error;
     }
   }
-  
+
+  /**
+   * Create provider-native tools from stored Google client instance
+   */
+  async createTools(enabledTools: string[]): Promise<ToolSet> {
+    if (!this.googleClient) {
+      log.error('Google client not initialized for tool creation');
+      return {};
+    }
+
+    const tools: Record<string, unknown> = {};
+
+    try {
+      // Map friendly tool names to Google SDK tool methods
+      const toolCreators: Record<string, () => unknown> = {
+        'webSearch': () => this.googleClient!.tools.googleSearch({}),
+        'google_search': () => this.googleClient!.tools.googleSearch({}),
+        // Note: Code execution is built into Gemini models, not a separate tool
+        // Future Gemini-specific tools can be added here
+      };
+
+      for (const toolName of enabledTools) {
+        const creator = toolCreators[toolName];
+        if (creator) {
+          const toolKey = toolName === 'webSearch' ? 'google_search' : toolName;
+          tools[toolKey] = creator();
+          log.debug(`Added Google tool: ${toolKey}`);
+        } else if (toolName === 'codeInterpreter' || toolName === 'code_interpreter') {
+          log.debug('Code execution enabled - built into Gemini models');
+        }
+      }
+
+    } catch (error) {
+      log.error('Failed to create Google tools', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    return tools as ToolSet;
+  }
+
+  /**
+   * Get list of tools supported by Gemini models
+   */
+  getSupportedTools(modelId: string): string[] {
+    // All Gemini models support search
+    // Code execution is built-in, not a tool
+    return ['webSearch'];
+  }
+
   getCapabilities(modelId: string): ProviderCapabilities {
     // Gemini 2.5 models with enhanced reasoning
     if (this.matchesPattern(modelId, ['gemini-2.5*', 'models/gemini-2.5*'])) {

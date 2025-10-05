@@ -4,7 +4,6 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from '@/lib/logger';
 import { executeSQL } from '@/lib/db/data-api-adapter';
-import { buildToolsForRequest } from '@/lib/tools/tool-registry';
 import { processMessagesWithAttachments } from '@/lib/services/attachment-storage-service';
 import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
 import type { StreamRequest } from '@/lib/streaming/types';
@@ -370,23 +369,7 @@ export async function POST(req: Request) {
       log.debug('User message saved to nexus_messages');
     }
 
-    // 8. Build tools based on model capabilities and user selection
-    log.info('Building tools for request', sanitizeForLogging({
-      modelId,
-      provider,
-      enabledTools,
-      enabledToolsLength: enabledTools?.length || 0
-    }));
-
-    const tools = await buildToolsForRequest(modelId, enabledTools, provider);
-
-    log.info('Built tools for request', sanitizeForLogging({
-      modelId,
-      provider,
-      enabledTools,
-      availableToolCount: Object.keys(tools).length,
-      toolNames: Object.keys(tools)
-    }));
+    // 8. Tools will be created by UnifiedStreamingService from enabledTools
 
     // 9. Build system prompt (optional, can add Nexus-specific context here)
     const systemPrompt = `You are a helpful AI assistant in the Nexus interface.`;
@@ -455,7 +438,7 @@ export async function POST(req: Request) {
       conversationId,
       source: 'nexus',
       systemPrompt,
-      tools,
+      enabledTools, // Pass enabledTools - UnifiedStreamingService will create tools from adapter
       options: {
         reasoningEffort: validationResult.data.reasoningEffort || 'medium',
         responseMode: validationResult.data.responseMode || 'standard'

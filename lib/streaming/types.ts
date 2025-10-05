@@ -28,7 +28,8 @@ export interface StreamRequest {
   
   // Tools configuration
   tools?: ToolSet;
-  
+  enabledTools?: string[]; // Tool names to enable (tools will be created by adapter)
+
   // Advanced model options
   options?: {
     // Reasoning configuration
@@ -84,6 +85,7 @@ export interface StreamConfig {
   temperature?: number;
   timeout?: number;
   tools?: ToolSet;
+  toolChoice?: 'auto' | 'required' | { type: 'tool'; toolName: string };
   providerOptions?: Record<string, unknown>;
   experimental_telemetry?: {
     isEnabled: boolean;
@@ -180,7 +182,17 @@ export interface ProviderAdapter {
    * Get provider-specific options for streaming
    */
   getProviderOptions(modelId: string, options?: StreamRequest['options']): Record<string, unknown>;
-  
+
+  /**
+   * Create provider-native tools from stored client instance
+   */
+  createTools(enabledTools: string[]): Promise<ToolSet>;
+
+  /**
+   * Get list of tools supported by a specific model
+   */
+  getSupportedTools(modelId: string): string[];
+
   /**
    * Stream with provider-specific enhancements
    */

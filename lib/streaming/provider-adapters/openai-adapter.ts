@@ -1,5 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { streamText, type CoreMessage } from 'ai';
+import { streamText, type CoreMessage, type ToolSet } from 'ai';
 import { createLogger } from '@/lib/logger';
 import { Settings } from '@/lib/settings-manager';
 import { ErrorFactories } from '@/lib/error-utils';
@@ -17,7 +17,8 @@ const log = createLogger({ module: 'openai-adapter' });
  */
 export class OpenAIAdapter extends BaseProviderAdapter {
   protected providerName = 'openai';
-  
+  private openaiClient?: ReturnType<typeof createOpenAI>;
+
   async createModel(modelId: string, options?: StreamRequest['options']) {
     try {
       const apiKey = await Settings.getOpenAI();
@@ -25,31 +26,19 @@ export class OpenAIAdapter extends BaseProviderAdapter {
         log.error('OpenAI API key not configured or invalid');
         throw ErrorFactories.sysConfigurationError('OpenAI API key not configured');
       }
-      
-      const openai = createOpenAI({ apiKey });
-      
+
+      // Create and store client instance
+      this.openaiClient = createOpenAI({ apiKey });
+      this.providerClient = this.openaiClient;
+
       // Always use Responses API for all OpenAI models
       log.info('Using OpenAI Responses API', {
         modelId,
         reasoningEffort: options?.reasoningEffort || 'medium',
         backgroundMode: options?.backgroundMode || false
       });
-      
-      const model = openai.responses(modelId);
-      
-      // Store metadata for later use
-      const modelWithMetadata = model as typeof model & {
-        __responsesAPI: boolean;
-        __reasoningEffort: 'minimal' | 'low' | 'medium' | 'high';
-        __backgroundMode: boolean;
-        __openai: ReturnType<typeof createOpenAI>;
-      };
-      modelWithMetadata.__responsesAPI = true;
-      modelWithMetadata.__reasoningEffort = options?.reasoningEffort || 'medium';
-      modelWithMetadata.__backgroundMode = options?.backgroundMode || false;
-      modelWithMetadata.__openai = openai;
-      
-      return model;
+
+      return this.openaiClient.responses(modelId);
       
     } catch (error) {
       log.error('Failed to create OpenAI model', {
@@ -59,7 +48,79 @@ export class OpenAIAdapter extends BaseProviderAdapter {
       throw error;
     }
   }
-  
+
+  /**
+   * Create provider-native tools from stored OpenAI client instance
+   */
+  async createTools(enabledTools: string[]): Promise<ToolSet> {
+    if (!this.openaiClient) {
+      log.error('OpenAI client not initialized for tool creation');
+      return {};
+    }
+
+    const tools: Record<string, unknown> = {};
+
+    try {
+      // Map friendly tool names to OpenAI SDK tool methods
+      const toolCreators: Record<string, () => unknown> = {
+        'webSearch': () => this.openaiClient!.tools.webSearchPreview({
+          searchContextSize: 'high'
+        }),
+        'web_search_preview': () => this.openaiClient!.tools.webSearchPreview({
+          searchContextSize: 'high'
+        }),
+        'codeInterpreter': () => this.openaiClient!.tools.codeInterpreter({}),
+        'code_interpreter': () => this.openaiClient!.tools.codeInterpreter({}),
+        // Future tools for GPT-5+
+        // 'fileSearch': () => this.openaiClient!.tools.fileSearch(),
+        // 'imageGeneration': () => this.openaiClient!.tools.imageGeneration(),
+        // 'mcp': () => this.openaiClient!.tools.mcp(),
+      };
+
+      for (const toolName of enabledTools) {
+        const creator = toolCreators[toolName];
+        if (creator) {
+          // Use provider-specific name for tool key
+          const toolKey = toolName === 'webSearch' ? 'web_search_preview' :
+                         toolName === 'codeInterpreter' ? 'code_interpreter' :
+                         toolName;
+          tools[toolKey] = creator();
+          log.debug(`Added OpenAI tool: ${toolKey}`);
+        }
+      }
+
+    } catch (error) {
+      log.error('Failed to create OpenAI tools', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    return tools as ToolSet;
+  }
+
+  /**
+   * Get list of tools supported by a specific OpenAI model
+   */
+  getSupportedTools(modelId: string): string[] {
+    // GPT-5 models support more tools
+    if (this.matchesPattern(modelId, ['gpt-5*', 'gpt-5-*'])) {
+      return ['webSearch', 'codeInterpreter', 'fileSearch', 'imageGeneration', 'mcp'];
+    }
+
+    // o3/o4 reasoning models
+    if (this.matchesPattern(modelId, ['o3*', 'o4*'])) {
+      return ['webSearch', 'codeInterpreter'];
+    }
+
+    // GPT-4 models
+    if (this.matchesPattern(modelId, ['gpt-4*'])) {
+      return ['codeInterpreter'];
+    }
+
+    // Default for unknown models
+    return ['codeInterpreter'];
+  }
+
   getCapabilities(modelId: string): ProviderCapabilities {
     // GPT-5 models
     if (this.matchesPattern(modelId, ['gpt-5*', 'gpt-5-*'])) {
@@ -228,7 +289,7 @@ export class OpenAIAdapter extends BaseProviderAdapter {
             background_mode: modelWithMetadata.__backgroundMode,
             stream_reasoning_summaries: true,
             preserve_reasoning_items: true,
-            
+
             // Response configuration
             response_format: {
               type: 'json_object' as const,
@@ -238,10 +299,9 @@ export class OpenAIAdapter extends BaseProviderAdapter {
                 final_answer: 'string'
               }
             },
-            
+
             // Tool configuration for reasoning models
-            parallel_tool_calls: true,
-            tool_choice: 'auto' as const
+            parallel_tool_calls: true
           }
         }
       };
@@ -252,6 +312,7 @@ export class OpenAIAdapter extends BaseProviderAdapter {
         messages: enhancedConfig.messages as CoreMessage[],
         system: enhancedConfig.system,
         tools: enhancedConfig.tools,
+        toolChoice: enhancedConfig.toolChoice,
         temperature: enhancedConfig.temperature,
         onFinish: async (event) => {
           logger.info('OpenAI streamText onFinish triggered', {

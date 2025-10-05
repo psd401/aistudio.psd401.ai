@@ -5,7 +5,7 @@ import { useChatRuntime, AssistantChatTransport } from '@assistant-ui/react-ai-s
 import { Thread } from '@/components/assistant-ui/thread'
 import { useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useCallback, useState, Suspense } from 'react'
+import { useEffect, useMemo, useCallback, useState, useRef, Suspense } from 'react'
 import { NexusShell } from './_components/layout/nexus-shell'
 import { ErrorBoundary } from './_components/error-boundary'
 import { ConversationPanel } from './_components/conversation-panel'
@@ -40,15 +40,21 @@ function ConversationRuntimeProvider({
     [conversationId]
   )
 
+  // Use ref to prevent stale closure on enabledTools
+  const enabledToolsRef = useRef(enabledTools)
+  useEffect(() => {
+    enabledToolsRef.current = enabledTools
+  }, [enabledTools])
+
   // Use official useChatRuntime from @assistant-ui/react-ai-sdk
   // This natively understands AI SDK's streaming format
   const runtime = useChatRuntime({
     transport: new AssistantChatTransport({
       api: '/api/nexus/chat',
-      body: selectedModel ? {
+      body: () => selectedModel ? {
         modelId: selectedModel.modelId,
         provider: selectedModel.provider,
-        enabledTools,
+        enabledTools: enabledToolsRef.current,
         conversationId: conversationId || undefined
       } : {}
     }),
