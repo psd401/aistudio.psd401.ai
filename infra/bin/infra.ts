@@ -244,8 +244,8 @@ if (baseDomain) {
     baseDomain: 'aistudio.psd401.ai', // The subdomain for AI Studio
     customSubdomain: 'dev-ecs', // Creates dev-ecs.aistudio.psd401.ai (won't conflict with Amplify's dev.aistudio.psd401.ai)
     documentsBucketName: devStorageStack.documentsBucketName,
-    useExistingVpc: true, // Always use VPC sharing pattern (cached in cdk.context.json)
-    setupDns: true, // Enable DNS/certificate setup
+    useExistingVpc: setupDns, // Use VPC sharing in real deployments, create new VPC for CI validation
+    setupDns, // Enable DNS/certificate setup (false for CI validation with example.com)
     env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
   });
   devFrontendStack.addDependency(devDbStack); // Need VPC from DB stack
@@ -258,8 +258,8 @@ if (baseDomain) {
     baseDomain: 'aistudio.psd401.ai', // The subdomain for AI Studio
     // No customSubdomain for prod - will use root: aistudio.psd401.ai
     documentsBucketName: prodStorageStack.documentsBucketName,
-    useExistingVpc: true, // Always use VPC sharing pattern (cached in cdk.context.json)
-    setupDns: true, // Enable DNS/certificate setup
+    useExistingVpc: setupDns, // Use VPC sharing in real deployments, create new VPC for CI validation
+    setupDns, // Enable DNS/certificate setup (false for CI validation with example.com)
     env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
   });
   prodFrontendStack.addDependency(prodDbStack); // Need VPC from DB stack

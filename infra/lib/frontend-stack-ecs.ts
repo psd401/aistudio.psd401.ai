@@ -60,6 +60,7 @@ export class FrontendStackEcs extends cdk.Stack {
       });
     } else {
       // Create new VPC for ECS (not recommended for production)
+      // This VPC config matches the database stack VPC for consistency
       vpc = new ec2.Vpc(this, 'EcsVpc', {
         maxAzs: environment === 'prod' ? 3 : 2,
         natGateways: environment === 'prod' ? 2 : 1,
@@ -72,7 +73,7 @@ export class FrontendStackEcs extends cdk.Stack {
           {
             cidrMask: 24,
             name: 'private',
-            subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+            subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
           },
         ],
       });
