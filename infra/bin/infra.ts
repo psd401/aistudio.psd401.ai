@@ -26,41 +26,49 @@ const baseDomain = app.node.tryGetContext('baseDomain');
 
 // Helper to get callback/logout URLs for any environment
 function getCallbackAndLogoutUrls(environment: string, baseDomain?: string): { callbackUrls: string[], logoutUrls: string[] } {
+  // Determine ECS subdomain based on environment
+  const ecsSubdomain = environment === 'dev'
+    ? `dev-ecs.${baseDomain}`
+    : baseDomain; // Prod uses root domain for ECS
+
+  const urls = {
+    callbackUrls: [
+      baseDomain ? `https://${baseDomain}/` : 'https://example.com/',
+      baseDomain ? `https://${baseDomain}/api/auth/callback/cognito` : 'https://example.com/api/auth/callback/cognito',
+      // ECS URLs
+      baseDomain ? `https://${ecsSubdomain}/` : undefined,
+      baseDomain ? `https://${ecsSubdomain}/api/auth/callback/cognito` : undefined,
+    ].filter(Boolean) as string[],
+    logoutUrls: [
+      baseDomain ? `https://${baseDomain}/` : 'https://example.com/',
+      baseDomain ? `https://${baseDomain}/oauth2/idpresponse` : 'https://example.com/oauth2/idpresponse',
+      // ECS URLs
+      baseDomain ? `https://${ecsSubdomain}/` : undefined,
+      baseDomain ? `https://${ecsSubdomain}/oauth2/idpresponse` : undefined,
+    ].filter(Boolean) as string[],
+  };
+
+  // Add dev-specific URLs (localhost and Amplify dev subdomain)
   if (environment === 'dev') {
-    return {
-      callbackUrls: [
-        'http://localhost:3000/',
-        'http://localhost:3001/',
-        'http://localhost:3000/api/auth/callback/cognito',
-        'http://localhost:3001/api/auth/callback/cognito',
-        baseDomain ? `https://dev.${baseDomain}/` : undefined,
-        baseDomain ? `https://dev.${baseDomain}/api/auth/callback/cognito` : undefined,
-      ].filter(Boolean) as string[],
-      logoutUrls: [
-        'http://localhost:3000/',
-        'http://localhost:3001/',
-        'http://localhost:3000/oauth2/idpresponse',
-        'http://localhost:3001/oauth2/idpresponse',
-        baseDomain ? `https://dev.${baseDomain}/` : undefined,
-        baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : undefined,
-      ].filter(Boolean) as string[],
-    };
-  } else {
-    return {
-      callbackUrls: [
-        baseDomain ? `https://${baseDomain}/` : 'https://example.com/',
-        baseDomain ? `https://dev.${baseDomain}/` : 'https://dev.example.com/',
-        baseDomain ? `https://${baseDomain}/api/auth/callback/cognito` : 'https://example.com/api/auth/callback/cognito',
-        baseDomain ? `https://dev.${baseDomain}/api/auth/callback/cognito` : 'https://dev.example.com/api/auth/callback/cognito',
-      ],
-      logoutUrls: [
-        baseDomain ? `https://${baseDomain}/` : 'https://example.com/',
-        baseDomain ? `https://dev.${baseDomain}/` : 'https://dev.example.com/',
-        baseDomain ? `https://${baseDomain}/oauth2/idpresponse` : 'https://example.com/oauth2/idpresponse',
-        baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : 'https://dev.example.com/oauth2/idpresponse',
-      ],
-    };
+    urls.callbackUrls.push(
+      'http://localhost:3000/',
+      'http://localhost:3001/',
+      'http://localhost:3000/api/auth/callback/cognito',
+      'http://localhost:3001/api/auth/callback/cognito',
+      baseDomain ? `https://dev.${baseDomain}/` : 'https://dev.example.com/',
+      baseDomain ? `https://dev.${baseDomain}/api/auth/callback/cognito` : 'https://dev.example.com/api/auth/callback/cognito'
+    );
+    urls.logoutUrls.push(
+      'http://localhost:3000/',
+      'http://localhost:3001/',
+      'http://localhost:3000/oauth2/idpresponse',
+      'http://localhost:3001/oauth2/idpresponse',
+      baseDomain ? `https://dev.${baseDomain}/` : 'https://dev.example.com/',
+      baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : 'https://dev.example.com/oauth2/idpresponse'
+    );
   }
+
+  return urls;
 }
 
 // Dev environment
@@ -233,10 +241,11 @@ if (baseDomain) {
 
   const devFrontendStack = new FrontendStackEcs(app, 'AIStudio-FrontendStack-ECS-Dev', {
     environment: 'dev',
-    baseDomain,
+    baseDomain: 'aistudio.psd401.ai', // The subdomain for AI Studio
+    customSubdomain: 'dev-ecs', // Creates dev-ecs.aistudio.psd401.ai (won't conflict with Amplify's dev.aistudio.psd401.ai)
     documentsBucketName: devStorageStack.documentsBucketName,
-    useExistingVpc: true, // Always use VPC sharing pattern (cached in cdk.context.json)
-    setupDns, // Skip DNS/certificate setup in CI
+    useExistingVpc: setupDns, // Use VPC sharing in real deployments, create new VPC for CI validation
+    setupDns, // Enable DNS/certificate setup (false for CI validation with example.com)
     env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
   });
   devFrontendStack.addDependency(devDbStack); // Need VPC from DB stack
@@ -246,10 +255,11 @@ if (baseDomain) {
 
   const prodFrontendStack = new FrontendStackEcs(app, 'AIStudio-FrontendStack-ECS-Prod', {
     environment: 'prod',
-    baseDomain,
+    baseDomain: 'aistudio.psd401.ai', // The subdomain for AI Studio
+    // No customSubdomain for prod - will use root: aistudio.psd401.ai
     documentsBucketName: prodStorageStack.documentsBucketName,
-    useExistingVpc: true, // Always use VPC sharing pattern (cached in cdk.context.json)
-    setupDns, // Skip DNS/certificate setup in CI
+    useExistingVpc: setupDns, // Use VPC sharing in real deployments, create new VPC for CI validation
+    setupDns, // Enable DNS/certificate setup (false for CI validation with example.com)
     env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
   });
   prodFrontendStack.addDependency(prodDbStack); // Need VPC from DB stack

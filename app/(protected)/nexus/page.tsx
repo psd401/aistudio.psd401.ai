@@ -1,6 +1,7 @@
 'use client'
 
-import { AssistantRuntimeProvider, useLocalRuntime, type ChatModelAdapter, type AttachmentAdapter } from '@assistant-ui/react'
+import { AssistantRuntimeProvider, type AttachmentAdapter, WebSpeechSynthesisAdapter } from '@assistant-ui/react'
+import { useChatRuntime, AssistantChatTransport } from '@assistant-ui/react-ai-sdk'
 import { Thread } from '@/components/assistant-ui/thread'
 import { useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -9,48 +10,93 @@ import { NexusShell } from './_components/layout/nexus-shell'
 import { ErrorBoundary } from './_components/error-boundary'
 import { ConversationPanel } from './_components/conversation-panel'
 import { useConversationContext, createNexusHistoryAdapter } from '@/lib/nexus/history-adapter'
-import { WebSearchUI } from './_components/tools/web-search-ui'
-import { CodeInterpreterUI } from './_components/tools/code-interpreter-ui'
+import { MultiProviderToolUIs } from './_components/tools/multi-provider-tools'
 import { useModelsWithPersistence } from '@/lib/hooks/use-models'
 import { createEnhancedNexusAttachmentAdapter } from '@/lib/nexus/enhanced-attachment-adapters'
-import { createNexusPollingAdapter } from '@/lib/nexus/nexus-polling-adapter'
 import { validateConversationId } from '@/lib/nexus/conversation-navigation'
 import type { SelectAiModel } from '@/types'
 import { createLogger } from '@/lib/client-logger'
 
 const log = createLogger({ moduleName: 'nexus-page' })
 
-// Stable ConversationRuntime component - no remounting when conversationId changes
+// Stable ConversationRuntime component using official AI SDK runtime
 interface ConversationRuntimeProviderProps {
   children: React.ReactNode
   conversationId: string | null
-  pollingAdapter: ChatModelAdapter | null
-  fallbackAdapter: ChatModelAdapter
+  selectedModel: SelectAiModel | null
+  enabledTools: string[]
   attachmentAdapter: AttachmentAdapter
+  onConversationIdChange?: (conversationId: string) => void
 }
 
-function ConversationRuntimeProvider({ 
-  children, 
+function ConversationRuntimeProvider({
+  children,
   conversationId,
-  pollingAdapter,
-  fallbackAdapter,
-  attachmentAdapter 
+  selectedModel,
+  enabledTools,
+  attachmentAdapter,
+  onConversationIdChange
 }: ConversationRuntimeProviderProps) {
   const historyAdapter = useMemo(
     () => createNexusHistoryAdapter(conversationId),
     [conversationId]
   )
-  
-  const runtime = useLocalRuntime(
-    pollingAdapter || fallbackAdapter,
-    {
-      adapters: {
-        attachments: attachmentAdapter,
-        history: historyAdapter,
-      },
+
+  // Use ref to prevent stale closure on enabledTools
+  const enabledToolsRef = useRef(enabledTools)
+  useEffect(() => {
+    enabledToolsRef.current = enabledTools
+  }, [enabledTools])
+
+  // Use ref for conversation ID to ensure synchronous updates
+  // This prevents race conditions when sending multiple messages quickly
+  const conversationIdRef = useRef(conversationId)
+  useEffect(() => {
+    conversationIdRef.current = conversationId
+  }, [conversationId])
+
+  // Custom fetch to intercept X-Conversation-Id header for conversation continuity
+  const customFetch = useCallback(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await fetch(input, init)
+
+    // Extract conversation ID from response header (new conversations only)
+    const newConversationId = response.headers.get('X-Conversation-Id')
+    if (newConversationId && newConversationId !== conversationIdRef.current) {
+      log.debug('Received new conversation ID from server', {
+        newConversationId,
+        currentConversationId: conversationIdRef.current
+      })
+      // Update ref immediately for synchronous access in next message
+      conversationIdRef.current = newConversationId
+      // Update parent state for URL and component updates
+      if (onConversationIdChange) {
+        onConversationIdChange(newConversationId)
+      }
     }
-  )
-  
+
+    return response
+  }, [onConversationIdChange])
+
+  // Use official useChatRuntime from @assistant-ui/react-ai-sdk
+  // This natively understands AI SDK's streaming format
+  const runtime = useChatRuntime({
+    transport: new AssistantChatTransport({
+      api: '/api/nexus/chat',
+      fetch: customFetch,
+      body: () => selectedModel ? {
+        modelId: selectedModel.modelId,
+        provider: selectedModel.provider,
+        enabledTools: enabledToolsRef.current,
+        conversationId: conversationIdRef.current || undefined
+      } : {}
+    }),
+    adapters: {
+      attachments: attachmentAdapter,
+      history: historyAdapter,
+      speech: new WebSpeechSynthesisAdapter(),
+    }
+  })
+
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       {children}
@@ -88,22 +134,16 @@ function NexusPageContent() {
   
   // Tool management state
   const [enabledTools, setEnabledTools] = useState<string[]>([])
-  const enabledToolsRef = useRef(enabledTools)
-  
+
   // Attachment processing state
   const [processingAttachments, setProcessingAttachments] = useState<Set<string>>(new Set())
-  
+
   // Conversation continuity state - initialize from validated URL parameter
   const [conversationId, setConversationId] = useState<string | null>(validatedConversationId)
-  
-  
+
+
   // Conversation context for history adapter
   const conversationContext = useConversationContext()
-  
-  // Keep ref in sync with state
-  useEffect(() => {
-    enabledToolsRef.current = enabledTools
-  }, [enabledTools])
   
   // Debug logging for enabled tools
   useEffect(() => {
@@ -147,13 +187,13 @@ function NexusPageContent() {
   const handleConversationIdChange = useCallback((newConversationId: string) => {
     setConversationId(newConversationId)
     conversationContext.setConversationId(newConversationId)
-    
+
     // Update URL to reflect the current conversation
     const newUrl = `/nexus?id=${newConversationId}`
     router.push(newUrl, { scroll: false })
-    
-    log.debug('Conversation ID updated', { 
-      previousId: conversationId, 
+
+    log.debug('Conversation ID updated', {
+      previousId: conversationId,
       newId: newConversationId,
       newUrl
     })
@@ -179,35 +219,6 @@ function NexusPageContent() {
       return
     }
   }, [session, sessionStatus, router])
-
-  // Create the Nexus polling adapter that handles the universal polling architecture
-  const pollingAdapter = useMemo(() => {
-    if (!selectedModel) return null;
-    
-    return createNexusPollingAdapter({
-      apiUrl: '/api/nexus/chat',
-      bodyFn: () => ({
-        modelId: selectedModel.modelId,
-        provider: selectedModel.provider,
-        enabledTools: enabledToolsRef.current
-      }),
-      pollTimeoutMs: 120000, // 2 minutes per poll - allows for longer document processing
-      conversationId: conversationId || undefined,
-      onConversationIdChange: handleConversationIdChange
-    });
-  }, [selectedModel, conversationId, handleConversationIdChange]);
-
-  // Fallback adapter for when no model is selected
-  const fallbackAdapter = useMemo(() => ({
-    async run() {
-      return {
-        content: [{ 
-          type: 'text' as const, 
-          text: 'Please select a model to start chatting.' 
-        }]
-      }
-    }
-  }), [])
 
   // Create attachment adapter with processing callbacks
   const attachmentAdapter = useMemo(() => {
@@ -250,18 +261,18 @@ function NexusPageContent() {
           {selectedModel ? (
             <ConversationRuntimeProvider
               conversationId={conversationId}
-              pollingAdapter={pollingAdapter}
-              fallbackAdapter={fallbackAdapter}
+              selectedModel={selectedModel}
+              enabledTools={enabledTools}
               attachmentAdapter={attachmentAdapter}
+              onConversationIdChange={handleConversationIdChange}
             >
-              {/* Register tool UI components */}
-              <WebSearchUI />
-              <CodeInterpreterUI />
-              
+              {/* Register tool UI components for all providers */}
+              <MultiProviderToolUIs />
+
               <div className="flex h-full flex-col">
                 <Thread processingAttachments={processingAttachments} conversationId={conversationId} />
               </div>
-              <ConversationPanel 
+              <ConversationPanel
                 selectedConversationId={conversationId}
               />
             </ConversationRuntimeProvider>

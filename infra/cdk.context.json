@@ -218,5 +218,9 @@
         ]
       }
     ]
+  },
+  "hosted-zone:account=390844780692:domainName=psd401.ai:region=us-east-1": {
+    "Id": "/hostedzone/Z09050661L2GGY7QQRSBW",
+    "Name": "psd401.ai."
   }
 }

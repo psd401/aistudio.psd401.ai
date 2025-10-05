@@ -18,6 +18,8 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   Square,
+  Volume2Icon,
+  VolumeOffIcon,
 } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
@@ -26,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MarkdownText } from "./markdown-text";
 import { ToolFallback } from "./tool-fallback";
+import { ToolGroup } from "@/app/(protected)/nexus/_components/tools/tool-group";
 import {
   ComposerAttachments,
   ComposerAddAttachment,
@@ -300,6 +303,7 @@ const AssistantMessage: FC = () => {
           <MessagePrimitive.Content
             components={{
               Text: MarkdownText,
+              ToolGroup: ToolGroup,
               tools: { Fallback: ToolFallback },
             }}
           />
@@ -332,6 +336,16 @@ const AssistantActionBar: FC = () => {
           </MessagePrimitive.If>
         </TooltipIconButton>
       </ActionBarPrimitive.Copy>
+      <ActionBarPrimitive.Speak asChild>
+        <TooltipIconButton tooltip="Read aloud">
+          <MessagePrimitive.If speaking>
+            <VolumeOffIcon />
+          </MessagePrimitive.If>
+          <MessagePrimitive.If speaking={false}>
+            <Volume2Icon />
+          </MessagePrimitive.If>
+        </TooltipIconButton>
+      </ActionBarPrimitive.Speak>
       <ActionBarPrimitive.Reload asChild>
         <TooltipIconButton tooltip="Refresh">
           <RefreshCwIcon />

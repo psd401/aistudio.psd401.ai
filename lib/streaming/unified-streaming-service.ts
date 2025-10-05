@@ -105,14 +105,24 @@ export class UnifiedStreamingService {
         throw new Error(`Message conversion failed: ${error.message}`);
       }
       
+      // Create model (adapter stores client instance internally)
+      const model = await adapter.createModel(request.modelId, request.options);
+
+      // Create tools from adapter (uses same client instance as model)
+      let tools = request.tools || {};
+      if (!request.tools && request.enabledTools && request.enabledTools.length > 0) {
+        tools = await adapter.createTools(request.enabledTools);
+      }
+
       const config: StreamConfig = {
-        model: await adapter.createModel(request.modelId, request.options),
+        model,
         messages: convertedMessages,
         system: request.systemPrompt,
         maxTokens: request.maxTokens,
         temperature: request.temperature,
         // Tools configuration
-        tools: request.tools,
+        tools,
+        toolChoice: tools && Object.keys(tools).length > 0 ? 'auto' : undefined,
         // Adaptive timeout based on model capabilities
         timeout: this.getAdaptiveTimeout(capabilities, request),
         // Provider-specific options

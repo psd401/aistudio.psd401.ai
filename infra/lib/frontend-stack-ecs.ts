@@ -12,6 +12,12 @@ import { EcsServiceConstruct } from './constructs/ecs-service';
 export interface FrontendStackEcsProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
   baseDomain: string;
+  /**
+   * Custom subdomain to use instead of environment-based default.
+   * For example: 'dev-ecs' will create 'dev-ecs.aistudio.psd401.ai'
+   * If not provided, defaults to 'dev' for dev or root domain for prod
+   */
+  customSubdomain?: string;
   documentsBucketName?: string; // Optional for backward compatibility
   /**
    * If true, will look up existing VPC from database stack.
@@ -54,6 +60,7 @@ export class FrontendStackEcs extends cdk.Stack {
       });
     } else {
       // Create new VPC for ECS (not recommended for production)
+      // This VPC config matches the database stack VPC for consistency
       vpc = new ec2.Vpc(this, 'EcsVpc', {
         maxAzs: environment === 'prod' ? 3 : 2,
         natGateways: environment === 'prod' ? 2 : 1,
@@ -66,7 +73,7 @@ export class FrontendStackEcs extends cdk.Stack {
           {
             cidrMask: 24,
             name: 'private',
-            subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+            subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
           },
         ],
       });
@@ -79,6 +86,16 @@ export class FrontendStackEcs extends cdk.Stack {
       );
 
     // ============================================================================
+    // DNS and SSL Certificate Configuration
+    // ============================================================================
+    // Build the full domain name
+    // If customSubdomain provided, use it (e.g., 'dev-ecs' -> 'dev-ecs.aistudio.psd401.ai')
+    // Otherwise use environment-based default ('dev' -> 'dev.aistudio.psd401.ai')
+    const subdomain = props.customSubdomain
+      ? `${props.customSubdomain}.${baseDomain}`
+      : (environment === 'dev' ? `dev.${baseDomain}` : baseDomain);
+
+    // ============================================================================
     // Create ECS Service with ALB
     // ============================================================================
     this.ecsService = new EcsServiceConstruct(this, 'EcsService', {
@@ -88,18 +105,32 @@ export class FrontendStackEcs extends cdk.Stack {
       enableContainerInsights: true,
       enableFargateSpot: environment === 'dev', // Cost optimization for dev
       createHttpListener: false, // We'll create HTTP listener with redirect below
+      initialDesiredCount: 0, // One-time setting - escape hatch prevents reset on updates
+      // Auth configuration from Cognito stack outputs
+      authUrl: `https://${subdomain}`,
+      cognitoClientId: cdk.Fn.importValue(`${environment}-CognitoUserPoolClientId`),
+      cognitoIssuer: `https://cognito-idp.${this.region}.amazonaws.com/${cdk.Fn.importValue(`${environment}-CognitoUserPoolId`)}`,
+      // Database configuration from SSM parameters
+      rdsResourceArn: ssm.StringParameter.valueForStringParameter(this, `/aistudio/${environment}/db-cluster-arn`),
+      rdsSecretArn: ssm.StringParameter.valueForStringParameter(this, `/aistudio/${environment}/db-secret-arn`),
+      // Auth secret from Secrets Manager
+      authSecretArn: cdk.Fn.importValue(`${environment}-AuthSecretArn`),
     });
 
     // ============================================================================
     // DNS and SSL Certificate
     // ============================================================================
-    const subdomain = environment === 'dev' ? `dev.${baseDomain}` : baseDomain;
 
     if (props.setupDns !== false) {
 
-      // Look up hosted zone
+      // Look up hosted zone - need to find the parent zone (psd401.ai)
+      // baseDomain might be 'aistudio.psd401.ai', so we need to extract 'psd401.ai'
+      const zoneDomain = baseDomain.includes('.')
+        ? baseDomain.split('.').slice(-2).join('.') // Extract 'psd401.ai' from 'aistudio.psd401.ai'
+        : baseDomain; // If no subdomain, use as-is
+
       const hostedZone = route53.HostedZone.fromLookup(this, 'HostedZone', {
-        domainName: baseDomain,
+        domainName: zoneDomain,
       });
 
       // Create SSL certificate
@@ -257,54 +288,24 @@ export class FrontendStackEcs extends cdk.Stack {
     const dashboard = this.ecsService.createDashboard({ environment });
 
     // ============================================================================
-    // Outputs
+    // Outputs (ECS-related outputs are in the construct, only add stack-specific ones here)
     // ============================================================================
     new cdk.CfnOutput(this, 'ApplicationUrl', {
       value: `https://${subdomain}`,
       description: 'Application URL',
-      exportName: `${environment}-ApplicationUrl`,
-    });
-
-    new cdk.CfnOutput(this, 'LoadBalancerDnsName', {
-      value: this.ecsService.loadBalancer.loadBalancerDnsName,
-      description: 'Load Balancer DNS Name',
-      exportName: `${environment}-LoadBalancerDnsName`,
-    });
-
-    new cdk.CfnOutput(this, 'EcrRepositoryUri', {
-      value: this.ecsService.repository.repositoryUri,
-      description: 'ECR Repository URI for container images',
-      exportName: `${environment}-EcrRepositoryUri`,
-    });
-
-    new cdk.CfnOutput(this, 'EcsClusterName', {
-      value: this.ecsService.cluster.clusterName,
-      description: 'ECS Cluster Name',
-      exportName: `${environment}-EcsClusterName`,
-    });
-
-    new cdk.CfnOutput(this, 'EcsServiceName', {
-      value: this.ecsService.service.serviceName,
-      description: 'ECS Service Name',
-      exportName: `${environment}-EcsServiceName`,
-    });
-
-    new cdk.CfnOutput(this, 'TaskRoleArn', {
-      value: this.ecsService.taskRole.roleArn,
-      description: 'ECS Task Role ARN (equivalent to SSR Compute Role)',
-      exportName: `${environment}-EcsTaskRoleArn`,
+      exportName: `${environment}-ecs-ApplicationUrl`,
     });
 
     new cdk.CfnOutput(this, 'WAFArn', {
       value: webAcl.attrArn,
       description: 'WAF WebACL ARN',
-      exportName: `${environment}-WAFArn`,
+      exportName: `${environment}-ecs-WAFArn`,
     });
 
     new cdk.CfnOutput(this, 'DashboardName', {
       value: dashboard.dashboardName,
       description: 'CloudWatch Dashboard Name',
-      exportName: `${environment}-DashboardName`,
+      exportName: `${environment}-ecs-DashboardName`,
     });
 
     // ============================================================================

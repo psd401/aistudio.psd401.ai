@@ -61,7 +61,7 @@ export interface AITelemetryRequest {
   conversationId?: string | number;
   modelId: string;
   provider: string;
-  source: 'chat' | 'compare' | 'assistant_execution' | 'ai-helpers';
+  source: 'chat' | 'compare' | 'assistant_execution' | 'ai-helpers' | 'nexus';
   recordInputs?: boolean;
   recordOutputs?: boolean;
   customAttributes?: Record<string, string | number | boolean>;

@@ -8,6 +8,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 
 export interface EcsServiceConstructProps {
   vpc: ec2.IVpc;
@@ -20,6 +21,46 @@ export interface EcsServiceConstructProps {
    * This allows the parent stack to configure HTTPS and HTTP->HTTPS redirect.
    */
   createHttpListener?: boolean;
+  /**
+   * Initial desired count for ECS service.
+   *
+   * IMPORTANT: Only used for the FIRST deployment. The DesiredCount property
+   * is removed from CloudFormation via escape hatch to prevent resets on updates.
+   *
+   * Workflow:
+   * 1. Set to 0 for first deploy (no Docker image yet)
+   * 2. Deploy: cdk deploy (creates ECR, service with 0 tasks)
+   * 3. Push image: docker push <ecr-uri>:latest
+   * 4. Scale once: aws ecs update-service --desired-count 1
+   * 5. Future deploys preserve task count automatically
+   *
+   * @default 1
+   */
+  initialDesiredCount?: number;
+  /**
+   * NextAuth base URL (e.g., "https://dev-ecs.aistudio.psd401.ai")
+   */
+  authUrl: string;
+  /**
+   * AWS Cognito User Pool Client ID
+   */
+  cognitoClientId: string;
+  /**
+   * AWS Cognito Issuer URL
+   */
+  cognitoIssuer: string;
+  /**
+   * RDS Aurora cluster ARN
+   */
+  rdsResourceArn: string;
+  /**
+   * RDS database credentials secret ARN
+   */
+  rdsSecretArn: string;
+  /**
+   * NextAuth secret ARN from Secrets Manager
+   */
+  authSecretArn: string;
 }
 
 /**
@@ -56,6 +97,69 @@ export class EcsServiceConstruct extends Construct {
           rulePriority: 1,
         },
       ],
+    });
+
+    // ============================================================================
+    // VPC Endpoints for ECR, S3, and CloudWatch (required for isolated subnets)
+    // ============================================================================
+    // Security group for VPC endpoints
+    const vpcEndpointSecurityGroup = new ec2.SecurityGroup(this, 'VpcEndpointSecurityGroup', {
+      vpc,
+      description: 'Security group for VPC endpoints',
+      allowAllOutbound: false,
+    });
+
+    // Allow HTTPS traffic from VPC CIDR to VPC endpoints
+    vpcEndpointSecurityGroup.addIngressRule(
+      ec2.Peer.ipv4(vpc.vpcCidrBlock),
+      ec2.Port.tcp(443),
+      'Allow HTTPS from VPC'
+    );
+
+    // ECR API endpoint - for pulling image manifests
+    vpc.addInterfaceEndpoint('EcrApiEndpoint', {
+      service: ec2.InterfaceVpcEndpointAwsService.ECR,
+      securityGroups: [vpcEndpointSecurityGroup],
+      subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      privateDnsEnabled: true,
+    });
+
+    // ECR Docker endpoint - for pulling image layers
+    vpc.addInterfaceEndpoint('EcrDockerEndpoint', {
+      service: ec2.InterfaceVpcEndpointAwsService.ECR_DOCKER,
+      securityGroups: [vpcEndpointSecurityGroup],
+      subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      privateDnsEnabled: true,
+    });
+
+    // S3 Gateway endpoint - ECR stores layers in S3
+    vpc.addGatewayEndpoint('S3Endpoint', {
+      service: ec2.GatewayVpcEndpointAwsService.S3,
+      subnets: [{ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }],
+    });
+
+    // CloudWatch Logs endpoint - for sending container logs
+    vpc.addInterfaceEndpoint('CloudWatchLogsEndpoint', {
+      service: ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS,
+      securityGroups: [vpcEndpointSecurityGroup],
+      subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      privateDnsEnabled: true,
+    });
+
+    // Secrets Manager endpoint - for runtime secrets injection
+    vpc.addInterfaceEndpoint('SecretsManagerEndpoint', {
+      service: ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
+      securityGroups: [vpcEndpointSecurityGroup],
+      subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      privateDnsEnabled: true,
+    });
+
+    // Systems Manager endpoint - for SSM parameters
+    vpc.addInterfaceEndpoint('SsmEndpoint', {
+      service: ec2.InterfaceVpcEndpointAwsService.SSM,
+      securityGroups: [vpcEndpointSecurityGroup],
+      subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      privateDnsEnabled: true,
     });
 
     // ============================================================================
@@ -274,13 +378,21 @@ export class EcsServiceConstruct extends Construct {
         PORT: '3000',
         // Memory optimization - 70% of container memory
         NODE_OPTIONS: `--max-old-space-size=${Math.floor(memory * 0.7)}`,
+        // Application configuration
+        S3_BUCKET_NAME: documentsBucketName,
+        RDS_DATABASE_NAME: 'aistudio',
+        AUTH_URL: props.authUrl,
+        AUTH_COGNITO_CLIENT_ID: props.cognitoClientId,
+        AUTH_COGNITO_ISSUER: props.cognitoIssuer,
+        RDS_RESOURCE_ARN: props.rdsResourceArn,
+        RDS_SECRET_ARN: props.rdsSecretArn,
       },
-      // Secrets will be injected from Secrets Manager/SSM at runtime
+      // Secrets injected from Secrets Manager at runtime
       secrets: {
-        // These will be populated from SSM Parameter Store
-        // AUTH_URL: ecs.Secret.fromSsmParameter(),
-        // AUTH_SECRET: ecs.Secret.fromSecretsManager(),
-        // etc.
+        AUTH_SECRET: ecs.Secret.fromSecretsManager(
+          secretsmanager.Secret.fromSecretCompleteArn(this, 'AuthSecret', props.authSecretArn),
+          'AUTH_SECRET'
+        ),
       },
       // Security: Read-only root filesystem with tmpfs mounts for writable directories
       readonlyRootFilesystem: true,
@@ -342,11 +454,11 @@ export class EcsServiceConstruct extends Construct {
       cluster: this.cluster,
       taskDefinition,
       serviceName: `aistudio-${environment}`,
-      desiredCount: environment === 'prod' ? 1 : 1,
+      desiredCount: props.initialDesiredCount ?? 1,
       minHealthyPercent: environment === 'prod' ? 100 : 0,
       maxHealthyPercent: 200,
       securityGroups: [ecsSecurityGroup],
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       capacityProviderStrategies: props.enableFargateSpot && environment === 'dev'
         ? [
             {
@@ -367,6 +479,12 @@ export class EcsServiceConstruct extends Construct {
       },
       enableExecuteCommand: true, // For debugging
     });
+
+    // Remove DesiredCount from CloudFormation template to prevent resets on deployment
+    // This allows auto-scaling and manual scaling to manage task count independently
+    // AWS Best Practice: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-service.html
+    const cfnService = this.service.node.defaultChild as ecs.CfnService;
+    cfnService.addPropertyDeletionOverride('DesiredCount');
 
     // ============================================================================
     // Target Group and Listener
@@ -446,35 +564,35 @@ export class EcsServiceConstruct extends Construct {
       description: 'ECS service name',
     });
 
-    // CloudFormation Outputs
+    // CloudFormation Outputs with unique export names
     new cdk.CfnOutput(this, 'LoadBalancerDnsName', {
       value: this.loadBalancer.loadBalancerDnsName,
       description: 'ALB DNS name',
-      exportName: `${environment}-AlbDnsName`,
+      exportName: `${environment}-ecs-AlbDnsName`,
     });
 
     new cdk.CfnOutput(this, 'EcrRepositoryUri', {
       value: this.repository.repositoryUri,
       description: 'ECR Repository URI',
-      exportName: `${environment}-EcrRepositoryUri`,
+      exportName: `${environment}-ecs-EcrRepositoryUri`,
     });
 
     new cdk.CfnOutput(this, 'EcsClusterName', {
       value: this.cluster.clusterName,
       description: 'ECS Cluster Name',
-      exportName: `${environment}-EcsClusterName`,
+      exportName: `${environment}-ecs-EcsClusterName`,
     });
 
     new cdk.CfnOutput(this, 'EcsServiceName', {
       value: this.service.serviceName,
       description: 'ECS Service Name',
-      exportName: `${environment}-EcsServiceName`,
+      exportName: `${environment}-ecs-EcsServiceName`,
     });
 
     new cdk.CfnOutput(this, 'TaskRoleArn', {
       value: this.taskRole.roleArn,
       description: 'ECS Task Role ARN',
-      exportName: `${environment}-EcsTaskRoleArn`,
+      exportName: `${environment}-ecs-EcsTaskRoleArn`,
     });
   }
 

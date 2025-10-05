@@ -1,4 +1,5 @@
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
+import type { ToolSet } from 'ai';
 import { createLogger } from '@/lib/logger';
 import { Settings } from '@/lib/settings-manager';
 import { BaseProviderAdapter } from './base-adapter';
@@ -15,7 +16,8 @@ const log = createLogger({ module: 'claude-adapter' });
  */
 export class ClaudeAdapter extends BaseProviderAdapter {
   protected providerName = 'amazon-bedrock';
-  
+  private bedrockClient?: ReturnType<typeof createAmazonBedrock>;
+
   async createModel(modelId: string, options?: StreamRequest['options']) {
     try {
       const config = await Settings.getBedrock();
@@ -40,9 +42,12 @@ export class ClaudeAdapter extends BaseProviderAdapter {
         bedrockOptions.accessKeyId = config.accessKeyId;
         bedrockOptions.secretAccessKey = config.secretAccessKey;
       }
-      
-      const bedrock = createAmazonBedrock(bedrockOptions);
-      return bedrock(modelId);
+
+      // Create and store client instance
+      this.bedrockClient = createAmazonBedrock(bedrockOptions);
+      this.providerClient = this.bedrockClient;
+
+      return this.bedrockClient(modelId);
       
     } catch (error) {
       log.error('Failed to create Claude model', {
@@ -52,7 +57,27 @@ export class ClaudeAdapter extends BaseProviderAdapter {
       throw error;
     }
   }
-  
+
+  /**
+   * Create provider-native tools for Claude via Bedrock
+   * TODO: Implement when Bedrock tool support is needed
+   */
+  async createTools(enabledTools: string[]): Promise<ToolSet> {
+    // Anthropic Claude on Bedrock supports tool calling
+    // TODO: Implement when needed
+    log.info('Bedrock tool creation not yet implemented', { enabledTools });
+    return {};
+  }
+
+  /**
+   * Get list of tools supported by Claude models on Bedrock
+   */
+  getSupportedTools(modelId: string): string[] {
+    // Claude models on Bedrock will support tools in future
+    // For now, return empty
+    return [];
+  }
+
   getCapabilities(modelId: string): ProviderCapabilities {
     // Claude 4 models with thinking capabilities
     if (this.matchesPattern(modelId, ['claude-4*', 'anthropic.claude-4*'])) {
