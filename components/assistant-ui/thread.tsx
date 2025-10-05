@@ -18,6 +18,8 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   Square,
+  Volume2Icon,
+  VolumeOffIcon,
 } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
@@ -334,6 +336,16 @@ const AssistantActionBar: FC = () => {
           </MessagePrimitive.If>
         </TooltipIconButton>
       </ActionBarPrimitive.Copy>
+      <ActionBarPrimitive.Speak asChild>
+        <TooltipIconButton tooltip="Read aloud">
+          <MessagePrimitive.If speaking>
+            <VolumeOffIcon />
+          </MessagePrimitive.If>
+          <MessagePrimitive.If speaking={false}>
+            <Volume2Icon />
+          </MessagePrimitive.If>
+        </TooltipIconButton>
+      </ActionBarPrimitive.Speak>
       <ActionBarPrimitive.Reload asChild>
         <TooltipIconButton tooltip="Refresh">
           <RefreshCwIcon />

@@ -1,6 +1,6 @@
 'use client'
 
-import { AssistantRuntimeProvider, type AttachmentAdapter } from '@assistant-ui/react'
+import { AssistantRuntimeProvider, type AttachmentAdapter, WebSpeechSynthesisAdapter } from '@assistant-ui/react'
 import { useChatRuntime, AssistantChatTransport } from '@assistant-ui/react-ai-sdk'
 import { Thread } from '@/components/assistant-ui/thread'
 import { useSession } from 'next-auth/react'
@@ -61,6 +61,7 @@ function ConversationRuntimeProvider({
     adapters: {
       attachments: attachmentAdapter,
       history: historyAdapter,
+      speech: new WebSpeechSynthesisAdapter(),
     }
   })
 
