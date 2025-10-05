@@ -15,6 +15,7 @@ import { CheckIcon, CopyIcon } from "lucide-react";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { SyntaxHighlighter } from "@/components/assistant-ui/shiki-highlighter";
 import { MermaidDiagram } from "@/components/assistant-ui/mermaid-diagram";
+import { CollapsibleDocument } from "@/components/assistant-ui/collapsible-document";
 import { cn } from "@/lib/utils";
 
 const MarkdownTextImpl = () => {
@@ -26,6 +27,12 @@ const MarkdownTextImpl = () => {
       componentsByLanguage={{
         mermaid: {
           SyntaxHighlighter: MermaidDiagram
+        },
+        document: {
+          SyntaxHighlighter: ({ language, code }: { language: string; code: string }) => {
+            const fileName = language.split(':')[1] || 'Document';
+            return <CollapsibleDocument fileName={fileName} content={code} />;
+          }
         },
       }}
     />

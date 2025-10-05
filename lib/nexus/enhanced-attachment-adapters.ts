@@ -293,52 +293,38 @@ Please try re-uploading or contact support if the issue persists.`
       const job = await response.json();
       
       if (job.status === 'completed') {
-        // Return content in assistant-ui format
+        // Return content in assistant-ui format using code block for collapsible UI
         const result = job.result;
         const content = [];
-        
+
         if (result.markdown) {
           content.push({
             type: 'text' as const,
-            text: `## Document: ${fileName}
-
+            text: `\`\`\`document:${fileName}
 ${result.markdown}
-
----
-*Document processed server-side*
-**Processing Time:** ${this.formatProcessingTime(job.createdAt, job.completedAt)}
-**Method:** ${result.extractionMethod || 'Server processing'}
-${result.pageCount ? `**Pages:** ${result.pageCount}` : ''}`
+\`\`\``
           });
         } else if (result.text) {
           content.push({
             type: 'text' as const,
-            text: `## Document: ${fileName}
-
+            text: `\`\`\`document:${fileName}
 ${result.text}
-
----
-*Document processed server-side*
-**Processing Time:** ${this.formatProcessingTime(job.createdAt, job.completedAt)}
-**Method:** ${result.extractionMethod || 'Server processing'}
-${result.pageCount ? `**Pages:** ${result.pageCount}` : ''}`
+\`\`\``
           });
         } else {
           content.push({
             type: 'text' as const,
-            text: `## Document: ${fileName}
-
+            text: `\`\`\`document:${fileName}
 *Document processed but no text content was extracted.*
 
 This might be because:
 - The document contains only images
 - The document is password protected
 - The document format is not fully supported
-
-**Processing Time:** ${this.formatProcessingTime(job.createdAt, job.completedAt)}`
+\`\`\``
           });
         }
-        
+
         // Add images if extracted
         if (result.images && result.images.length > 0) {
           content.push({
@@ -346,7 +332,7 @@ This might be because:
             text: `\n**Extracted Images:** ${result.images.length} image(s) found`
           });
         }
-        
+
         return content;
       } else if (job.status === 'failed') {
         throw new Error(job.error || 'Server processing failed');
