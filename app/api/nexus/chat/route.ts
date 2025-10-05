@@ -12,9 +12,18 @@ import { getModelConfig } from '@/app/api/chat/lib/conversation-handler';
 // Allow streaming responses up to 5 minutes for long-running conversations
 export const maxDuration = 300;
 
-// Basic input validation schema - keeping it minimal to avoid breaking existing data flows
+// Flexible message validation that accepts various formats from the UI
+// We use z.any() here for the message array because the actual UIMessage type
+// is complex with generics and we validate the critical fields (role, id) at runtime
 const ChatRequestSchema = z.object({
-  messages: z.array(z.any()), // Keep flexible for UI message format
+  messages: z.array(z.object({
+    id: z.string(),
+    role: z.enum(['system', 'user', 'assistant']),
+    // Allow flexible content/parts format - validated at runtime
+    parts: z.array(z.any()).optional(),
+    content: z.any().optional(),
+    metadata: z.any().optional(),
+  })),
   modelId: z.string(),
   provider: z.string().optional(),
   conversationId: z.string().nullable().optional(), // Accept null, undefined, or string
@@ -67,6 +76,23 @@ export async function POST(req: Request) {
 
     // Handle null conversationId (treat as undefined for new conversations)
     const conversationIdValue = existingConversationId || undefined;
+
+    // Validate conversationId format if provided (must be valid UUID for database operations)
+    if (conversationIdValue) {
+      const uuidSchema = z.string().uuid();
+      const uuidValidation = uuidSchema.safeParse(conversationIdValue);
+      if (!uuidValidation.success) {
+        log.warn('Invalid conversation ID format', { conversationId: conversationIdValue });
+        return new Response(
+          JSON.stringify({
+            error: 'Invalid conversation ID format',
+            details: 'Conversation ID must be a valid UUID',
+            requestId
+          }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+    }
 
     log.info('Request parsed', sanitizeForLogging({
       messageCount: messages.length,
@@ -154,7 +180,7 @@ export async function POST(req: Request) {
           const textPart = messageContent.find(part => part.type === 'text' && part.text);
           imagePrompt = (textPart?.text || '').trim();
         } else if (lastMessage.parts && Array.isArray(lastMessage.parts)) {
-          const textPart = lastMessage.parts.find((part: { type: string; text?: string }) => part.type === 'text' && part.text);
+          const textPart = lastMessage.parts.find((part: { type: string; text?: string }) => part.type === 'text' && part.text) as { type: string; text: string } | undefined;
           imagePrompt = (textPart?.text || '').trim();
         }
       }
@@ -276,6 +302,21 @@ export async function POST(req: Request) {
         ]
       );
 
+      // Validate conversation creation result
+      if (!createResult || createResult.length === 0 || !createResult[0]?.id) {
+        log.error('Failed to create conversation - no ID returned', {
+          resultLength: createResult?.length,
+          result: createResult
+        });
+        return new Response(
+          JSON.stringify({
+            error: 'Failed to create conversation',
+            requestId
+          }),
+          { status: 500, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
       conversationId = createResult[0].id as string;
 
       log.info('Created new Nexus conversation', sanitizeForLogging({
@@ -375,7 +416,7 @@ export async function POST(req: Request) {
     const systemPrompt = `You are a helpful AI assistant in the Nexus interface.`;
 
     // 10. Convert messages to AI SDK v5 format (parts array) before processing attachments
-    const messagesWithParts: UIMessage[] = messages.map(message => {
+    const messagesWithParts = messages.map(message => {
       // If message already has parts, use as-is
       if (message.parts) {
         return message;
@@ -407,7 +448,7 @@ export async function POST(req: Request) {
     // 11. Process messages to store attachments in S3 and create lightweight versions
     const { lightweightMessages } = await processMessagesWithAttachments(
       conversationId,
-      messagesWithParts
+      messagesWithParts as UIMessage[]
     );
 
     // 12. Use unified streaming service (same as /api/chat)

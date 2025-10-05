@@ -259,7 +259,13 @@ export function createNexusStreamingAdapter(options: NexusStreamingAdapterOption
           })
 
         } finally {
-          reader.releaseLock()
+          try {
+            reader.releaseLock()
+          } catch (releaseError) {
+            log.warn('Failed to release reader lock', {
+              error: releaseError instanceof Error ? releaseError.message : String(releaseError)
+            })
+          }
         }
 
       } catch (error) {
