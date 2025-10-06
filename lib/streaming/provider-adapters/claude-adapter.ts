@@ -72,7 +72,8 @@ export class ClaudeAdapter extends BaseProviderAdapter {
   /**
    * Get list of tools supported by Claude models on Bedrock
    */
-  getSupportedTools(modelId: string): string[] {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  getSupportedTools(_modelId: string): string[] {
     // Claude models on Bedrock will support tools in future
     // For now, return empty
     return [];

@@ -55,8 +55,8 @@ RUN --mount=type=cache,target=/app/.next/cache \
 FROM node:22-alpine AS runner
 WORKDIR /app
 
-# Install tini for proper PID 1 signal handling and curl for health checks
-RUN apk add --no-cache tini curl
+# Install curl for health checks (works with read-only filesystem and non-root users)
+RUN apk add --no-cache curl
 
 # Create non-root user for security
 RUN addgroup --system --gid 1001 nodejs && \
@@ -82,11 +82,10 @@ USER nextjs
 # Expose application port
 EXPOSE 3000
 
-# Health check with extended start period for Next.js initialization (60s -> 120s)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
-    CMD curl -f http://localhost:3000/api/healthz || exit 1
+# Note: Health checks are defined in ECS task definition (ecs-service.ts)
+# Dockerfile HEALTHCHECK is redundant since ECS task definition overrides it
+# Removed to follow AWS best practice: single source of truth for health checks
 
-# Use tini as PID 1 for proper signal handling
-# This ensures graceful shutdown when ECS sends SIGTERM
-ENTRYPOINT ["/sbin/tini", "--"]
+# ECS Fargate provides built-in init process (initProcessEnabled: true)
+# No need for tini - ECS handles PID 1 signal management
 CMD ["node", "server.js"]

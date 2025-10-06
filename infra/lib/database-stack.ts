@@ -21,10 +21,9 @@ export class DatabaseStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: DatabaseStackProps) {
     super(scope, id, props);
 
-    // VPC with public, private (with NAT), and isolated subnets
+    // VPC with public and isolated subnets
     const vpc = new ec2.Vpc(this, 'Vpc', {
       maxAzs: props.environment === 'prod' ? 3 : 2,
-      natGateways: props.environment === 'prod' ? 2 : 1, // NAT Gateway for internet access from private subnets
       subnetConfiguration: [
         {
           cidrMask: 24,
@@ -33,13 +32,8 @@ export class DatabaseStack extends cdk.Stack {
         },
         {
           cidrMask: 24,
-          name: 'private',
-          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS, // Private subnets with NAT Gateway for ECS
-        },
-        {
-          cidrMask: 24,
           name: 'isolated',
-          subnetType: ec2.SubnetType.PRIVATE_ISOLATED, // Isolated subnets for database (no internet)
+          subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
         },
       ],
     });

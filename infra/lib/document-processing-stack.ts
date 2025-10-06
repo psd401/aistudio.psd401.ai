@@ -326,21 +326,21 @@ export class DocumentProcessingStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'DocumentJobsTableName', {
       value: this.documentJobsTable.tableName,
       description: 'DynamoDB table for document job tracking',
+      exportName: `${props.environment}-DocumentJobsTableName`,
     });
 
-    new cdk.CfnOutput(this, 'DocumentsBucketName', {
-      value: this.documentsBucket.bucketName,
-      description: 'S3 bucket for document storage',
-    });
+    // Note: DocumentsBucketName is already exported by StorageStack, don't duplicate it here
 
     new cdk.CfnOutput(this, 'ProcessingQueueUrl', {
       value: this.processingQueue.queueUrl,
       description: 'SQS queue for standard document processing',
+      exportName: `${props.environment}-ProcessingQueueUrl`,
     });
 
     new cdk.CfnOutput(this, 'HighMemoryQueueUrl', {
       value: this.highMemoryQueue.queueUrl,
       description: 'SQS queue for high-memory document processing',
+      exportName: `${props.environment}-HighMemoryQueueUrl`,
     });
   }
 }

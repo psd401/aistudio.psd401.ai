@@ -105,7 +105,9 @@ export class FrontendStackEcs extends cdk.Stack {
       enableContainerInsights: true,
       enableFargateSpot: environment === 'dev', // Cost optimization for dev
       createHttpListener: false, // We'll create HTTP listener with redirect below
-      initialDesiredCount: 0, // One-time setting - escape hatch prevents reset on updates
+      // Docker image configuration
+      dockerImageSource: 'fromAsset', // CDK builds and pushes image automatically
+      dockerfilePath: '../', // Dockerfile in project root
       // Auth configuration from Cognito stack outputs
       authUrl: `https://${subdomain}`,
       cognitoClientId: cdk.Fn.importValue(`${environment}-CognitoUserPoolClientId`),
@@ -309,29 +311,28 @@ export class FrontendStackEcs extends cdk.Stack {
     });
 
     // ============================================================================
-    // Deployment Instructions
+    // Deployment Information
     // ============================================================================
-    new cdk.CfnOutput(this, 'DeploymentInstructions', {
+    // Note: With ContainerImage.fromAsset(), CDK automatically builds and pushes
+    // the Docker image during deployment. No manual Docker commands required!
+    new cdk.CfnOutput(this, 'DeploymentInfo', {
       value: [
-        '=== Deployment Steps ===',
-        `1. Build and push Docker image:`,
-        `   docker build -t ${this.ecsService.repository.repositoryUri}:latest .`,
-        `   aws ecr get-login-password --region ${this.region} | docker login --username AWS --password-stdin ${this.ecsService.repository.repositoryUri}`,
-        `   docker push ${this.ecsService.repository.repositoryUri}:latest`,
+        '=== ECS Deployment ===',
+        `CDK automatically builds and pushes Docker images during deployment.`,
         ``,
-        `2. Update ECS service to use new image:`,
-        `   aws ecs update-service --cluster ${this.ecsService.cluster.clusterName} --service ${this.ecsService.service.serviceName} --force-new-deployment`,
+        `To deploy updates:`,
+        `  cd infra && npx cdk deploy ${this.stackName}`,
         ``,
-        `3. Monitor deployment:`,
-        `   aws ecs describe-services --cluster ${this.ecsService.cluster.clusterName} --services ${this.ecsService.service.serviceName}`,
+        `To monitor deployment:`,
+        `  aws ecs describe-services --cluster ${this.ecsService.cluster.clusterName} --services ${this.ecsService.service.serviceName}`,
         ``,
-        `4. View logs:`,
-        `   aws logs tail /ecs/aistudio-${environment} --follow`,
+        `To view logs:`,
+        `  aws logs tail /ecs/aistudio-${environment} --follow`,
         ``,
-        `5. Access application:`,
-        `   https://${subdomain}`,
+        `Application URL:`,
+        `  https://${subdomain}`,
       ].join('\n'),
-      description: 'Deployment instructions for ECS service',
+      description: 'ECS deployment information',
     });
   }
 }

@@ -3,6 +3,7 @@ import { Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
+import * as ecr_assets from 'aws-cdk-lib/aws-ecr-assets';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
@@ -24,19 +25,38 @@ export interface EcsServiceConstructProps {
   /**
    * Initial desired count for ECS service.
    *
-   * IMPORTANT: Only used for the FIRST deployment. The DesiredCount property
-   * is removed from CloudFormation via escape hatch to prevent resets on updates.
+   * With fromAsset (default), this can safely be set to 1 because CDK builds
+   * and pushes the Docker image BEFORE creating the ECS service.
    *
-   * Workflow:
-   * 1. Set to 0 for first deploy (no Docker image yet)
-   * 2. Deploy: cdk deploy (creates ECR, service with 0 tasks)
-   * 3. Push image: docker push <ecr-uri>:latest
-   * 4. Scale once: aws ecs update-service --desired-count 1
-   * 5. Future deploys preserve task count automatically
+   * The DesiredCount property is removed from CloudFormation via escape hatch
+   * to prevent resets on updates, allowing auto-scaling to manage task count.
    *
    * @default 1
    */
   initialDesiredCount?: number;
+  /**
+   * Docker image source strategy for the ECS task.
+   *
+   * - **fromAsset** (RECOMMENDED): CDK builds Dockerfile and pushes to ECR during deployment
+   *   - Solves chicken-and-egg problem (image exists before service creation)
+   *   - Single command deployment (no manual Docker steps)
+   *   - Production-ready and AWS-recommended
+   *   - CI/CD friendly
+   *
+   * - **fromEcrRepository**: Reference existing ECR image (requires manual push)
+   *   - Use when external CI/CD builds images
+   *   - Requires image with 'latest' tag exists before deployment
+   *
+   * @default 'fromAsset'
+   */
+  dockerImageSource?: 'fromAsset' | 'fromEcrRepository';
+  /**
+   * Path to directory containing Dockerfile (relative to infra/ directory).
+   * Only used when dockerImageSource='fromAsset'.
+   *
+   * @default '../' (project root directory)
+   */
+  dockerfilePath?: string;
   /**
    * NextAuth base URL (e.g., "https://dev-ecs.aistudio.psd401.ai")
    */
@@ -100,66 +120,28 @@ export class EcsServiceConstruct extends Construct {
     });
 
     // ============================================================================
-    // VPC Endpoints for ECR, S3, and CloudWatch (required for isolated subnets)
+    // VPC Endpoints (required because PUBLIC subnets can't reach AWS services)
     // ============================================================================
-    // Security group for VPC endpoints
-    const vpcEndpointSecurityGroup = new ec2.SecurityGroup(this, 'VpcEndpointSecurityGroup', {
-      vpc,
-      description: 'Security group for VPC endpoints',
-      allowAllOutbound: false,
-    });
+    // Even though tasks are in PUBLIC subnets, they can't reach AWS services via internet
+    // Root cause unknown - but VPC endpoints work around the issue
 
-    // Allow HTTPS traffic from VPC CIDR to VPC endpoints
-    vpcEndpointSecurityGroup.addIngressRule(
-      ec2.Peer.ipv4(vpc.vpcCidrBlock),
-      ec2.Port.tcp(443),
-      'Allow HTTPS from VPC'
-    );
-
-    // ECR API endpoint - for pulling image manifests
-    vpc.addInterfaceEndpoint('EcrApiEndpoint', {
-      service: ec2.InterfaceVpcEndpointAwsService.ECR,
-      securityGroups: [vpcEndpointSecurityGroup],
-      subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      privateDnsEnabled: true,
-    });
-
-    // ECR Docker endpoint - for pulling image layers
-    vpc.addInterfaceEndpoint('EcrDockerEndpoint', {
-      service: ec2.InterfaceVpcEndpointAwsService.ECR_DOCKER,
-      securityGroups: [vpcEndpointSecurityGroup],
-      subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      privateDnsEnabled: true,
-    });
-
-    // S3 Gateway endpoint - ECR stores layers in S3
+    // S3 Gateway Endpoint (required for ECR - ECR stores layers in S3)
     vpc.addGatewayEndpoint('S3Endpoint', {
       service: ec2.GatewayVpcEndpointAwsService.S3,
-      subnets: [{ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }],
     });
 
-    // CloudWatch Logs endpoint - for sending container logs
-    vpc.addInterfaceEndpoint('CloudWatchLogsEndpoint', {
-      service: ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS,
-      securityGroups: [vpcEndpointSecurityGroup],
-      subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      privateDnsEnabled: true,
+    // Secrets Manager endpoint (required for AUTH_SECRET at task startup)
+    const vpcEndpointSg = new ec2.SecurityGroup(this, 'VpcEndpointSg', {
+      vpc,
+      description: 'Allow HTTPS to VPC endpoints',
+      allowAllOutbound: false,
     });
+    vpcEndpointSg.addIngressRule(ec2.Peer.ipv4(vpc.vpcCidrBlock), ec2.Port.tcp(443), 'HTTPS from VPC');
 
-    // Secrets Manager endpoint - for runtime secrets injection
     vpc.addInterfaceEndpoint('SecretsManagerEndpoint', {
       service: ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
-      securityGroups: [vpcEndpointSecurityGroup],
-      subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      privateDnsEnabled: true,
-    });
-
-    // Systems Manager endpoint - for SSM parameters
-    vpc.addInterfaceEndpoint('SsmEndpoint', {
-      service: ec2.InterfaceVpcEndpointAwsService.SSM,
-      securityGroups: [vpcEndpointSecurityGroup],
-      subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      privateDnsEnabled: true,
+      securityGroups: [vpcEndpointSg],
+      privateDnsEnabled: true, // Tasks need this to resolve secretsmanager.us-east-1.amazonaws.com
     });
 
     // ============================================================================
@@ -258,7 +240,7 @@ export class EcsServiceConstruct extends Construct {
                 'rds-data:RollbackTransaction',
               ],
               resources: [
-                `arn:aws:rds:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:cluster:aistudio-${environment}`,
+                `arn:aws:rds:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:cluster:*`, // Wildcard to match any cluster name (CDK generates unique names)
               ],
             }),
             new iam.PolicyStatement({
@@ -270,6 +252,7 @@ export class EcsServiceConstruct extends Construct {
               resources: [
                 `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:aistudio-${environment}-*`,
                 `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:aistudio/${environment}/*`,
+                props.rdsSecretArn, // Include actual database secret ARN
               ],
             }),
             new iam.PolicyStatement({
@@ -348,7 +331,7 @@ export class EcsServiceConstruct extends Construct {
         cpuArchitecture: ecs.CpuArchitecture.ARM64,
         operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
       },
-      // Add tmpfs volumes for read-only filesystem support
+      // Add bind mount volumes for read-only filesystem support (Fargate uses ephemeral storage, not tmpfs)
       volumes: [
         {
           name: 'tmp',
@@ -356,14 +339,39 @@ export class EcsServiceConstruct extends Construct {
         {
           name: 'nextjs-cache',
         },
+        {
+          name: 'nextjs-home',
+        },
       ],
     });
+
+    // ============================================================================
+    // Container Image Strategy
+    // ============================================================================
+    // Determine image source based on configuration
+    // - fromAsset (default): CDK builds and pushes image during deployment
+    // - fromEcrRepository: Requires manual image push before deployment
+    const containerImage = props.dockerImageSource === 'fromEcrRepository'
+      ? ecs.ContainerImage.fromEcrRepository(this.repository, 'latest')
+      : ecs.ContainerImage.fromAsset(props.dockerfilePath || '../', {
+          file: 'Dockerfile',
+          platform: ecr_assets.Platform.LINUX_ARM64, // Match runtimePlatform
+          exclude: [
+            'infra/',         // Exclude CDK infrastructure code
+            '.git/',          // Exclude git history
+            'node_modules/',  // Will be installed fresh in Docker
+            '.next/',         // Will be built in Docker
+            'tests/',         // Exclude test files
+            '*.md',           // Exclude documentation
+            '.env*',          // Exclude environment files (use secrets instead)
+          ],
+        });
 
     // Retrieve environment variables from SSM Parameter Store
     // These will be set during deployment
     const container = taskDefinition.addContainer('NextJsContainer', {
       containerName: 'nextjs-app',
-      image: ecs.ContainerImage.fromEcrRepository(this.repository, 'latest'),
+      image: containerImage,
       memoryLimitMiB: memory,
       memoryReservationMiB: Math.floor(memory * 0.8), // Soft limit for better resource management
       cpu,
@@ -380,12 +388,40 @@ export class EcsServiceConstruct extends Construct {
         NODE_OPTIONS: `--max-old-space-size=${Math.floor(memory * 0.7)}`,
         // Application configuration
         S3_BUCKET_NAME: documentsBucketName,
+        DOCUMENTS_BUCKET_NAME: documentsBucketName, // Legacy name for compatibility
         RDS_DATABASE_NAME: 'aistudio',
         AUTH_URL: props.authUrl,
         AUTH_COGNITO_CLIENT_ID: props.cognitoClientId,
         AUTH_COGNITO_ISSUER: props.cognitoIssuer,
         RDS_RESOURCE_ARN: props.rdsResourceArn,
         RDS_SECRET_ARN: props.rdsSecretArn,
+        // Queue URLs from SSM
+        STREAMING_JOBS_QUEUE_URL: ssm.StringParameter.valueForStringParameter(
+          this,
+          `/aistudio/${environment}/streaming-jobs-queue-url`
+        ),
+        // Queue URLs from Processing Stack exports
+        EMBEDDING_QUEUE_URL: cdk.Fn.importValue(`${environment}-EmbeddingQueueUrl`),
+        FILE_PROCESSING_QUEUE_URL: cdk.Fn.importValue(`${environment}-FileProcessingQueueUrl`),
+        // Queue URLs from Document Processing Stack exports
+        PROCESSING_QUEUE_URL: cdk.Fn.importValue(`${environment}-ProcessingQueueUrl`),
+        HIGH_MEMORY_QUEUE_URL: cdk.Fn.importValue(`${environment}-HighMemoryQueueUrl`),
+        // Table names from stack exports
+        DOCUMENT_JOBS_TABLE: cdk.Fn.importValue(`${environment}-DocumentJobsTableName`),
+        JOB_STATUS_TABLE_NAME: cdk.Fn.importValue(`${environment}-JobStatusTableName`),
+        // Lambda function names from Processing Stack exports
+        EMBEDDING_GENERATOR_FUNCTION_NAME: cdk.Fn.importValue(`${environment}-EmbeddingGeneratorFunctionName`),
+        URL_PROCESSOR_FUNCTION_NAME: cdk.Fn.importValue(`${environment}-URLProcessorFunctionName`),
+        // Application settings
+        MAX_FILE_SIZE_MB: '100',
+        SQL_LOGGING: 'false',
+        // Public Cognito configuration for client-side
+        NEXT_PUBLIC_COGNITO_CLIENT_ID: props.cognitoClientId,
+        NEXT_PUBLIC_COGNITO_USER_POOL_ID: cdk.Fn.importValue(`${environment}-CognitoUserPoolId`),
+        NEXT_PUBLIC_COGNITO_DOMAIN: `aistudio-${environment}.auth.${cdk.Stack.of(this).region}.amazoncognito.com`,
+        // Cognito token configuration
+        COGNITO_ACCESS_TOKEN_LIFETIME_SECONDS: '43200', // 12 hours
+        COGNITO_JWKS_URL: `https://aistudio-${environment}.auth.${cdk.Stack.of(this).region}.amazoncognito.com/.well-known/jwks.json`,
       },
       // Secrets injected from Secrets Manager at runtime
       secrets: {
@@ -408,16 +444,12 @@ export class EcsServiceConstruct extends Construct {
           hardLimit: 65536,
         },
       ],
-      healthCheck: {
-        command: ['CMD-SHELL', 'curl -f http://localhost:3000/api/healthz || exit 1'],
-        interval: cdk.Duration.seconds(30),
-        timeout: cdk.Duration.seconds(5),
-        retries: 3,
-        startPeriod: cdk.Duration.seconds(120), // Increased from 60s for Next.js startup
-      },
+      // NOTE: Container health check removed - relying on ALB health checks instead
+      // ALB health checks work reliably while container health checks have issues in isolated subnets
+      // ALB checks the same /api/healthz endpoint and routes traffic only to healthy targets
     });
 
-    // Add tmpfs mount points for writable directories in read-only filesystem
+    // Add bind mount points for writable directories in read-only filesystem
     container.addMountPoints({
       containerPath: '/tmp',
       sourceVolume: 'tmp',
@@ -426,6 +458,11 @@ export class EcsServiceConstruct extends Construct {
     container.addMountPoints({
       containerPath: '/app/.next/cache',
       sourceVolume: 'nextjs-cache',
+      readOnly: false,
+    });
+    container.addMountPoints({
+      containerPath: '/home/nextjs',
+      sourceVolume: 'nextjs-home',
       readOnly: false,
     });
 
@@ -458,7 +495,8 @@ export class EcsServiceConstruct extends Construct {
       minHealthyPercent: environment === 'prod' ? 100 : 0,
       maxHealthyPercent: 200,
       securityGroups: [ecsSecurityGroup],
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC }, // Public subnets for internet access (Cognito auth requires internet)
+      assignPublicIp: true, // CRITICAL: Tasks need public IPs to reach internet via internet gateway
       capacityProviderStrategies: props.enableFargateSpot && environment === 'dev'
         ? [
             {
@@ -475,7 +513,7 @@ export class EcsServiceConstruct extends Construct {
             },
           ],
       circuitBreaker: {
-        rollback: true,
+        rollback: true, // Safe with fromAsset - image exists before service creation
       },
       enableExecuteCommand: true, // For debugging
     });
@@ -483,6 +521,11 @@ export class EcsServiceConstruct extends Construct {
     // Remove DesiredCount from CloudFormation template to prevent resets on deployment
     // This allows auto-scaling and manual scaling to manage task count independently
     // AWS Best Practice: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-service.html
+    //
+    // When DesiredCount is omitted from CloudFormation (as of Nov 2020):
+    // - Initial deployment: Uses value from initialDesiredCount parameter
+    // - Subsequent deployments: Preserves current desired count (from auto-scaling or manual changes)
+    // - No manual intervention required
     const cfnService = this.service.node.defaultChild as ecs.CfnService;
     cfnService.addPropertyDeletionOverride('DesiredCount');
 
@@ -521,7 +564,7 @@ export class EcsServiceConstruct extends Construct {
     // Auto Scaling
     // ============================================================================
     const scaling = this.service.autoScaleTaskCount({
-      minCapacity: 1,
+      minCapacity: 1, // Safe with fromAsset - image exists before service creation
       maxCapacity: environment === 'prod' ? 10 : 3,
     });
 

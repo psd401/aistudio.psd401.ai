@@ -369,7 +369,7 @@ export const authConfig: NextAuthConfig = {
       }
     },
   },
-  debug: false,
+  debug: true, // Temporarily enabled to debug authentication issues
   events: {
     async signOut() {
       // This event fires after NextAuth's signOut
