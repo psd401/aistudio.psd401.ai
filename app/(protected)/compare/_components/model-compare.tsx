@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import { CompareInput } from "./compare-input"
 import { DualResponse } from "./dual-response"
 import { useToast } from "@/components/ui/use-toast"
@@ -36,8 +36,8 @@ export function ModelCompare() {
   const [model2Complete, setModel2Complete] = useState(false)
   const { toast } = useToast()
 
-  // Track active EventSource for cleanup
-  const eventSourceRef = useRef<EventSource | null>(null)
+  // Track active stream reader for cleanup
+  const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
 
   const handleSubmit = useCallback(async () => {
     if (!model1State.selectedModel || !model2State.selectedModel) {
@@ -76,10 +76,14 @@ export function ModelCompare() {
     setIsStreaming(true)
 
     try {
-      // Close any existing EventSource
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close()
-        eventSourceRef.current = null
+      // Close any existing stream
+      if (streamReaderRef.current) {
+        try {
+          await streamReaderRef.current.cancel()
+        } catch {
+          // Ignore cancel errors
+        }
+        streamReaderRef.current = null
       }
 
       // Create comparison request using fetch to get the stream
@@ -116,67 +120,86 @@ export function ModelCompare() {
         throw new Error('Failed to get stream reader')
       }
 
+      // Store reader for cleanup
+      streamReaderRef.current = reader
+
       setIsLoading(false)
 
-      // Process the stream
-      let buffer = ''
-      while (true) {
-        const { done, value } = await reader.read()
+      try {
+        // Process the stream
+        let buffer = ''
+        while (true) {
+          const { done, value } = await reader.read()
 
-        if (done) {
-          break
-        }
+          if (done) {
+            break
+          }
 
-        // Decode the chunk and add to buffer
-        buffer += decoder.decode(value, { stream: true })
+          // Decode the chunk and add to buffer
+          buffer += decoder.decode(value, { stream: true })
 
-        // Process complete SSE messages
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || '' // Keep incomplete line in buffer
+          // Process complete SSE messages
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || '' // Keep incomplete line in buffer
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6)) as DualStreamEvent
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6)) as DualStreamEvent
 
-              // Handle events based on model ID
-              if (data.modelId === 'model1') {
-                if (data.type === 'content' && data.chunk) {
-                  setModel1Response(prev => prev + data.chunk)
-                } else if (data.type === 'finish') {
-                  setModel1Complete(true)
-                } else if (data.type === 'error') {
-                  setModel1Complete(true)
-                  toast({
-                    title: "Model 1 Error",
-                    description: data.error || "Model 1 failed to generate response",
-                    variant: "destructive"
-                  })
+                // Handle events based on model ID
+                if (data.modelId === 'model1') {
+                  if (data.type === 'content' && data.chunk) {
+                    setModel1Response(prev => prev + data.chunk)
+                  } else if (data.type === 'finish') {
+                    setModel1Complete(true)
+                  } else if (data.type === 'error') {
+                    setModel1Complete(true)
+                    toast({
+                      title: "Model 1 Error",
+                      description: data.error || "Model 1 failed to generate response",
+                      variant: "destructive"
+                    })
+                  }
+                } else if (data.modelId === 'model2') {
+                  if (data.type === 'content' && data.chunk) {
+                    setModel2Response(prev => prev + data.chunk)
+                  } else if (data.type === 'finish') {
+                    setModel2Complete(true)
+                  } else if (data.type === 'error') {
+                    setModel2Complete(true)
+                    toast({
+                      title: "Model 2 Error",
+                      description: data.error || "Model 2 failed to generate response",
+                      variant: "destructive"
+                    })
+                  }
                 }
-              } else if (data.modelId === 'model2') {
-                if (data.type === 'content' && data.chunk) {
-                  setModel2Response(prev => prev + data.chunk)
-                } else if (data.type === 'finish') {
-                  setModel2Complete(true)
-                } else if (data.type === 'error') {
-                  setModel2Complete(true)
-                  toast({
-                    title: "Model 2 Error",
-                    description: data.error || "Model 2 failed to generate response",
-                    variant: "destructive"
-                  })
+              } catch (parseError) {
+                // Log parse errors in development for debugging
+                if (process.env.NODE_ENV === 'development') {
+                  // eslint-disable-next-line no-console
+                  console.warn('Failed to parse SSE event:', line, parseError)
                 }
+                // In production, silently ignore - server-side logging handles errors
               }
-            } catch {
-              // Silently ignore parse errors for malformed SSE events
-              // Logging happens server-side
             }
           }
         }
-      }
 
-      // Stream complete
-      setIsStreaming(false)
+        // Stream complete
+        setIsStreaming(false)
+      } finally {
+        // Always cleanup the reader
+        if (streamReaderRef.current) {
+          try {
+            await streamReaderRef.current.cancel()
+          } catch {
+            // Ignore cancel errors
+          }
+          streamReaderRef.current = null
+        }
+      }
 
     } catch (error) {
       toast({
@@ -191,9 +214,11 @@ export function ModelCompare() {
 
   const handleNewComparison = useCallback(() => {
     // Close any active stream
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close()
-      eventSourceRef.current = null
+    if (streamReaderRef.current) {
+      streamReaderRef.current.cancel().catch(() => {
+        // Ignore cancel errors
+      })
+      streamReaderRef.current = null
     }
 
     setModel1Response("")
@@ -207,13 +232,26 @@ export function ModelCompare() {
 
   const handleStopStreaming = useCallback(() => {
     // Close the stream
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close()
-      eventSourceRef.current = null
+    if (streamReaderRef.current) {
+      streamReaderRef.current.cancel().catch(() => {
+        // Ignore cancel errors
+      })
+      streamReaderRef.current = null
     }
 
     setIsStreaming(false)
     setIsLoading(false)
+  }, [])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (streamReaderRef.current) {
+        streamReaderRef.current.cancel().catch(() => {
+          // Ignore cancel errors
+        })
+      }
+    }
   }, [])
 
   return (

@@ -1,5 +1,5 @@
 import { createLogger, generateRequestId } from '@/lib/logger';
-import type { StreamTextResult } from 'ai';
+import type { StreamTextResult, ToolSet } from 'ai';
 
 const log = createLogger({ module: 'dual-stream-merger' });
 
@@ -19,10 +19,13 @@ export interface DualStreamEvent {
 /**
  * Merges two AI streaming responses into a single SSE stream with model identification
  * Each chunk includes a modelId to distinguish between the two parallel streams
+ *
+ * Note: StreamTextResult is both a Promise AND has async iterable properties,
+ * so we accept it directly and await it internally.
  */
-export async function* mergeStreamsWithIdentifiers(
-  stream1Promise: StreamTextResult<never, never>,
-  stream2Promise: StreamTextResult<never, never>
+export async function* mergeStreamsWithIdentifiers<T1 extends ToolSet, T2 extends ToolSet>(
+  stream1Promise: StreamTextResult<T1, never>,
+  stream2Promise: StreamTextResult<T2, never>
 ): AsyncGenerator<Uint8Array> {
   const requestId = generateRequestId();
   const encoder = new TextEncoder();
@@ -87,8 +90,8 @@ export function asyncGeneratorToStream(generator: AsyncGenerator<Uint8Array>): R
 /**
  * Process a single stream and yield SSE events with model identification
  */
-async function* processStream(
-  streamResult: StreamTextResult<never, never>,
+async function* processStream<T extends ToolSet>(
+  streamResult: StreamTextResult<T, never>,
   modelId: 'model1' | 'model2',
   requestId: string
 ): AsyncGenerator<DualStreamEvent> {

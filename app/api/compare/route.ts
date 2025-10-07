@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { streamText, type StreamTextResult } from 'ai';
+import { streamText } from 'ai';
 import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from '@/lib/logger';
@@ -329,10 +329,10 @@ export async function POST(req: Request) {
     });
 
     // 9. Merge both streams with model identification
-    // Pass the StreamTextResult objects directly (not promises)
+    // StreamTextResult is both a Promise and has async iterable properties
     const mergedGenerator = mergeStreamsWithIdentifiers(
-      stream1Promise as unknown as StreamTextResult<never, never>,
-      stream2Promise as unknown as StreamTextResult<never, never>
+      stream1Promise,
+      stream2Promise
     );
 
     // Convert AsyncGenerator to ReadableStream
