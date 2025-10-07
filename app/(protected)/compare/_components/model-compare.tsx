@@ -6,6 +6,9 @@ import { DualResponse } from "./dual-response"
 import { useToast } from "@/components/ui/use-toast"
 import { useModelsWithPersistence } from "@/lib/hooks/use-models"
 
+// Note: This component now uses native streaming instead of polling
+// The backend streams both model responses in parallel via Server-Sent Events
+
 interface DualStreamEvent {
   modelId: 'model1' | 'model2';
   type: 'content' | 'finish' | 'error';
