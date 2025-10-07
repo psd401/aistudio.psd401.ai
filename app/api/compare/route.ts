@@ -7,7 +7,7 @@ import { executeSQL } from '@/lib/db/data-api-adapter';
 import { transformSnakeToCamel } from '@/lib/db/field-mapper';
 import { hasToolAccess } from '@/utils/roles';
 import { createProviderModel } from '@/app/api/chat/lib/provider-factory';
-import { mergeStreamsWithIdentifiers } from '@/lib/compare/dual-stream-merger';
+import { mergeStreamsWithIdentifiers, asyncGeneratorToStream } from '@/lib/compare/dual-stream-merger';
 
 // Allow streaming responses up to 5 minutes
 export const maxDuration = 300;
@@ -330,7 +330,13 @@ export async function POST(req: Request) {
 
     // 9. Merge both streams with model identification
     // Pass the StreamTextResult objects directly (not promises)
-    const mergedStream = mergeStreamsWithIdentifiers(stream1Promise as unknown as StreamTextResult<never, never>, stream2Promise as unknown as StreamTextResult<never, never>);
+    const mergedGenerator = mergeStreamsWithIdentifiers(
+      stream1Promise as unknown as StreamTextResult<never, never>,
+      stream2Promise as unknown as StreamTextResult<never, never>
+    );
+
+    // Convert AsyncGenerator to ReadableStream
+    const mergedStream = asyncGeneratorToStream(mergedGenerator);
 
     timer({
       status: 'success',
@@ -339,7 +345,7 @@ export async function POST(req: Request) {
     });
 
     // 10. Return SSE stream
-    return new Response(mergedStream as unknown as ReadableStream, {
+    return new Response(mergedStream, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-transform',

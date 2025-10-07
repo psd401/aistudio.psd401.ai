@@ -23,7 +23,7 @@ export interface DualStreamEvent {
 export async function* mergeStreamsWithIdentifiers(
   stream1Promise: StreamTextResult<never, never>,
   stream2Promise: StreamTextResult<never, never>
-): AsyncGenerator<string> {
+): AsyncGenerator<Uint8Array> {
   const requestId = generateRequestId();
   const encoder = new TextEncoder();
 
@@ -45,7 +45,7 @@ export async function* mergeStreamsWithIdentifiers(
     // Yield chunks as they arrive from either stream
     for await (const eventData of mergeAsyncIterables(streamTasks)) {
       const sseEvent = `data: ${JSON.stringify(eventData)}\n\n`;
-      yield encoder.encode(sseEvent).toString();
+      yield encoder.encode(sseEvent);
     }
 
     log.info('Dual stream merge completed', { requestId });
@@ -61,8 +61,27 @@ export async function* mergeStreamsWithIdentifiers(
       type: 'error',
       error: error instanceof Error ? error.message : 'Stream merge failed'
     };
-    yield encoder.encode(`data: ${JSON.stringify(errorEvent)}\n\n`).toString();
+    const encoder = new TextEncoder();
+    yield encoder.encode(`data: ${JSON.stringify(errorEvent)}\n\n`);
   }
+}
+
+/**
+ * Convert AsyncGenerator to ReadableStream for Response
+ */
+export function asyncGeneratorToStream(generator: AsyncGenerator<Uint8Array>): ReadableStream {
+  return new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const chunk of generator) {
+          controller.enqueue(chunk);
+        }
+        controller.close();
+      } catch (error) {
+        controller.error(error);
+      }
+    }
+  });
 }
 
 /**
