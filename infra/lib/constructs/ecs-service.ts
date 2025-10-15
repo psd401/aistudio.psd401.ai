@@ -9,6 +9,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cloudwatch_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 
 export interface EcsServiceConstructProps {
@@ -641,13 +642,27 @@ export class EcsServiceConstruct extends Construct {
 
   /**
    * Create CloudWatch dashboard for monitoring the ECS service
+   * Includes streaming performance metrics and ALB health monitoring
    */
   public createDashboard(props: { environment: string }): cloudwatch.Dashboard {
     const dashboard = new cloudwatch.Dashboard(this, 'Dashboard', {
       dashboardName: `aistudio-ecs-${props.environment}`,
     });
 
-    // Service metrics
+    // Title widget
+    dashboard.addWidgets(
+      new cloudwatch.TextWidget({
+        markdown: `# ECS Service Monitoring - ${props.environment.toUpperCase()}
+
+**Service:** ${this.service.serviceName}
+**Cluster:** ${this.cluster.clusterName}
+**Load Balancer:** ${this.loadBalancer.loadBalancerDnsName}`,
+        width: 24,
+        height: 2,
+      })
+    );
+
+    // Row 1: Service health overview
     dashboard.addWidgets(
       new cloudwatch.GraphWidget({
         title: 'Service CPU and Memory',
@@ -660,6 +675,8 @@ export class EcsServiceConstruct extends Construct {
               ClusterName: this.cluster.clusterName,
             },
             statistic: 'Average',
+            period: cdk.Duration.minutes(1),
+            label: 'CPU %',
           }),
         ],
         right: [
@@ -671,32 +688,15 @@ export class EcsServiceConstruct extends Construct {
               ClusterName: this.cluster.clusterName,
             },
             statistic: 'Average',
+            period: cdk.Duration.minutes(1),
+            label: 'Memory %',
           }),
         ],
-      })
-    );
-
-    // ALB metrics
-    dashboard.addWidgets(
+        width: 12,
+        height: 6,
+      }),
       new cloudwatch.GraphWidget({
-        title: 'Load Balancer Request Count',
-        left: [
-          new cloudwatch.Metric({
-            namespace: 'AWS/ApplicationELB',
-            metricName: 'RequestCount',
-            dimensionsMap: {
-              LoadBalancer: this.loadBalancer.loadBalancerFullName,
-            },
-            statistic: 'Sum',
-          }),
-        ],
-      })
-    );
-
-    // Target health
-    dashboard.addWidgets(
-      new cloudwatch.GraphWidget({
-        title: 'Task Count',
+        title: 'Task Count & Health',
         left: [
           new cloudwatch.Metric({
             namespace: 'AWS/ECS',
@@ -706,11 +706,336 @@ export class EcsServiceConstruct extends Construct {
               ClusterName: this.cluster.clusterName,
             },
             statistic: 'Average',
+            period: cdk.Duration.minutes(1),
+            label: 'Running Tasks',
+            color: '#2ca02c',
+          }),
+          new cloudwatch.Metric({
+            namespace: 'AWS/ApplicationELB',
+            metricName: 'HealthyHostCount',
+            dimensionsMap: {
+              TargetGroup: this.targetGroup.targetGroupFullName,
+              LoadBalancer: this.loadBalancer.loadBalancerFullName,
+            },
+            statistic: 'Average',
+            period: cdk.Duration.minutes(1),
+            label: 'Healthy Targets',
+            color: '#1f77b4',
+          }),
+          new cloudwatch.Metric({
+            namespace: 'AWS/ApplicationELB',
+            metricName: 'UnHealthyHostCount',
+            dimensionsMap: {
+              TargetGroup: this.targetGroup.targetGroupFullName,
+              LoadBalancer: this.loadBalancer.loadBalancerFullName,
+            },
+            statistic: 'Average',
+            period: cdk.Duration.minutes(1),
+            label: 'Unhealthy Targets',
+            color: '#d13212',
           }),
         ],
+        width: 12,
+        height: 6,
+      })
+    );
+
+    // Row 2: Request metrics and errors
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Request Volume',
+        left: [
+          new cloudwatch.Metric({
+            namespace: 'AWS/ApplicationELB',
+            metricName: 'RequestCount',
+            dimensionsMap: {
+              LoadBalancer: this.loadBalancer.loadBalancerFullName,
+            },
+            statistic: 'Sum',
+            period: cdk.Duration.minutes(1),
+            label: 'Requests',
+          }),
+        ],
+        width: 12,
+        height: 6,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Error Rates',
+        left: [
+          new cloudwatch.Metric({
+            namespace: 'AWS/ApplicationELB',
+            metricName: 'HTTPCode_Target_4XX_Count',
+            dimensionsMap: {
+              LoadBalancer: this.loadBalancer.loadBalancerFullName,
+            },
+            statistic: 'Sum',
+            period: cdk.Duration.minutes(1),
+            label: '4XX Errors',
+            color: '#ff9900',
+          }),
+          new cloudwatch.Metric({
+            namespace: 'AWS/ApplicationELB',
+            metricName: 'HTTPCode_Target_5XX_Count',
+            dimensionsMap: {
+              LoadBalancer: this.loadBalancer.loadBalancerFullName,
+            },
+            statistic: 'Sum',
+            period: cdk.Duration.minutes(1),
+            label: '5XX Errors',
+            color: '#d13212',
+          }),
+        ],
+        width: 12,
+        height: 6,
+      })
+    );
+
+    // Row 3: Performance metrics
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Response Time (ALB)',
+        left: [
+          new cloudwatch.Metric({
+            namespace: 'AWS/ApplicationELB',
+            metricName: 'TargetResponseTime',
+            dimensionsMap: {
+              LoadBalancer: this.loadBalancer.loadBalancerFullName,
+            },
+            statistic: 'p50',
+            period: cdk.Duration.minutes(1),
+            label: 'P50',
+            color: '#2ca02c',
+          }),
+          new cloudwatch.Metric({
+            namespace: 'AWS/ApplicationELB',
+            metricName: 'TargetResponseTime',
+            dimensionsMap: {
+              LoadBalancer: this.loadBalancer.loadBalancerFullName,
+            },
+            statistic: 'p90',
+            period: cdk.Duration.minutes(1),
+            label: 'P90',
+            color: '#ff9900',
+          }),
+          new cloudwatch.Metric({
+            namespace: 'AWS/ApplicationELB',
+            metricName: 'TargetResponseTime',
+            dimensionsMap: {
+              LoadBalancer: this.loadBalancer.loadBalancerFullName,
+            },
+            statistic: 'p99',
+            period: cdk.Duration.minutes(1),
+            label: 'P99',
+            color: '#d13212',
+          }),
+        ],
+        width: 12,
+        height: 6,
+        leftYAxis: {
+          label: 'Seconds',
+        },
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Active Connections',
+        left: [
+          new cloudwatch.Metric({
+            namespace: 'AWS/ApplicationELB',
+            metricName: 'ActiveConnectionCount',
+            dimensionsMap: {
+              LoadBalancer: this.loadBalancer.loadBalancerFullName,
+            },
+            statistic: 'Sum',
+            period: cdk.Duration.minutes(1),
+            label: 'Active Connections',
+          }),
+          new cloudwatch.Metric({
+            namespace: 'AWS/ApplicationELB',
+            metricName: 'NewConnectionCount',
+            dimensionsMap: {
+              LoadBalancer: this.loadBalancer.loadBalancerFullName,
+            },
+            statistic: 'Sum',
+            period: cdk.Duration.minutes(1),
+            label: 'New Connections',
+            color: '#1f77b4',
+          }),
+        ],
+        width: 12,
+        height: 6,
+      })
+    );
+
+    // Row 4: Streaming-specific metrics (custom metrics from application)
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Streaming Performance (Time to First Token)',
+        left: [
+          new cloudwatch.Metric({
+            namespace: 'AIStudio/Streaming',
+            metricName: 'TimeToFirstToken',
+            dimensionsMap: {
+              Environment: props.environment,
+            },
+            statistic: 'Average',
+            period: cdk.Duration.minutes(1),
+            label: 'Avg TTFT (ms)',
+          }),
+          new cloudwatch.Metric({
+            namespace: 'AIStudio/Streaming',
+            metricName: 'TimeToFirstToken',
+            dimensionsMap: {
+              Environment: props.environment,
+            },
+            statistic: 'p99',
+            period: cdk.Duration.minutes(1),
+            label: 'P99 TTFT (ms)',
+            color: '#ff9900',
+          }),
+        ],
+        width: 12,
+        height: 6,
+        leftYAxis: {
+          label: 'Milliseconds',
+        },
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Streaming Errors',
+        left: [
+          new cloudwatch.Metric({
+            namespace: 'AIStudio/Streaming',
+            metricName: 'StreamingErrors',
+            dimensionsMap: {
+              Environment: props.environment,
+            },
+            statistic: 'Sum',
+            period: cdk.Duration.minutes(1),
+            label: 'Streaming Errors',
+            color: '#d13212',
+          }),
+        ],
+        width: 12,
+        height: 6,
       })
     );
 
     return dashboard;
+  }
+
+  /**
+   * Create CloudWatch alarms for ECS service monitoring
+   */
+  public createAlarms(props: {
+    environment: string;
+    alarmTopic?: cloudwatch_actions.SnsAction;
+  }): cloudwatch.Alarm[] {
+    const alarms: cloudwatch.Alarm[] = [];
+
+    // High error rate alarm
+    const errorRateAlarm = new cloudwatch.Alarm(this, 'HighErrorRate', {
+      alarmName: `${props.environment}-ecs-high-error-rate`,
+      alarmDescription: 'ECS 5XX error rate exceeds threshold',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/ApplicationELB',
+        metricName: 'HTTPCode_Target_5XX_Count',
+        dimensionsMap: {
+          LoadBalancer: this.loadBalancer.loadBalancerFullName,
+        },
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 10,
+      evaluationPeriods: 2,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    alarms.push(errorRateAlarm);
+
+    // Unhealthy target alarm
+    const unhealthyTargetAlarm = new cloudwatch.Alarm(this, 'UnhealthyTargets', {
+      alarmName: `${props.environment}-ecs-unhealthy-targets`,
+      alarmDescription: 'ECS has unhealthy targets',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/ApplicationELB',
+        metricName: 'UnHealthyHostCount',
+        dimensionsMap: {
+          TargetGroup: this.targetGroup.targetGroupFullName,
+          LoadBalancer: this.loadBalancer.loadBalancerFullName,
+        },
+        statistic: 'Average',
+        period: cdk.Duration.minutes(1),
+      }),
+      threshold: 1,
+      evaluationPeriods: 2,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    alarms.push(unhealthyTargetAlarm);
+
+    // High CPU alarm
+    const highCpuAlarm = new cloudwatch.Alarm(this, 'HighCPU', {
+      alarmName: `${props.environment}-ecs-high-cpu`,
+      alarmDescription: 'ECS CPU utilization exceeds 80%',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/ECS',
+        metricName: 'CPUUtilization',
+        dimensionsMap: {
+          ServiceName: this.service.serviceName,
+          ClusterName: this.cluster.clusterName,
+        },
+        statistic: 'Average',
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 80,
+      evaluationPeriods: 2,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    alarms.push(highCpuAlarm);
+
+    // High memory alarm
+    const highMemoryAlarm = new cloudwatch.Alarm(this, 'HighMemory', {
+      alarmName: `${props.environment}-ecs-high-memory`,
+      alarmDescription: 'ECS memory utilization exceeds 85%',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/ECS',
+        metricName: 'MemoryUtilization',
+        dimensionsMap: {
+          ServiceName: this.service.serviceName,
+          ClusterName: this.cluster.clusterName,
+        },
+        statistic: 'Average',
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 85,
+      evaluationPeriods: 2,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    alarms.push(highMemoryAlarm);
+
+    // No running tasks alarm
+    const noTasksAlarm = new cloudwatch.Alarm(this, 'NoRunningTasks', {
+      alarmName: `${props.environment}-ecs-no-running-tasks`,
+      alarmDescription: 'ECS service has no running tasks',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/ECS',
+        metricName: 'RunningTaskCount',
+        dimensionsMap: {
+          ServiceName: this.service.serviceName,
+          ClusterName: this.cluster.clusterName,
+        },
+        statistic: 'Average',
+        period: cdk.Duration.minutes(1),
+      }),
+      threshold: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+      evaluationPeriods: 2,
+      treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+    });
+    alarms.push(noTasksAlarm);
+
+    // Add alarm actions if SNS topic provided
+    if (props.alarmTopic) {
+      const topic = props.alarmTopic;
+      alarms.forEach(alarm => alarm.addAlarmAction(topic));
+    }
+
+    return alarms;
   }
 }
