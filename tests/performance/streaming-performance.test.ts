@@ -16,12 +16,16 @@ import {
   TEST_PROMPTS,
 } from './config';
 import { getAuthToken } from './lib/auth-helper';
-import { createSetupValidator } from './lib/test-setup-validator';
+import { createSetupValidator, shouldSkipPerformanceTests } from './lib/test-setup-validator';
 
 // Extended timeout for performance tests
 jest.setTimeout(10 * 60 * 1000); // 10 minutes
 
-describe('Streaming Performance - TTFT Validation', () => {
+// Skip performance tests in CI unless explicitly enabled
+// This prevents CI from hanging on tests that need running server + auth
+const describeOrSkip = shouldSkipPerformanceTests() ? describe.skip : describe;
+
+describeOrSkip('Streaming Performance - TTFT Validation', () => {
   let authToken: string | undefined;
   let baseUrl: string;
 

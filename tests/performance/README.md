@@ -40,7 +40,24 @@ npm run test:perf:stress
 
 ## Test Environment Setup
 
-### ⚠️ Important: Setup Validation
+### ⚠️ Important: CI/CD Behavior
+
+**Performance tests are SKIPPED in CI environments by default** to prevent hanging builds.
+
+Why:
+- These tests require a running API server
+- They need authentication configuration
+- They can take 30+ minutes to complete
+- They're not suitable for standard PR checks
+
+**To run in CI**, set environment variable:
+```bash
+RUN_PERFORMANCE_TESTS=true npm run test:perf
+```
+
+**In local development**, tests run normally (not skipped).
+
+### Setup Validation
 
 **Performance tests will fail immediately with a clear error message if:**
 - Testing against a real API without authentication configured

@@ -70,6 +70,35 @@ export async function validateTestSetup(): Promise<ValidationResult> {
 }
 
 /**
+ * Check if we should skip performance tests
+ *
+ * Performance tests are skipped by default in CI environments unless explicitly enabled.
+ * This prevents CI from hanging on tests that require a running server + authentication.
+ */
+export function shouldSkipPerformanceTests(): boolean {
+  // If explicitly enabled, always run
+  if (process.env.RUN_PERFORMANCE_TESTS === 'true') {
+    return false;
+  }
+
+  // If in CI and not explicitly enabled, skip
+  const isCI = process.env.CI === 'true' ||
+               process.env.GITHUB_ACTIONS === 'true' ||
+               process.env.CONTINUOUS_INTEGRATION === 'true';
+
+  if (isCI) {
+    console.log(
+      '\n⏭️  Skipping performance tests in CI (not enabled)\n' +
+      '   To run in CI: set RUN_PERFORMANCE_TESTS=true\n'
+    );
+    return true;
+  }
+
+  // In local environments, don't skip by default
+  return false;
+}
+
+/**
  * Assert that test setup is valid, throwing descriptive error if not
  */
 export async function assertValidTestSetup(): Promise<void> {
