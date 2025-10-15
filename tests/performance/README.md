@@ -40,6 +40,14 @@ npm run test:perf:stress
 
 ## Test Environment Setup
 
+### ⚠️ Important: Setup Validation
+
+**Performance tests will fail immediately with a clear error message if:**
+- Testing against a real API without authentication configured
+- Required environment variables are missing
+
+This prevents silent failures and wasted test runs.
+
 ### Local Testing
 
 By default, tests run against `http://localhost:3000`:
@@ -51,6 +59,8 @@ npm run dev
 # Run tests in another terminal
 npm run test:perf:ttft
 ```
+
+**Note**: Local testing without authentication is supported for development.
 
 ### Staging/Production Testing
 
@@ -66,20 +76,42 @@ TEST_ENV=production npm run test:perf:ttft
 
 ### Authentication
 
-For authenticated endpoints, provide a token:
+**Required for staging/production testing.** Tests will fail with a clear error if not configured.
 
+Option 1: Use an authentication token
 ```bash
 export AUTH_TOKEN="your-jwt-token-here"
 npm run test:perf
 ```
 
-Or configure test user credentials in the environment:
-
+Option 2: Configure test user credentials
 ```bash
 export TEST_USER_EMAIL="test@example.com"
 export TEST_USER_PASSWORD="password"
 npm run test:perf
 ```
+
+### Setup Validation
+
+Before running tests, the framework validates:
+- ✅ Authentication is configured for non-local environments
+- ✅ Required environment variables are set
+- ✅ Test environment is properly specified
+
+**If validation fails**, you'll see a clear error message like:
+```
+❌ Performance Test Setup Invalid
+
+   Performance tests require valid authentication when testing against real APIs.
+
+   Please configure one of the following:
+     1. Environment variable: export AUTH_TOKEN="your-jwt-token"
+     2. Test user credentials:
+        export TEST_USER_EMAIL="test@example.com"
+        export TEST_USER_PASSWORD="your-password"
+```
+
+This prevents tests from running with improper setup and wasting time.
 
 ## Test Suites
 

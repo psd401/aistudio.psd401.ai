@@ -16,6 +16,7 @@ import {
   TEST_PROMPTS,
 } from './config';
 import { getAuthToken } from './lib/auth-helper';
+import { createSetupValidator } from './lib/test-setup-validator';
 
 // Extended timeout for performance tests
 jest.setTimeout(10 * 60 * 1000); // 10 minutes
@@ -23,6 +24,9 @@ jest.setTimeout(10 * 60 * 1000); // 10 minutes
 describe('Streaming Performance - TTFT Validation', () => {
   let authToken: string | undefined;
   let baseUrl: string;
+
+  // Validate test setup before running
+  beforeAll(createSetupValidator());
 
   beforeAll(async () => {
     const env = getTestEnvironment();
