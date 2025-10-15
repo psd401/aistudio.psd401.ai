@@ -41,7 +41,7 @@ jobs:
       run: npm run typecheck
     
     - name: Run tests
-      run: npm test
+      run: npm run test:ci
       env:
         # Prevent tests from timing out in CI
         CI: true
