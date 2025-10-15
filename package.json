@@ -10,6 +10,12 @@
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:perf": "jest --testMatch='**/performance/**/*.test.ts' --runInBand",
+    "test:perf:ttft": "jest --testMatch='**/streaming-performance.test.ts' --runInBand",
+    "test:perf:concurrent": "jest --testMatch='**/concurrent-streams.test.ts' --runInBand",
+    "test:perf:long": "jest --testMatch='**/long-running-streams.test.ts' --runInBand",
+    "test:perf:memory": "jest --testMatch='**/memory-leak-detection.test.ts' --runInBand",
+    "test:perf:stress": "jest --testMatch='**/stress-test.test.ts' --runInBand",
     "ts-node": "tsx"
   },
   "dependencies": {
