@@ -15,40 +15,25 @@ Comprehensive guide for deploying and managing AI Studio on AWS ECS Fargate.
 ### Prerequisites
 
 - AWS CLI configured with appropriate credentials
-- Docker installed (for quick-deploy method)
 - Node.js and npm installed
 - CDK CLI installed: `npm install -g aws-cdk`
+- Your base domain (e.g., `aistudio.yourdomain.com`)
 
-### 1. Full Deployment (Infrastructure + Application)
-
-```bash
-cd infra
-./scripts/deploy-ecs-dev.sh
-```
-
-This script:
-1. ✅ Validates AWS credentials
-2. 🔨 Builds Docker image from project root
-3. 📤 Pushes image to ECR
-4. 🚀 Deploys/updates all infrastructure via CDK
-5. ⏳ Waits for service to stabilize
-6. 📊 Displays monitoring URLs
-
-**When to use**: First deployment, infrastructure changes, or when you're not in a hurry.
-
-### 2. Quick Deployment (Application Only)
+### Deployment
 
 ```bash
 cd infra
-./scripts/quick-deploy.sh
+npx cdk deploy AIStudio-FrontendStack-ECS-Dev --context baseDomain=aistudio.yourdomain.com
 ```
 
-This script:
-1. 🔨 Builds Docker image
-2. 📤 Pushes to ECR
-3. 🔄 Forces ECS service to pull new image
+This command:
+1. 🔨 Builds Docker image from project root (using CDK's fromAsset)
+2. 📤 Pushes image to ECR automatically
+3. 🚀 Deploys/updates all infrastructure
+4. ⏳ Waits for CloudFormation to complete
 
-**When to use**: Rapid testing of application code changes without infrastructure updates.
+**Note**: CDK automatically handles Docker image building and pushing via `ContainerImage.fromAsset()`.
+This solves the chicken-and-egg problem of needing the image before the ECS service exists.
 
 ## Deployment Methods
 
@@ -466,8 +451,9 @@ npm update
 # Make code changes
 # ...
 
-# Quick deploy
-./infra/scripts/quick-deploy.sh
+# Deploy via CDK (rebuilds and redeploys)
+cd infra
+npx cdk deploy AIStudio-FrontendStack-ECS-Dev --context baseDomain=aistudio.yourdomain.com
 ```
 
 ### Cleaning Up
