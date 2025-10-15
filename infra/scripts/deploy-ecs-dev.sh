@@ -51,7 +51,7 @@ if [ "$SKIP_DOCKER" == "true" ]; then
     echo -e "${YELLOW}Note: CDK will use existing ECR image${NC}"
 fi
 
-npx cdk deploy AIStudio-FrontendStack-Dev-Ecs --require-approval never
+npx cdk deploy AIStudio-FrontendStack-ECS-Dev --require-approval never
 
 # Get service info
 echo -e "\n${YELLOW}Retrieving service information...${NC}"
