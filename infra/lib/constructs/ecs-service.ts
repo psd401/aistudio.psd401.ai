@@ -1032,7 +1032,8 @@ export class EcsServiceConstruct extends Construct {
 
     // Add alarm actions if SNS topic provided
     if (props.alarmTopic) {
-      alarms.forEach(alarm => alarm.addAlarmAction(props.alarmTopic));
+      const topic = props.alarmTopic;
+      alarms.forEach(alarm => alarm.addAlarmAction(topic));
     }
 
     return alarms;
