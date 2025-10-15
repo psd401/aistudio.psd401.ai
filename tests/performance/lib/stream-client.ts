@@ -228,6 +228,8 @@ export class StreamClient {
       }
     } finally {
       clearTimeout(timeoutId);
+      // Clear abort controller reference to allow garbage collection
+      this.abortController = undefined;
     }
 
     return this.buildMetrics({

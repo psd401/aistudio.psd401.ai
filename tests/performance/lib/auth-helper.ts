@@ -45,24 +45,37 @@ export async function getAuthToken(): Promise<string | undefined> {
 /**
  * Authenticate test user and get access token
  *
- * This is a placeholder implementation. In a real scenario, this would:
- * 1. Call the Cognito authentication endpoint
- * 2. Exchange credentials for tokens
- * 3. Return the access token
+ * IMPORTANT: This function does NOT implement Cognito authentication.
+ * For staging/production testing, you MUST provide AUTH_TOKEN via environment.
+ *
+ * Only supports local testing without authentication.
  */
 async function authenticateTestUser(
   credentials: AuthCredentials
 ): Promise<string> {
-  // TODO: Implement actual authentication flow using AWS Cognito
-  // For now, this is a placeholder that assumes local testing
+  const env = getTestEnvironment();
 
-  console.warn(
-    'Auth helper: Using placeholder authentication. Implement proper Cognito auth for staging/production testing.'
-  );
+  // Fail fast if trying to authenticate against non-local environment
+  if (!env.baseUrl.includes('localhost')) {
+    throw new Error(
+      '\n' +
+      '❌ Authentication Error: Real Cognito authentication not implemented\n' +
+      '\n' +
+      'This test helper does NOT implement AWS Cognito authentication.\n' +
+      'To test against staging/production, you must provide a valid token:\n' +
+      '\n' +
+      '  export AUTH_TOKEN="your-valid-jwt-token"\n' +
+      '\n' +
+      'Alternatively, test against local environment:\n' +
+      '  export TEST_ENV=local  # or omit for default\n' +
+      '\n' +
+      `Current target: ${env.baseUrl}\n`
+    );
+  }
 
-  // In local development, we can skip auth or use a mock token
-  // In CI/CD, we should use a service account with proper credentials
-  return 'mock-token-for-local-testing';
+  // Local testing only - return mock token
+  console.warn('⚠️  Local testing mode - using mock authentication');
+  return 'mock-local-dev-token';
 }
 
 /**

@@ -76,9 +76,9 @@ describe('Concurrent Streaming Performance', () => {
           const metrics = await client.execute();
           collector.add(metrics);
 
-          // Log progress every 10 completions
+          // Log progress every 10 requests launched (avoid race condition with collector.count)
           if ((index + 1) % 10 === 0) {
-            console.log(`  Progress: ${collector.count}/${concurrentCount} streams completed`);
+            console.log(`  Progress: ${index + 1}/${concurrentCount} requests launched`);
           }
         } catch (error) {
           console.error(`  Stream ${index} failed:`, error);

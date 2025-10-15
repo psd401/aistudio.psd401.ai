@@ -189,12 +189,18 @@ export class MetricsCollector {
   }
 
   /**
-   * Calculate percentile of sorted values
+   * Calculate percentile of sorted values using nearest-rank method
    */
   private percentile(sorted: number[], p: number): number {
     if (sorted.length === 0) return 0;
-    const index = Math.ceil((p / 100) * sorted.length) - 1;
-    return sorted[Math.max(0, Math.min(index, sorted.length - 1))];
+
+    // Handle edge cases
+    if (p === 0) return sorted[0];
+    if (p === 100) return sorted[sorted.length - 1];
+
+    // Standard nearest-rank method: floor((p/100) * (n-1))
+    const index = Math.floor((p / 100) * (sorted.length - 1));
+    return sorted[index];
   }
 
   /**
