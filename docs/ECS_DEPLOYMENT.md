@@ -17,14 +17,16 @@ Comprehensive guide for deploying and managing AI Studio on AWS ECS Fargate.
 - AWS CLI configured with appropriate credentials
 - Node.js and npm installed
 - CDK CLI installed: `npm install -g aws-cdk`
-- Your base domain (e.g., `aistudio.yourdomain.com`)
+- Your base domain (e.g., `aistudio.example.com`)
 
 ### Deployment
 
 ```bash
 cd infra
-npx cdk deploy AIStudio-FrontendStack-ECS-Dev --context baseDomain=aistudio.yourdomain.com
+npx cdk deploy AIStudio-FrontendStack-ECS-Dev --context baseDomain=<your-domain>
 ```
+
+Replace `<your-domain>` with your actual domain (e.g., `aistudio.example.com`).
 
 This command:
 1. 🔨 Builds Docker image from project root (using CDK's fromAsset)
@@ -43,7 +45,7 @@ This solves the chicken-and-egg problem of needing the image before the ECS serv
 
 ```bash
 cd infra
-npx cdk deploy AIStudio-FrontendStack-Dev-Ecs
+npx cdk deploy AIStudio-FrontendStack-ECS-Dev --context baseDomain=<your-domain>
 ```
 
 **How it works**:
@@ -83,24 +85,27 @@ npx cdk deploy AIStudio-FrontendStack-Dev-Ecs
 
 ```bash
 # 1. Authenticate with ECR
-aws ecr get-login-password --region us-east-1 | \
+REGION=$(aws configure get region)
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+aws ecr get-login-password --region $REGION | \
   docker login --username AWS --password-stdin \
-  390844780692.dkr.ecr.us-east-1.amazonaws.com
+  $ACCOUNT.dkr.ecr.$REGION.amazonaws.com
 
 # 2. Build for ARM64 (matches Fargate)
-docker buildx build --platform linux/arm64 -t aistudio-dev:latest .
+docker buildx build --platform linux/arm64 -t aistudio-<environment>:latest .
 
 # 3. Tag for ECR
-REPO_URI=$(aws ssm get-parameter --name /aistudio/dev/ecr-repository-uri --query Parameter.Value --output text)
-docker tag aistudio-dev:latest $REPO_URI:latest
+ENV=dev  # or 'prod'
+REPO_URI=$(aws ssm get-parameter --name /aistudio/$ENV/ecr-repository-uri --query Parameter.Value --output text)
+docker tag aistudio-$ENV:latest $REPO_URI:latest
 
 # 4. Push
 docker push $REPO_URI:latest
 
 # 5. Force deployment
 aws ecs update-service \
-  --cluster aistudio-dev \
-  --service aistudio-dev \
+  --cluster aistudio-$ENV \
+  --service aistudio-$ENV \
   --force-new-deployment
 ```
 
@@ -129,7 +134,9 @@ The deployment creates a comprehensive CloudWatch dashboard with:
 
 Access dashboard:
 ```bash
-open "https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#dashboards:name=aistudio-ecs-dev"
+REGION=$(aws configure get region)
+ENV=dev  # or 'prod'
+open "https://console.aws.amazon.com/cloudwatch/home?region=$REGION#dashboards:name=aistudio-ecs-$ENV"
 ```
 
 ### CloudWatch Alarms
@@ -148,18 +155,21 @@ The following alarms are automatically created:
 
 **Real-time logs**:
 ```bash
-aws logs tail /ecs/aistudio-dev --follow
+ENV=dev  # or 'prod'
+aws logs tail /ecs/aistudio-$ENV --follow
 ```
 
 **Filter by request ID**:
 ```bash
-aws logs tail /ecs/aistudio-dev --follow --filter-pattern "requestId=abc123"
+ENV=dev  # or 'prod'
+aws logs tail /ecs/aistudio-$ENV --follow --filter-pattern "requestId=abc123"
 ```
 
 **CloudWatch Insights**:
 ```bash
 # View in console
-open "https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:logs-insights"
+REGION=$(aws configure get region)
+open "https://console.aws.amazon.com/cloudwatch/home?region=$REGION#logsV2:logs-insights"
 
 # Example query: Recent errors
 fields @timestamp, level, message, error.code
@@ -175,9 +185,10 @@ After deployment, validate the service:
 ### 1. Check Service Health
 
 ```bash
+ENV=dev  # or 'prod'
 aws ecs describe-services \
-  --cluster aistudio-dev \
-  --services aistudio-dev \
+  --cluster aistudio-$ENV \
+  --services aistudio-$ENV \
   --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount,Health:healthCheckGracePeriodSeconds}'
 ```
 
@@ -193,16 +204,18 @@ Expected output:
 ### 2. Check Task Health
 
 ```bash
-aws ecs list-tasks --cluster aistudio-dev --service-name aistudio-dev
-aws ecs describe-tasks --cluster aistudio-dev --tasks <task-arn>
+ENV=dev  # or 'prod'
+aws ecs list-tasks --cluster aistudio-$ENV --service-name aistudio-$ENV
+aws ecs describe-tasks --cluster aistudio-$ENV --tasks <task-arn>
 ```
 
 ### 3. Check ALB Targets
 
 ```bash
 # Get target group ARN
+ENV=dev  # or 'prod'
 TG_ARN=$(aws elbv2 describe-target-groups \
-  --query "TargetGroups[?contains(TargetGroupName, 'aistudio-dev')].TargetGroupArn" \
+  --query "TargetGroups[?contains(TargetGroupName, 'aistudio-$ENV')].TargetGroupArn" \
   --output text)
 
 # Check target health
@@ -226,7 +239,8 @@ Expected output:
 
 ```bash
 # Get ALB DNS name
-ALB_DNS=$(aws ssm get-parameter --name /aistudio/dev/alb-dns-name --query Parameter.Value --output text)
+ENV=dev  # or 'prod'
+ALB_DNS=$(aws ssm get-parameter --name /aistudio/$ENV/alb-dns-name --query Parameter.Value --output text)
 
 # Test health endpoint
 curl http://$ALB_DNS/api/healthz
@@ -243,10 +257,11 @@ curl http://$ALB_DNS/api/healthz
 **Diagnosis**:
 ```bash
 # Get stopped task ID
-TASK_ID=$(aws ecs list-tasks --cluster aistudio-dev --service-name aistudio-dev --desired-status STOPPED --max-items 1 --query 'taskArns[0]' --output text)
+ENV=dev  # or 'prod'
+TASK_ID=$(aws ecs list-tasks --cluster aistudio-$ENV --service-name aistudio-$ENV --desired-status STOPPED --max-items 1 --query 'taskArns[0]' --output text)
 
 # View stop reason
-aws ecs describe-tasks --cluster aistudio-dev --tasks $TASK_ID \
+aws ecs describe-tasks --cluster aistudio-$ENV --tasks $TASK_ID \
   --query 'tasks[0].{StopReason:stoppedReason,StopCode:stopCode,Containers:containers[*].{Name:name,Reason:reason,ExitCode:exitCode}}'
 ```
 
@@ -263,11 +278,12 @@ aws ecs describe-tasks --cluster aistudio-dev --tasks $TASK_ID \
 **Diagnosis**:
 ```bash
 # Check health check configuration
+ENV=dev  # or 'prod'
 aws elbv2 describe-target-groups \
-  --query "TargetGroups[?contains(TargetGroupName, 'aistudio-dev')].HealthCheckPath"
+  --query "TargetGroups[?contains(TargetGroupName, 'aistudio-$ENV')].HealthCheckPath"
 
 # Check application logs
-aws logs tail /ecs/aistudio-dev --follow --filter-pattern "/api/healthz"
+aws logs tail /ecs/aistudio-$ENV --follow --filter-pattern "/api/healthz"
 ```
 
 **Common causes**:
@@ -282,10 +298,11 @@ aws logs tail /ecs/aistudio-dev --follow --filter-pattern "/api/healthz"
 **Diagnosis**:
 ```bash
 # Check if CPU/memory constrained
+ENV=dev  # or 'prod'
 aws cloudwatch get-metric-statistics \
   --namespace AWS/ECS \
   --metric-name CPUUtilization \
-  --dimensions Name=ServiceName,Value=aistudio-dev Name=ClusterName,Value=aistudio-dev \
+  --dimensions Name=ServiceName,Value=aistudio-$ENV Name=ClusterName,Value=aistudio-$ENV \
   --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%S) \
   --end-time $(date -u +%Y-%m-%dT%H:%M:%S) \
   --period 300 \
@@ -303,7 +320,8 @@ aws cloudwatch get-metric-statistics \
 
 **Diagnosis**:
 ```bash
-aws ecs describe-services --cluster aistudio-dev --services aistudio-dev \
+ENV=dev  # or 'prod'
+aws ecs describe-services --cluster aistudio-$ENV --services aistudio-$ENV \
   --query 'services[0].deployments'
 ```
 
@@ -324,8 +342,8 @@ CDK configures circuit breaker with automatic rollback:
 ### Option 2: Manual Rollback via Console
 
 1. Navigate to ECS Console
-2. Select cluster `aistudio-dev`
-3. Select service `aistudio-dev`
+2. Select cluster `aistudio-<environment>`
+3. Select service `aistudio-<environment>`
 4. Click "Update Service"
 5. Check "Force new deployment"
 6. Click "Update"
@@ -334,16 +352,17 @@ CDK configures circuit breaker with automatic rollback:
 
 ```bash
 # Get previous task definition
+ENV=dev  # or 'prod'
 PREVIOUS_TASK_DEF=$(aws ecs describe-services \
-  --cluster aistudio-dev \
-  --services aistudio-dev \
+  --cluster aistudio-$ENV \
+  --services aistudio-$ENV \
   --query 'services[0].deployments[1].taskDefinition' \
   --output text)
 
 # Update service to use previous task definition
 aws ecs update-service \
-  --cluster aistudio-dev \
-  --service aistudio-dev \
+  --cluster aistudio-$ENV \
+  --service aistudio-$ENV \
   --task-definition $PREVIOUS_TASK_DEF \
   --force-new-deployment
 ```
@@ -354,17 +373,18 @@ In case of critical issues:
 
 ```bash
 # Stop all tasks immediately
+ENV=dev  # or 'prod'
 aws ecs update-service \
-  --cluster aistudio-dev \
-  --service aistudio-dev \
+  --cluster aistudio-$ENV \
+  --service aistudio-$ENV \
   --desired-count 0
 
 # Wait 30 seconds
 
 # Restore service with previous task definition
 aws ecs update-service \
-  --cluster aistudio-dev \
-  --service aistudio-dev \
+  --cluster aistudio-$ENV \
+  --service aistudio-$ENV \
   --desired-count 1
 ```
 
@@ -383,9 +403,10 @@ Temporarily override auto-scaling:
 
 ```bash
 # Scale to 2 tasks
+ENV=dev  # or 'prod'
 aws ecs update-service \
-  --cluster aistudio-dev \
-  --service aistudio-dev \
+  --cluster aistudio-$ENV \
+  --service aistudio-$ENV \
   --desired-count 2
 ```
 
@@ -442,7 +463,7 @@ cd infra
 npm update
 
 # Deploy updated infrastructure
-./scripts/deploy-ecs-dev.sh
+npx cdk deploy AIStudio-FrontendStack-ECS-Dev --context baseDomain=<your-domain>
 ```
 
 ### Updating Application
@@ -453,7 +474,7 @@ npm update
 
 # Deploy via CDK (rebuilds and redeploys)
 cd infra
-npx cdk deploy AIStudio-FrontendStack-ECS-Dev --context baseDomain=aistudio.yourdomain.com
+npx cdk deploy AIStudio-FrontendStack-ECS-Dev --context baseDomain=<your-domain>
 ```
 
 ### Cleaning Up
@@ -461,11 +482,12 @@ npx cdk deploy AIStudio-FrontendStack-ECS-Dev --context baseDomain=aistudio.your
 ```bash
 # Destroy dev environment
 cd infra
-npx cdk destroy AIStudio-FrontendStack-Dev-Ecs
+ENV=dev  # or 'prod'
+npx cdk destroy AIStudio-FrontendStack-ECS-${ENV^}  # ${ENV^} capitalizes first letter
 
 # Clean up ECR images
-aws ecr list-images --repository-name aistudio-dev
-aws ecr batch-delete-image --repository-name aistudio-dev --image-ids imageTag=old-tag
+aws ecr list-images --repository-name aistudio-$ENV
+aws ecr batch-delete-image --repository-name aistudio-$ENV --image-ids imageTag=old-tag
 ```
 
 ## Additional Resources
