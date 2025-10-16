@@ -1,0 +1,628 @@
+import { z } from 'zod';
+import { UIMessage } from 'ai';
+import { getServerSession } from '@/lib/auth/server-session';
+import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
+import { getAssistantArchitectByIdAction } from '@/actions/db/assistant-architect-actions';
+import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from '@/lib/logger';
+import { executeSQL } from '@/lib/db/data-api-adapter';
+import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
+import { retrieveKnowledgeForPrompt, formatKnowledgeContext } from '@/lib/assistant-architect/knowledge-retrieval';
+import { hasToolAccess } from '@/utils/roles';
+import { createError } from '@/lib/error-utils';
+import type { StreamRequest } from '@/lib/streaming/types';
+
+// Allow streaming responses up to 15 minutes for long chains
+export const maxDuration = 900;
+
+// Request validation schema
+const ExecuteRequestSchema = z.object({
+  toolId: z.number().positive(),
+  inputs: z.record(z.string(), z.unknown()),
+  conversationId: z.string().uuid().optional()
+});
+
+interface ChainPrompt {
+  id: number;
+  name: string;
+  content: string;
+  systemContext: string | null;
+  modelId: number | null;
+  position: number;
+  inputMapping: Record<string, string> | null;
+  repositoryIds: number[] | null;
+  enabledTools: string[] | null;
+  timeoutSeconds: number | null;
+}
+
+interface PromptExecutionContext {
+  previousOutputs: Map<number, string>;
+  accumulatedMessages: UIMessage[];
+  executionId: number;
+  userCognitoSub: string;
+  assistantOwnerSub?: string;
+  userId: number;
+}
+
+/**
+ * Assistant Architect Execution API - Native SSE Streaming
+ *
+ * Replaces polling-based execution with native streaming, supporting:
+ * - Multi-prompt sequential execution with state management
+ * - Variable substitution between prompts
+ * - Repository context injection (vector, keyword, hybrid search)
+ * - Per-prompt tool configuration
+ * - Database persistence via onFinish callbacks
+ */
+export async function POST(req: Request) {
+  const requestId = generateRequestId();
+  const timer = startTimer('api.assistant-architect.execute');
+  const log = createLogger({ requestId, route: 'api.assistant-architect.execute' });
+
+  log.info('POST /api/assistant-architect/execute - Processing execution request with streaming');
+
+  try {
+    // 1. Parse and validate request
+    const body = await req.json();
+    const validationResult = ExecuteRequestSchema.safeParse(body);
+
+    if (!validationResult.success) {
+      log.warn('Invalid request format', {
+        errors: validationResult.error.issues.map(issue => ({
+          path: issue.path.join('.'),
+          message: issue.message
+        }))
+      });
+      return new Response(
+        JSON.stringify({
+          error: 'Invalid request format',
+          details: validationResult.error.issues,
+          requestId
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const { toolId, inputs, conversationId } = validationResult.data;
+
+    log.info('Request parsed', sanitizeForLogging({
+      toolId,
+      hasInputs: Object.keys(inputs).length > 0,
+      inputKeys: Object.keys(inputs),
+      conversationId
+    }));
+
+    // 2. Authenticate user
+    const session = await getServerSession();
+    if (!session) {
+      log.warn('Unauthorized request - no session');
+      timer({ status: 'error', reason: 'unauthorized' });
+      return new Response('Unauthorized', { status: 401 });
+    }
+
+    log.debug('User authenticated', sanitizeForLogging({ userId: session.sub }));
+
+    // 3. Check tool access permission
+    const hasAccess = await hasToolAccess('assistant-architect');
+    if (!hasAccess) {
+      log.warn('User does not have assistant-architect tool access', { userId: session.sub });
+      return new Response(
+        JSON.stringify({
+          error: 'Access denied',
+          message: 'You do not have permission to use the Assistant Architect tool',
+          requestId
+        }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // 4. Get current user
+    const currentUser = await getCurrentUserAction();
+    if (!currentUser.isSuccess) {
+      log.error('Failed to get current user');
+      return new Response('Unauthorized', { status: 401 });
+    }
+
+    const userId = currentUser.data.user.id;
+
+    // 5. Load assistant architect configuration with prompts
+    const architectResult = await getAssistantArchitectByIdAction(toolId.toString());
+    if (!architectResult.isSuccess || !architectResult.data) {
+      log.error('Assistant architect not found', { toolId });
+      return new Response(
+        JSON.stringify({
+          error: 'Assistant architect not found',
+          requestId
+        }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const architect = architectResult.data;
+    const prompts = (architect.prompts || []).sort((a, b) => a.position - b.position);
+
+    if (!prompts || prompts.length === 0) {
+      log.error('No prompts configured for assistant architect', { toolId });
+      return new Response(
+        JSON.stringify({
+          error: 'No prompts configured for this assistant architect',
+          requestId
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    log.info('Assistant architect loaded', sanitizeForLogging({
+      toolId,
+      name: architect.name,
+      promptCount: prompts.length,
+      userId
+    }));
+
+    // 6. Create tool_execution record
+    const executionResult = await executeSQL<{ id: number }>(
+      `INSERT INTO tool_executions (
+        assistant_architect_id, user_id, input_data,
+        status, started_at
+      ) VALUES (
+        :toolId, :userId, :inputData::jsonb,
+        'running', NOW()
+      ) RETURNING id`,
+      [
+        { name: 'toolId', value: { longValue: toolId } },
+        { name: 'userId', value: { longValue: userId } },
+        { name: 'inputData', value: { stringValue: JSON.stringify(inputs) } }
+      ]
+    );
+
+    if (!executionResult || executionResult.length === 0 || !executionResult[0]?.id) {
+      log.error('Failed to create tool execution', { toolId });
+      return new Response(
+        JSON.stringify({
+          error: 'Failed to create execution record',
+          requestId
+        }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const executionId = Number(executionResult[0].id);
+    log.info('Tool execution created', { executionId, toolId });
+
+    // 7. Execute prompt chain with streaming
+    const context: PromptExecutionContext = {
+      previousOutputs: new Map(),
+      accumulatedMessages: [],
+      executionId,
+      userCognitoSub: session.sub,
+      assistantOwnerSub: architect.userId ? String(architect.userId) : undefined,
+      userId
+    };
+
+    try {
+      const streamResponse = await executePromptChain(prompts, inputs, context, requestId, log);
+
+      // 8. Update execution status to completed on stream completion
+      // This is done in the onFinish callback of the last prompt
+
+      // Return SSE stream with headers
+      log.info('Returning streaming response', {
+        executionId,
+        toolId,
+        promptCount: prompts.length,
+        requestId
+      });
+
+      return streamResponse.result.toUIMessageStreamResponse({
+        headers: {
+          'X-Execution-Id': executionId.toString(),
+          'X-Tool-Id': toolId.toString(),
+          'X-Prompt-Count': prompts.length.toString(),
+          'X-Request-Id': requestId
+        }
+      });
+
+    } catch (executionError) {
+      // Update execution status to failed
+      await executeSQL(
+        `UPDATE tool_executions
+         SET status = 'failed',
+             error_message = :errorMessage,
+             completed_at = NOW()
+         WHERE id = :executionId`,
+        [
+          { name: 'executionId', value: { longValue: executionId } },
+          { name: 'errorMessage', value: {
+            stringValue: executionError instanceof Error ? executionError.message : String(executionError)
+          }}
+        ]
+      );
+
+      throw executionError;
+    }
+
+  } catch (error) {
+    log.error('Assistant architect execution error', {
+      error: error instanceof Error ? {
+        message: error.message,
+        name: error.name,
+        stack: error.stack
+      } : String(error)
+    });
+
+    timer({ status: 'error' });
+
+    return new Response(
+      JSON.stringify({
+        error: 'Failed to execute assistant architect',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        requestId
+      }),
+      {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Request-Id': requestId
+        }
+      }
+    );
+  }
+}
+
+/**
+ * Execute a chain of prompts sequentially with state management
+ */
+async function executePromptChain(
+  prompts: ChainPrompt[],
+  inputs: Record<string, unknown>,
+  context: PromptExecutionContext,
+  requestId: string,
+  log: ReturnType<typeof createLogger>
+) {
+  log.info('Starting prompt chain execution', {
+    promptCount: prompts.length,
+    executionId: context.executionId
+  });
+
+  let lastStreamResponse;
+
+  for (const [index, prompt] of prompts.entries()) {
+    const isLastPrompt = index === prompts.length - 1;
+    const promptStartTime = Date.now();
+    const promptTimer = startTimer(`prompt.${prompt.id}.execution`);
+
+    log.info('Executing prompt', {
+      promptId: prompt.id,
+      promptName: prompt.name,
+      position: prompt.position,
+      isLastPrompt,
+      executionId: context.executionId
+    });
+
+    try {
+      // Validate prompt has a model configured
+      if (!prompt.modelId) {
+        throw createError(`Prompt ${prompt.id} (${prompt.name}) has no model configured`, {
+          code: 'VALIDATION',
+          details: { promptId: prompt.id, promptName: prompt.name }
+        });
+      }
+
+      // 1. Inject repository context if configured
+      let repositoryContext = '';
+      if (prompt.repositoryIds && prompt.repositoryIds.length > 0) {
+        log.debug('Retrieving repository knowledge', {
+          promptId: prompt.id,
+          repositoryIds: prompt.repositoryIds
+        });
+
+        const knowledgeChunks = await retrieveKnowledgeForPrompt(
+          prompt.content,
+          prompt.repositoryIds,
+          context.userCognitoSub,
+          context.assistantOwnerSub,
+          {
+            maxChunks: 10,
+            maxTokens: 4000,
+            similarityThreshold: 0.7,
+            searchType: 'hybrid',
+            vectorWeight: 0.8
+          }
+        );
+
+        if (knowledgeChunks.length > 0) {
+          repositoryContext = '\n\n' + formatKnowledgeContext(knowledgeChunks);
+          log.debug('Repository context retrieved', {
+            promptId: prompt.id,
+            chunkCount: knowledgeChunks.length
+          });
+        }
+      }
+
+      // 2. Apply variable substitution
+      const inputMapping = (prompt.inputMapping || {}) as Record<string, string>;
+      const processedContent = substituteVariables(
+        prompt.content,
+        inputs,
+        context.previousOutputs,
+        inputMapping
+      );
+
+      log.debug('Variables substituted', {
+        promptId: prompt.id,
+        originalLength: prompt.content.length,
+        processedLength: processedContent.length
+      });
+
+      // 3. Build messages with accumulated context
+      const userMessage: UIMessage = {
+        id: `prompt-${prompt.id}-${Date.now()}`,
+        role: 'user',
+        parts: [{ type: 'text', text: processedContent + repositoryContext }]
+      };
+
+      const messages = [...context.accumulatedMessages, userMessage];
+
+      // 4. Get AI model configuration
+      const modelResult = await executeSQL<{ model_id: string; provider: string }>(
+        `SELECT model_id, provider FROM ai_models WHERE id = :modelId LIMIT 1`,
+        [{ name: 'modelId', value: { longValue: prompt.modelId } }]
+      );
+
+      if (!modelResult || modelResult.length === 0) {
+        throw createError(`Model not found for prompt ${prompt.id}`, {
+          code: 'NOT_FOUND',
+          details: { promptId: prompt.id, modelId: prompt.modelId }
+        });
+      }
+
+      const { model_id: modelId, provider } = modelResult[0];
+
+      // 5. Prepare enabled tools (merge prompt-specific tools with repository search tools)
+      const enabledTools: string[] = [...(prompt.enabledTools || [])];
+
+      // Add repository search tools if repositories are configured
+      if (prompt.repositoryIds && prompt.repositoryIds.length > 0) {
+        // Repository search tools will be available for the LLM to call
+        enabledTools.push('vectorSearch', 'keywordSearch', 'hybridSearch');
+      }
+
+      log.debug('Tools configured for prompt', {
+        promptId: prompt.id,
+        enabledTools
+      });
+
+      // 6. Create streaming request
+      const streamRequest: StreamRequest = {
+        messages,
+        modelId: String(modelId),
+        provider: String(provider),
+        userId: context.userId.toString(),
+        sessionId: context.userCognitoSub,
+        conversationId: undefined, // Assistant architect doesn't use conversations
+        source: 'assistant_execution' as const,
+        systemPrompt: prompt.systemContext || undefined,
+        enabledTools,
+        callbacks: {
+          onFinish: async ({ text, usage, finishReason }) => {
+
+            log.info('Prompt execution finished', {
+              promptId: prompt.id,
+              promptName: prompt.name,
+              hasText: !!text,
+              textLength: text?.length || 0,
+              hasUsage: !!usage,
+              finishReason,
+              executionId: context.executionId
+            });
+
+            try {
+              // Calculate execution time as milliseconds
+              const executionTimeMs = Date.now() - promptStartTime;
+
+              // Log completion
+              promptTimer({
+                status: 'success',
+                tokensUsed: usage?.totalTokens
+              });
+
+              // Save prompt result
+              if (!text || text.length === 0) {
+                log.warn('No text content from prompt execution', { promptId: prompt.id });
+              }
+
+              await executeSQL(
+                `INSERT INTO prompt_results (
+                  execution_id, prompt_id, input_data, output_data,
+                  status, started_at, completed_at, execution_time_ms
+                ) VALUES (
+                  :executionId, :promptId, :inputData::jsonb, :outputData,
+                  'completed', NOW() - INTERVAL '1 millisecond' * :executionTimeMs, NOW(), :executionTimeMs
+                )`,
+                [
+                  { name: 'executionId', value: { longValue: context.executionId } },
+                  { name: 'promptId', value: { longValue: prompt.id } },
+                  { name: 'inputData', value: { stringValue: JSON.stringify({
+                    originalContent: prompt.content,
+                    processedContent,
+                    repositoryContext: repositoryContext ? 'included' : 'none'
+                  }) } },
+                  { name: 'outputData', value: { stringValue: text || '' } },
+                  { name: 'executionTimeMs', value: { longValue: executionTimeMs } }
+                ]
+              );
+
+              // Store output for next prompt's variable substitution
+              context.previousOutputs.set(prompt.id, text || '');
+
+              // Accumulate messages for context (only include reasonable text)
+              const assistantMessage: UIMessage = {
+                id: `assistant-${prompt.id}-${Date.now()}`,
+                role: 'assistant',
+                parts: [{ type: 'text', text: text || '' }]
+              };
+              context.accumulatedMessages.push(userMessage, assistantMessage);
+
+              log.info('Prompt result saved successfully', {
+                promptId: prompt.id,
+                executionId: context.executionId,
+                outputLength: text?.length || 0,
+                executionTimeMs
+              });
+
+              // If this is the last prompt, update execution status to completed
+              if (isLastPrompt) {
+                await executeSQL(
+                  `UPDATE tool_executions
+                   SET status = 'completed',
+                       completed_at = NOW()
+                   WHERE id = :executionId`,
+                  [{ name: 'executionId', value: { longValue: context.executionId } }]
+                );
+
+                log.info('Execution completed successfully', {
+                  executionId: context.executionId,
+                  totalPrompts: prompts.length
+                });
+              }
+
+            } catch (saveError) {
+              log.error('Failed to save prompt result', {
+                error: saveError,
+                promptId: prompt.id,
+                executionId: context.executionId
+              });
+              // Don't throw - let the stream complete, but log the error
+            }
+          }
+        }
+      };
+
+      // 7. Execute prompt with streaming
+      lastStreamResponse = await unifiedStreamingService.stream(streamRequest);
+
+      log.info('Prompt streamed successfully', {
+        promptId: prompt.id,
+        promptName: prompt.name,
+        position: index + 1,
+        of: prompts.length
+      });
+
+    } catch (promptError) {
+      promptTimer({ status: 'error' });
+
+      log.error('Prompt execution failed', {
+        error: promptError,
+        promptId: prompt.id,
+        promptName: prompt.name,
+        executionId: context.executionId
+      });
+
+      // Save failed prompt result
+      await executeSQL(
+        `INSERT INTO prompt_results (
+          execution_id, prompt_id, input_data, output_data,
+          status, error_message, started_at, completed_at
+        ) VALUES (
+          :executionId, :promptId, :inputData::jsonb, :outputData,
+          'failed', :errorMessage, NOW(), NOW()
+        )`,
+        [
+          { name: 'executionId', value: { longValue: context.executionId } },
+          { name: 'promptId', value: { longValue: prompt.id } },
+          { name: 'inputData', value: { stringValue: JSON.stringify({ prompt: prompt.content }) } },
+          { name: 'outputData', value: { stringValue: '' } },
+          { name: 'errorMessage', value: {
+            stringValue: promptError instanceof Error ? promptError.message : String(promptError)
+          }}
+        ]
+      );
+
+      // For now, stop execution on first error
+      // Future enhancement: check prompt.stop_on_error field
+      throw createError(`Prompt ${prompt.id} (${prompt.name}) failed: ${
+        promptError instanceof Error ? promptError.message : String(promptError)
+      }`, {
+        code: 'EXECUTION',
+        details: { promptId: prompt.id, promptName: prompt.name },
+        cause: promptError instanceof Error ? promptError : undefined
+      });
+    }
+  }
+
+  if (!lastStreamResponse) {
+    throw createError('No stream response generated', {
+      code: 'EXECUTION',
+      details: { promptCount: prompts.length, executionId: context.executionId }
+    });
+  }
+
+  return lastStreamResponse;
+}
+
+/**
+ * Substitute {{variable}} placeholders in prompt content
+ *
+ * Supports:
+ * - Direct input mapping: {{userInput}} -> inputs.userInput
+ * - Mapped variables: {{topic}} with mapping {"topic": "userInput.subject"}
+ * - Previous outputs: {{previousAnalysis}} with mapping {"previousAnalysis": "prompt_1.output"}
+ */
+function substituteVariables(
+  content: string,
+  inputs: Record<string, unknown>,
+  previousOutputs: Map<number, string>,
+  mapping: Record<string, string>
+): string {
+  return content.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
+    // 1. Check if there's an input mapping for this variable
+    if (mapping[varName]) {
+      const mappedPath = mapping[varName];
+
+      // Handle prompt output references: "prompt_X.output"
+      const promptMatch = mappedPath.match(/^prompt_(\d+)\.output$/);
+      if (promptMatch) {
+        const promptId = parseInt(promptMatch[1], 10);
+        const output = previousOutputs.get(promptId);
+        if (output) {
+          return output;
+        }
+      }
+
+      // Handle nested input paths: "userInput.subject"
+      const value = resolvePath(mappedPath, { inputs, previousOutputs });
+      if (value !== undefined && value !== null) {
+        return String(value);
+      }
+    }
+
+    // 2. Try direct input lookup
+    if (varName in inputs) {
+      const value = inputs[varName];
+      return value !== undefined && value !== null ? String(value) : match;
+    }
+
+    // 3. No match found, return original placeholder
+    return match;
+  });
+}
+
+/**
+ * Resolve a dot-notation path like "userInput.subject" or "prompt_1.output"
+ */
+function resolvePath(
+  path: string,
+  context: { inputs: Record<string, unknown>; previousOutputs: Map<number, string> }
+): unknown {
+  const parts = path.split('.');
+  let current: unknown = context;
+
+  for (const part of parts) {
+    if (current && typeof current === 'object') {
+      current = (current as Record<string, unknown>)[part];
+    } else {
+      return undefined;
+    }
+  }
+
+  return current;
+}
