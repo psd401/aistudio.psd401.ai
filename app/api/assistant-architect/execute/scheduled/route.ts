@@ -82,19 +82,13 @@ function validateInternalRequest(req: NextRequest): boolean {
     // Verify JWT with algorithm restriction and claim validation to prevent:
     // - Algorithm confusion attacks (by specifying algorithms: ['HS256'])
     // - Timing attacks (by validating claims in jwt.verify options)
-    const decoded = jwt.verify(token, internalSecret, {
+    jwt.verify(token, internalSecret, {
       algorithms: ['HS256'],
       issuer: 'schedule-executor',
       audience: 'assistant-architect-api'
-    }) as {
-      iss: string;
-      aud: string;
-      exp: number;
-      scheduleId?: string;
-      executionId?: string;
-    };
+    });
 
-    log.info('Internal request validated', { scheduleId: decoded.scheduleId });
+    log.info('Internal request validated successfully');
     return true;
   } catch (error) {
     log.warn('JWT verification failed', { error: error instanceof Error ? error.message : String(error) });
@@ -120,7 +114,13 @@ export async function POST(req: NextRequest) {
     if (!validateInternalRequest(req)) {
       log.warn('Unauthorized internal request');
       timer({ status: 'error', reason: 'unauthorized' });
-      return new Response('Unauthorized', { status: 401 });
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized', requestId }),
+        {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
     }
 
     // 2. Parse and validate request
@@ -547,10 +547,29 @@ async function executePromptChainServerSide(
       // Initialize promise before stream request to prevent race condition
       let finishPromiseResolve: () => void;
       let finishPromiseReject: (error: Error) => void;
+      let promiseResolved = false; // Track if promise was resolved/rejected
+
       const finishPromise = new Promise<void>((resolve, reject) => {
         finishPromiseResolve = resolve;
         finishPromiseReject = reject;
       });
+
+      // Set up per-prompt timeout if configured
+      let promptTimeoutId: NodeJS.Timeout | null = null;
+      if (prompt.timeoutSeconds) {
+        promptTimeoutId = setTimeout(() => {
+          if (!promiseResolved) {
+            log.warn('Prompt execution timeout', {
+              promptId: prompt.id,
+              timeoutSeconds: prompt.timeoutSeconds
+            });
+            finishPromiseReject(
+              new Error(`Prompt ${prompt.id} exceeded timeout of ${prompt.timeoutSeconds} seconds`)
+            );
+            promiseResolved = true;
+          }
+        }, prompt.timeoutSeconds * 1000);
+      }
 
       const streamRequest: StreamRequest = {
         messages,
@@ -605,18 +624,24 @@ async function executePromptChainServerSide(
                 });
               }
 
+              // Calculate timestamps in application code to avoid SQL interval multiplication issues
+              const completedAt = new Date();
+              const startedAt = new Date(completedAt.getTime() - executionTimeMs);
+
               await executeSQL(
                 `INSERT INTO prompt_results (
                   execution_id, prompt_id, input_data, output_data,
                   status, started_at, completed_at, execution_time_ms
                 ) VALUES (
                   :executionId, :promptId, :inputData::jsonb, :outputData,
-                  :status, NOW() - INTERVAL '1 millisecond' * :executionTimeMs, NOW(), :executionTimeMs
+                  :status, :startedAt, :completedAt, :executionTimeMs
                 )`,
                 [
                   { name: 'executionId', value: { longValue: context.executionId } },
                   { name: 'promptId', value: { longValue: prompt.id } },
                   { name: 'status', value: { stringValue: resultStatus } },
+                  { name: 'startedAt', value: { stringValue: startedAt.toISOString() } },
+                  { name: 'completedAt', value: { stringValue: completedAt.toISOString() } },
                   { name: 'inputData', value: { stringValue: JSON.stringify({
                     originalContent: prompt.content,
                     processedContent,
@@ -657,8 +682,10 @@ async function executePromptChainServerSide(
                 accumulatedMessageCount: context.accumulatedMessages.length
               });
 
-              // Resolve the finish promise to signal completion
+              // Clear timeout and resolve the finish promise to signal completion
+              if (promptTimeoutId) clearTimeout(promptTimeoutId);
               finishPromiseResolve();
+              promiseResolved = true;
 
             } catch (saveError) {
               log.error('Failed to save prompt result', {
@@ -667,11 +694,20 @@ async function executePromptChainServerSide(
                 executionId: context.executionId
               });
 
-              // Reject the finish promise to propagate error
+              // Clear timeout and reject the finish promise to propagate error
+              if (promptTimeoutId) clearTimeout(promptTimeoutId);
               finishPromiseReject(saveError instanceof Error ? saveError : new Error(String(saveError)));
+              promiseResolved = true;
             } finally {
-              // Ensure promise always resolves/rejects (for edge cases)
-              // This is a safety net - normally resolve/reject should be called explicitly
+              // Safety net: if promise wasn't resolved/rejected (edge case), reject it
+              if (!promiseResolved) {
+                if (promptTimeoutId) clearTimeout(promptTimeoutId);
+                log.error('onFinish callback did not resolve promise properly', {
+                  promptId: prompt.id,
+                  executionId: context.executionId
+                });
+                finishPromiseReject(new Error('onFinish callback did not complete properly'));
+              }
             }
           }
         }
@@ -746,8 +782,6 @@ function substituteVariables(
   mapping: Record<string, string>,
   currentPromptId?: number
 ): string {
-  const log = createLogger({ operation: 'substituteVariables' });
-
   return content.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
     // 1. Check if there's an input mapping for this variable
     if (mapping[varName]) {
@@ -760,13 +794,17 @@ function substituteVariables(
 
         // Validate prompt execution order - referenced prompt must have already executed
         if (!previousOutputs.has(promptId)) {
-          log.warn('Referenced prompt output not yet available', {
-            currentPromptId,
-            referencedPromptId: promptId,
-            variable: varName,
-            mapping: mappedPath
+          throw ErrorFactories.validationFailed([{
+            field: 'inputMapping',
+            message: `Prompt ${currentPromptId} references prompt_${promptId}.output but it hasn't executed yet. Check prompt execution order.`
+          }], {
+            details: {
+              currentPromptId,
+              referencedPromptId: promptId,
+              variable: varName,
+              mapping: mappedPath
+            }
           });
-          return match; // Keep placeholder if output not available
         }
 
         const output = previousOutputs.get(promptId);
@@ -794,16 +832,31 @@ function substituteVariables(
 }
 
 /**
- * Resolve a dot-notation path like "userInput.subject" or "prompt_1.output"
+ * Resolve a dot-notation path like "userInput.subject" or "inputs.foo.bar"
+ * Properly handles top-level disambiguation for inputs vs context object
  */
 function resolvePath(
   path: string,
   context: { inputs: Record<string, unknown>; previousOutputs: Map<number, string> }
 ): unknown {
   const parts = path.split('.');
-  let current: unknown = context;
 
-  for (const part of parts) {
+  // Handle top-level path disambiguation
+  let current: unknown;
+  let remainingParts: string[];
+
+  if (parts[0] === 'inputs') {
+    // Path explicitly starts with 'inputs' - navigate from context.inputs
+    current = context.inputs;
+    remainingParts = parts.slice(1);
+  } else {
+    // Default: treat entire path as navigating from inputs
+    current = context.inputs;
+    remainingParts = parts;
+  }
+
+  // Navigate through remaining path parts
+  for (const part of remainingParts) {
     if (current && typeof current === 'object') {
       current = (current as Record<string, unknown>)[part];
     } else {
