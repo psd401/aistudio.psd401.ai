@@ -117,6 +117,8 @@ export class FrontendStackEcs extends cdk.Stack {
       rdsSecretArn: ssm.StringParameter.valueForStringParameter(this, `/aistudio/${environment}/db-secret-arn`),
       // Auth secret from Secrets Manager
       authSecretArn: cdk.Fn.importValue(`${environment}-AuthSecretArn`),
+      // NEW: Internal API secret for scheduled execution authentication
+      internalApiSecretArn: cdk.Fn.importValue(`${environment}-InternalApiSecretArn`),
     });
 
     // ============================================================================
@@ -288,6 +290,17 @@ export class FrontendStackEcs extends cdk.Stack {
     // CloudWatch Dashboard
     // ============================================================================
     const dashboard = this.ecsService.createDashboard({ environment });
+
+    // ============================================================================
+    // SSM Parameters for Cross-Stack References
+    // ============================================================================
+    // Store ECS internal endpoint URL for schedule executor Lambda
+    // Lambda will use internal ALB DNS (not public DNS) for better security
+    new ssm.StringParameter(this, 'EcsInternalEndpointParam', {
+      parameterName: `/aistudio/${environment}/ecs-internal-endpoint`,
+      stringValue: `http://${this.ecsService.loadBalancer.loadBalancerDnsName}`,
+      description: 'Internal ECS endpoint URL for schedule executor Lambda (HTTP, internal ALB)',
+    });
 
     // ============================================================================
     // Outputs (ECS-related outputs are in the construct, only add stack-specific ones here)
