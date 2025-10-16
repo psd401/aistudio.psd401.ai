@@ -405,11 +405,6 @@ export class EcsServiceConstruct extends Construct {
         AUTH_COGNITO_ISSUER: props.cognitoIssuer,
         RDS_RESOURCE_ARN: props.rdsResourceArn,
         RDS_SECRET_ARN: props.rdsSecretArn,
-        // Queue URLs from SSM
-        STREAMING_JOBS_QUEUE_URL: ssm.StringParameter.valueForStringParameter(
-          this,
-          `/aistudio/${environment}/streaming-jobs-queue-url`
-        ),
         // Queue URLs from Processing Stack exports
         EMBEDDING_QUEUE_URL: cdk.Fn.importValue(`${environment}-EmbeddingQueueUrl`),
         FILE_PROCESSING_QUEUE_URL: cdk.Fn.importValue(`${environment}-FileProcessingQueueUrl`),
