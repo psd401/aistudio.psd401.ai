@@ -1,0 +1,542 @@
+"use client"
+
+import { zodResolver } from "@hookform/resolvers/zod"
+import { useForm } from "react-hook-form"
+import * as z from "zod"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage
+} from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useState, useEffect, useCallback, memo, useMemo, useRef } from "react"
+import { useToast } from "@/components/ui/use-toast"
+import { SelectToolInputField } from "@/types/db-types"
+import { Loader2, Sparkles, AlertCircle, Settings } from "lucide-react"
+import { ErrorBoundary } from "@/components/error-boundary"
+import type { AssistantArchitectWithRelations } from "@/types/assistant-architect-types"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { collectAndSanitizeEnabledTools, getToolDisplayName } from '@/lib/assistant-architect/tool-utils'
+import { AssistantArchitectChat } from "./assistant-architect-chat"
+import { ChatErrorBoundary } from "./chat-error-boundary"
+import { ScheduleModal } from "./schedule-modal"
+import Image from "next/image"
+import DocumentUploadButton from "@/components/ui/document-upload-button"
+import { AssistantRuntimeProvider, useThreadRuntime } from '@assistant-ui/react'
+import { useChatRuntime, AssistantChatTransport } from '@assistant-ui/react-ai-sdk'
+import { Thread } from '@/components/assistant-ui/thread'
+import { createLogger } from '@/lib/client-logger'
+import { ExecutionProgress } from './execution-progress'
+import type { ExecutionResultDetails } from "@/types/assistant-architect-types"
+
+const log = createLogger({ moduleName: 'assistant-architect-streaming' })
+
+interface AssistantArchitectStreamingProps {
+  tool: AssistantArchitectWithRelations
+  isPreview?: boolean
+}
+
+// Runtime provider component to handle streaming
+function AssistantArchitectRuntimeProvider({
+  children,
+  tool,
+  inputs,
+  onExecutionIdChange,
+  onPromptCountChange,
+  onExecutionComplete,
+  onExecutionError
+}: {
+  children: React.ReactNode
+  tool: AssistantArchitectWithRelations
+  inputs: Record<string, unknown>
+  onExecutionIdChange: (executionId: number) => void
+  onPromptCountChange: (count: number) => void
+  onExecutionComplete: () => void
+  onExecutionError: (error: string) => void
+}) {
+  const inputsRef = useRef(inputs)
+
+  useEffect(() => {
+    inputsRef.current = inputs
+  }, [inputs])
+
+  // Custom fetch to extract execution metadata from headers
+  const customFetch = useCallback(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await fetch(input, init)
+
+    const executionId = response.headers.get('X-Execution-Id')
+    const promptCount = response.headers.get('X-Prompt-Count')
+
+    if (executionId) {
+      onExecutionIdChange(Number(executionId))
+      log.debug('Execution started', { executionId, promptCount })
+    }
+
+    if (promptCount) {
+      onPromptCountChange(Number(promptCount))
+    }
+
+    return response
+  }, [onExecutionIdChange, onPromptCountChange])
+
+  // Use official useChatRuntime (same as Nexus)
+  const runtime = useChatRuntime({
+    transport: new AssistantChatTransport({
+      api: '/api/assistant-architect/execute',
+      fetch: customFetch,
+      body: () => ({
+        toolId: tool.id,
+        inputs: inputsRef.current
+      })
+    })
+  })
+
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <StreamingStateMonitor
+        onExecutionComplete={onExecutionComplete}
+        onExecutionError={onExecutionError}
+      />
+      {children}
+    </AssistantRuntimeProvider>
+  )
+}
+
+// Component to monitor streaming state changes
+function StreamingStateMonitor({
+  onExecutionComplete,
+  onExecutionError
+}: {
+  onExecutionComplete: () => void
+  onExecutionError: (error: string) => void
+}) {
+  const runtime = useThreadRuntime()
+  const [previousRunning, setPreviousRunning] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    // Subscribe to runtime state changes
+    const unsubscribe = runtime.subscribe(() => {
+      const threadState = runtime.getState()
+      const isRunning = threadState.isRunning
+
+      // Detect completion: was running, now not running
+      if (previousRunning === true && !isRunning) {
+        const messages = threadState.messages
+        const lastMessage = messages[messages.length - 1]
+
+        // Check if last message has an error
+        if (lastMessage && 'error' in lastMessage && lastMessage.error) {
+          const errorMessage = typeof lastMessage.error === 'string'
+            ? lastMessage.error
+            : 'Execution failed'
+          onExecutionError(errorMessage)
+        } else {
+          onExecutionComplete()
+        }
+      }
+
+      setPreviousRunning(isRunning)
+    })
+
+    return unsubscribe
+  }, [runtime, previousRunning, onExecutionComplete, onExecutionError])
+
+  return null
+}
+
+export const AssistantArchitectStreaming = memo(function AssistantArchitectStreaming({
+  tool,
+  isPreview = false
+}: AssistantArchitectStreamingProps) {
+  const { toast } = useToast()
+  const [executionId, setExecutionId] = useState<number | null>(null)
+  const [promptCount, setPromptCount] = useState<number>(0)
+  const [conversationId, setConversationId] = useState<number | null>(null)
+  const [enabledTools, setEnabledTools] = useState<string[]>([])
+  const [inputs, setInputs] = useState<Record<string, unknown>>({})
+  const [isExecuting, setIsExecuting] = useState(false)
+  const [hasResults, setHasResults] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Collect enabled tools from the assistant architect when component mounts
+  useEffect(() => {
+    const tools = tool.prompts ? collectAndSanitizeEnabledTools(tool.prompts) : []
+    setEnabledTools(tools)
+  }, [tool])
+
+  // Define base types for fields first
+  const stringSchema = z.string()
+
+  // Create form schema based on tool input fields
+  const formSchema = useMemo(() => z.object(
+    tool.inputFields.reduce((acc: Record<string, z.ZodTypeAny>, field: SelectToolInputField) => {
+      let fieldSchema: z.ZodString | z.ZodTypeAny
+
+      switch (field.fieldType) {
+        case "long_text":
+        case "select":
+        case "multi_select":
+          fieldSchema = stringSchema
+          break
+        case "file_upload":
+          fieldSchema = stringSchema
+          break
+        default:
+          fieldSchema = stringSchema
+      }
+
+      // Make field optional by default
+      fieldSchema = fieldSchema.optional().nullable()
+
+      acc[field.name] = fieldSchema
+      return acc
+    }, {})
+  ), [tool.inputFields, stringSchema])
+
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: tool.inputFields.reduce((acc: Record<string, string>, field: SelectToolInputField) => {
+      acc[field.name] = ""
+      return acc
+    }, {})
+  })
+
+  // Handle form submission
+  const onSubmit = useCallback(async (values: z.infer<typeof formSchema>) => {
+    // Prevent re-execution if already running
+    if (isExecuting) {
+      return
+    }
+
+    // If we have completed results, confirm before re-running
+    if (hasResults) {
+      const confirmRerun = window.confirm(
+        "You have existing results. Do you want to run the assistant again? This will clear your current results and chat."
+      )
+      if (!confirmRerun) {
+        return
+      }
+      // Reset state for new execution
+      setHasResults(false)
+      setExecutionId(null)
+      setConversationId(null)
+      setError(null)
+    }
+
+    try {
+      setIsExecuting(true)
+      setInputs(values)
+      setError(null)
+
+      log.info('Form submitted', { toolId: tool.id, inputs: Object.keys(values) })
+
+      toast({
+        title: "Execution Started",
+        description: "The assistant architect is now executing"
+      })
+    } catch (submitError) {
+      const errorMessage = submitError instanceof Error ? submitError.message : "Failed to start execution"
+      setError(errorMessage)
+      setIsExecuting(false)
+
+      toast({
+        title: "Execution Error",
+        description: errorMessage,
+        variant: "destructive"
+      })
+    }
+  }, [isExecuting, hasResults, tool.id, toast])
+
+  const handleExecutionIdChange = useCallback((newExecutionId: number) => {
+    setExecutionId(newExecutionId)
+    log.debug('Execution ID received', { executionId: newExecutionId })
+  }, [])
+
+  const handlePromptCountChange = useCallback((count: number) => {
+    setPromptCount(count)
+    log.debug('Prompt count received', { promptCount: count })
+  }, [])
+
+  const handleExecutionComplete = useCallback(() => {
+    setIsExecuting(false)
+    setHasResults(true)
+
+    toast({
+      title: "Execution Completed",
+      description: "Assistant architect execution completed successfully"
+    })
+  }, [toast])
+
+  const handleExecutionError = useCallback((errorMessage: string) => {
+    setError(errorMessage)
+    setIsExecuting(false)
+
+    toast({
+      title: "Execution Failed",
+      description: errorMessage,
+      variant: "destructive"
+    })
+  }, [toast])
+
+  // Memoized components for better performance
+  const ToolHeader = memo(({ tool }: { tool: AssistantArchitectWithRelations }) => (
+    <div>
+      <div className="flex items-start gap-4">
+        {tool.imagePath && (
+          <div className="relative w-32 h-32 rounded-xl overflow-hidden flex-shrink-0 bg-muted/20 p-1">
+            <div className="relative w-full h-full rounded-lg overflow-hidden ring-1 ring-black/10">
+              <Image
+                src={`/assistant_logos/${tool.imagePath}`}
+                alt={tool.name}
+                fill
+                className="object-cover"
+              />
+            </div>
+          </div>
+        )}
+        <div>
+          <h2 className="text-2xl font-bold">{tool.name}</h2>
+          <p className="text-muted-foreground">{tool.description}</p>
+        </div>
+      </div>
+      <div className="h-px bg-border mt-6" />
+    </div>
+  ))
+
+  const ErrorAlert = memo(({ errorMessage }: { errorMessage: string }) => (
+    <Alert variant="destructive">
+      <AlertCircle className="h-4 w-4" />
+      <AlertTitle>Execution Error</AlertTitle>
+      <AlertDescription className="mt-2 text-sm">
+        {errorMessage}
+      </AlertDescription>
+    </Alert>
+  ))
+
+  // Add display names to memoized components
+  ToolHeader.displayName = "ToolHeader"
+  ErrorAlert.displayName = "ErrorAlert"
+
+  // Create execution details for chat component
+  const executionDetails: ExecutionResultDetails | undefined = useMemo(() => {
+    if (!executionId) return undefined
+
+    return {
+      id: executionId,
+      toolId: tool.id,
+      userId: 0, // Will be set by backend
+      status: hasResults ? 'completed' : 'running',
+      inputData: inputs,
+      startedAt: new Date(),
+      completedAt: hasResults ? new Date() : null,
+      errorMessage: error,
+      promptResults: [],
+      assistantArchitectId: tool.id,
+      enabledTools
+    }
+  }, [executionId, tool.id, inputs, hasResults, error, enabledTools])
+
+  return (
+    <div className="space-y-6">
+      <ToolHeader tool={tool} />
+
+      {error && (
+        <ErrorAlert errorMessage={error} />
+      )}
+
+      <div className="space-y-4">
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            {tool.inputFields.map((field: SelectToolInputField) => (
+              <FormField
+                key={field.id}
+                control={form.control}
+                name={field.name}
+                render={({ field: formField }) => (
+                  <FormItem>
+                    <FormLabel>{field.label || field.name}</FormLabel>
+                    <FormControl>
+                      {field.fieldType === "long_text" ? (
+                        <Textarea
+                          placeholder="Enter your answer..."
+                          {...formField}
+                          value={typeof formField.value === 'string' ? formField.value : ''}
+                          className="bg-muted"
+                          disabled={isExecuting}
+                        />
+                      ) : field.fieldType === "select" || field.fieldType === "multi_select" ? (
+                        <Select
+                          onValueChange={formField.onChange}
+                          defaultValue={typeof formField.value === 'string' ? formField.value : undefined}
+                          disabled={isExecuting}
+                        >
+                          <SelectTrigger className="bg-muted">
+                            <SelectValue placeholder={`Select ${field.label || field.name}...`} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(() => {
+                              let options: Array<{ label: string, value: string }> = []
+                              if (typeof field.options === "string") {
+                                try {
+                                  const parsed = JSON.parse(field.options)
+                                  if (Array.isArray(parsed)) {
+                                    options = parsed
+                                  }
+                                } catch {
+                                  const optionsStr = field.options as string
+                                  options = optionsStr.split(",").map(s => ({
+                                    value: s.trim(),
+                                    label: s.trim()
+                                  }))
+                                }
+                              } else if (Array.isArray(field.options)) {
+                                options = field.options
+                              } else if (field.options && typeof field.options === 'object' && 'values' in field.options) {
+                                const optionsObj = field.options as { values?: string[] }
+                                if (Array.isArray(optionsObj.values)) {
+                                  options = optionsObj.values.map(val => ({
+                                    label: val,
+                                    value: val
+                                  }))
+                                }
+                              }
+                              return options.map(option => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))
+                            })()}
+                          </SelectContent>
+                        </Select>
+                      ) : field.fieldType === "file_upload" ? (
+                        <DocumentUploadButton
+                          label="Add Document for Knowledge"
+                          onContent={doc => formField.onChange(doc)}
+                          disabled={isExecuting}
+                          className="w-full"
+                          onError={err => {
+                            if (err?.status === 413) {
+                              toast({
+                                title: "File Too Large",
+                                description: "Please upload a file smaller than 50MB.",
+                                variant: "destructive"
+                              })
+                            } else {
+                              toast({
+                                title: "Upload Failed",
+                                description: err?.message || "Unknown error",
+                                variant: "destructive"
+                              })
+                            }
+                          }}
+                        />
+                      ) : (
+                        <Input
+                          placeholder="Enter your answer..."
+                          {...formField}
+                          value={typeof formField.value === 'string' ? formField.value : ''}
+                          className="bg-muted"
+                          disabled={isExecuting}
+                        />
+                      )}
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ))}
+            <div className="flex gap-2">
+              <Button type="submit" disabled={isExecuting}>
+                {isExecuting ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Running...</>
+                ) : (
+                  <><Sparkles className="mr-2 h-4 w-4" /> Generate</>
+                )}
+              </Button>
+            </div>
+          </form>
+        </Form>
+
+        {/* Schedule Modal moved outside the form to prevent event bubbling */}
+        <ScheduleModal
+          tool={tool}
+          inputData={form.getValues()}
+          onScheduleCreated={() => {
+            toast({
+              title: "Schedule Created",
+              description: "Your assistant execution has been scheduled successfully."
+            })
+          }}
+        />
+      </div>
+
+      {/* Tool Usage Indicators */}
+      {enabledTools.length > 0 && (
+        <div className="tool-execution-status space-y-2">
+          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+            <Settings className="h-4 w-4" />
+            <span>Tools Available ({enabledTools.length})</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {enabledTools.map(toolName => (
+              <Badge key={toolName} variant="outline" className="text-xs">
+                {getToolDisplayName(toolName)}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Streaming execution section */}
+      {isExecuting && (
+        <AssistantArchitectRuntimeProvider
+          tool={tool}
+          inputs={inputs}
+          onExecutionIdChange={handleExecutionIdChange}
+          onPromptCountChange={handlePromptCountChange}
+          onExecutionComplete={handleExecutionComplete}
+          onExecutionError={handleExecutionError}
+        >
+          <ErrorBoundary>
+            <div className="space-y-6">
+              {/* Progress indicator for multi-prompt execution */}
+              {promptCount > 1 && (
+                <ExecutionProgress
+                  totalPrompts={promptCount}
+                  prompts={tool.prompts || []}
+                />
+              )}
+
+              {/* Thread component for streaming output */}
+              <div className="border rounded-lg p-4 space-y-4 max-w-full">
+                <Thread />
+              </div>
+            </div>
+          </ErrorBoundary>
+        </AssistantArchitectRuntimeProvider>
+      )}
+
+      {/* Chat section for completed executions */}
+      {hasResults && executionDetails && (
+        <div className="mt-8">
+          <ChatErrorBoundary>
+            <AssistantArchitectChat
+              execution={executionDetails}
+              conversationId={conversationId}
+              onConversationCreated={setConversationId}
+              isPreview={isPreview}
+              modelId={tool?.prompts?.[0]?.modelId}
+            />
+          </ChatErrorBoundary>
+        </div>
+      )}
+    </div>
+  )
+})
