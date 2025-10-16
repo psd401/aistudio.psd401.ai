@@ -9,6 +9,7 @@ import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-servi
 import { retrieveKnowledgeForPrompt, formatKnowledgeContext } from '@/lib/assistant-architect/knowledge-retrieval';
 import { hasToolAccess } from '@/utils/roles';
 import { createError } from '@/lib/error-utils';
+import { createRepositoryTools } from '@/lib/tools/repository-tools';
 import type { StreamRequest } from '@/lib/streaming/types';
 
 // Allow streaming responses up to 15 minutes for long chains
@@ -377,18 +378,32 @@ async function executePromptChain(
 
       const { model_id: modelId, provider } = modelResult[0];
 
-      // 5. Prepare enabled tools (merge prompt-specific tools with repository search tools)
+      // 5. Prepare tools for this prompt
       const enabledTools: string[] = [...(prompt.enabledTools || [])];
+      let promptTools = {};
 
-      // Add repository search tools if repositories are configured
+      // Create repository search tools if repositories are configured
       if (prompt.repositoryIds && prompt.repositoryIds.length > 0) {
-        // Repository search tools will be available for the LLM to call
-        enabledTools.push('vectorSearch', 'keywordSearch', 'hybridSearch');
+        log.debug('Creating repository search tools', {
+          promptId: prompt.id,
+          repositoryIds: prompt.repositoryIds
+        });
+
+        const repoTools = createRepositoryTools({
+          repositoryIds: prompt.repositoryIds,
+          userCognitoSub: context.userCognitoSub,
+          assistantOwnerSub: context.assistantOwnerSub
+        });
+
+        // Merge repository tools
+        promptTools = { ...promptTools, ...repoTools };
       }
 
       log.debug('Tools configured for prompt', {
         promptId: prompt.id,
-        enabledTools
+        enabledTools,
+        toolCount: Object.keys(promptTools).length,
+        tools: Object.keys(promptTools)
       });
 
       // 6. Create streaming request
@@ -401,7 +416,8 @@ async function executePromptChain(
         conversationId: undefined, // Assistant architect doesn't use conversations
         source: 'assistant_execution' as const,
         systemPrompt: prompt.systemContext || undefined,
-        enabledTools,
+        enabledTools, // Keep for backward compatibility with other tools
+        tools: Object.keys(promptTools).length > 0 ? promptTools : undefined, // Repository search tools
         callbacks: {
           onFinish: async ({ text, usage, finishReason }) => {
 
