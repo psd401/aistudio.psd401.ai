@@ -25,10 +25,6 @@ export class ProcessingStack extends cdk.Stack {
   public readonly embeddingQueue: sqs.Queue;
   public readonly jobStatusTable: dynamodb.Table;
   public readonly textractCompletionTopic: sns.Topic;
-  
-  // AI Streaming Jobs - Universal polling architecture
-  public readonly streamingJobsQueue: sqs.Queue;
-  public readonly streamingJobsWorker: lambda.Function;
 
   constructor(scope: Construct, id: string, props: ProcessingStackProps) {
     super(scope, id, props);
@@ -101,23 +97,6 @@ export class ProcessingStack extends cdk.Stack {
     this.textractCompletionTopic = new sns.Topic(this, 'TextractCompletionTopic', {
       topicName: `aistudio-${props.environment}-textract-completion`,
       displayName: 'Textract Job Completion Notifications',
-    });
-
-    // AI Streaming Jobs Queue - Universal polling architecture for AWS Amplify timeout mitigation
-    const streamingJobsDlq = new sqs.Queue(this, 'StreamingJobsDLQ', {
-      queueName: `aistudio-${props.environment}-streaming-jobs-dlq`,
-      retentionPeriod: cdk.Duration.days(14),
-    });
-
-    this.streamingJobsQueue = new sqs.Queue(this, 'StreamingJobsQueue', {
-      queueName: `aistudio-${props.environment}-streaming-jobs-queue`,
-      visibilityTimeout: cdk.Duration.minutes(15), // Full Lambda timeout
-      deadLetterQueue: {
-        queue: streamingJobsDlq,
-        maxReceiveCount: 3,
-      },
-      // Higher throughput settings for universal polling
-      receiveMessageWaitTime: cdk.Duration.seconds(20), // Long polling
     });
 
     // IAM Role for Textract to publish to SNS
@@ -216,30 +195,8 @@ export class ProcessingStack extends cdk.Stack {
       new snsSubscriptions.LambdaSubscription(textractProcessor)
     );
 
-    // AI Streaming Jobs Worker - Universal polling architecture
-    this.streamingJobsWorker = new lambda.Function(this, 'StreamingJobsWorker', {
-      runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/streaming-jobs-worker')),
-      timeout: cdk.Duration.minutes(15), // Full Lambda timeout for long-running AI requests
-      memorySize: 2048, // 2GB for AI SDK operations
-      environment: {
-        NODE_OPTIONS: '--enable-source-maps',
-        DATABASE_RESOURCE_ARN: databaseResourceArn,
-        DATABASE_SECRET_ARN: databaseSecretArn,
-        DATABASE_NAME: 'aistudio',
-        ENVIRONMENT: props.environment,
-        STREAMING_QUEUE_URL: this.streamingJobsQueue.queueUrl,
-        DOCUMENTS_BUCKET_NAME: documentsBucket.bucketName,
-      },
-      // No layer needed - uses shared package with built-in dependencies
-      // Higher concurrency for processing all requests
-      reservedConcurrentExecutions: props.environment === 'prod' ? 20 : 10,
-    });
-
     // Grant permissions
     documentsBucket.grantRead(fileProcessor);
-    documentsBucket.grantReadWrite(this.streamingJobsWorker);
     this.jobStatusTable.grantReadWriteData(fileProcessor);
     this.jobStatusTable.grantReadWriteData(urlProcessor);
     this.embeddingQueue.grantSendMessages(fileProcessor);
@@ -270,50 +227,6 @@ export class ProcessingStack extends cdk.Stack {
     embeddingGenerator.addToRolePolicy(secretsManagerPolicy);
     textractProcessor.addToRolePolicy(rdsDataApiPolicy);
     textractProcessor.addToRolePolicy(secretsManagerPolicy);
-    this.streamingJobsWorker.addToRolePolicy(rdsDataApiPolicy);
-    this.streamingJobsWorker.addToRolePolicy(secretsManagerPolicy);
-
-    // Grant streaming worker access to AI provider configurations (SSM Parameter Store)
-    const ssmParameterPolicy = new iam.PolicyStatement({
-      actions: [
-        'ssm:GetParameter',
-        'ssm:GetParameters',
-        'ssm:GetParametersByPath',
-      ],
-      resources: [
-        `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/providers/*`,
-        `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/openai/*`,
-        `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/google/*`,
-        `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/azure/*`,
-        `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/bedrock/*`,
-        // Add notification queue URL parameter access
-        `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/notification-queue-url`,
-      ],
-    });
-    this.streamingJobsWorker.addToRolePolicy(ssmParameterPolicy);
-
-    // Grant streaming worker access to notification queue (for scheduled execution notifications)
-    const notificationQueuePolicy = new iam.PolicyStatement({
-      actions: [
-        'sqs:SendMessage',
-        'sqs:GetQueueAttributes',
-      ],
-      resources: [
-        // Allow access to notification queue (will be created by email notification stack)
-        `arn:aws:sqs:${this.region}:${this.account}:aistudio-${props.environment}-notification-queue`,
-      ],
-    });
-    this.streamingJobsWorker.addToRolePolicy(notificationQueuePolicy);
-
-    // Grant Bedrock access for AWS-hosted models (when running in Lambda)
-    const bedrockPolicy = new iam.PolicyStatement({
-      actions: [
-        'bedrock:InvokeModel',
-        'bedrock:InvokeModelWithResponseStream',
-      ],
-      resources: ['*'], // Bedrock model ARNs vary by region
-    });
-    this.streamingJobsWorker.addToRolePolicy(bedrockPolicy);
 
     // Grant Textract permissions to file processor
     const textractPolicy = new iam.PolicyStatement({
@@ -340,12 +253,6 @@ export class ProcessingStack extends cdk.Stack {
     embeddingGenerator.addEventSource(new lambdaEventSources.SqsEventSource(this.embeddingQueue, {
       batchSize: 1, // Process one item at a time to avoid rate limits
       maxBatchingWindow: cdk.Duration.seconds(5),
-    }));
-
-    // SQS event source for streaming jobs worker
-    this.streamingJobsWorker.addEventSource(new lambdaEventSources.SqsEventSource(this.streamingJobsQueue, {
-      batchSize: 1, // Process one job at a time for proper error handling
-      maxBatchingWindow: cdk.Duration.seconds(1), // Faster pickup for AI requests
     }));
 
     // Outputs
@@ -413,32 +320,6 @@ export class ProcessingStack extends cdk.Stack {
       value: textractProcessor.functionName,
       description: 'Name of the Textract processor Lambda function',
       exportName: `${props.environment}-TextractProcessorFunctionName`,
-    });
-
-    // AI Streaming Jobs outputs
-    new cdk.CfnOutput(this, 'StreamingJobsQueueUrl', {
-      value: this.streamingJobsQueue.queueUrl,
-      description: 'URL of the AI streaming jobs queue',
-      exportName: `${props.environment}-StreamingJobsQueueUrl`,
-    });
-
-    new cdk.CfnOutput(this, 'StreamingJobsQueueArn', {
-      value: this.streamingJobsQueue.queueArn,
-      description: 'ARN of the AI streaming jobs queue',
-      exportName: `${props.environment}-StreamingJobsQueueArn`,
-    });
-
-    new cdk.CfnOutput(this, 'StreamingJobsWorkerFunctionName', {
-      value: this.streamingJobsWorker.functionName,
-      description: 'Name of the AI streaming jobs worker Lambda function',
-      exportName: `${props.environment}-StreamingJobsWorkerFunctionName`,
-    });
-
-    // Store the streaming jobs queue URL in SSM for other stacks to reference
-    new ssm.StringParameter(this, 'StreamingJobsQueueUrlParam', {
-      parameterName: `/aistudio/${props.environment}/streaming-jobs-queue-url`,
-      stringValue: this.streamingJobsQueue.queueUrl,
-      description: 'URL of the AI streaming jobs queue for cross-stack access',
     });
   }
 }
