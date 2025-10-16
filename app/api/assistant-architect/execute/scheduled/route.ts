@@ -17,7 +17,7 @@ export const maxDuration = 900;
 const MAX_INPUT_SIZE_BYTES = 100000; // 100KB max input size
 const MAX_PROMPT_CHAIN_LENGTH = 20; // Max 20 prompts per execution
 const MAX_RESPONSE_SIZE_BYTES = 10485760; // 10MB max response size
-const MAX_ACCUMULATED_CONTEXT_MESSAGES = 10; // Keep last 5 user/assistant exchanges
+const MAX_ACCUMULATED_CONTEXT_MESSAGES = 10; // Keep last 10 messages (5 user/assistant exchanges)
 
 // Request validation schema
 const ScheduledExecuteRequestSchema = z.object({
@@ -544,12 +544,18 @@ async function executePromptChainServerSide(
       });
 
       // 6. Create streaming request with promise tracking for onFinish
-      let finishPromise: Promise<void> | null = null;
+      // Initialize promise before stream request to prevent race condition
+      let finishPromiseResolve: () => void;
+      let finishPromiseReject: (error: Error) => void;
+      const finishPromise = new Promise<void>((resolve, reject) => {
+        finishPromiseResolve = resolve;
+        finishPromiseReject = reject;
+      });
 
       const streamRequest: StreamRequest = {
         messages,
-        modelId: String(modelId),
-        provider: String(provider),
+        modelId,
+        provider,
         userId: context.userId.toString(),
         sessionId: context.userCognitoSub,
         conversationId: undefined,
@@ -559,18 +565,17 @@ async function executePromptChainServerSide(
         tools: Object.keys(promptTools).length > 0 ? promptTools : undefined,
         callbacks: {
           onFinish: async ({ text, usage, finishReason }) => {
-            finishPromise = (async () => {
-            log.info('Prompt execution finished', {
-              promptId: prompt.id,
-              promptName: prompt.name,
-              hasText: !!text,
-              textLength: text?.length || 0,
-              hasUsage: !!usage,
-              finishReason,
-              executionId: context.executionId
-            });
-
             try {
+              log.info('Prompt execution finished', {
+                promptId: prompt.id,
+                promptName: prompt.name,
+                hasText: !!text,
+                textLength: text?.length || 0,
+                hasUsage: !!usage,
+                finishReason,
+                executionId: context.executionId
+              });
+
               // Validate response size
               if (text && text.length > MAX_RESPONSE_SIZE_BYTES) {
                 throw ErrorFactories.validationFailed([{
@@ -588,9 +593,16 @@ async function executePromptChainServerSide(
                 tokensUsed: usage?.totalTokens
               });
 
-              // Save prompt result
-              if (!text || text.length === 0) {
-                log.warn('No text content from prompt execution', { promptId: prompt.id });
+              // Validate response content
+              const hasValidContent = text && text.length > 0;
+              const resultStatus = hasValidContent ? 'completed' : 'completed_with_warning';
+
+              if (!hasValidContent) {
+                log.warn('No text content from prompt execution', {
+                  promptId: prompt.id,
+                  finishReason,
+                  willMarkAsWarning: true
+                });
               }
 
               await executeSQL(
@@ -599,11 +611,12 @@ async function executePromptChainServerSide(
                   status, started_at, completed_at, execution_time_ms
                 ) VALUES (
                   :executionId, :promptId, :inputData::jsonb, :outputData,
-                  'completed', NOW() - INTERVAL '1 millisecond' * :executionTimeMs, NOW(), :executionTimeMs
+                  :status, NOW() - INTERVAL '1 millisecond' * :executionTimeMs, NOW(), :executionTimeMs
                 )`,
                 [
                   { name: 'executionId', value: { longValue: context.executionId } },
                   { name: 'promptId', value: { longValue: prompt.id } },
+                  { name: 'status', value: { stringValue: resultStatus } },
                   { name: 'inputData', value: { stringValue: JSON.stringify({
                     originalContent: prompt.content,
                     processedContent,
@@ -640,8 +653,12 @@ async function executePromptChainServerSide(
                 executionId: context.executionId,
                 outputLength: text?.length || 0,
                 executionTimeMs,
+                status: resultStatus,
                 accumulatedMessageCount: context.accumulatedMessages.length
               });
+
+              // Resolve the finish promise to signal completion
+              finishPromiseResolve();
 
             } catch (saveError) {
               log.error('Failed to save prompt result', {
@@ -649,10 +666,13 @@ async function executePromptChainServerSide(
                 promptId: prompt.id,
                 executionId: context.executionId
               });
-              throw saveError;
+
+              // Reject the finish promise to propagate error
+              finishPromiseReject(saveError instanceof Error ? saveError : new Error(String(saveError)));
+            } finally {
+              // Ensure promise always resolves/rejects (for edge cases)
+              // This is a safety net - normally resolve/reject should be called explicitly
             }
-            })();
-            await finishPromise;
           }
         }
       };

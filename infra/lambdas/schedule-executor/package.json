@@ -5,7 +5,6 @@
   "main": "index.js",
   "dependencies": {
     "@aws-sdk/client-rds-data": "^3.0.0",
-    "@aws-sdk/client-sqs": "^3.0.0",
     "@aws-sdk/client-scheduler": "^3.0.0",
     "jsonwebtoken": "^9.0.2"
   },
