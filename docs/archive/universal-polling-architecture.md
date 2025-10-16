@@ -1,8 +1,20 @@
 # Universal Polling Architecture
 
+> **⚠️ DEPRECATED - August 2025**
+>
+> This document describes the Lambda-based polling architecture that was used from deployment until August 2025. This system has been **removed and replaced** with direct ECS streaming (PR #340).
+>
+> **Current Architecture**: AI streaming now happens directly through ECS containers with HTTP/2 streaming support. There is no longer a polling system, SQS queue, or Lambda workers for streaming operations.
+>
+> **Migration Details**: See [ADR-003: ECS Streaming Migration](../architecture/ADR-003-ecs-streaming-migration.md)
+>
+> **Historical Context**: This document is preserved for historical reference and understanding the evolution of the system architecture.
+
+---
+
 ## Overview
 
-The Universal Polling Architecture is a critical system that enables AI Studio to process long-running AI requests asynchronously, overcoming AWS Amplify's strict 30-second timeout limitation. This architecture processes all AI streaming requests through an asynchronous job queue system using SQS and Lambda workers.
+The Universal Polling Architecture was a critical system that enabled AI Studio to process long-running AI requests asynchronously, overcoming AWS Amplify's strict 30-second timeout limitation. This architecture processed all AI streaming requests through an asynchronous job queue system using SQS and Lambda workers.
 
 ## Problem Statement
 
@@ -10,37 +22,37 @@ AWS Amplify enforces a hard 30-second timeout on all HTTP responses, making it i
 
 - Complex reasoning models (Claude o1, GPT-4o with reasoning)
 - Large document processing
-- Multi-step tool executions  
+- Multi-step tool executions
 - Any AI operation requiring more than 30 seconds
 
 ## Architecture Overview
 
 ```mermaid
 graph TB
-    Client[Client Application] 
+    Client[Client Application]
     API[/api/nexus/chat]
     Job[(Job Management Service)]
     SQS[SQS Queue]
     Worker[Lambda Worker]
     DB[(PostgreSQL)]
     AIProviders[AI Providers<br/>OpenAI, Bedrock, Google, Azure]
-    
+
     Client -->|POST /api/nexus/chat| API
     API -->|Create Job| Job
     Job -->|Store Job| DB
     API -->|Queue Message| SQS
     API -->|Return Job ID| Client
-    
+
     SQS -->|Process Job| Worker
     Worker -->|Get Job Details| DB
     Worker -->|Stream AI Request| AIProviders
     AIProviders -->|Response Stream| Worker
     Worker -->|Update Job Status/Content| DB
-    
+
     Client -->|Poll Status| PollAPI[/api/nexus/chat/jobs/[jobId]]
     PollAPI -->|Get Job Status| DB
     PollAPI -->|Return Progress| Client
-    
+
     style Client fill:#e1f5fe
     style API fill:#f3e5f5
     style Worker fill:#e8f5e8
@@ -94,7 +106,7 @@ POST /api/nexus/chat
 // Server responds with job information
 {
   "jobId": "uuid-string",
-  "conversationId": "uuid-string", 
+  "conversationId": "uuid-string",
   "status": "pending",
   "pollingInterval": 1000
 }
@@ -119,7 +131,7 @@ GET /api/nexus/chat/jobs/{jobId}
 ```typescript
 // Final polling response
 {
-  "jobId": "uuid-string", 
+  "jobId": "uuid-string",
   "status": "completed",
   "partialContent": "Full AI response",
   "responseData": {
@@ -137,7 +149,7 @@ GET /api/nexus/chat/jobs/{jobId}
 - Handles complex reasoning models
 - Supports long document processing
 
-### 2. Scalability  
+### 2. Scalability
 - Asynchronous processing prevents blocking
 - SQS provides reliable message queuing
 - Lambda workers auto-scale with demand
@@ -164,7 +176,7 @@ CREATE TABLE ai_streaming_jobs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   conversation_id TEXT,                    -- Support both integer and UUID
   user_id INTEGER NOT NULL,
-  model_id INTEGER NOT NULL, 
+  model_id INTEGER NOT NULL,
   status job_status NOT NULL DEFAULT 'pending',
   request_data JSONB NOT NULL,             -- Original request parameters
   response_data JSONB,                     -- Final response data
@@ -188,7 +200,7 @@ The system uses a dual-status approach:
 - `completed`: Job finished successfully
 - `failed`: Job failed or cancelled
 
-### Universal Polling Status  
+### Universal Polling Status
 - `pending`: Job waiting to start
 - `processing`: Job initializing
 - `streaming`: Job actively streaming content
@@ -203,7 +215,7 @@ The system uses a dual-status approach:
 # SQS Queue Configuration
 STREAMING_JOBS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123456789012/aistudio-dev-streaming-jobs-queue
 
-# Database Configuration  
+# Database Configuration
 RDS_RESOURCE_ARN=arn:aws:rds:us-east-1:123456789012:cluster:aistudio-dev-db
 DATABASE_SECRET_ARN=arn:aws:secretsmanager:us-east-1:123456789012:secret:aistudio-dev-db-secret
 
@@ -233,7 +245,7 @@ NEXT_PUBLIC_AWS_REGION=us-east-1
 
 ### Health Checks
 - Queue connectivity
-- Database accessibility  
+- Database accessibility
 - Provider availability
 - Lambda function health
 
@@ -296,4 +308,35 @@ NEXT_PUBLIC_AWS_REGION=us-east-1
 - SQS message visibility and metrics
 - Application performance monitoring
 
-This architecture provides a robust foundation for processing long-running AI requests while maintaining excellent user experience and system reliability.
+## Why This Architecture Was Replaced
+
+In August 2025, this polling architecture was replaced with direct ECS streaming for the following reasons:
+
+### Cost Reduction
+- Lambda + SQS costs approximately $40/month for polling infrastructure
+- Direct ECS streaming eliminates these recurring costs
+- Simplified billing with single service
+
+### Latency Improvement
+- Polling added 1-5 seconds delay before job starts
+- Direct streaming provides immediate response
+- Better user experience with real-time feedback
+
+### Architectural Simplicity
+- Separate Lambda deployment and monitoring no longer needed
+- Fewer moving parts reduces operational complexity
+- Unified streaming in single ECS service
+
+### Performance
+- Lambda cold starts impacted streaming responsiveness
+- ECS provides consistent performance
+- Better resource utilization with auto-scaling
+
+**Note**: The `ai_streaming_jobs` table and job management concepts were retained for background processing tasks that don't require real-time streaming (document processing, embeddings generation, scheduled tasks).
+
+---
+
+**Originally Implemented**: Early 2025
+**Deprecated**: August 2025 (PR #340)
+**Replacement**: Direct ECS streaming (see ADR-003)
+**Preserved**: For historical reference and architectural evolution documentation

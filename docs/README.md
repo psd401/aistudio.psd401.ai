@@ -42,15 +42,19 @@ Document upload and processing system with S3 integration.
 #### [features/EMBEDDING_SYSTEM.md](./features/EMBEDDING_SYSTEM.md)
 Vector embedding and semantic search implementation.
 
-#### Universal Polling Architecture (NEW)
-**Critical system** - Enables long-running AI requests beyond AWS Amplify's 30-second timeout:
+#### AI Streaming Architecture
+**ECS-based streaming** - Direct HTTP/2 streaming for real-time AI responses:
 
-- **[features/universal-polling-architecture.md](./features/universal-polling-architecture.md)** - System architecture, request flow, and design decisions
-- **[features/ai-streaming-core-package.md](./features/ai-streaming-core-package.md)** - Shared package structure, provider adapters, and message processing  
+- **[operations/streaming-infrastructure.md](./operations/streaming-infrastructure.md)** - ECS infrastructure setup, monitoring, and operations
+- **[ASSISTANT_ARCHITECT_DEPLOYMENT.md](./ASSISTANT_ARCHITECT_DEPLOYMENT.md)** - Assistant Architect deployment guide
+- **[features/ai-streaming-core-package.md](./features/ai-streaming-core-package.md)** - Shared package structure, provider adapters, and message processing
 - **[features/polling-api-integration.md](./features/polling-api-integration.md)** - Client integration patterns and API endpoints
-- **[operations/streaming-infrastructure.md](./operations/streaming-infrastructure.md)** - Infrastructure setup, monitoring, and operations
 - **[guides/adding-ai-providers.md](./guides/adding-ai-providers.md)** - Step-by-step provider integration guide
-- **[ASSISTANT_ARCHITECT_LAMBDA_DEPLOYMENT.md](./ASSISTANT_ARCHITECT_LAMBDA_DEPLOYMENT.md)** - **CRITICAL:** Special deployment guide for Lambda workers with local dependencies
+
+**Architecture Evolution**:
+- **[architecture/ADR-002-streaming-architecture-migration.md](./architecture/ADR-002-streaming-architecture-migration.md)** - Amplify to ECS migration
+- **[architecture/ADR-003-ecs-streaming-migration.md](./architecture/ADR-003-ecs-streaming-migration.md)** - Lambda to ECS direct execution
+- **[archive/universal-polling-architecture.md](./archive/universal-polling-architecture.md)** - ⚠️ **DEPRECATED** - Historical Lambda polling architecture
 
 ### Operations
 
@@ -61,16 +65,16 @@ Operational procedures, monitoring, and maintenance guidelines.
 
 ### For New Developers
 1. Start with [ARCHITECTURE.md](./ARCHITECTURE.md) to understand the system
-2. **NEW:** Review [features/universal-polling-architecture.md](./features/universal-polling-architecture.md) for the critical streaming system
+2. Review [operations/streaming-infrastructure.md](./operations/streaming-infrastructure.md) for ECS streaming architecture
 3. Review [ENVIRONMENT_VARIABLES.md](./ENVIRONMENT_VARIABLES.md) for setup
 4. Follow [guides/TYPESCRIPT.md](./guides/TYPESCRIPT.md) for code standards
 5. Reference [guides/LOGGING.md](./guides/LOGGING.md) for logging patterns
 
 ### For DevOps/Infrastructure
 1. Follow [DEPLOYMENT.md](./DEPLOYMENT.md) for initial deployment
-2. **NEW:** Study [operations/streaming-infrastructure.md](./operations/streaming-infrastructure.md) for polling architecture operations
+2. Study [operations/streaming-infrastructure.md](./operations/streaming-infrastructure.md) for ECS operations
 3. Review [operations/OPERATIONS.md](./operations/OPERATIONS.md) for maintenance
-4. Check [ARCHITECTURE.md](./ARCHITECTURE.md#infrastructure) for infrastructure details
+4. Check [ARCHITECTURE.md](./ARCHITECTURE.md#streaming-architecture-migration) for architecture evolution
 
 ### For Testing
 1. Read [guides/TESTING.md](./guides/TESTING.md) for testing strategies
@@ -91,10 +95,10 @@ Every operation gets a unique request ID for end-to-end tracing. See [guides/LOG
 ### Settings Management
 Database-first configuration with environment fallback. See [ARCHITECTURE.md#settings-management](./ARCHITECTURE.md#settings-management).
 
-### Universal Polling Architecture (NEW)
-Asynchronous AI request processing beyond AWS Amplify's 30-second timeout. See [features/universal-polling-architecture.md](./features/universal-polling-architecture.md).
+### ECS Streaming Architecture
+Direct HTTP/2 streaming for real-time AI responses using ECS Fargate. See [operations/streaming-infrastructure.md](./operations/streaming-infrastructure.md) and [ADR-003](./architecture/ADR-003-ecs-streaming-migration.md).
 
-### AI Streaming Core Package (NEW)
+### AI Streaming Core Package
 Shared provider abstraction for consistent AI integration. See [features/ai-streaming-core-package.md](./features/ai-streaming-core-package.md).
 
 ## 🔧 Common Tasks
@@ -124,11 +128,12 @@ Shared provider abstraction for consistent AI integration. See [features/ai-stre
 3. Deploy with CDK: `npx cdk deploy`
 4. Monitor CloudWatch for errors
 
-### Deploying Lambda Workers (Special Cases)
-For Lambda functions with local dependencies (like streaming-jobs-worker):
-1. **IMPORTANT:** Follow [ASSISTANT_ARCHITECT_LAMBDA_DEPLOYMENT.md](./ASSISTANT_ARCHITECT_LAMBDA_DEPLOYMENT.md) for complete build process
-2. Build and copy dependencies before CDK deployment
-3. Commit build artifacts to ensure consistent deployments
+### Deploying Streaming Features
+For ECS-based streaming deployments:
+1. Follow [ASSISTANT_ARCHITECT_DEPLOYMENT.md](./ASSISTANT_ARCHITECT_DEPLOYMENT.md) for deployment guide
+2. Build Docker container and push to ECR
+3. Update ECS service for rolling deployment
+4. Monitor CloudWatch for deployment health
 
 ## 📁 Archive
 

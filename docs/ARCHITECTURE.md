@@ -594,6 +594,47 @@ interface RecoveryPolicy {
 }
 ```
 
+## Streaming Architecture Migration
+
+### October 2025: Lambda to ECS Direct Execution
+
+The system has undergone a significant streaming architecture evolution documented in ADR-002 and ADR-003:
+
+#### Phase 1: Amplify to ECS (ADR-002)
+- **Problem**: AWS Amplify doesn't support HTTP/2 streaming
+- **Solution**: Migrated to ECS Fargate with Application Load Balancer
+- **Benefit**: Enabled true real-time streaming for AI responses
+
+#### Phase 2: Remove Lambda Workers (ADR-003)
+- **Problem**: Lambda polling architecture added $40/month cost and 1-5s latency
+- **Solution**: Direct ECS execution, removed SQS queues and Lambda workers
+- **Benefits**:
+  - **Cost**: $40/month savings (~40% reduction)
+  - **Performance**: 1-5 second latency reduction, no cold starts
+  - **Simplicity**: Single service architecture, unified deployment
+
+#### Current Streaming Architecture
+
+**All AI streaming** now happens directly through ECS containers:
+- **Nexus Chat**: Direct `streamText` with HTTP/2 streaming
+- **Model Compare**: Side-by-side dual streaming
+- **Assistant Architect**: Direct chain execution with real-time updates
+
+**Removed Infrastructure**:
+- SQS queues for job distribution
+- Lambda streaming workers
+- Polling endpoints and job management complexity
+
+**Retained for Background Processing**:
+- `ai_streaming_jobs` table for non-streaming background tasks
+- Job management service for document processing, embeddings
+- Can add SQS/Lambda later if background job needs emerge
+
+**References**:
+- [ADR-002: Streaming Architecture Migration from AWS Amplify](./architecture/ADR-002-streaming-architecture-migration.md)
+- [ADR-003: Migrate AI Streaming from Lambda to ECS](./architecture/ADR-003-ecs-streaming-migration.md)
+- [Archived: Universal Polling Architecture](./archive/universal-polling-architecture.md)
+
 ## Future Enhancements
 
 ### In Progress
