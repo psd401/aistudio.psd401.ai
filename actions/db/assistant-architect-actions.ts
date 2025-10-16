@@ -2137,10 +2137,8 @@ export async function executeAssistantArchitectAction({
 
     // Use jobManagementService to create streaming job with assistant architect context
     const { jobManagementService } = await import('@/lib/streaming/job-management-service');
-    const { getStreamingJobsQueueUrl } = await import('@/lib/aws/queue-config');
-    const { SQSClient, SendMessageCommand } = await import('@aws-sdk/client-sqs');
 
-    // Validate and prepare toolMetadata for Lambda worker
+    // Validate and prepare toolMetadata for worker
     const toolMetadata = {
       toolId: typeof toolId === 'number' ? toolId : parseInt(String(toolId), 10),
       executionId,
@@ -2158,7 +2156,7 @@ export async function executeAssistantArchitectAction({
       inputMapping: validatedInputs || {}
     };
 
-    // Validate toolMetadata structure before sending to Lambda
+    // Validate toolMetadata structure
     if (!toolMetadata.toolId || !toolMetadata.executionId) {
       log.error("Invalid toolMetadata: missing required fields", { toolMetadata });
       throw ErrorFactories.validationFailed([{
@@ -2167,7 +2165,7 @@ export async function executeAssistantArchitectAction({
       }]);
     }
 
-    log.debug("Tool metadata prepared for Lambda", {
+    log.debug("Tool metadata prepared for worker", {
       toolId: toolMetadata.toolId,
       executionId: toolMetadata.executionId,
       promptCount: toolMetadata.prompts.length,
@@ -2210,107 +2208,25 @@ export async function executeAssistantArchitectAction({
       toolMetadata
     };
 
-    // Create the streaming job
+    // Create the streaming job - will be processed via universal polling architecture
     const streamingJobId = await jobManagementService.createJob(jobRequest);
-    
-    log.info("Streaming job created for assistant architect", { 
-      streamingJobId, 
+
+    log.info("Streaming job created for assistant architect", {
+      streamingJobId,
       executionId,
-      toolId 
+      toolId
     });
 
-    // Send job to SQS queue for Lambda worker processing
-    const sqsClient = new SQSClient({
-      region: process.env.NEXT_PUBLIC_AWS_REGION || process.env.AWS_REGION || 'us-east-1'
-    });
-
-    const queueUrl = getStreamingJobsQueueUrl();
-    if (queueUrl) {
-      try {
-        const sqsCommand = new SendMessageCommand({
-          QueueUrl: queueUrl,
-          MessageBody: streamingJobId,
-          MessageAttributes: {
-            jobType: {
-              DataType: 'String',
-              StringValue: 'ai-streaming-assistant-architect'
-            },
-            provider: {
-              DataType: 'String',
-              StringValue: provider
-            },
-            modelId: {
-              DataType: 'String',
-              StringValue: modelIdString
-            },
-            toolId: {
-              DataType: 'String',
-              StringValue: String(toolId)
-            },
-            executionId: {
-              DataType: 'String',
-              StringValue: String(executionId)
-            },
-            userId: {
-              DataType: 'Number',
-              StringValue: currentUser.data.user.id.toString()
-            },
-            source: {
-              DataType: 'String',
-              StringValue: 'assistant-architect'
-            },
-            toolsEnabled: {
-              DataType: 'String',
-              StringValue: enabledTools.length > 0 ? 'true' : 'false'
-            },
-            enabledToolsList: {
-              DataType: 'String',
-              StringValue: JSON.stringify(enabledTools)
-            },
-            toolCount: {
-              DataType: 'Number',
-              StringValue: enabledTools.length.toString()
-            }
-          }
-        });
-        
-        await sqsClient.send(sqsCommand);
-        
-        log.info("Assistant architect job sent to SQS queue successfully", {
-          streamingJobId,
-          executionId,
-          toolId
-        });
-      } catch (sqsError) {
-        log.error("Failed to send assistant architect job to SQS queue", {
-          streamingJobId,
-          executionId,
-          error: sqsError instanceof Error ? sqsError.message : String(sqsError)
-        });
-        
-        // Mark job as failed if we can't queue it
-        try {
-          await jobManagementService.failJob(streamingJobId, `Failed to queue assistant architect job: ${sqsError}`);
-        } catch (failError) {
-          log.error("Failed to mark job as failed", { streamingJobId, error: failError });
-        }
-        
-        throw ErrorFactories.externalServiceError('SQS', new Error('Failed to queue assistant architect job for processing'));
-      }
-    } else {
-      log.warn("No SQS queue URL configured, job created but not queued", { streamingJobId });
-    }
-
-    log.info("Assistant architect execution migrated to Lambda architecture successfully", { 
-      jobId: streamingJobId, 
-      executionId 
+    log.info("Assistant architect execution started successfully", {
+      jobId: streamingJobId,
+      executionId
     })
     timer({ status: "success", jobId: streamingJobId, executionId })
 
-    return createSuccess({ 
+    return createSuccess({
       jobId: streamingJobId, // Return streaming job ID for universal polling
-      executionId 
-    }, "Assistant Architect execution started using Lambda architecture");
+      executionId
+    }, "Assistant Architect execution started");
   } catch (error) {
     timer({ status: "error" })
     return handleError(error, "Failed to execute assistant architect", {
@@ -2322,9 +2238,9 @@ export async function executeAssistantArchitectAction({
 }
 
 // Note: executeAssistantArchitectJob function has been deprecated and removed.
-// Assistant Architect execution now uses the Lambda-based polling architecture
-// with streaming job processing in SQS workers. The complex transaction-based
-// local execution has been replaced with job queuing for better scalability
+// Assistant Architect execution now uses the universal polling architecture
+// with streaming job processing. The complex transaction-based local execution
+// has been replaced with database-backed job management for better scalability
 // and reliability.
 
 // For the public view, get only approved tools
