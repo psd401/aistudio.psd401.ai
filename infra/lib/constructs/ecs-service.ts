@@ -82,6 +82,10 @@ export interface EcsServiceConstructProps {
    * NextAuth secret ARN from Secrets Manager
    */
   authSecretArn: string;
+  /**
+   * Internal API secret ARN from Secrets Manager (for scheduled execution authentication)
+   */
+  internalApiSecretArn: string;
 }
 
 /**
@@ -221,6 +225,9 @@ export class EcsServiceConstruct extends Construct {
       resources: [
         `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:aistudio-${environment}-*`,
         `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:aistudio/${environment}/*`,
+        // Explicit permissions for both secrets
+        props.authSecretArn,
+        props.internalApiSecretArn,
       ],
     }));
 
@@ -254,6 +261,8 @@ export class EcsServiceConstruct extends Construct {
                 `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:aistudio-${environment}-*`,
                 `arn:aws:secretsmanager:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:secret:aistudio/${environment}/*`,
                 props.rdsSecretArn, // Include actual database secret ARN
+                props.authSecretArn, // Include auth secret
+                props.internalApiSecretArn, // Include internal API secret
               ],
             }),
             new iam.PolicyStatement({
@@ -429,6 +438,11 @@ export class EcsServiceConstruct extends Construct {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(
           secretsmanager.Secret.fromSecretCompleteArn(this, 'AuthSecret', props.authSecretArn),
           'AUTH_SECRET'
+        ),
+        // NEW: Internal API secret for scheduled execution authentication
+        INTERNAL_API_SECRET: ecs.Secret.fromSecretsManager(
+          secretsmanager.Secret.fromSecretCompleteArn(this, 'InternalApiSecret', props.internalApiSecretArn),
+          'INTERNAL_API_SECRET'
         ),
       },
       // Security: Read-only root filesystem with tmpfs mounts for writable directories

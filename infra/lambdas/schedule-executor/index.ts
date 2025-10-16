@@ -1,16 +1,17 @@
-const { RDSDataClient, ExecuteStatementCommand } = require('@aws-sdk/client-rds-data');
-const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
-const { SchedulerClient, CreateScheduleCommand, UpdateScheduleCommand, DeleteScheduleCommand } = require('@aws-sdk/client-scheduler');
-const { buildToolsForScheduledExecution, collectEnabledToolsFromPrompts } = require('./tool-builder');
+import { RDSDataClient, ExecuteStatementCommand } from '@aws-sdk/client-rds-data';
+import { SchedulerClient, CreateScheduleCommand, UpdateScheduleCommand, DeleteScheduleCommand } from '@aws-sdk/client-scheduler';
+import { Context as LambdaContext } from 'aws-lambda';
+import * as jwt from 'jsonwebtoken';
+
 
 // Lambda logging utilities (simplified version of main app pattern)
 function generateRequestId() {
   return `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
-function startTimer(operation) {
+function startTimer(operation: string) {
   const startTime = Date.now();
-  return (context = {}) => {
+  return (context: Record<string, any> = {}) => {
     const duration = Date.now() - startTime;
     // Use structured logging without console methods
     const logEntry = {
@@ -26,7 +27,7 @@ function startTimer(operation) {
   };
 }
 
-function createLogger(context = {}) {
+function createLogger(context: Record<string, any> = {}) {
   const baseContext = {
     timestamp: new Date().toISOString(),
     environment: 'lambda',
@@ -35,7 +36,7 @@ function createLogger(context = {}) {
   };
 
   return {
-    info: (message, meta = {}) => {
+    info: (message: string, meta: Record<string, any> = {}) => {
       const logEntry = {
         level: 'INFO',
         message,
@@ -44,7 +45,7 @@ function createLogger(context = {}) {
       };
       process.stdout.write(JSON.stringify(logEntry) + '\n');
     },
-    error: (message, meta = {}) => {
+    error: (message: string, meta: Record<string, any> = {}) => {
       const logEntry = {
         level: 'ERROR',
         message,
@@ -53,7 +54,7 @@ function createLogger(context = {}) {
       };
       process.stderr.write(JSON.stringify(logEntry) + '\n');
     },
-    warn: (message, meta = {}) => {
+    warn: (message: string, meta: Record<string, any> = {}) => {
       const logEntry = {
         level: 'WARN',
         message,
@@ -62,7 +63,7 @@ function createLogger(context = {}) {
       };
       process.stderr.write(JSON.stringify(logEntry) + '\n');
     },
-    debug: (message, meta = {}) => {
+    debug: (message: string, meta: Record<string, any> = {}) => {
       const logEntry = {
         level: 'DEBUG',
         message,
@@ -75,7 +76,7 @@ function createLogger(context = {}) {
 }
 
 // Security utility functions
-function safeParseInt(value, fieldName = 'value') {
+function safeParseInt(value: any, fieldName: string = 'value'): number {
   if (value === null || value === undefined) {
     throw new Error(`Invalid ${fieldName}: value is null or undefined`);
   }
@@ -93,7 +94,7 @@ function safeParseInt(value, fieldName = 'value') {
   return parsed;
 }
 
-function safeJsonParse(jsonString, fallback = null, fieldName = 'JSON data') {
+function safeJsonParse(jsonString: any, fallback: any = null, fieldName: string = 'JSON data'): any {
   if (!jsonString) {
     return fallback;
   }
@@ -104,14 +105,14 @@ function safeJsonParse(jsonString, fallback = null, fieldName = 'JSON data') {
     const log = createLogger({ operation: 'safeJsonParse' });
     log.error('JSON parse error', {
       fieldName,
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
       jsonLength: jsonString?.length
     });
     return fallback;
   }
 }
 
-function sanitizeForLogging(data) {
+function sanitizeForLogging(data: any): any {
   if (!data || typeof data !== 'object') {
     return data;
   }
@@ -130,7 +131,6 @@ function sanitizeForLogging(data) {
 
 // Initialize clients
 const rdsClient = new RDSDataClient({});
-const sqsClient = new SQSClient({});
 const schedulerClient = new SchedulerClient({});
 
 // Environment variables with startup validation
@@ -139,7 +139,8 @@ const requiredEnvVars = {
   DATABASE_SECRET_ARN: process.env.DATABASE_SECRET_ARN,
   DATABASE_NAME: process.env.DATABASE_NAME,
   ENVIRONMENT: process.env.ENVIRONMENT,
-  STREAMING_JOBS_QUEUE_URL: process.env.STREAMING_JOBS_QUEUE_URL
+  ECS_INTERNAL_ENDPOINT: process.env.ECS_INTERNAL_ENDPOINT,
+  INTERNAL_API_SECRET: process.env.INTERNAL_API_SECRET
 };
 
 const optionalEnvVars = {
@@ -208,7 +209,7 @@ const DLQ_URL = optionalEnvVars.DLQ_URL;
  * - Create/update/delete EventBridge schedules
  * - Rate limiting (max 10 schedules per user)
  */
-exports.handler = async (event, context) => {
+export const handler = async (event: any, context: LambdaContext): Promise<any> => {
   const requestId = generateRequestId();
   const timer = startTimer('lambda.handler');
   const log = createLogger({ requestId, operation: 'scheduleExecutor' });
@@ -243,29 +244,22 @@ exports.handler = async (event, context) => {
     };
 
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
     log.error('Schedule executor failed', {
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      error: errorMessage,
+      stack: process.env.NODE_ENV === 'development' ? errorStack : undefined,
       requestId
     });
     timer({ status: 'error' });
 
-    // Send to DLQ if available
-    if (DLQ_URL) {
-      try {
-        await sqsClient.send(new SendMessageCommand({
-          QueueUrl: DLQ_URL,
-          MessageBody: JSON.stringify({
-            originalEvent: event,
-            error: error.message,
-            timestamp: new Date().toISOString(),
-            requestId
-          })
-        }));
-      } catch (dlqError) {
-        log.error('Failed to send to DLQ', { error: dlqError.message });
-      }
-    }
+    // Log error for CloudWatch monitoring (DLQ removed with SQS-based architecture)
+    log.error('Schedule executor final error logged for monitoring', {
+      originalEvent: event,
+      error: errorMessage,
+      timestamp: new Date().toISOString(),
+      requestId
+    });
 
     return {
       statusCode: 500,
@@ -281,7 +275,7 @@ exports.handler = async (event, context) => {
  * Handle scheduled execution triggered by EventBridge
  * Uses the existing assistant architect execution pattern
  */
-async function handleScheduledExecution(scheduledExecutionId, requestId) {
+async function handleScheduledExecution(scheduledExecutionId: any, requestId: string): Promise<any> {
   const log = createLogger({ requestId, scheduledExecutionId, operation: 'scheduledExecution' });
   const timer = startTimer('scheduled_execution');
 
@@ -326,8 +320,7 @@ async function handleScheduledExecution(scheduledExecutionId, requestId) {
     // Create execution result record
     executionResultId = await createExecutionResult(scheduledExecutionId);
 
-    // Execute using existing assistant architect pattern
-    // This will create a streaming job and send it to SQS for the streaming-jobs-worker
+    // Execute via ECS endpoint (direct HTTP call - no SQS)
     const result = await executeAssistantArchitectForSchedule(
       scheduledExecution,
       executionResultId,
@@ -335,24 +328,24 @@ async function handleScheduledExecution(scheduledExecutionId, requestId) {
     );
 
     timer({ status: 'success' });
-    log.info('Scheduled execution submitted successfully', {
-      executionResultId,
-      jobId: result.jobId
+    log.info('Scheduled execution completed successfully', {
+      executionResultId: result.executionId,
+      status: result.status
     });
 
     return {
       statusCode: 200,
       body: JSON.stringify({
-        message: 'Scheduled execution submitted successfully',
+        message: 'Scheduled execution completed successfully',
         scheduledExecutionId,
-        executionResultId,
-        jobId: result.jobId,
-        status: 'submitted'
+        executionResultId: result.executionId,
+        status: result.status
       })
     };
 
   } catch (error) {
-    log.error('Scheduled execution failed', { error: error.message });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error('Scheduled execution failed', { error: errorMessage });
 
     // Update execution result with failure (only if we created one)
     if (executionResultId) {
@@ -362,10 +355,11 @@ async function handleScheduledExecution(scheduledExecutionId, requestId) {
           'failed',
           null,
           null,
-          error.message
+          errorMessage
         );
       } catch (updateError) {
-        log.error('Failed to update execution result with failure', { error: updateError.message });
+        const updateErrorMessage = updateError instanceof Error ? updateError.message : String(updateError);
+        log.error('Failed to update execution result with failure', { error: updateErrorMessage });
       }
     }
 
@@ -375,88 +369,145 @@ async function handleScheduledExecution(scheduledExecutionId, requestId) {
 }
 
 /**
- * Execute assistant architect using existing pattern but adapted for Lambda
+ * Execute assistant architect by calling ECS endpoint directly via HTTP
+ * NEW: Replaces SQS-based job submission with direct HTTP call to streaming endpoint
  */
-async function executeAssistantArchitectForSchedule(scheduledExecution, executionResultId, requestId) {
+async function executeAssistantArchitectForSchedule(scheduledExecution: any, executionResultId: any, requestId: string): Promise<any> {
   const log = createLogger({ requestId, executionResultId, operation: 'executeForSchedule' });
 
-  log.info('Executing scheduled assistant architect', {
+  log.info('Executing scheduled assistant architect via ECS endpoint', {
     assistantArchitectId: scheduledExecution.assistant_architect_id,
     inputData: Object.keys(scheduledExecution.input_data || {})
   });
 
-  // Get streaming jobs queue URL (this should be configured via environment)
-  const queueUrl = process.env.STREAMING_JOBS_QUEUE_URL;
-  if (!queueUrl) {
-    throw new Error('STREAMING_JOBS_QUEUE_URL environment variable not configured');
+  // Get ECS endpoint URL from environment
+  const ecsEndpoint = process.env.ECS_INTERNAL_ENDPOINT;
+  if (!ecsEndpoint) {
+    throw new Error('ECS_INTERNAL_ENDPOINT environment variable not configured');
   }
 
-  // Load assistant architect configuration and create proper streaming job
-  const assistantArchitect = await loadAssistantArchitect(scheduledExecution.assistant_architect_id);
-  if (!assistantArchitect) {
-    throw new Error(`Assistant architect not found: ${scheduledExecution.assistant_architect_id}`);
+  // Get internal API secret for JWT generation
+  const internalApiSecret = process.env.INTERNAL_API_SECRET;
+  if (!internalApiSecret) {
+    throw new Error('INTERNAL_API_SECRET environment variable not configured');
   }
 
-  // Create streaming job in database (following main app pattern)
-  const streamingJobId = await createStreamingJob(
-    scheduledExecution,
-    assistantArchitect,
-    executionResultId,
-    requestId
+  // Generate short-lived JWT token for authentication
+  
+  const token = jwt.sign(
+    {
+      iss: 'schedule-executor',
+      aud: 'assistant-architect-api',
+      scheduleId: scheduledExecution.id.toString(),
+      executionId: executionResultId.toString(),
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 300 // 5 minutes
+    },
+    internalApiSecret,
+    { algorithm: 'HS256' }
   );
 
-  log.info('Streaming job created for scheduled execution', {
-    streamingJobId,
-    executionResultId,
-    scheduledExecutionId: scheduledExecution.id
+  // Prepare request payload
+  const payload = {
+    scheduleId: scheduledExecution.id,
+    toolId: scheduledExecution.assistant_architect_id,
+    inputs: scheduledExecution.input_data || {},
+    userId: scheduledExecution.user_id,
+    triggeredBy: 'eventbridge',
+    scheduledAt: new Date().toISOString()
+  };
+
+  log.info('Calling ECS scheduled execution endpoint', {
+    endpoint: `${ecsEndpoint}/api/assistant-architect/execute/scheduled`,
+    scheduleId: scheduledExecution.id,
+    toolId: scheduledExecution.assistant_architect_id
   });
 
-  // Send job ID to SQS queue for the streaming-jobs-worker to process
-  try {
-    await sqsClient.send(new SendMessageCommand({
-      QueueUrl: queueUrl,
-      MessageBody: streamingJobId, // Send just the job ID like regular jobs
-      MessageAttributes: {
-        jobType: {
-          DataType: 'String',
-          StringValue: 'ai-streaming-assistant-architect'
-        },
-        assistantArchitectId: {
-          DataType: 'String',
-          StringValue: String(scheduledExecution.assistant_architect_id)
-        },
-        userId: {
-          DataType: 'String',
-          StringValue: String(scheduledExecution.user_id)
-        },
-        executionResultId: {
-          DataType: 'String',
-          StringValue: String(executionResultId)
-        },
-        scheduledExecutionId: {
-          DataType: 'String',
-          StringValue: String(scheduledExecution.id)
-        },
-        isScheduledExecution: {
-          DataType: 'String',
-          StringValue: 'true'
+  // Make HTTP request to ECS endpoint with retry logic
+  const maxRetries = 3;
+  const MAX_RETRY_DURATION_MS = 10000; // 10s max total retry time
+  const retryStartTime = Date.now();
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    // Check if total retry duration exceeded
+    if (Date.now() - retryStartTime > MAX_RETRY_DURATION_MS) {
+      throw new Error(`Retry timeout exceeded (${MAX_RETRY_DURATION_MS}ms)`);
+    }
+
+    try {
+      // Create manual AbortController for Node.js < 17.3 compatibility
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => abortController.abort(), 900000); // 15 minutes
+
+      try {
+        const response = await fetch(`${ecsEndpoint}/api/assistant-architect/execute/scheduled`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            'X-Request-Id': requestId,
+            'X-Internal-Request': 'schedule-executor'
+          },
+          body: JSON.stringify(payload),
+          signal: abortController.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorBody = await response.text();
+          throw new Error(`ECS endpoint returned ${response.status}: ${errorBody}`);
         }
+
+        const result: any = await response.json();
+
+        log.info('Scheduled execution completed successfully via ECS', {
+          executionId: result?.executionId,
+          toolId: result?.toolId,
+          scheduleId: result?.scheduleId,
+          promptCount: result?.promptCount,
+          attempt
+        });
+
+        return {
+          executionId: result?.executionId || executionResultId,
+          status: 'completed'
+        };
+      } finally {
+        clearTimeout(timeoutId);
       }
-    }));
+    } catch (error) {
+      lastError = error;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.warn(`ECS endpoint call failed (attempt ${attempt}/${maxRetries})`, {
+        error: errorMessage,
+        attempt,
+        willRetry: attempt < maxRetries
+      });
 
-    log.info('Job sent to streaming queue successfully', { streamingJobId });
-
-    return { jobId: streamingJobId };
-  } catch (error) {
-    log.error('Failed to send job to streaming queue', { error: error.message });
-    throw error;
+      if (attempt < maxRetries) {
+        // Exponential backoff: 1s, 2s, 4s
+        const backoffMs = Math.pow(2, attempt - 1) * 1000;
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+      }
+    }
   }
+
+  // All retries failed
+  const lastErrorMessage = lastError instanceof Error ? lastError.message : String(lastError);
+  log.error('All ECS endpoint call attempts failed', {
+    error: lastErrorMessage,
+    maxRetries,
+    scheduleId: scheduledExecution.id
+  });
+  throw lastError;
 }
 
 /**
  * Load scheduled execution configuration from database
  */
-async function loadScheduledExecution(scheduledExecutionId, expectedUserId = null) {
+async function loadScheduledExecution(scheduledExecutionId: any, expectedUserId: any = null): Promise<any> {
   const log = createLogger({ operation: 'loadScheduledExecution' });
 
   try {
@@ -508,15 +559,16 @@ async function loadScheduledExecution(scheduledExecutionId, expectedUserId = nul
       user_id: record[1].longValue,
       assistant_architect_id: record[2].longValue,
       name: record[3].stringValue,
-      schedule_config: safeJsonParse(record[4].stringValue, {}, 'schedule_config'),
-      input_data: record[5].stringValue ? safeJsonParse(record[5].stringValue, {}, 'input_data') : {},
+      schedule_config: safeJsonParse(record[4].stringValue || null, {}, 'schedule_config'),
+      input_data: record[5].stringValue ? safeJsonParse(record[5].stringValue || null, {}, 'input_data') : {},
       active: record[6].booleanValue,
       created_at: record[7].stringValue,
       assistant_architect_name: record[8].stringValue
     };
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     log.error('Failed to load scheduled execution', {
-      error: error.message,
+      error: errorMessage,
       scheduledExecutionId: sanitizeForLogging(scheduledExecutionId)
     });
     throw error;
@@ -526,7 +578,7 @@ async function loadScheduledExecution(scheduledExecutionId, expectedUserId = nul
 /**
  * Create execution result record
  */
-async function createExecutionResult(scheduledExecutionId) {
+async function createExecutionResult(scheduledExecutionId: any): Promise<any> {
   const log = createLogger({ operation: 'createExecutionResult' });
 
   try {
@@ -556,10 +608,14 @@ async function createExecutionResult(scheduledExecutionId) {
     });
 
     const response = await rdsClient.send(command);
+    if (!response.records || response.records.length === 0) {
+      throw new Error('Failed to create execution result - no ID returned');
+    }
     return response.records[0][0].longValue;
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     log.error('Failed to create execution result', {
-      error: error.message,
+      error: errorMessage,
       scheduledExecutionId: sanitizeForLogging(scheduledExecutionId)
     });
     throw error;
@@ -569,7 +625,7 @@ async function createExecutionResult(scheduledExecutionId) {
 /**
  * Update execution result with completion status
  */
-async function updateExecutionResult(executionResultId, status, resultData = null, executionDuration = null, errorMessage = null) {
+async function updateExecutionResult(executionResultId: any, status: string, resultData: any = null, executionDuration: number | null = null, errorMessage: string | null = null): Promise<boolean> {
   const log = createLogger({ operation: 'updateExecutionResult' });
 
   try {
@@ -621,8 +677,9 @@ async function updateExecutionResult(executionResultId, status, resultData = nul
     });
     return true;
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     log.error('Failed to update execution result', {
-      error: error.message,
+      error: errorMessage,
       executionResultId: sanitizeForLogging(executionResultId),
       status
     });
@@ -633,7 +690,7 @@ async function updateExecutionResult(executionResultId, status, resultData = nul
 /**
  * Handle schedule management operations (create/update/delete)
  */
-async function handleScheduleManagement(event, requestId, lambdaContext) {
+async function handleScheduleManagement(event: any, requestId: string, lambdaContext: LambdaContext): Promise<any> {
   const log = createLogger({ requestId, operation: 'scheduleManagement' });
   const { action, ...params } = event;
 
@@ -661,7 +718,7 @@ async function handleScheduleManagement(event, requestId, lambdaContext) {
 /**
  * Create a new EventBridge schedule
  */
-async function createSchedule(params, requestId, lambdaContext) {
+async function createSchedule(params: any, requestId: string, lambdaContext: LambdaContext): Promise<any> {
   const log = createLogger({ requestId, operation: 'createSchedule' });
   const { scheduledExecutionId, cronExpression, timezone = 'UTC' } = params;
 
@@ -720,7 +777,8 @@ async function createSchedule(params, requestId, lambdaContext) {
     };
 
   } catch (error) {
-    log.error('Failed to create EventBridge schedule', { error: error.message });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error('Failed to create EventBridge schedule', { error: errorMessage });
     throw error;
   }
 }
@@ -728,7 +786,7 @@ async function createSchedule(params, requestId, lambdaContext) {
 /**
  * Update an existing EventBridge schedule
  */
-async function updateSchedule(params, requestId, lambdaContext) {
+async function updateSchedule(params: any, requestId: string, lambdaContext: LambdaContext): Promise<any> {
   const log = createLogger({ requestId, operation: 'updateSchedule' });
   const { scheduledExecutionId, cronExpression, timezone = 'UTC' } = params;
 
@@ -771,7 +829,8 @@ async function updateSchedule(params, requestId, lambdaContext) {
     };
 
   } catch (error) {
-    log.error('Failed to update EventBridge schedule', { error: error.message });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error('Failed to update EventBridge schedule', { error: errorMessage });
     throw error;
   }
 }
@@ -779,7 +838,7 @@ async function updateSchedule(params, requestId, lambdaContext) {
 /**
  * Delete an EventBridge schedule
  */
-async function deleteSchedule(params, requestId) {
+async function deleteSchedule(params: any, requestId: string): Promise<any> {
   const log = createLogger({ requestId, operation: 'deleteSchedule' });
   const { scheduledExecutionId } = params;
 
@@ -806,7 +865,8 @@ async function deleteSchedule(params, requestId) {
     };
 
   } catch (error) {
-    log.error('Failed to delete EventBridge schedule', { error: error.message });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error('Failed to delete EventBridge schedule', { error: errorMessage });
     throw error;
   }
 }
@@ -814,7 +874,7 @@ async function deleteSchedule(params, requestId) {
 /**
  * Get user schedule count for rate limiting
  */
-async function getUserScheduleCount(userId) {
+async function getUserScheduleCount(userId: any): Promise<number> {
   const log = createLogger({ operation: 'getUserScheduleCount' });
 
   try {
@@ -831,112 +891,15 @@ async function getUserScheduleCount(userId) {
     });
 
     const response = await rdsClient.send(command);
-    return response.records[0][0].longValue || 0;
+    if (!response.records || response.records.length === 0) {
+      return 0;
+    }
+    return Number(response.records[0][0].longValue) || 0;
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     log.error('Failed to get user schedule count', {
-      error: error.message,
+      error: errorMessage,
       userId: sanitizeForLogging(userId)
-    });
-    throw error;
-  }
-}
-
-/**
- * Load assistant architect configuration from database
- */
-async function loadAssistantArchitect(assistantArchitectId) {
-  const log = createLogger({ operation: 'loadAssistantArchitect' });
-
-  try {
-    const architectId = safeParseInt(assistantArchitectId, 'assistant architect ID');
-
-    // First get the assistant architect details
-    const architectCommand = new ExecuteStatementCommand({
-      resourceArn: DATABASE_RESOURCE_ARN,
-      secretArn: DATABASE_SECRET_ARN,
-      database: DATABASE_NAME,
-      sql: `
-        SELECT id, name, description, status, user_id
-        FROM assistant_architects
-        WHERE id = :assistant_architect_id
-      `,
-      parameters: [
-        { name: 'assistant_architect_id', value: { longValue: architectId } }
-      ]
-    });
-
-    const architectResponse = await rdsClient.send(architectCommand);
-    if (!architectResponse.records || architectResponse.records.length === 0) {
-      return null;
-    }
-
-    const architectRecord = architectResponse.records[0];
-
-    // Now get ALL prompts for this assistant architect
-    const promptsCommand = new ExecuteStatementCommand({
-      resourceArn: DATABASE_RESOURCE_ARN,
-      secretArn: DATABASE_SECRET_ARN,
-      database: DATABASE_NAME,
-      sql: `
-        SELECT
-          cp.id,
-          cp.name,
-          cp.content,
-          cp.system_context,
-          cp.model_id,
-          cp.position,
-          cp.input_mapping,
-          cp.enabled_tools,
-          cp.repository_ids,
-          m.model_id as model_string,
-          m.provider,
-          m.name as model_label
-        FROM chain_prompts cp
-        LEFT JOIN ai_models m ON cp.model_id = m.id
-        WHERE cp.assistant_architect_id = :assistant_architect_id
-        ORDER BY cp.position
-      `,
-      parameters: [
-        { name: 'assistant_architect_id', value: { longValue: architectId } }
-      ]
-    });
-
-    const promptsResponse = await rdsClient.send(promptsCommand);
-    const prompts = [];
-
-    if (promptsResponse.records && promptsResponse.records.length > 0) {
-      for (const record of promptsResponse.records) {
-        prompts.push({
-          id: record[0].longValue,
-          name: record[1].stringValue,
-          content: record[2].stringValue,
-          system_context: record[3]?.stringValue || null,
-          model_id: record[4].longValue,
-          position: record[5].longValue,
-          input_mapping: record[6]?.stringValue ? safeJsonParse(record[6].stringValue, {}, 'input_mapping') : {},
-          enabled_tools: record[7]?.stringValue ? safeJsonParse(record[7].stringValue, [], 'enabled_tools') : [],
-          repository_ids: record[8]?.stringValue ? safeJsonParse(record[8].stringValue, [], 'repository_ids') : [],
-          model_string: record[9]?.stringValue,
-          provider: record[10]?.stringValue,
-          model_label: record[11]?.stringValue
-        });
-      }
-    }
-
-    return {
-      id: architectRecord[0].longValue,
-      name: architectRecord[1].stringValue,
-      description: architectRecord[2].stringValue,
-      status: architectRecord[3].stringValue,
-      user_id: architectRecord[4].longValue,
-      prompts: prompts,
-      // Note: Each prompt has its own model configuration - do not default to any single model
-      instructions: prompts[0]?.content
-    };
-  } catch (error) {
-    log.error('Failed to load assistant architect', {
-      error: error.message,
-      assistantArchitectId: sanitizeForLogging(assistantArchitectId)
     });
     throw error;
   }
@@ -945,7 +908,7 @@ async function loadAssistantArchitect(assistantArchitectId) {
 /**
  * Safe JSON serialization with size limits and circular reference protection
  */
-function safeJsonStringify(obj, maxSize = 1024 * 1024) { // 1MB limit
+function safeJsonStringify(obj: any, maxSize: number = 1024 * 1024): string { // 1MB limit
   try {
     // Check for circular references and handle special types
     const cache = new Set();
@@ -979,153 +942,11 @@ function safeJsonStringify(obj, maxSize = 1024 * 1024) { // 1MB limit
 
     return result;
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return JSON.stringify({
       error: 'JSON serialization failed',
-      originalError: error.message
+      originalError: errorMessage
     });
   }
 }
 
-/**
- * Generate UUID for job ID (simplified version)
- */
-function generateUUID() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c == 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-}
-
-/**
- * Create streaming job in database (similar to JobManagementService.createJob)
- */
-async function createStreamingJob(scheduledExecution, assistantArchitect, executionResultId, requestId) {
-  const log = createLogger({ operation: 'createStreamingJob', requestId });
-
-  try {
-    // Generate job ID
-    const jobId = generateUUID();
-
-    // Prepare fake conversation ID for scheduled jobs
-    const conversationId = `scheduled-${scheduledExecution.id}`;
-
-    // Collect enabled tools from all prompts
-    const enabledTools = collectEnabledToolsFromPrompts(assistantArchitect.prompts || []);
-    log.info('Collected enabled tools from prompts', {
-      enabledTools,
-      promptCount: assistantArchitect.prompts?.length || 0
-    });
-
-    // Build tools using the same system as manual execution
-    // Use the first prompt's model/provider for tool building (since tools are shared across prompts)
-    let tools = {};
-    const firstPrompt = assistantArchitect.prompts?.[0];
-    if (enabledTools.length > 0 && firstPrompt?.provider) {
-      try {
-        tools = await buildToolsForScheduledExecution(
-          enabledTools,
-          firstPrompt.model_string,
-          firstPrompt.provider
-        );
-        log.info('Tools built successfully for scheduled execution', {
-          enabledTools,
-          toolCount: Object.keys(tools).length,
-          toolNames: Object.keys(tools),
-          usingModel: firstPrompt.model_string,
-          usingProvider: firstPrompt.provider
-        });
-      } catch (toolError) {
-        log.warn('Failed to build tools, continuing without tools', {
-          error: toolError.message,
-          enabledTools
-        });
-        tools = {};
-      }
-    }
-
-    // Prepare request data for streaming job - SAME format as manual execution
-    const requestData = {
-      messages: [], // Empty messages for assistant architect
-      modelId: firstPrompt?.model_id || 1,
-      modelIdString: firstPrompt?.model_string,
-      provider: firstPrompt?.provider,
-      systemPrompt: assistantArchitect.instructions,
-      options: {
-        responseMode: 'standard'
-      },
-      source: 'assistant-architect',
-      tools: tools, // Pass tools like manual execution does
-      toolMetadata: {
-        toolId: assistantArchitect.id,
-        prompts: assistantArchitect.prompts || [], // Pass all prompts with tools
-        inputMapping: scheduledExecution.input_data || {}
-      },
-      // Add metadata to identify this as a scheduled execution
-      scheduledExecution: {
-        executionResultId: executionResultId,
-        scheduledExecutionId: scheduledExecution.id,
-        scheduleName: scheduledExecution.name,
-        userId: scheduledExecution.user_id
-      }
-    };
-
-    log.info('Request data prepared for streaming job', {
-      hasTools: Object.keys(tools).length > 0,
-      toolCount: Object.keys(tools).length,
-      promptCount: (assistantArchitect.prompts || []).length,
-      enabledToolsCount: enabledTools.length
-    });
-
-    // Insert job into database
-    const command = new ExecuteStatementCommand({
-      resourceArn: DATABASE_RESOURCE_ARN,
-      secretArn: DATABASE_SECRET_ARN,
-      database: DATABASE_NAME,
-      sql: `
-        INSERT INTO ai_streaming_jobs (
-          id,
-          conversation_id,
-          user_id,
-          model_id,
-          status,
-          request_data
-        ) VALUES (
-          :id::uuid,
-          :conversation_id,
-          :user_id,
-          :model_id,
-          'pending',
-          :request_data::jsonb
-        )
-      `,
-      parameters: [
-        { name: 'id', value: { stringValue: jobId } },
-        { name: 'conversation_id', value: { stringValue: conversationId } },
-        { name: 'user_id', value: { longValue: scheduledExecution.user_id } },
-        { name: 'model_id', value: { longValue: firstPrompt?.model_id || 1 } },
-        { name: 'request_data', value: { stringValue: safeJsonStringify(requestData) } }
-      ]
-    });
-
-    await rdsClient.send(command);
-
-    log.info('Streaming job created successfully', {
-      jobId,
-      assistantArchitectId: assistantArchitect.id,
-      scheduledExecutionId: scheduledExecution.id,
-      executionResultId,
-      toolsIncluded: Object.keys(tools).length > 0,
-      enabledTools
-    });
-
-    return jobId;
-  } catch (error) {
-    log.error('Failed to create streaming job', {
-      error: error.message,
-      assistantArchitectId: assistantArchitect?.id,
-      scheduledExecutionId: scheduledExecution?.id
-    });
-    throw error;
-  }
-}

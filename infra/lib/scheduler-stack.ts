@@ -5,6 +5,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as path from 'path';
 
 export interface SchedulerStackProps extends cdk.StackProps {
@@ -47,10 +48,27 @@ export class SchedulerStack extends cdk.Stack {
       removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
     });
 
+    // ============================================================================
+    // Internal API Secret for JWT Authentication (Lambda <-> ECS)
+    // ============================================================================
+    const internalApiSecret = new secretsmanager.Secret(this, 'InternalApiSecret', {
+      secretName: `aistudio-${props.environment}-internal-api-secret`,
+      description: `Internal API authentication secret for schedule executor Lambda to ECS communication (${props.environment})`,
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({}),
+        generateStringKey: 'INTERNAL_API_SECRET',
+        excludePunctuation: true,
+        passwordLength: 32,
+      },
+      removalPolicy: props.environment === 'prod'
+        ? cdk.RemovalPolicy.RETAIN
+        : cdk.RemovalPolicy.DESTROY,
+    });
+
     // Lambda function for executing scheduled tasks
     this.scheduleExecutorFunction = new lambda.Function(this, 'ScheduleExecutor', {
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
+      handler: 'dist/index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/schedule-executor')),
       functionName: `aistudio-${props.environment}-schedule-executor`,
       timeout: cdk.Duration.minutes(15), // Full Lambda timeout for long-running Assistant Architect executions
@@ -62,9 +80,12 @@ export class SchedulerStack extends cdk.Stack {
         DATABASE_NAME: 'aistudio',
         ENVIRONMENT: props.environment,
         DLQ_URL: this.deadLetterQueue.queueUrl,
-        STREAMING_JOBS_QUEUE_URL: ssm.StringParameter.valueForStringParameter(
-          this, `/aistudio/${props.environment}/streaming-jobs-queue-url`
+        // NEW: ECS endpoint for scheduled executions (replaces SQS)
+        ECS_INTERNAL_ENDPOINT: ssm.StringParameter.valueForStringParameter(
+          this, `/aistudio/${props.environment}/ecs-internal-endpoint`
         ),
+        // NEW: Internal API secret for JWT signing
+        INTERNAL_API_SECRET: internalApiSecret.secretValueFromJson('INTERNAL_API_SECRET').unsafeUnwrap(),
       },
       logGroup: scheduleExecutorLogGroup,
       // Concurrency limits to prevent overwhelming the system
@@ -177,15 +198,6 @@ export class SchedulerStack extends cdk.Stack {
     // Grant SQS permissions for DLQ
     this.deadLetterQueue.grantSendMessages(this.scheduleExecutorFunction);
 
-    // Grant SQS permissions for streaming jobs queue
-    const streamingJobsQueuePolicy = new iam.PolicyStatement({
-      actions: ['sqs:SendMessage'],
-      resources: [
-        `arn:aws:sqs:${this.region}:${this.account}:aistudio-${props.environment}-streaming-jobs-queue`,
-      ],
-    });
-    this.scheduleExecutorFunction.addToRolePolicy(streamingJobsQueuePolicy);
-
     // Update environment with scheduler execution role ARN
     this.scheduleExecutorFunction.addEnvironment('SCHEDULER_EXECUTION_ROLE_ARN', this.schedulerExecutionRole.roleArn);
     // Note: Lambda function can determine its own ARN at runtime using context.invokedFunctionArn or AWS_LAMBDA_FUNCTION_NAME
@@ -233,6 +245,12 @@ export class SchedulerStack extends cdk.Stack {
       value: this.deadLetterQueue.queueArn,
       description: 'ARN of the schedule execution dead letter queue',
       exportName: `${props.environment}-ScheduleExecutionDLQArn`,
+    });
+
+    new cdk.CfnOutput(this, 'InternalApiSecretArn', {
+      value: internalApiSecret.secretArn,
+      description: 'Internal API secret ARN for scheduled execution authentication',
+      exportName: `${props.environment}-InternalApiSecretArn`,
     });
   }
 }
