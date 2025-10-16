@@ -11,7 +11,17 @@ interface ExecutionProgressProps {
     name: string
     position: number
   }>
-  currentPrompt?: number
+  currentPrompt?: number // Note: Currently not tracked by backend. All prompts show as "in progress" during execution.
+}
+
+/**
+ * Sanitize prompt name to prevent XSS attacks
+ * @param name - The prompt name from the database
+ * @returns Sanitized name or 'Invalid prompt name' if invalid
+ */
+function sanitizePromptName(name: string): string {
+  const SAFE_NAME_REGEX = /^[a-zA-Z0-9\s\-_.,()]+$/
+  return SAFE_NAME_REGEX.test(name) ? name : 'Invalid prompt name'
 }
 
 /**
@@ -26,8 +36,12 @@ export const ExecutionProgress = memo(function ExecutionProgress({
   currentPrompt
 }: ExecutionProgressProps) {
   // Calculate progress percentage
+  // Note: Backend doesn't currently track current prompt position during streaming
+  // For now, we show indeterminate progress until completion callback fires
   const currentPosition = currentPrompt || 1
-  const progressPercentage = Math.round((currentPosition / totalPrompts) * 100)
+  const progressPercentage = currentPrompt
+    ? Math.round((currentPosition / totalPrompts) * 100)
+    : 0 // Show 0% if we don't have current position tracking
 
   // Sort prompts by position
   const sortedPrompts = [...prompts].sort((a, b) => a.position - b.position)
@@ -63,9 +77,10 @@ export const ExecutionProgress = memo(function ExecutionProgress({
           <div className="space-y-1">
             {sortedPrompts.map((prompt, index) => {
               const position = index + 1
-              const isCompleted = position < currentPosition
-              const isCurrent = position === currentPosition
-              const isPending = position > currentPosition
+              // When currentPrompt is not tracked, show all as in-progress
+              const isCompleted = currentPrompt ? position < currentPosition : false
+              const isCurrent = currentPrompt ? position === currentPosition : true
+              const isPending = currentPrompt ? position > currentPosition : false
 
               return (
                 <div
@@ -97,7 +112,7 @@ export const ExecutionProgress = memo(function ExecutionProgress({
                           : 'text-muted-foreground/70'
                       }`}
                     >
-                      {position}. {prompt.name}
+                      {position}. {sanitizePromptName(prompt.name)}
                     </p>
                   </div>
                   <div className="flex-shrink-0">

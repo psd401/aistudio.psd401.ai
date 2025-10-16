@@ -38,6 +38,40 @@ import type { ExecutionResultDetails } from "@/types/assistant-architect-types"
 
 const log = createLogger({ moduleName: 'assistant-architect-streaming' })
 
+// Define base schema outside component to prevent re-creation on each render
+const stringSchema = z.string()
+
+/**
+ * Sanitize image path to prevent path traversal attacks
+ * @param imagePath - The image path from the database
+ * @returns Sanitized path or null if invalid
+ */
+function sanitizeImagePath(imagePath: string | null): string | null {
+  if (!imagePath) return null
+
+  // Remove any path traversal attempts
+  const sanitized = imagePath.replace(/\.\./g, '').replace(/\//g, '')
+
+  // Validate format (only allow alphanumeric, dash, underscore, and common image extensions)
+  const validPattern = /^[a-zA-Z0-9_-]+\.(png|jpg|jpeg|svg|webp)$/
+
+  if (!validPattern.test(sanitized)) {
+    return null
+  }
+
+  return sanitized
+}
+
+/**
+ * Sanitize option labels to prevent XSS attacks
+ * @param label - The option label from the database
+ * @returns Sanitized label or empty string if invalid
+ */
+function sanitizeOptionLabel(label: string): string {
+  const SAFE_LABEL_REGEX = /^[a-zA-Z0-9\s\-_.,()]+$/
+  return SAFE_LABEL_REGEX.test(label) ? label.trim() : ''
+}
+
 interface AssistantArchitectStreamingProps {
   tool: AssistantArchitectWithRelations
   isPreview?: boolean
@@ -67,6 +101,15 @@ function AssistantArchitectRuntimeProvider({
     inputsRef.current = inputs
   }, [inputs])
 
+  // Use refs for callbacks to avoid dependency issues
+  const onExecutionIdChangeRef = useRef(onExecutionIdChange)
+  const onPromptCountChangeRef = useRef(onPromptCountChange)
+
+  useEffect(() => {
+    onExecutionIdChangeRef.current = onExecutionIdChange
+    onPromptCountChangeRef.current = onPromptCountChange
+  }, [onExecutionIdChange, onPromptCountChange])
+
   // Custom fetch to extract execution metadata from headers
   const customFetch = useCallback(async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await fetch(input, init)
@@ -75,16 +118,16 @@ function AssistantArchitectRuntimeProvider({
     const promptCount = response.headers.get('X-Prompt-Count')
 
     if (executionId) {
-      onExecutionIdChange(Number(executionId))
+      onExecutionIdChangeRef.current(Number(executionId))
       log.debug('Execution started', { executionId, promptCount })
     }
 
     if (promptCount) {
-      onPromptCountChange(Number(promptCount))
+      onPromptCountChangeRef.current(Number(promptCount))
     }
 
     return response
-  }, [onExecutionIdChange, onPromptCountChange])
+  }, [])
 
   // Use official useChatRuntime (same as Nexus)
   const runtime = useChatRuntime({
@@ -119,15 +162,31 @@ function StreamingStateMonitor({
 }) {
   const runtime = useThreadRuntime()
   const [previousRunning, setPreviousRunning] = useState<boolean | null>(null)
+  const completionFiredRef = useRef(false)
+
+  // Use refs to avoid stale closures
+  const onExecutionCompleteRef = useRef(onExecutionComplete)
+  const onExecutionErrorRef = useRef(onExecutionError)
 
   useEffect(() => {
+    onExecutionCompleteRef.current = onExecutionComplete
+    onExecutionErrorRef.current = onExecutionError
+  }, [onExecutionComplete, onExecutionError])
+
+  useEffect(() => {
+    // Reset completion flag when previousRunning changes to true
+    if (previousRunning === true) {
+      completionFiredRef.current = false
+    }
+
     // Subscribe to runtime state changes
     const unsubscribe = runtime.subscribe(() => {
       const threadState = runtime.getState()
       const isRunning = threadState.isRunning
 
       // Detect completion: was running, now not running
-      if (previousRunning === true && !isRunning) {
+      if (previousRunning === true && !isRunning && !completionFiredRef.current) {
+        completionFiredRef.current = true
         const messages = threadState.messages
         const lastMessage = messages[messages.length - 1]
 
@@ -136,9 +195,9 @@ function StreamingStateMonitor({
           const errorMessage = typeof lastMessage.error === 'string'
             ? lastMessage.error
             : 'Execution failed'
-          onExecutionError(errorMessage)
+          onExecutionErrorRef.current(errorMessage)
         } else {
-          onExecutionComplete()
+          onExecutionCompleteRef.current()
         }
       }
 
@@ -146,7 +205,7 @@ function StreamingStateMonitor({
     })
 
     return unsubscribe
-  }, [runtime, previousRunning, onExecutionComplete, onExecutionError])
+  }, [runtime, previousRunning])
 
   return null
 }
@@ -170,9 +229,6 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
     const tools = tool.prompts ? collectAndSanitizeEnabledTools(tool.prompts) : []
     setEnabledTools(tools)
   }, [tool])
-
-  // Define base types for fields first
-  const stringSchema = z.string()
 
   // Create form schema based on tool input fields
   const formSchema = useMemo(() => z.object(
@@ -198,7 +254,7 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
       acc[field.name] = fieldSchema
       return acc
     }, {})
-  ), [tool.inputFields, stringSchema])
+  ), [tool.inputFields])
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -286,29 +342,33 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
   }, [toast])
 
   // Memoized components for better performance
-  const ToolHeader = memo(({ tool }: { tool: AssistantArchitectWithRelations }) => (
-    <div>
-      <div className="flex items-start gap-4">
-        {tool.imagePath && (
-          <div className="relative w-32 h-32 rounded-xl overflow-hidden flex-shrink-0 bg-muted/20 p-1">
-            <div className="relative w-full h-full rounded-lg overflow-hidden ring-1 ring-black/10">
-              <Image
-                src={`/assistant_logos/${tool.imagePath}`}
-                alt={tool.name}
-                fill
-                className="object-cover"
-              />
+  const ToolHeader = memo(({ tool }: { tool: AssistantArchitectWithRelations }) => {
+    const safeImagePath = sanitizeImagePath(tool.imagePath)
+
+    return (
+      <div>
+        <div className="flex items-start gap-4">
+          {safeImagePath && (
+            <div className="relative w-32 h-32 rounded-xl overflow-hidden flex-shrink-0 bg-muted/20 p-1">
+              <div className="relative w-full h-full rounded-lg overflow-hidden ring-1 ring-black/10">
+                <Image
+                  src={`/assistant_logos/${safeImagePath}`}
+                  alt={tool.name}
+                  fill
+                  className="object-cover"
+                />
+              </div>
             </div>
+          )}
+          <div>
+            <h2 className="text-2xl font-bold">{tool.name}</h2>
+            <p className="text-muted-foreground">{tool.description}</p>
           </div>
-        )}
-        <div>
-          <h2 className="text-2xl font-bold">{tool.name}</h2>
-          <p className="text-muted-foreground">{tool.description}</p>
         </div>
+        <div className="h-px bg-border mt-6" />
       </div>
-      <div className="h-px bg-border mt-6" />
-    </div>
-  ))
+    )
+  })
 
   const ErrorAlert = memo(({ errorMessage }: { errorMessage: string }) => (
     <Alert variant="destructive">
@@ -407,7 +467,15 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
                                   }))
                                 }
                               }
-                              return options.map(option => (
+                              // Sanitize option labels and filter out invalid ones
+                              const sanitizedOptions = options
+                                .map(opt => ({
+                                  ...opt,
+                                  label: sanitizeOptionLabel(opt.label)
+                                }))
+                                .filter(opt => opt.label !== '')
+
+                              return sanitizedOptions.map(option => (
                                 <SelectItem key={option.value} value={option.value}>
                                   {option.label}
                                 </SelectItem>
@@ -496,15 +564,15 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
 
       {/* Streaming execution section */}
       {isExecuting && (
-        <AssistantArchitectRuntimeProvider
-          tool={tool}
-          inputs={inputs}
-          onExecutionIdChange={handleExecutionIdChange}
-          onPromptCountChange={handlePromptCountChange}
-          onExecutionComplete={handleExecutionComplete}
-          onExecutionError={handleExecutionError}
-        >
-          <ErrorBoundary>
+        <ErrorBoundary>
+          <AssistantArchitectRuntimeProvider
+            tool={tool}
+            inputs={inputs}
+            onExecutionIdChange={handleExecutionIdChange}
+            onPromptCountChange={handlePromptCountChange}
+            onExecutionComplete={handleExecutionComplete}
+            onExecutionError={handleExecutionError}
+          >
             <div className="space-y-6">
               {/* Progress indicator for multi-prompt execution */}
               {promptCount > 1 && (
@@ -519,8 +587,8 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
                 <Thread />
               </div>
             </div>
-          </ErrorBoundary>
-        </AssistantArchitectRuntimeProvider>
+          </AssistantArchitectRuntimeProvider>
+        </ErrorBoundary>
       )}
 
       {/* Chat section for completed executions */}
