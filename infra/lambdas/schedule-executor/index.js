@@ -1,7 +1,6 @@
 const { RDSDataClient, ExecuteStatementCommand } = require('@aws-sdk/client-rds-data');
 const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
 const { SchedulerClient, CreateScheduleCommand, UpdateScheduleCommand, DeleteScheduleCommand } = require('@aws-sdk/client-scheduler');
-const { buildToolsForScheduledExecution, collectEnabledToolsFromPrompts } = require('./tool-builder');
 
 // Lambda logging utilities (simplified version of main app pattern)
 function generateRequestId() {
@@ -139,7 +138,8 @@ const requiredEnvVars = {
   DATABASE_SECRET_ARN: process.env.DATABASE_SECRET_ARN,
   DATABASE_NAME: process.env.DATABASE_NAME,
   ENVIRONMENT: process.env.ENVIRONMENT,
-  STREAMING_JOBS_QUEUE_URL: process.env.STREAMING_JOBS_QUEUE_URL
+  ECS_INTERNAL_ENDPOINT: process.env.ECS_INTERNAL_ENDPOINT,
+  INTERNAL_API_SECRET: process.env.INTERNAL_API_SECRET
 };
 
 const optionalEnvVars = {
@@ -326,8 +326,7 @@ async function handleScheduledExecution(scheduledExecutionId, requestId) {
     // Create execution result record
     executionResultId = await createExecutionResult(scheduledExecutionId);
 
-    // Execute using existing assistant architect pattern
-    // This will create a streaming job and send it to SQS for the streaming-jobs-worker
+    // Execute via ECS endpoint (direct HTTP call - no SQS)
     const result = await executeAssistantArchitectForSchedule(
       scheduledExecution,
       executionResultId,
@@ -335,19 +334,18 @@ async function handleScheduledExecution(scheduledExecutionId, requestId) {
     );
 
     timer({ status: 'success' });
-    log.info('Scheduled execution submitted successfully', {
-      executionResultId,
-      jobId: result.jobId
+    log.info('Scheduled execution completed successfully', {
+      executionResultId: result.executionId,
+      status: result.status
     });
 
     return {
       statusCode: 200,
       body: JSON.stringify({
-        message: 'Scheduled execution submitted successfully',
+        message: 'Scheduled execution completed successfully',
         scheduledExecutionId,
-        executionResultId,
-        jobId: result.jobId,
-        status: 'submitted'
+        executionResultId: result.executionId,
+        status: result.status
       })
     };
 
@@ -375,82 +373,122 @@ async function handleScheduledExecution(scheduledExecutionId, requestId) {
 }
 
 /**
- * Execute assistant architect using existing pattern but adapted for Lambda
+ * Execute assistant architect by calling ECS endpoint directly via HTTP
+ * NEW: Replaces SQS-based job submission with direct HTTP call to streaming endpoint
  */
 async function executeAssistantArchitectForSchedule(scheduledExecution, executionResultId, requestId) {
   const log = createLogger({ requestId, executionResultId, operation: 'executeForSchedule' });
 
-  log.info('Executing scheduled assistant architect', {
+  log.info('Executing scheduled assistant architect via ECS endpoint', {
     assistantArchitectId: scheduledExecution.assistant_architect_id,
     inputData: Object.keys(scheduledExecution.input_data || {})
   });
 
-  // Get streaming jobs queue URL (this should be configured via environment)
-  const queueUrl = process.env.STREAMING_JOBS_QUEUE_URL;
-  if (!queueUrl) {
-    throw new Error('STREAMING_JOBS_QUEUE_URL environment variable not configured');
+  // Get ECS endpoint URL from environment
+  const ecsEndpoint = process.env.ECS_INTERNAL_ENDPOINT;
+  if (!ecsEndpoint) {
+    throw new Error('ECS_INTERNAL_ENDPOINT environment variable not configured');
   }
 
-  // Load assistant architect configuration and create proper streaming job
-  const assistantArchitect = await loadAssistantArchitect(scheduledExecution.assistant_architect_id);
-  if (!assistantArchitect) {
-    throw new Error(`Assistant architect not found: ${scheduledExecution.assistant_architect_id}`);
+  // Get internal API secret for JWT generation
+  const internalApiSecret = process.env.INTERNAL_API_SECRET;
+  if (!internalApiSecret) {
+    throw new Error('INTERNAL_API_SECRET environment variable not configured');
   }
 
-  // Create streaming job in database (following main app pattern)
-  const streamingJobId = await createStreamingJob(
-    scheduledExecution,
-    assistantArchitect,
-    executionResultId,
-    requestId
+  // Generate short-lived JWT token for authentication
+  const jwt = require('jsonwebtoken');
+  const token = jwt.sign(
+    {
+      iss: 'schedule-executor',
+      aud: 'assistant-architect-api',
+      scheduleId: scheduledExecution.id.toString(),
+      executionId: executionResultId.toString(),
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 300 // 5 minutes
+    },
+    internalApiSecret,
+    { algorithm: 'HS256' }
   );
 
-  log.info('Streaming job created for scheduled execution', {
-    streamingJobId,
-    executionResultId,
-    scheduledExecutionId: scheduledExecution.id
+  // Prepare request payload
+  const payload = {
+    scheduleId: scheduledExecution.id,
+    toolId: scheduledExecution.assistant_architect_id,
+    inputs: scheduledExecution.input_data || {},
+    userId: scheduledExecution.user_id,
+    triggeredBy: 'eventbridge',
+    scheduledAt: new Date().toISOString()
+  };
+
+  log.info('Calling ECS scheduled execution endpoint', {
+    endpoint: `${ecsEndpoint}/api/assistant-architect/execute/scheduled`,
+    scheduleId: scheduledExecution.id,
+    toolId: scheduledExecution.assistant_architect_id
   });
 
-  // Send job ID to SQS queue for the streaming-jobs-worker to process
-  try {
-    await sqsClient.send(new SendMessageCommand({
-      QueueUrl: queueUrl,
-      MessageBody: streamingJobId, // Send just the job ID like regular jobs
-      MessageAttributes: {
-        jobType: {
-          DataType: 'String',
-          StringValue: 'ai-streaming-assistant-architect'
+  // Make HTTP request to ECS endpoint with retry logic
+  const maxRetries = 3;
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(`${ecsEndpoint}/api/assistant-architect/execute/scheduled`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'X-Request-Id': requestId,
+          'X-Internal-Request': 'schedule-executor'
         },
-        assistantArchitectId: {
-          DataType: 'String',
-          StringValue: String(scheduledExecution.assistant_architect_id)
-        },
-        userId: {
-          DataType: 'String',
-          StringValue: String(scheduledExecution.user_id)
-        },
-        executionResultId: {
-          DataType: 'String',
-          StringValue: String(executionResultId)
-        },
-        scheduledExecutionId: {
-          DataType: 'String',
-          StringValue: String(scheduledExecution.id)
-        },
-        isScheduledExecution: {
-          DataType: 'String',
-          StringValue: 'true'
-        }
+        body: JSON.stringify(payload),
+        // Set timeout to 15 minutes (same as endpoint maxDuration)
+        signal: AbortSignal.timeout(900000)
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`ECS endpoint returned ${response.status}: ${errorBody}`);
       }
-    }));
 
-    log.info('Job sent to streaming queue successfully', { streamingJobId });
+      const result = await response.json();
 
-    return { jobId: streamingJobId };
-  } catch (error) {
-    log.error('Failed to send job to streaming queue', { error: error.message });
-    throw error;
+      log.info('Scheduled execution completed successfully via ECS', {
+        executionId: result.executionId,
+        toolId: result.toolId,
+        scheduleId: result.scheduleId,
+        promptCount: result.promptCount,
+        attempt
+      });
+
+      return {
+        executionId: result.executionId,
+        status: 'completed'
+      };
+
+    } catch (error) {
+      lastError = error;
+      log.warn(`ECS endpoint call failed (attempt ${attempt}/${maxRetries})`, {
+        error: error.message,
+        attempt,
+        willRetry: attempt < maxRetries
+      });
+
+      if (attempt < maxRetries) {
+        // Exponential backoff: 1s, 2s, 4s
+        const backoffMs = Math.pow(2, attempt - 1) * 1000;
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+      }
+    }
   }
+
+  // All retries failed
+  log.error('All ECS endpoint call attempts failed', {
+    error: lastError.message,
+    maxRetries,
+    scheduleId: scheduledExecution.id
+  });
+  throw lastError;
 }
 
 /**

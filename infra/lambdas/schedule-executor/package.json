@@ -7,12 +7,7 @@
     "@aws-sdk/client-rds-data": "^3.0.0",
     "@aws-sdk/client-sqs": "^3.0.0",
     "@aws-sdk/client-scheduler": "^3.0.0",
-    "@aistudio/streaming-core": "file:../../../packages/ai-streaming-core",
-    "ai": "^5.0.23",
-    "@ai-sdk/openai": "^2.0.20",
-    "@ai-sdk/google": "^2.0.8",
-    "@ai-sdk/amazon-bedrock": "^3.0.10",
-    "@ai-sdk/azure": "^2.0.20"
+    "jsonwebtoken": "^9.0.2"
   },
   "keywords": ["aws", "lambda", "eventbridge", "scheduler", "ai", "assistant-architect"]
 }
