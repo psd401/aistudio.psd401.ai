@@ -223,6 +223,8 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
   const [isExecuting, setIsExecuting] = useState(false)
   const [hasResults, setHasResults] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [executionStartTime, setExecutionStartTime] = useState<Date | null>(null)
+  const [executionEndTime, setExecutionEndTime] = useState<Date | null>(null)
 
   // Collect enabled tools from the assistant architect when component mounts
   useEffect(() => {
@@ -284,12 +286,16 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
       setExecutionId(null)
       setConversationId(null)
       setError(null)
+      setExecutionStartTime(null)
+      setExecutionEndTime(null)
     }
 
     try {
       setIsExecuting(true)
       setInputs(values)
       setError(null)
+      setExecutionStartTime(new Date()) // Capture actual start time
+      setExecutionEndTime(null)
 
       log.info('Form submitted', { toolId: tool.id, inputs: Object.keys(values) })
 
@@ -323,6 +329,7 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
   const handleExecutionComplete = useCallback(() => {
     setIsExecuting(false)
     setHasResults(true)
+    setExecutionEndTime(new Date()) // Capture actual completion time
 
     toast({
       title: "Execution Completed",
@@ -333,6 +340,7 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
   const handleExecutionError = useCallback((errorMessage: string) => {
     setError(errorMessage)
     setIsExecuting(false)
+    setExecutionEndTime(new Date()) // Capture error time
 
     toast({
       title: "Execution Failed",
@@ -394,14 +402,14 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
       userId: 0, // Will be set by backend
       status: hasResults ? 'completed' : 'running',
       inputData: inputs,
-      startedAt: new Date(),
-      completedAt: hasResults ? new Date() : null,
+      startedAt: executionStartTime || new Date(), // Use stored start time
+      completedAt: executionEndTime, // Use stored completion time
       errorMessage: error,
       promptResults: [],
       assistantArchitectId: tool.id,
       enabledTools
     }
-  }, [executionId, tool.id, inputs, hasResults, error, enabledTools])
+  }, [executionId, tool.id, inputs, hasResults, error, enabledTools, executionStartTime, executionEndTime])
 
   return (
     <div className="space-y-6">
