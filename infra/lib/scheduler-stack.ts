@@ -68,7 +68,7 @@ export class SchedulerStack extends cdk.Stack {
     // Lambda function for executing scheduled tasks
     this.scheduleExecutorFunction = new lambda.Function(this, 'ScheduleExecutor', {
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
+      handler: 'dist/index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/schedule-executor')),
       functionName: `aistudio-${props.environment}-schedule-executor`,
       timeout: cdk.Duration.minutes(15), // Full Lambda timeout for long-running Assistant Architect executions

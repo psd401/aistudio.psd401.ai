@@ -17,7 +17,10 @@ export const maxDuration = 900;
 const MAX_INPUT_SIZE_BYTES = 100000; // 100KB max input size
 const MAX_PROMPT_CHAIN_LENGTH = 20; // Max 20 prompts per execution
 const MAX_RESPONSE_SIZE_BYTES = 10485760; // 10MB max response size
-const MAX_ACCUMULATED_CONTEXT_MESSAGES = 10; // Keep last 10 messages (5 user/assistant exchanges)
+const MAX_ACCUMULATED_CONTEXT_MESSAGES = parseInt(
+  process.env.MAX_CONTEXT_MESSAGES || '10',
+  10
+); // Keep last 10 messages (5 user/assistant exchanges) - configurable via env
 
 // Request validation schema
 const ScheduledExecuteRequestSchema = z.object({
@@ -235,6 +238,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Safe JSON parsing helper
+    const safeParseJson = <T>(value: string | null, fieldName: string): T | null => {
+      if (!value) return null;
+      try {
+        return JSON.parse(String(value)) as T;
+      } catch (error) {
+        log.error('JSON parse error', {
+          fieldName,
+          error: error instanceof Error ? error.message : String(error),
+          value: value.substring(0, 100)
+        });
+        throw ErrorFactories.validationFailed([{
+          field: fieldName,
+          message: `Invalid JSON in ${fieldName}`
+        }]);
+      }
+    };
+
     const prompts: ChainPrompt[] = promptsResult.map(p => ({
       id: Number(p.id),
       name: String(p.name),
@@ -242,9 +263,9 @@ export async function POST(req: NextRequest) {
       systemContext: p.system_context ? String(p.system_context) : null,
       modelId: p.model_id ? Number(p.model_id) : null,
       position: Number(p.position),
-      inputMapping: p.input_mapping ? JSON.parse(String(p.input_mapping)) : null,
-      repositoryIds: p.repository_ids ? JSON.parse(String(p.repository_ids)) : null,
-      enabledTools: p.enabled_tools ? JSON.parse(String(p.enabled_tools)) : null,
+      inputMapping: safeParseJson<Record<string, string>>(p.input_mapping, 'input_mapping'),
+      repositoryIds: safeParseJson<number[]>(p.repository_ids, 'repository_ids'),
+      enabledTools: safeParseJson<string[]>(p.enabled_tools, 'enabled_tools'),
       timeoutSeconds: p.timeout_seconds ? Number(p.timeout_seconds) : null
     }));
 
@@ -367,7 +388,28 @@ export async function POST(req: NextRequest) {
         ]
       );
 
-      throw executionError;
+      // Return sanitized error response instead of re-throwing
+      timer({ status: 'error' });
+      log.error('Execution failed', {
+        error: executionError instanceof Error ? executionError.message : String(executionError),
+        executionId
+      });
+
+      return new Response(
+        JSON.stringify({
+          error: 'Execution failed',
+          message: 'Scheduled execution encountered an error',
+          executionId,
+          requestId
+        }),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Request-Id': requestId
+          }
+        }
+      );
     }
 
   } catch (error) {
@@ -834,6 +876,14 @@ function substituteVariables(
 /**
  * Resolve a dot-notation path like "userInput.subject" or "inputs.foo.bar"
  * Properly handles top-level disambiguation for inputs vs context object
+ *
+ * LIMITATION: Does not support array indexing (e.g., "users[0].name")
+ * For arrays, the entire array will be returned when accessing the property name.
+ *
+ * @example
+ * resolvePath("inputs.user.name", context) // ✓ Supported
+ * resolvePath("user.name", context)        // ✓ Supported (defaults to inputs)
+ * resolvePath("users[0].name", context)    // ✗ Not supported - returns entire users array
  */
 function resolvePath(
   path: string,
