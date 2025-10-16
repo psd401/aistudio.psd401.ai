@@ -17,6 +17,7 @@ export const maxDuration = 900;
 const MAX_INPUT_SIZE_BYTES = 100000; // 100KB max input size
 const MAX_PROMPT_CHAIN_LENGTH = 20; // Max 20 prompts per execution
 const MAX_RESPONSE_SIZE_BYTES = 10485760; // 10MB max response size
+const MAX_ACCUMULATED_CONTEXT_MESSAGES = 10; // Keep last 5 user/assistant exchanges
 
 // Request validation schema
 const ScheduledExecuteRequestSchema = z.object({
@@ -78,19 +79,20 @@ function validateInternalRequest(req: NextRequest): boolean {
   }
 
   try {
-    const decoded = jwt.verify(token, internalSecret) as {
+    // Verify JWT with algorithm restriction and claim validation to prevent:
+    // - Algorithm confusion attacks (by specifying algorithms: ['HS256'])
+    // - Timing attacks (by validating claims in jwt.verify options)
+    const decoded = jwt.verify(token, internalSecret, {
+      algorithms: ['HS256'],
+      issuer: 'schedule-executor',
+      audience: 'assistant-architect-api'
+    }) as {
       iss: string;
       aud: string;
       exp: number;
       scheduleId?: string;
       executionId?: string;
     };
-
-    // Validate JWT claims
-    if (decoded.aud !== 'assistant-architect-api' || decoded.iss !== 'schedule-executor') {
-      log.warn('Invalid JWT claims', { iss: decoded.iss, aud: decoded.aud });
-      return false;
-    }
 
     log.info('Internal request validated', { scheduleId: decoded.scheduleId });
     return true;
@@ -413,7 +415,6 @@ async function executePromptChainServerSide(
   });
 
   for (const [index, prompt] of prompts.entries()) {
-    const isLastPrompt = index === prompts.length - 1;
     const promptStartTime = Date.now();
     const promptTimer = startTimer(`prompt.${prompt.id}.execution`);
 
@@ -421,7 +422,6 @@ async function executePromptChainServerSide(
       promptId: prompt.id,
       promptName: prompt.name,
       position: prompt.position,
-      isLastPrompt,
       executionId: context.executionId
     });
 
@@ -468,13 +468,14 @@ async function executePromptChainServerSide(
         }
       }
 
-      // 2. Apply variable substitution
+      // 2. Apply variable substitution with prompt execution order validation
       const inputMapping = (prompt.inputMapping || {}) as Record<string, string>;
       const processedContent = substituteVariables(
         prompt.content,
         inputs,
         context.previousOutputs,
-        inputMapping
+        inputMapping,
+        prompt.id
       );
 
       log.debug('Variables substituted', {
@@ -542,7 +543,9 @@ async function executePromptChainServerSide(
         tools: Object.keys(promptTools)
       });
 
-      // 6. Create streaming request
+      // 6. Create streaming request with promise tracking for onFinish
+      let finishPromise: Promise<void> | null = null;
+
       const streamRequest: StreamRequest = {
         messages,
         modelId: String(modelId),
@@ -556,6 +559,7 @@ async function executePromptChainServerSide(
         tools: Object.keys(promptTools).length > 0 ? promptTools : undefined,
         callbacks: {
           onFinish: async ({ text, usage, finishReason }) => {
+            finishPromise = (async () => {
             log.info('Prompt execution finished', {
               promptId: prompt.id,
               promptName: prompt.name,
@@ -613,7 +617,7 @@ async function executePromptChainServerSide(
               // Store output for next prompt's variable substitution
               context.previousOutputs.set(prompt.id, text || '');
 
-              // Accumulate messages for context
+              // Accumulate messages for context with window management
               const assistantMessage: UIMessage = {
                 id: `assistant-${prompt.id}-${Date.now()}`,
                 role: 'assistant',
@@ -621,11 +625,22 @@ async function executePromptChainServerSide(
               };
               context.accumulatedMessages.push(userMessage, assistantMessage);
 
+              // Manage context window to prevent unbounded memory growth
+              if (context.accumulatedMessages.length > MAX_ACCUMULATED_CONTEXT_MESSAGES * 2) {
+                const trimCount = context.accumulatedMessages.length - MAX_ACCUMULATED_CONTEXT_MESSAGES * 2;
+                context.accumulatedMessages = context.accumulatedMessages.slice(trimCount);
+                log.debug('Trimmed accumulated context', {
+                  trimmedMessages: trimCount,
+                  remainingMessages: context.accumulatedMessages.length
+                });
+              }
+
               log.info('Prompt result saved successfully', {
                 promptId: prompt.id,
                 executionId: context.executionId,
                 outputLength: text?.length || 0,
-                executionTimeMs
+                executionTimeMs,
+                accumulatedMessageCount: context.accumulatedMessages.length
               });
 
             } catch (saveError) {
@@ -636,6 +651,8 @@ async function executePromptChainServerSide(
               });
               throw saveError;
             }
+            })();
+            await finishPromise;
           }
         }
       };
@@ -643,9 +660,11 @@ async function executePromptChainServerSide(
       // 7. Execute prompt with streaming (server-side collection)
       const streamResponse = await unifiedStreamingService.stream(streamRequest);
 
-      // Wait for the stream to complete - onFinish callback will handle result storage
-      // The streaming service handles all the response collection internally
-      await streamResponse.result.usage;
+      // Wait for both stream completion AND result storage to prevent race condition
+      await Promise.all([
+        streamResponse.result.usage,
+        finishPromise
+      ]);
 
       log.info('Prompt execution completed', {
         promptId: prompt.id,
@@ -698,14 +717,17 @@ async function executePromptChainServerSide(
 }
 
 /**
- * Substitute {{variable}} placeholders in prompt content
+ * Substitute {{variable}} placeholders in prompt content with validation
  */
 function substituteVariables(
   content: string,
   inputs: Record<string, unknown>,
   previousOutputs: Map<number, string>,
-  mapping: Record<string, string>
+  mapping: Record<string, string>,
+  currentPromptId?: number
 ): string {
+  const log = createLogger({ operation: 'substituteVariables' });
+
   return content.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
     // 1. Check if there's an input mapping for this variable
     if (mapping[varName]) {
@@ -715,6 +737,18 @@ function substituteVariables(
       const promptMatch = mappedPath.match(/^prompt_(\d+)\.output$/);
       if (promptMatch) {
         const promptId = parseInt(promptMatch[1], 10);
+
+        // Validate prompt execution order - referenced prompt must have already executed
+        if (!previousOutputs.has(promptId)) {
+          log.warn('Referenced prompt output not yet available', {
+            currentPromptId,
+            referencedPromptId: promptId,
+            variable: varName,
+            mapping: mappedPath
+          });
+          return match; // Keep placeholder if output not available
+        }
+
         const output = previousOutputs.get(promptId);
         if (output) {
           return output;

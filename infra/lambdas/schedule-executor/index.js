@@ -1,5 +1,4 @@
 const { RDSDataClient, ExecuteStatementCommand } = require('@aws-sdk/client-rds-data');
-const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
 const { SchedulerClient, CreateScheduleCommand, UpdateScheduleCommand, DeleteScheduleCommand } = require('@aws-sdk/client-scheduler');
 
 // Lambda logging utilities (simplified version of main app pattern)
@@ -129,7 +128,6 @@ function sanitizeForLogging(data) {
 
 // Initialize clients
 const rdsClient = new RDSDataClient({});
-const sqsClient = new SQSClient({});
 const schedulerClient = new SchedulerClient({});
 
 // Environment variables with startup validation
@@ -250,22 +248,13 @@ exports.handler = async (event, context) => {
     });
     timer({ status: 'error' });
 
-    // Send to DLQ if available
-    if (DLQ_URL) {
-      try {
-        await sqsClient.send(new SendMessageCommand({
-          QueueUrl: DLQ_URL,
-          MessageBody: JSON.stringify({
-            originalEvent: event,
-            error: error.message,
-            timestamp: new Date().toISOString(),
-            requestId
-          })
-        }));
-      } catch (dlqError) {
-        log.error('Failed to send to DLQ', { error: dlqError.message });
-      }
-    }
+    // Log error for CloudWatch monitoring (DLQ removed with SQS-based architecture)
+    log.error('Schedule executor final error logged for monitoring', {
+      originalEvent: event,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+      requestId
+    });
 
     return {
       statusCode: 500,
