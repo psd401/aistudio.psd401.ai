@@ -8,17 +8,33 @@ import { executeSQL } from '@/lib/db/data-api-adapter';
 import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
 import { retrieveKnowledgeForPrompt, formatKnowledgeContext } from '@/lib/assistant-architect/knowledge-retrieval';
 import { hasToolAccess } from '@/utils/roles';
-import { createError } from '@/lib/error-utils';
+import { ErrorFactories } from '@/lib/error-utils';
 import { createRepositoryTools } from '@/lib/tools/repository-tools';
 import type { StreamRequest } from '@/lib/streaming/types';
 
 // Allow streaming responses up to 15 minutes for long chains
 export const maxDuration = 900;
 
+// Constants for resource limits
+const MAX_INPUT_SIZE_BYTES = 100000; // 100KB max input size
+const MAX_INPUT_FIELDS = 50; // Max 50 input fields
+const MAX_PROMPT_CHAIN_LENGTH = 20; // Max 20 prompts per execution
+
 // Request validation schema
 const ExecuteRequestSchema = z.object({
   toolId: z.number().positive(),
-  inputs: z.record(z.string(), z.unknown()),
+  inputs: z.record(z.string(), z.unknown())
+    .refine(
+      (inputs) => {
+        const jsonSize = JSON.stringify(inputs).length;
+        return jsonSize <= MAX_INPUT_SIZE_BYTES;
+      },
+      { message: `Input data exceeds maximum size of ${MAX_INPUT_SIZE_BYTES} bytes` }
+    )
+    .refine(
+      (inputs) => Object.keys(inputs).length <= MAX_INPUT_FIELDS,
+      { message: `Too many input fields (maximum ${MAX_INPUT_FIELDS})` }
+    ),
   conversationId: z.string().uuid().optional()
 });
 
@@ -139,6 +155,29 @@ export async function POST(req: Request) {
     }
 
     const architect = architectResult.data;
+
+    // SECURITY: Verify user has permission to execute this assistant architect
+    // Currently only the owner can execute their assistant architects
+    const isOwner = architect.userId === userId;
+
+    if (!isOwner) {
+      // Only owners can execute their assistant architects
+      // TODO: Add assistant_architect_access table for sharing when implemented
+      log.warn('User does not have access to this assistant architect', {
+        userId,
+        toolId,
+        architectOwnerId: architect.userId
+      });
+      return new Response(
+        JSON.stringify({
+          error: 'Access denied',
+          message: 'You do not have permission to execute this assistant architect',
+          requestId
+        }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
     const prompts = (architect.prompts || []).sort((a, b) => a.position - b.position);
 
     if (!prompts || prompts.length === 0) {
@@ -146,6 +185,19 @@ export async function POST(req: Request) {
       return new Response(
         JSON.stringify({
           error: 'No prompts configured for this assistant architect',
+          requestId
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Validate prompt chain length to prevent resource exhaustion
+    if (prompts.length > MAX_PROMPT_CHAIN_LENGTH) {
+      log.warn('Prompt chain too long', { promptCount: prompts.length, toolId, maxAllowed: MAX_PROMPT_CHAIN_LENGTH });
+      return new Response(
+        JSON.stringify({
+          error: 'Prompt chain too long',
+          message: `Maximum ${MAX_PROMPT_CHAIN_LENGTH} prompts allowed per execution`,
           requestId
         }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
@@ -302,8 +354,10 @@ async function executePromptChain(
     try {
       // Validate prompt has a model configured
       if (!prompt.modelId) {
-        throw createError(`Prompt ${prompt.id} (${prompt.name}) has no model configured`, {
-          code: 'VALIDATION',
+        throw ErrorFactories.validationFailed([{
+          field: 'modelId',
+          message: `Prompt ${prompt.id} (${prompt.name}) has no model configured`
+        }], {
           details: { promptId: prompt.id, promptName: prompt.name }
         });
       }
@@ -327,7 +381,8 @@ async function executePromptChain(
             similarityThreshold: 0.7,
             searchType: 'hybrid',
             vectorWeight: 0.8
-          }
+          },
+          requestId
         );
 
         if (knowledgeChunks.length > 0) {
@@ -370,13 +425,21 @@ async function executePromptChain(
       );
 
       if (!modelResult || modelResult.length === 0) {
-        throw createError(`Model not found for prompt ${prompt.id}`, {
-          code: 'NOT_FOUND',
+        throw ErrorFactories.dbRecordNotFound('ai_models', prompt.modelId || 'unknown', {
           details: { promptId: prompt.id, modelId: prompt.modelId }
         });
       }
 
-      const { model_id: modelId, provider } = modelResult[0];
+      // Validate query results to ensure correct types
+      const modelData = modelResult[0];
+      if (!modelData?.model_id || !modelData?.provider) {
+        throw ErrorFactories.dbRecordNotFound('ai_models', prompt.modelId || 'unknown', {
+          details: { promptId: prompt.id, modelId: prompt.modelId, reason: 'Invalid model data' }
+        });
+      }
+
+      const modelId = String(modelData.model_id);
+      const provider = String(modelData.provider);
 
       // 5. Prepare tools for this prompt
       const enabledTools: string[] = [...(prompt.enabledTools || [])];
@@ -555,19 +618,20 @@ async function executePromptChain(
 
       // For now, stop execution on first error
       // Future enhancement: check prompt.stop_on_error field
-      throw createError(`Prompt ${prompt.id} (${prompt.name}) failed: ${
-        promptError instanceof Error ? promptError.message : String(promptError)
-      }`, {
-        code: 'EXECUTION',
-        details: { promptId: prompt.id, promptName: prompt.name },
-        cause: promptError instanceof Error ? promptError : undefined
-      });
+      throw ErrorFactories.sysInternalError(
+        `Prompt ${prompt.id} (${prompt.name}) failed: ${
+          promptError instanceof Error ? promptError.message : String(promptError)
+        }`,
+        {
+          details: { promptId: prompt.id, promptName: prompt.name },
+          cause: promptError instanceof Error ? promptError : undefined
+        }
+      );
     }
   }
 
   if (!lastStreamResponse) {
-    throw createError('No stream response generated', {
-      code: 'EXECUTION',
+    throw ErrorFactories.sysInternalError('No stream response generated', {
       details: { promptCount: prompts.length, executionId: context.executionId }
     });
   }

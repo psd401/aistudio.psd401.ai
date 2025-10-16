@@ -2,12 +2,16 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import { vectorSearch, keywordSearch, hybridSearch } from '@/lib/repositories/search-service';
 import { createLogger } from '@/lib/logger';
+import { executeSQL } from '@/lib/db/data-api-adapter';
 
 /**
  * Repository Search Tools for AI Assistant
  *
  * These tools allow LLMs to dynamically search repository knowledge bases during execution.
  * Used in conjunction with automatic context injection for comprehensive knowledge access.
+ *
+ * SECURITY: All tools perform authorization checks before searching to prevent
+ * unauthorized access to private repositories.
  */
 
 interface RepositoryToolOptions {
@@ -17,28 +21,74 @@ interface RepositoryToolOptions {
 }
 
 /**
+ * Verify user has access to specified repositories
+ * @throws Error if user has no access to any repositories
+ */
+async function verifyRepositoryAccess(
+  repositoryIds: number[],
+  userCognitoSub: string,
+  assistantOwnerSub?: string
+): Promise<number[]> {
+  const placeholders = repositoryIds.map((_, i) => `:repoId${i}`).join(', ');
+  const params = [
+    ...repositoryIds.map((id, i) => ({
+      name: `repoId${i}`,
+      value: { longValue: id }
+    })),
+    { name: 'cognitoSub', value: { stringValue: userCognitoSub } },
+    { name: 'assistantOwnerSub', value: assistantOwnerSub ? { stringValue: assistantOwnerSub } : { isNull: true } }
+  ];
+
+  const accessCheck = await executeSQL<{ id: number }>(
+    `SELECT DISTINCT r.id FROM knowledge_repositories r
+     WHERE r.id IN (${placeholders})
+     AND (r.is_public = true
+          OR r.owner_id = (SELECT id FROM users WHERE cognito_sub = :cognitoSub)
+          OR (:assistantOwnerSub IS NOT NULL
+              AND r.owner_id = (SELECT id FROM users WHERE cognito_sub = :assistantOwnerSub))
+          OR EXISTS (SELECT 1 FROM repository_access ra JOIN users u ON u.id = ra.user_id
+                     WHERE ra.repository_id = r.id AND u.cognito_sub = :cognitoSub))`,
+    params
+  );
+
+  return accessCheck.map(r => r.id);
+}
+
+/**
  * Create vector search tool for semantic similarity search
  */
 export function createVectorSearchTool(options: RepositoryToolOptions): unknown {
-  const { repositoryIds } = options;
+  const { repositoryIds, userCognitoSub, assistantOwnerSub } = options;
   const log = createLogger({ module: 'repository-tools', tool: 'vectorSearch' });
 
   return tool({
     description: `Search repository knowledge base using semantic vector similarity. Best for finding conceptually related content even if exact keywords don't match. Searches repositories: ${repositoryIds.join(', ')}`,
     parameters: z.object({
       query: z.string().describe('The search query to find relevant content'),
-      limit: z.number().optional().default(5).describe('Maximum number of results to return (default: 5)'),
-      threshold: z.number().optional().default(0.7).describe('Similarity threshold 0-1 (default: 0.7)')
+      limit: z.number().min(1).max(100).optional().default(5).describe('Maximum number of results to return (1-100, default: 5)'),
+      threshold: z.number().min(0).max(1).optional().default(0.7).describe('Similarity threshold 0-1 (default: 0.7)')
     }),
     // @ts-expect-error - AI SDK v5 tool() function has complex type inference that doesn't match TypeScript's requirements
     execute: async ({ query, limit, threshold }: { query: string; limit?: number; threshold?: number }) => {
       log.info('Vector search executed', { query, limit, threshold, repositoryIds });
 
       try {
+        // SECURITY: Verify user has access to repositories
+        const accessibleRepoIds = await verifyRepositoryAccess(repositoryIds, userCognitoSub, assistantOwnerSub);
+
+        if (accessibleRepoIds.length === 0) {
+          log.warn('No accessible repositories for vector search', { userCognitoSub, requestedRepos: repositoryIds });
+          return {
+            success: false,
+            error: 'No access to specified repositories',
+            query
+          };
+        }
+
         const allResults = [];
 
-        // Search each configured repository
-        for (const repoId of repositoryIds) {
+        // Search each accessible repository
+        for (const repoId of accessibleRepoIds) {
           const results = await vectorSearch(query, {
             repositoryId: repoId,
             limit: limit || 5,
@@ -94,24 +144,36 @@ export function createVectorSearchTool(options: RepositoryToolOptions): unknown 
  * Create keyword search tool for exact text matching
  */
 export function createKeywordSearchTool(options: RepositoryToolOptions): unknown {
-  const { repositoryIds } = options;
+  const { repositoryIds, userCognitoSub, assistantOwnerSub } = options;
   const log = createLogger({ module: 'repository-tools', tool: 'keywordSearch' });
 
   return tool({
     description: `Search repository knowledge base using exact keyword matching. Best for finding specific terms, phrases, or technical names. Searches repositories: ${repositoryIds.join(', ')}`,
     parameters: z.object({
       query: z.string().describe('The keyword or phrase to search for'),
-      limit: z.number().optional().default(5).describe('Maximum number of results to return (default: 5)')
+      limit: z.number().min(1).max(100).optional().default(5).describe('Maximum number of results to return (1-100, default: 5)')
     }),
     // @ts-expect-error - AI SDK v5 tool() function has complex type inference that doesn't match TypeScript's requirements
     execute: async ({ query, limit }: { query: string; limit?: number }) => {
       log.info('Keyword search executed', { query, limit, repositoryIds });
 
       try {
+        // SECURITY: Verify user has access to repositories
+        const accessibleRepoIds = await verifyRepositoryAccess(repositoryIds, userCognitoSub, assistantOwnerSub);
+
+        if (accessibleRepoIds.length === 0) {
+          log.warn('No accessible repositories for keyword search', { userCognitoSub, requestedRepos: repositoryIds });
+          return {
+            success: false,
+            error: 'No access to specified repositories',
+            query
+          };
+        }
+
         const allResults = [];
 
-        // Search each configured repository
-        for (const repoId of repositoryIds) {
+        // Search each accessible repository
+        for (const repoId of accessibleRepoIds) {
           const results = await keywordSearch(query, {
             repositoryId: repoId,
             limit: limit || 5
@@ -166,26 +228,38 @@ export function createKeywordSearchTool(options: RepositoryToolOptions): unknown
  * Create hybrid search tool combining vector and keyword search
  */
 export function createHybridSearchTool(options: RepositoryToolOptions): unknown {
-  const { repositoryIds } = options;
+  const { repositoryIds, userCognitoSub, assistantOwnerSub } = options;
   const log = createLogger({ module: 'repository-tools', tool: 'hybridSearch' });
 
   return tool({
     description: `Search repository knowledge base using combined semantic and keyword matching. Best for comprehensive search that balances conceptual similarity with exact matches. Searches repositories: ${repositoryIds.join(', ')}`,
     parameters: z.object({
       query: z.string().describe('The search query'),
-      limit: z.number().optional().default(5).describe('Maximum number of results to return (default: 5)'),
-      threshold: z.number().optional().default(0.7).describe('Similarity threshold 0-1 (default: 0.7)'),
-      vectorWeight: z.number().optional().default(0.7).describe('Weight for vector search 0-1 (default: 0.7, keyword gets remainder)')
+      limit: z.number().min(1).max(100).optional().default(5).describe('Maximum number of results to return (1-100, default: 5)'),
+      threshold: z.number().min(0).max(1).optional().default(0.7).describe('Similarity threshold 0-1 (default: 0.7)'),
+      vectorWeight: z.number().min(0).max(1).optional().default(0.7).describe('Weight for vector search 0-1 (default: 0.7, keyword gets remainder)')
     }),
     // @ts-expect-error - AI SDK v5 tool() function has complex type inference that doesn't match TypeScript's requirements
     execute: async ({ query, limit, threshold, vectorWeight }: { query: string; limit?: number; threshold?: number; vectorWeight?: number }) => {
       log.info('Hybrid search executed', { query, limit, threshold, vectorWeight, repositoryIds });
 
       try {
+        // SECURITY: Verify user has access to repositories
+        const accessibleRepoIds = await verifyRepositoryAccess(repositoryIds, userCognitoSub, assistantOwnerSub);
+
+        if (accessibleRepoIds.length === 0) {
+          log.warn('No accessible repositories for hybrid search', { userCognitoSub, requestedRepos: repositoryIds });
+          return {
+            success: false,
+            error: 'No access to specified repositories',
+            query
+          };
+        }
+
         const allResults = [];
 
-        // Search each configured repository
-        for (const repoId of repositoryIds) {
+        // Search each accessible repository
+        for (const repoId of accessibleRepoIds) {
           const results = await hybridSearch(query, {
             repositoryId: repoId,
             limit: limit || 5,
