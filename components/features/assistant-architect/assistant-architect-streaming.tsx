@@ -27,7 +27,7 @@ import { collectAndSanitizeEnabledTools, getToolDisplayName } from '@/lib/assist
 import { ScheduleModal } from "./schedule-modal"
 import Image from "next/image"
 import DocumentUploadButton from "@/components/ui/document-upload-button"
-import { AssistantRuntimeProvider, useThreadRuntime } from '@assistant-ui/react'
+import { AssistantRuntimeProvider, useThreadRuntime, type ThreadState } from '@assistant-ui/react'
 import { useChatRuntime, AssistantChatTransport } from '@assistant-ui/react-ai-sdk'
 import { Thread } from '@/components/assistant-ui/thread'
 import { createLogger } from '@/lib/client-logger'
@@ -81,7 +81,8 @@ function AssistantArchitectRuntimeProvider({
   onExecutionIdChange,
   onPromptCountChange,
   onExecutionComplete,
-  onExecutionError
+  onExecutionError,
+  hasCompletedExecution
 }: {
   children: React.ReactNode
   tool: AssistantArchitectWithRelations
@@ -90,6 +91,7 @@ function AssistantArchitectRuntimeProvider({
   onPromptCountChange: (count: number) => void
   onExecutionComplete: () => void
   onExecutionError: (error: string) => void
+  hasCompletedExecution: boolean
 }) {
   const inputsRef = useRef(inputs)
 
@@ -106,34 +108,128 @@ function AssistantArchitectRuntimeProvider({
     onPromptCountChangeRef.current = onPromptCountChange
   }, [onExecutionIdChange, onPromptCountChange])
 
-  // Custom fetch to extract execution metadata from headers
-  const customFetch = useCallback(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const response = await fetch(input, init)
+  // Track whether we're in execution or conversation mode
+  const hasCompletedExecutionRef = useRef(hasCompletedExecution)
+  const executionIdRef = useRef<number | null>(null)
+  const conversationIdRef = useRef<string | null>(null)
 
-    const executionId = response.headers.get('X-Execution-Id')
-    const promptCount = response.headers.get('X-Prompt-Count')
+  // Store model configuration from first prompt for follow-up conversations
+  const executionModelRef = useRef<{ modelId: string; provider: string } | null>(null)
 
-    if (executionId) {
-      onExecutionIdChangeRef.current(Number(executionId))
-      log.debug('Execution started', { executionId, promptCount })
+  // Update refs when parent props change and store model config
+  useEffect(() => {
+    hasCompletedExecutionRef.current = hasCompletedExecution
+
+    // Store model configuration from first prompt when starting execution
+    if (!hasCompletedExecution && tool.prompts && tool.prompts.length > 0) {
+      const firstPrompt = tool.prompts[0]
+      if (firstPrompt?.modelId) {
+        // Fetch model details to get provider
+        fetch(`/api/chat/models`)
+          .then(res => res.json())
+          .then(result => {
+            const models = result.data || result
+            const model = models.find((m: { id: number }) => m.id === firstPrompt.modelId)
+            if (model) {
+              executionModelRef.current = {
+                modelId: model.id.toString(),
+                provider: model.provider
+              }
+              log.debug('Stored execution model config', {
+                modelId: model.id,
+                provider: model.provider
+              })
+            } else {
+              // Fallback to GPT-4o if model not found
+              executionModelRef.current = {
+                modelId: '3',
+                provider: 'openai'
+              }
+              log.warn('Model not found, using default GPT-4o', { modelId: firstPrompt.modelId })
+            }
+          })
+          .catch(err => {
+            log.error('Failed to fetch model config', { error: err })
+            // Fallback to GPT-4o
+            executionModelRef.current = {
+              modelId: '3',
+              provider: 'openai'
+            }
+          })
+      }
     }
+  }, [hasCompletedExecution, tool.prompts])
 
-    if (promptCount) {
-      onPromptCountChangeRef.current(Number(promptCount))
-    }
-
-    return response
-  }, [])
-
-  // Use official useChatRuntime (same as Nexus)
+  // Use official useChatRuntime with dynamic transport
   const runtime = useChatRuntime({
     transport: new AssistantChatTransport({
-      api: '/api/assistant-architect/execute',
-      fetch: customFetch,
-      body: () => ({
-        toolId: tool.id,
-        inputs: inputsRef.current
-      })
+      // DYNAMIC API: Switch endpoint based on whether execution is complete
+      api: hasCompletedExecutionRef.current ? '/api/nexus/chat' : '/api/assistant-architect/execute',
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        const response = await fetch(input, init)
+
+        // Extract execution metadata from headers
+        const executionId = response.headers.get('X-Execution-Id')
+        const promptCount = response.headers.get('X-Prompt-Count')
+        const newConversationId = response.headers.get('X-Conversation-Id')
+
+        if (executionId) {
+          executionIdRef.current = Number(executionId)
+          onExecutionIdChangeRef.current(Number(executionId))
+          log.debug('Execution started', { executionId, promptCount })
+        }
+
+        if (promptCount) {
+          onPromptCountChangeRef.current(Number(promptCount))
+        }
+
+        // Track conversation ID for follow-up messages
+        if (newConversationId) {
+          conversationIdRef.current = newConversationId
+          log.debug('Conversation created', { conversationId: newConversationId })
+        }
+
+        return response
+      },
+      // DYNAMIC BODY: Send different data based on mode
+      body: (threadState: ThreadState) => {
+        const mode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
+        log.debug('Transport mode', {
+          mode,
+          executionId: executionIdRef.current,
+          conversationId: conversationIdRef.current
+        })
+
+        if (hasCompletedExecutionRef.current) {
+          // CONVERSATION MODE: After execution completes
+          // Validate state before proceeding
+          if (!executionIdRef.current) {
+            log.error('Invalid state: Conversation mode without execution ID')
+            throw new Error('Cannot continue conversation: no execution context')
+          }
+
+          // Use stored model config from execution, fallback to GPT-4o
+          const modelConfig = executionModelRef.current || {
+            modelId: '3',
+            provider: 'openai'
+          }
+
+          // IMPORTANT: Include messages array required by /api/nexus/chat
+          return {
+            messages: threadState.messages,
+            modelId: modelConfig.modelId,
+            provider: modelConfig.provider,
+            conversationId: conversationIdRef.current || undefined,
+            enabledTools: [] // No tools for follow-up chat
+          }
+        } else {
+          // EXECUTION MODE: Initial assistant execution
+          return {
+            toolId: tool.id,
+            inputs: inputsRef.current
+          }
+        }
+      }
     })
   })
 
@@ -142,8 +238,13 @@ function AssistantArchitectRuntimeProvider({
       <StreamingStateMonitor
         onExecutionComplete={onExecutionComplete}
         onExecutionError={onExecutionError}
+        hasCompletedExecutionRef={hasCompletedExecutionRef}
       />
-      <AutoStartExecution tool={tool} />
+      <AutoStartExecution
+        tool={tool}
+        hasCompletedExecution={hasCompletedExecutionRef.current}
+        hasCompletedExecutionRef={hasCompletedExecutionRef}
+      />
       {children}
     </AssistantRuntimeProvider>
   )
@@ -152,10 +253,12 @@ function AssistantArchitectRuntimeProvider({
 // Component to monitor streaming state changes
 function StreamingStateMonitor({
   onExecutionComplete,
-  onExecutionError
+  onExecutionError,
+  hasCompletedExecutionRef
 }: {
   onExecutionComplete: () => void
   onExecutionError: (error: string) => void
+  hasCompletedExecutionRef: React.MutableRefObject<boolean>
 }) {
   const runtime = useThreadRuntime()
   const [previousRunning, setPreviousRunning] = useState<boolean | null>(null)
@@ -184,6 +287,10 @@ function StreamingStateMonitor({
       // Detect completion: was running, now not running
       if (previousRunning === true && !isRunning && !completionFiredRef.current) {
         completionFiredRef.current = true
+
+        // IMPORTANT: Switch to conversation mode BEFORE firing completion
+        hasCompletedExecutionRef.current = true
+
         const messages = threadState.messages
         const lastMessage = messages[messages.length - 1]
 
@@ -202,19 +309,34 @@ function StreamingStateMonitor({
     })
 
     return unsubscribe
-  }, [runtime, previousRunning])
+  }, [runtime, previousRunning, hasCompletedExecutionRef])
 
   return null
 }
 
 // Component to automatically start execution when runtime is ready
-function AutoStartExecution({ tool }: { tool: AssistantArchitectWithRelations }) {
+function AutoStartExecution({
+  tool,
+  hasCompletedExecution,
+  hasCompletedExecutionRef
+}: {
+  tool: AssistantArchitectWithRelations
+  hasCompletedExecution: boolean
+  hasCompletedExecutionRef: React.MutableRefObject<boolean>
+}) {
   const runtime = useThreadRuntime()
   const hasStarted = useRef(false)
 
   useEffect(() => {
-    // Only start once when runtime is ready
-    if (!hasStarted.current) {
+    // Reset mode when starting fresh execution
+    if (!hasCompletedExecution && hasCompletedExecutionRef.current) {
+      hasCompletedExecutionRef.current = false
+      hasStarted.current = false
+      log.debug('Reset to execution mode for new run')
+    }
+
+    // Only start once when runtime is ready AND not already completed
+    if (!hasStarted.current && !hasCompletedExecution) {
       hasStarted.current = true
 
       // Append initial message to trigger execution
@@ -225,7 +347,7 @@ function AutoStartExecution({ tool }: { tool: AssistantArchitectWithRelations })
 
       log.debug('Auto-started assistant architect execution', { toolName: tool.name })
     }
-  }, [runtime, tool.name])
+  }, [runtime, tool.name, hasCompletedExecution, hasCompletedExecutionRef])
 
   return null
 }
@@ -567,6 +689,7 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
             onPromptCountChange={handlePromptCountChange}
             onExecutionComplete={handleExecutionComplete}
             onExecutionError={handleExecutionError}
+            hasCompletedExecution={hasResults}
           >
             <div className="space-y-6">
               {/* Progress indicator for multi-prompt execution */}
