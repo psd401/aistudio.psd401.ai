@@ -1,11 +1,12 @@
-import { 
-  ProcessingParams, 
-  ProcessingResult, 
-  DocumentProcessor, 
-  ProcessorConfig 
+import {
+  ProcessingParams,
+  ProcessingResult,
+  DocumentProcessor,
+  ProcessorConfig
 } from './factory';
 import pdfParse from 'pdf-parse';
 import { createLambdaLogger } from '../utils/lambda-logger';
+import { sanitizeTextWithMetrics } from '../../../../lib/utils/text-sanitizer';
 
 export class PDFProcessor implements DocumentProcessor {
   constructor(private config: ProcessorConfig) {}
@@ -107,7 +108,19 @@ export class PDFProcessor implements DocumentProcessor {
         return { text: null, pageCount };
       }
       
-      return { text: data.text, pageCount };
+      // Sanitize the extracted text to remove null bytes and invalid UTF-8 sequences
+      // that PostgreSQL cannot store (fixes issue #347)
+      const sanitizationResult = sanitizeTextWithMetrics(data.text);
+      if (sanitizationResult.bytesRemoved > 0) {
+        logger.info('PDF text sanitization performed', {
+          originalLength: sanitizationResult.originalLength,
+          sanitizedLength: sanitizationResult.sanitizedLength,
+          nullBytesRemoved: sanitizationResult.nullBytesRemoved,
+          controlCharsRemoved: sanitizationResult.controlCharsRemoved,
+        });
+      }
+
+      return { text: sanitizationResult.sanitized, pageCount };
     } catch (error) {
       logger.error('PDF parsing error', error);
       // Try a more basic extraction as fallback
@@ -115,7 +128,17 @@ export class PDFProcessor implements DocumentProcessor {
         const basicData = await pdfParse(buffer);
         if (basicData.text) {
           logger.info('Basic extraction succeeded as fallback');
-          return { text: basicData.text, pageCount: basicData.numpages || 1 };
+
+          // Sanitize fallback text as well
+          const sanitizationResult = sanitizeTextWithMetrics(basicData.text);
+          if (sanitizationResult.bytesRemoved > 0) {
+            logger.info('Fallback PDF text sanitization performed', {
+              nullBytesRemoved: sanitizationResult.nullBytesRemoved,
+              controlCharsRemoved: sanitizationResult.controlCharsRemoved,
+            });
+          }
+
+          return { text: sanitizationResult.sanitized, pageCount: basicData.numpages || 1 };
         }
       } catch (fallbackError) {
         logger.error('Fallback PDF parsing also failed', fallbackError);

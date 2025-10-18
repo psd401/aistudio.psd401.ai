@@ -80,10 +80,9 @@ export class SchedulerStack extends cdk.Stack {
         DATABASE_NAME: 'aistudio',
         ENVIRONMENT: props.environment,
         DLQ_URL: this.deadLetterQueue.queueUrl,
-        // NEW: ECS endpoint for scheduled executions (replaces SQS)
-        ECS_INTERNAL_ENDPOINT: ssm.StringParameter.valueForStringParameter(
-          this, `/aistudio/${props.environment}/ecs-internal-endpoint`
-        ),
+        // NEW: ECS endpoint parameter name (Lambda reads actual value from SSM at runtime)
+        // This avoids circular dependency: SchedulerStack doesn't depend on FrontendStack-ECS
+        ECS_INTERNAL_ENDPOINT_PARAM: `/aistudio/${props.environment}/ecs-internal-endpoint`,
         // NEW: Internal API secret for JWT signing
         INTERNAL_API_SECRET: internalApiSecret.secretValueFromJson('INTERNAL_API_SECRET').unsafeUnwrap(),
       },
@@ -160,7 +159,7 @@ export class SchedulerStack extends cdk.Stack {
     });
     this.scheduleExecutorFunction.addToRolePolicy(passRolePolicy);
 
-    // Grant access to AI provider configurations (SSM Parameter Store)
+    // Grant access to AI provider configurations and ECS endpoint (SSM Parameter Store)
     const ssmParameterPolicy = new iam.PolicyStatement({
       actions: [
         'ssm:GetParameter',
@@ -173,6 +172,8 @@ export class SchedulerStack extends cdk.Stack {
         `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/google/*`,
         `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/azure/*`,
         `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/bedrock/*`,
+        // Grant access to ECS internal endpoint (created by FrontendStack-ECS)
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/ecs-internal-endpoint`,
       ],
     });
     this.scheduleExecutorFunction.addToRolePolicy(ssmParameterPolicy);
@@ -214,6 +215,13 @@ export class SchedulerStack extends cdk.Stack {
       parameterName: `/aistudio/${props.environment}/scheduler-execution-role-arn`,
       stringValue: this.schedulerExecutionRole.roleArn,
       description: 'ARN of the EventBridge Scheduler execution role',
+    });
+
+    // Store internal API secret ARN in SSM for FrontendStack to read (avoids circular dependency)
+    new ssm.StringParameter(this, 'InternalApiSecretArnParam', {
+      parameterName: `/aistudio/${props.environment}/internal-api-secret-arn`,
+      stringValue: internalApiSecret.secretArn,
+      description: 'Internal API secret ARN for scheduled execution authentication',
     });
 
     // Outputs
