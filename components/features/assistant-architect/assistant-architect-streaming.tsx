@@ -27,7 +27,7 @@ import { collectAndSanitizeEnabledTools, getToolDisplayName } from '@/lib/assist
 import { ScheduleModal } from "./schedule-modal"
 import Image from "next/image"
 import DocumentUploadButton from "@/components/ui/document-upload-button"
-import { AssistantRuntimeProvider, useThreadRuntime } from '@assistant-ui/react'
+import { AssistantRuntimeProvider, useThreadRuntime, type ThreadState } from '@assistant-ui/react'
 import { useChatRuntime, AssistantChatTransport } from '@assistant-ui/react-ai-sdk'
 import { Thread } from '@/components/assistant-ui/thread'
 import { createLogger } from '@/lib/client-logger'
@@ -113,10 +113,52 @@ function AssistantArchitectRuntimeProvider({
   const executionIdRef = useRef<number | null>(null)
   const conversationIdRef = useRef<string | null>(null)
 
-  // Update refs when parent props change
+  // Store model configuration from first prompt for follow-up conversations
+  const executionModelRef = useRef<{ modelId: string; provider: string } | null>(null)
+
+  // Update refs when parent props change and store model config
   useEffect(() => {
     hasCompletedExecutionRef.current = hasCompletedExecution
-  }, [hasCompletedExecution])
+
+    // Store model configuration from first prompt when starting execution
+    if (!hasCompletedExecution && tool.prompts && tool.prompts.length > 0) {
+      const firstPrompt = tool.prompts[0]
+      if (firstPrompt?.modelId) {
+        // Fetch model details to get provider
+        fetch(`/api/chat/models`)
+          .then(res => res.json())
+          .then(result => {
+            const models = result.data || result
+            const model = models.find((m: { id: number }) => m.id === firstPrompt.modelId)
+            if (model) {
+              executionModelRef.current = {
+                modelId: model.id.toString(),
+                provider: model.provider
+              }
+              log.debug('Stored execution model config', {
+                modelId: model.id,
+                provider: model.provider
+              })
+            } else {
+              // Fallback to GPT-4o if model not found
+              executionModelRef.current = {
+                modelId: '3',
+                provider: 'openai'
+              }
+              log.warn('Model not found, using default GPT-4o', { modelId: firstPrompt.modelId })
+            }
+          })
+          .catch(err => {
+            log.error('Failed to fetch model config', { error: err })
+            // Fallback to GPT-4o
+            executionModelRef.current = {
+              modelId: '3',
+              provider: 'openai'
+            }
+          })
+      }
+    }
+  }, [hasCompletedExecution, tool.prompts])
 
   // Use official useChatRuntime with dynamic transport
   const runtime = useChatRuntime({
@@ -150,14 +192,33 @@ function AssistantArchitectRuntimeProvider({
         return response
       },
       // DYNAMIC BODY: Send different data based on mode
-      body: () => {
-        if (hasCompletedExecutionRef.current && executionIdRef.current) {
+      body: (threadState: ThreadState) => {
+        const mode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
+        log.debug('Transport mode', {
+          mode,
+          executionId: executionIdRef.current,
+          conversationId: conversationIdRef.current
+        })
+
+        if (hasCompletedExecutionRef.current) {
           // CONVERSATION MODE: After execution completes
-          // Use default model for follow-up chat (OpenAI GPT-4o)
-          // Follow-up conversations don't need the exact same model as execution
+          // Validate state before proceeding
+          if (!executionIdRef.current) {
+            log.error('Invalid state: Conversation mode without execution ID')
+            throw new Error('Cannot continue conversation: no execution context')
+          }
+
+          // Use stored model config from execution, fallback to GPT-4o
+          const modelConfig = executionModelRef.current || {
+            modelId: '3',
+            provider: 'openai'
+          }
+
+          // IMPORTANT: Include messages array required by /api/nexus/chat
           return {
-            modelId: '3', // Default to GPT-4o for follow-up chat
-            provider: 'openai',
+            messages: threadState.messages,
+            modelId: modelConfig.modelId,
+            provider: modelConfig.provider,
             conversationId: conversationIdRef.current || undefined,
             enabledTools: [] // No tools for follow-up chat
           }
@@ -179,7 +240,11 @@ function AssistantArchitectRuntimeProvider({
         onExecutionError={onExecutionError}
         hasCompletedExecutionRef={hasCompletedExecutionRef}
       />
-      <AutoStartExecution tool={tool} hasCompletedExecution={hasCompletedExecutionRef.current} />
+      <AutoStartExecution
+        tool={tool}
+        hasCompletedExecution={hasCompletedExecutionRef.current}
+        hasCompletedExecutionRef={hasCompletedExecutionRef}
+      />
       {children}
     </AssistantRuntimeProvider>
   )
@@ -252,15 +317,24 @@ function StreamingStateMonitor({
 // Component to automatically start execution when runtime is ready
 function AutoStartExecution({
   tool,
-  hasCompletedExecution
+  hasCompletedExecution,
+  hasCompletedExecutionRef
 }: {
   tool: AssistantArchitectWithRelations
   hasCompletedExecution: boolean
+  hasCompletedExecutionRef: React.MutableRefObject<boolean>
 }) {
   const runtime = useThreadRuntime()
   const hasStarted = useRef(false)
 
   useEffect(() => {
+    // Reset mode when starting fresh execution
+    if (!hasCompletedExecution && hasCompletedExecutionRef.current) {
+      hasCompletedExecutionRef.current = false
+      hasStarted.current = false
+      log.debug('Reset to execution mode for new run')
+    }
+
     // Only start once when runtime is ready AND not already completed
     if (!hasStarted.current && !hasCompletedExecution) {
       hasStarted.current = true
@@ -273,7 +347,7 @@ function AutoStartExecution({
 
       log.debug('Auto-started assistant architect execution', { toolName: tool.name })
     }
-  }, [runtime, tool.name, hasCompletedExecution])
+  }, [runtime, tool.name, hasCompletedExecution, hasCompletedExecutionRef])
 
   return null
 }
