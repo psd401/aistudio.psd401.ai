@@ -7,6 +7,7 @@
 // Note: We keep the type imports (if they exist) purely for IDE support.
 import type pdfParseType from 'pdf-parse';
 import logger from "@/lib/logger"
+import { sanitizeTextWithMetrics } from "@/lib/utils/text-sanitizer"
 
 /**
  * Document processing utility functions
@@ -26,8 +27,23 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<{ text: string
     // side-effects that attempt to read test files.
     const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default as typeof pdfParseType;
     const pdfData = await pdfParse(buffer);
+
+    // Sanitize the extracted text to remove null bytes and invalid UTF-8 sequences
+    // that PostgreSQL cannot store (fixes issue #347)
+    const sanitizationResult = sanitizeTextWithMetrics(pdfData.text);
+
+    // Log if significant content was removed during sanitization
+    if (sanitizationResult.bytesRemoved > 0) {
+      logger.info('PDF text sanitization performed', {
+        originalLength: sanitizationResult.originalLength,
+        sanitizedLength: sanitizationResult.sanitizedLength,
+        nullBytesRemoved: sanitizationResult.nullBytesRemoved,
+        controlCharsRemoved: sanitizationResult.controlCharsRemoved,
+      });
+    }
+
     return {
-      text: pdfData.text,
+      text: sanitizationResult.sanitized,
       metadata: {
         pageCount: pdfData.numpages,
         info: pdfData.info,
@@ -46,8 +62,23 @@ export async function extractTextFromDOCX(buffer: Buffer): Promise<{ text: strin
   try {
     const mammoth = (await import('mammoth')).default;
     const result = await mammoth.extractRawText({ buffer });
+
+    // Sanitize the extracted text to remove null bytes and invalid UTF-8 sequences
+    // that PostgreSQL cannot store (fixes issue #347)
+    const sanitizationResult = sanitizeTextWithMetrics(result.value);
+
+    // Log if significant content was removed during sanitization
+    if (sanitizationResult.bytesRemoved > 0) {
+      logger.info('DOCX text sanitization performed', {
+        originalLength: sanitizationResult.originalLength,
+        sanitizedLength: sanitizationResult.sanitizedLength,
+        nullBytesRemoved: sanitizationResult.nullBytesRemoved,
+        controlCharsRemoved: sanitizationResult.controlCharsRemoved,
+      });
+    }
+
     return {
-      text: result.value,
+      text: sanitizationResult.sanitized,
       metadata: {
         messages: result.messages,
       }
@@ -64,8 +95,23 @@ export async function extractTextFromDOCX(buffer: Buffer): Promise<{ text: strin
 export async function extractTextFromTXT(buffer: Buffer): Promise<{ text: string, metadata: Record<string, unknown> }> {
   try {
     const text = buffer.toString('utf-8');
+
+    // Sanitize the extracted text to remove null bytes and invalid UTF-8 sequences
+    // that PostgreSQL cannot store (fixes issue #347)
+    const sanitizationResult = sanitizeTextWithMetrics(text);
+
+    // Log if significant content was removed during sanitization
+    if (sanitizationResult.bytesRemoved > 0) {
+      logger.info('TXT text sanitization performed', {
+        originalLength: sanitizationResult.originalLength,
+        sanitizedLength: sanitizationResult.sanitizedLength,
+        nullBytesRemoved: sanitizationResult.nullBytesRemoved,
+        controlCharsRemoved: sanitizationResult.controlCharsRemoved,
+      });
+    }
+
     return {
-      text,
+      text: sanitizationResult.sanitized,
       metadata: {
         size: buffer.length,
       }

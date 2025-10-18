@@ -1,5 +1,6 @@
 import { RDSDataClient, ExecuteStatementCommand } from '@aws-sdk/client-rds-data';
 import { SchedulerClient, CreateScheduleCommand, UpdateScheduleCommand, DeleteScheduleCommand } from '@aws-sdk/client-scheduler';
+import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm';
 import { Context as LambdaContext } from 'aws-lambda';
 import * as jwt from 'jsonwebtoken';
 
@@ -132,6 +133,7 @@ function sanitizeForLogging(data: any): any {
 // Initialize clients
 const rdsClient = new RDSDataClient({});
 const schedulerClient = new SchedulerClient({});
+const ssmClient = new SSMClient({});
 
 // Environment variables with startup validation
 const requiredEnvVars = {
@@ -139,7 +141,7 @@ const requiredEnvVars = {
   DATABASE_SECRET_ARN: process.env.DATABASE_SECRET_ARN,
   DATABASE_NAME: process.env.DATABASE_NAME,
   ENVIRONMENT: process.env.ENVIRONMENT,
-  ECS_INTERNAL_ENDPOINT: process.env.ECS_INTERNAL_ENDPOINT,
+  ECS_INTERNAL_ENDPOINT_PARAM: process.env.ECS_INTERNAL_ENDPOINT_PARAM, // SSM parameter name
   INTERNAL_API_SECRET: process.env.INTERNAL_API_SECRET
 };
 
@@ -191,6 +193,52 @@ const DATABASE_SECRET_ARN = requiredEnvVars.DATABASE_SECRET_ARN;
 const DATABASE_NAME = requiredEnvVars.DATABASE_NAME;
 const ENVIRONMENT = requiredEnvVars.ENVIRONMENT;
 const DLQ_URL = optionalEnvVars.DLQ_URL;
+
+/**
+ * Get ECS internal endpoint from SSM Parameter Store
+ * Cached for Lambda container lifetime to reduce SSM API calls
+ */
+let cachedEcsEndpoint: string | null = null;
+
+async function getEcsEndpoint(parameterName: string, requestId: string): Promise<string> {
+  const log = createLogger({ requestId, operation: 'getEcsEndpoint' });
+
+  // Return cached value if available
+  if (cachedEcsEndpoint) {
+    log.debug('Using cached ECS endpoint', { parameterName });
+    return cachedEcsEndpoint;
+  }
+
+  try {
+    log.info('Fetching ECS endpoint from SSM', { parameterName });
+
+    const command = new GetParameterCommand({
+      Name: parameterName,
+      WithDecryption: false
+    });
+
+    const response = await ssmClient.send(command);
+
+    if (!response.Parameter?.Value) {
+      throw new Error(`SSM parameter ${parameterName} has no value`);
+    }
+
+    cachedEcsEndpoint = response.Parameter.Value;
+    log.info('ECS endpoint retrieved successfully', {
+      parameterName,
+      endpoint: cachedEcsEndpoint
+    });
+
+    return cachedEcsEndpoint;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error('Failed to get ECS endpoint from SSM', {
+      error: errorMessage,
+      parameterName
+    });
+    throw new Error(`Failed to retrieve ECS endpoint from SSM: ${errorMessage}`);
+  }
+}
 
 /**
  * Schedule Executor Lambda - EventBridge Scheduler Handler
@@ -380,10 +428,15 @@ async function executeAssistantArchitectForSchedule(scheduledExecution: any, exe
     inputData: Object.keys(scheduledExecution.input_data || {})
   });
 
-  // Get ECS endpoint URL from environment
-  const ecsEndpoint = process.env.ECS_INTERNAL_ENDPOINT;
+  // Get ECS endpoint URL from SSM Parameter Store
+  const ecsEndpointParamName = process.env.ECS_INTERNAL_ENDPOINT_PARAM;
+  if (!ecsEndpointParamName) {
+    throw new Error('ECS_INTERNAL_ENDPOINT_PARAM environment variable not configured');
+  }
+
+  const ecsEndpoint = await getEcsEndpoint(ecsEndpointParamName, requestId);
   if (!ecsEndpoint) {
-    throw new Error('ECS_INTERNAL_ENDPOINT environment variable not configured');
+    throw new Error('Failed to retrieve ECS endpoint from SSM Parameter Store');
   }
 
   // Get internal API secret for JWT generation

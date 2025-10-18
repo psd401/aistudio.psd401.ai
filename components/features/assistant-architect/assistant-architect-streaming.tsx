@@ -147,6 +147,7 @@ function AssistantArchitectRuntimeProvider({
         onExecutionComplete={onExecutionComplete}
         onExecutionError={onExecutionError}
       />
+      <AutoStartExecution tool={tool} />
       {children}
     </AssistantRuntimeProvider>
   )
@@ -206,6 +207,29 @@ function StreamingStateMonitor({
 
     return unsubscribe
   }, [runtime, previousRunning])
+
+  return null
+}
+
+// Component to automatically start execution when runtime is ready
+function AutoStartExecution({ tool }: { tool: AssistantArchitectWithRelations }) {
+  const runtime = useThreadRuntime()
+  const hasStarted = useRef(false)
+
+  useEffect(() => {
+    // Only start once when runtime is ready
+    if (!hasStarted.current) {
+      hasStarted.current = true
+
+      // Append initial message to trigger execution
+      runtime.append({
+        role: 'user',
+        content: [{ type: 'text', text: `Execute ${tool.name}` }]
+      })
+
+      log.debug('Auto-started assistant architect execution', { toolName: tool.name })
+    }
+  }, [runtime, tool.name])
 
   return null
 }
