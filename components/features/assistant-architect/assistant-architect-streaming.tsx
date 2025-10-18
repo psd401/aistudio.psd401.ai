@@ -24,8 +24,6 @@ import { ErrorBoundary } from "@/components/error-boundary"
 import type { AssistantArchitectWithRelations } from "@/types/assistant-architect-types"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { collectAndSanitizeEnabledTools, getToolDisplayName } from '@/lib/assistant-architect/tool-utils'
-import { AssistantArchitectChat } from "./assistant-architect-chat"
-import { ChatErrorBoundary } from "./chat-error-boundary"
 import { ScheduleModal } from "./schedule-modal"
 import Image from "next/image"
 import DocumentUploadButton from "@/components/ui/document-upload-button"
@@ -34,7 +32,6 @@ import { useChatRuntime, AssistantChatTransport } from '@assistant-ui/react-ai-s
 import { Thread } from '@/components/assistant-ui/thread'
 import { createLogger } from '@/lib/client-logger'
 import { ExecutionProgress } from './execution-progress'
-import type { ExecutionResultDetails } from "@/types/assistant-architect-types"
 
 const log = createLogger({ moduleName: 'assistant-architect-streaming' })
 
@@ -74,7 +71,6 @@ function sanitizeOptionLabel(label: string): string {
 
 interface AssistantArchitectStreamingProps {
   tool: AssistantArchitectWithRelations
-  isPreview?: boolean
 }
 
 // Runtime provider component to handle streaming
@@ -235,20 +231,15 @@ function AutoStartExecution({ tool }: { tool: AssistantArchitectWithRelations })
 }
 
 export const AssistantArchitectStreaming = memo(function AssistantArchitectStreaming({
-  tool,
-  isPreview = false
+  tool
 }: AssistantArchitectStreamingProps) {
   const { toast } = useToast()
-  const [executionId, setExecutionId] = useState<number | null>(null)
   const [promptCount, setPromptCount] = useState<number>(0)
-  const [conversationId, setConversationId] = useState<number | null>(null)
   const [enabledTools, setEnabledTools] = useState<string[]>([])
   const [inputs, setInputs] = useState<Record<string, unknown>>({})
   const [isExecuting, setIsExecuting] = useState(false)
   const [hasResults, setHasResults] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [executionStartTime, setExecutionStartTime] = useState<Date | null>(null)
-  const [executionEndTime, setExecutionEndTime] = useState<Date | null>(null)
 
   // Collect enabled tools from the assistant architect when component mounts
   useEffect(() => {
@@ -307,19 +298,13 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
       }
       // Reset state for new execution
       setHasResults(false)
-      setExecutionId(null)
-      setConversationId(null)
       setError(null)
-      setExecutionStartTime(null)
-      setExecutionEndTime(null)
     }
 
     try {
       setIsExecuting(true)
       setInputs(values)
       setError(null)
-      setExecutionStartTime(new Date()) // Capture actual start time
-      setExecutionEndTime(null)
 
       log.info('Form submitted', { toolId: tool.id, inputs: Object.keys(values) })
 
@@ -341,7 +326,6 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
   }, [isExecuting, hasResults, tool.id, toast])
 
   const handleExecutionIdChange = useCallback((newExecutionId: number) => {
-    setExecutionId(newExecutionId)
     log.debug('Execution ID received', { executionId: newExecutionId })
   }, [])
 
@@ -353,7 +337,6 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
   const handleExecutionComplete = useCallback(() => {
     setIsExecuting(false)
     setHasResults(true)
-    setExecutionEndTime(new Date()) // Capture actual completion time
 
     toast({
       title: "Execution Completed",
@@ -364,7 +347,6 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
   const handleExecutionError = useCallback((errorMessage: string) => {
     setError(errorMessage)
     setIsExecuting(false)
-    setExecutionEndTime(new Date()) // Capture error time
 
     toast({
       title: "Execution Failed",
@@ -415,25 +397,6 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
   // Add display names to memoized components
   ToolHeader.displayName = "ToolHeader"
   ErrorAlert.displayName = "ErrorAlert"
-
-  // Create execution details for chat component
-  const executionDetails: ExecutionResultDetails | undefined = useMemo(() => {
-    if (!executionId) return undefined
-
-    return {
-      id: executionId,
-      toolId: tool.id,
-      userId: 0, // Will be set by backend
-      status: hasResults ? 'completed' : 'running',
-      inputData: inputs,
-      startedAt: executionStartTime || new Date(), // Use stored start time
-      completedAt: executionEndTime, // Use stored completion time
-      errorMessage: error,
-      promptResults: [],
-      assistantArchitectId: tool.id,
-      enabledTools
-    }
-  }, [executionId, tool.id, inputs, hasResults, error, enabledTools, executionStartTime, executionEndTime])
 
   return (
     <div className="space-y-6">
@@ -594,8 +557,8 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
         </div>
       )}
 
-      {/* Streaming execution section */}
-      {isExecuting && (
+      {/* Streaming execution section - Thread remains visible after completion */}
+      {(isExecuting || hasResults) && (
         <ErrorBoundary>
           <AssistantArchitectRuntimeProvider
             tool={tool}
@@ -607,35 +570,20 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
           >
             <div className="space-y-6">
               {/* Progress indicator for multi-prompt execution */}
-              {promptCount > 1 && (
+              {promptCount > 1 && isExecuting && (
                 <ExecutionProgress
                   totalPrompts={promptCount}
                   prompts={tool.prompts || []}
                 />
               )}
 
-              {/* Thread component for streaming output */}
+              {/* Thread component for streaming output and follow-up conversations */}
               <div className="border rounded-lg p-4 space-y-4 max-w-full">
                 <Thread />
               </div>
             </div>
           </AssistantArchitectRuntimeProvider>
         </ErrorBoundary>
-      )}
-
-      {/* Chat section for completed executions */}
-      {hasResults && executionDetails && (
-        <div className="mt-8">
-          <ChatErrorBoundary>
-            <AssistantArchitectChat
-              execution={executionDetails}
-              conversationId={conversationId}
-              onConversationCreated={setConversationId}
-              isPreview={isPreview}
-              modelId={tool?.prompts?.[0]?.modelId}
-            />
-          </ChatErrorBoundary>
-        </div>
       )}
     </div>
   )

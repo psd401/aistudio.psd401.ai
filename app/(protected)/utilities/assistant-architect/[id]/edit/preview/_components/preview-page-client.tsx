@@ -14,7 +14,7 @@ export function PreviewPageClient({
   return (
     <div className="space-y-4">
       <div className="border rounded-lg p-4 space-y-4">
-        <AssistantArchitectStreaming tool={tool} isPreview={true} />
+        <AssistantArchitectStreaming tool={tool} />
       </div>
     </div>
   )
