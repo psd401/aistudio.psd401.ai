@@ -3,6 +3,7 @@ import { createLogger } from '@/lib/logger';
 import { ensureRDSNumber, ensureRDSString } from '@/lib/type-helpers';
 import { ErrorFactories } from '@/lib/error-utils';
 import type { SqlParameter } from "@aws-sdk/client-rds-data";
+import { sanitizeTextForDatabase } from '@/lib/utils/text-sanitizer';
 interface ChatMessage {
   content?: string;
   role: 'user' | 'assistant' | 'system';
@@ -175,16 +176,19 @@ async function createConversationAtomic(params: {
 
   // 2. Save user message (outside transaction for better performance)
   if (messageContent) {
+    // Sanitize message content to remove null bytes and invalid UTF-8 sequences
+    const sanitizedContent = sanitizeTextForDatabase(messageContent);
+
     await executeSQL(`
       INSERT INTO messages (conversation_id, role, content, created_at)
       VALUES (:conversationId, :role, :content, NOW())
     `, [
       { name: 'conversationId', value: { longValue: conversationId } },
       { name: 'role', value: { stringValue: 'user' } },
-      { name: 'content', value: { stringValue: messageContent } }
+      { name: 'content', value: { stringValue: sanitizedContent } }
     ]);
 
-    log.debug('User message saved', { conversationId, contentLength: messageContent.length });
+    log.debug('User message saved', { conversationId, contentLength: sanitizedContent.length });
   }
 
   // 3. Link document if provided (outside transaction to avoid blocking)
@@ -249,20 +253,23 @@ async function saveUserMessage(
     }
   }
   
+  // Sanitize content to remove null bytes and invalid UTF-8 sequences
+  const sanitizedContent = sanitizeTextForDatabase(content);
+
   const query = `
     INSERT INTO messages (conversation_id, role, content)
     VALUES (:conversationId, :role, :content)
   `;
-  
+
   const parameters = [
     { name: 'conversationId', value: { longValue: conversationId } },
     { name: 'role', value: { stringValue: 'user' } },
-    { name: 'content', value: { stringValue: content } }
+    { name: 'content', value: { stringValue: sanitizedContent } }
   ];
-  
+
   await executeSQL(query, parameters);
-  
-  log.debug('User message saved', { conversationId, contentLength: content.length });
+
+  log.debug('User message saved', { conversationId, contentLength: sanitizedContent.length });
 }
 
 /**
@@ -296,39 +303,47 @@ export async function saveAssistantMessage(
   }
   
   try {
+    // Sanitize content to remove null bytes and invalid UTF-8 sequences
+    const sanitizedContent = sanitizeTextForDatabase(content);
+    const sanitizedReasoningContent = reasoningContent
+      ? sanitizeTextForDatabase(
+          typeof reasoningContent === 'string'
+            ? reasoningContent
+            : JSON.stringify(reasoningContent)
+        )
+      : null;
+
     const query = `
       INSERT INTO messages (
-        conversation_id, 
-        role, 
-        content, 
-        model_id, 
-        reasoning_content, 
+        conversation_id,
+        role,
+        content,
+        model_id,
+        reasoning_content,
         token_usage
-      ) 
+      )
       VALUES (
-        :conversationId, 
-        :role, 
-        :content, 
-        :modelId, 
-        :reasoningContent, 
+        :conversationId,
+        :role,
+        :content,
+        :modelId,
+        :reasoningContent,
         :tokenUsage::jsonb
       )
     `;
-    
+
     const parameters = [
       { name: 'conversationId', value: { longValue: conversationId } },
       { name: 'role', value: { stringValue: 'assistant' } },
-      { name: 'content', value: { stringValue: content } },
-      { 
-        name: 'modelId', 
+      { name: 'content', value: { stringValue: sanitizedContent } },
+      {
+        name: 'modelId',
         value: modelId ? { longValue: modelId } : { isNull: true }
       },
-      { 
-        name: 'reasoningContent', 
-        value: reasoningContent 
-          ? { stringValue: typeof reasoningContent === 'string' 
-              ? reasoningContent 
-              : JSON.stringify(reasoningContent) }
+      {
+        name: 'reasoningContent',
+        value: sanitizedReasoningContent
+          ? { stringValue: sanitizedReasoningContent }
           : { isNull: true }
       },
       { 

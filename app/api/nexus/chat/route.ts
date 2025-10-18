@@ -8,6 +8,7 @@ import { processMessagesWithAttachments } from '@/lib/services/attachment-storag
 import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
 import type { StreamRequest } from '@/lib/streaming/types';
 import { getModelConfig } from '@/app/api/chat/lib/conversation-handler';
+import { sanitizeTextForDatabase } from '@/lib/utils/text-sanitizer';
 
 // Allow streaming responses up to 5 minutes for long-running conversations
 export const maxDuration = 300;
@@ -282,6 +283,9 @@ export async function POST(req: Request) {
         }
       }
 
+      // Sanitize conversation title to remove null bytes and invalid UTF-8 sequences
+      const sanitizedTitle = sanitizeTextForDatabase(conversationTitle);
+
       // Create new Nexus conversation with generated title
       const createResult = await executeSQL(
         `INSERT INTO nexus_conversations (
@@ -297,7 +301,7 @@ export async function POST(req: Request) {
           { name: 'userId', value: { longValue: userId } },
           { name: 'provider', value: { stringValue: provider } },
           { name: 'modelId', value: { stringValue: modelId } },
-          { name: 'title', value: { stringValue: conversationTitle } },
+          { name: 'title', value: { stringValue: sanitizedTitle } },
           { name: 'metadata', value: { stringValue: JSON.stringify({ source: 'nexus', streaming: true }) } }
         ]
       );
@@ -344,8 +348,10 @@ export async function POST(req: Request) {
         messageWithContent.parts.forEach((part) => {
           const typedPart = part as Record<string, unknown>;
           if (part.type === 'text' && typeof typedPart.text === 'string') {
-            userContent += (userContent ? ' ' : '') + typedPart.text;
-            serializableParts.push({ type: 'text', text: typedPart.text });
+            // Sanitize text before adding to arrays to prevent JSONB parse errors
+            const sanitizedText = sanitizeTextForDatabase(typedPart.text);
+            userContent += (userContent ? ' ' : '') + sanitizedText;
+            serializableParts.push({ type: 'text', text: sanitizedText });
           } else if (typedPart.type === 'image' && typedPart.image) {
             // Store only boolean flag - no image data or prefixes
             serializableParts.push({
@@ -360,13 +366,17 @@ export async function POST(req: Request) {
       // Fallback to legacy content format
       else if (messageWithContent.content) {
         if (typeof messageWithContent.content === 'string') {
-          userContent = messageWithContent.content;
-          serializableParts = [{ type: 'text', text: messageWithContent.content }];
+          // Sanitize text before adding to arrays to prevent JSONB parse errors
+          const sanitizedText = sanitizeTextForDatabase(messageWithContent.content);
+          userContent = sanitizedText;
+          serializableParts = [{ type: 'text', text: sanitizedText }];
         } else if (Array.isArray(messageWithContent.content)) {
           messageWithContent.content.forEach((part) => {
             if (part.type === 'text' && part.text) {
-              userContent += (userContent ? ' ' : '') + part.text;
-              serializableParts.push({ type: 'text', text: part.text });
+              // Sanitize text before adding to arrays to prevent JSONB parse errors
+              const sanitizedText = sanitizeTextForDatabase(part.text);
+              userContent += (userContent ? ' ' : '') + sanitizedText;
+              serializableParts.push({ type: 'text', text: sanitizedText });
             } else if (part.type === 'image' && part.image) {
               serializableParts.push({
                 type: 'image',
@@ -378,6 +388,9 @@ export async function POST(req: Request) {
           });
         }
       }
+
+      // Note: userContent and serializableParts already contain sanitized text
+      // Sanitization happens when extracting text from message parts above
 
       await executeSQL(
         `INSERT INTO nexus_messages (
@@ -501,6 +514,9 @@ export async function POST(req: Request) {
               return;
             }
 
+            // Sanitize assistant content to remove null bytes and invalid UTF-8 sequences
+            const sanitizedAssistantContent = sanitizeTextForDatabase(text);
+
             await executeSQL(
               `INSERT INTO nexus_messages (
                 conversation_id, role, content, parts,
@@ -513,8 +529,8 @@ export async function POST(req: Request) {
               )`,
               [
                 { name: 'conversationId', value: { stringValue: conversationId } },
-                { name: 'content', value: { stringValue: text } },
-                { name: 'parts', value: { stringValue: JSON.stringify([{ type: 'text', text }]) } },
+                { name: 'content', value: { stringValue: sanitizedAssistantContent } },
+                { name: 'parts', value: { stringValue: JSON.stringify([{ type: 'text', text: sanitizedAssistantContent }]) } },
                 { name: 'modelId', value: { longValue: dbModelId } },
                 { name: 'tokenUsage', value: {
                   stringValue: JSON.stringify({
