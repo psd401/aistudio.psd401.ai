@@ -638,14 +638,15 @@ export class NexusProviderFactory {
    */
   private async getModelsForProvider(provider: string): Promise<string[]> {
     try {
-      const result = await executeSQL<{model_id: string}>(`
-        SELECT model_id FROM ai_models 
+      // Note: RDS Data API adapter transforms snake_case to camelCase
+      const result = await executeSQL<{modelId: string}>(`
+        SELECT model_id FROM ai_models
         WHERE provider = $1 AND active = true AND chat_enabled = true
         ORDER BY name
       `, [provider]);
-      
+
       if (result.length > 0) {
-        return result.map((row) => row.model_id);
+        return result.map((row) => row.modelId);
       }
     } catch (error) {
       log.warn('Failed to get models from database', {

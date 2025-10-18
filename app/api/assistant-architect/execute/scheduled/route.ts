@@ -536,7 +536,8 @@ async function executePromptChainServerSide(
       const messages = [...context.accumulatedMessages, userMessage];
 
       // 4. Get AI model configuration
-      const modelResult = await executeSQL<{ model_id: string; provider: string }>(
+      // Note: RDS Data API adapter returns camelCase field names
+      const modelResult = await executeSQL<{ modelId: string; provider: string }>(
         `SELECT model_id, provider FROM ai_models WHERE id = :modelId LIMIT 1`,
         [{ name: 'modelId', value: { longValue: prompt.modelId } }]
       );
@@ -547,14 +548,15 @@ async function executePromptChainServerSide(
         });
       }
 
+      // Note: RDS Data API adapter transforms snake_case to camelCase
       const modelData = modelResult[0];
-      if (!modelData?.model_id || !modelData?.provider) {
+      if (!modelData?.modelId || !modelData?.provider) {
         throw ErrorFactories.dbRecordNotFound('ai_models', prompt.modelId || 'unknown', {
           details: { promptId: prompt.id, modelId: prompt.modelId, reason: 'Invalid model data' }
         });
       }
 
-      const modelId = String(modelData.model_id);
+      const modelId = String(modelData.modelId);
       const provider = String(modelData.provider);
 
       // 5. Prepare tools for this prompt
