@@ -2,7 +2,9 @@
 
 ## Overview
 
-This guide covers the operational aspects of the Universal Polling Architecture, including infrastructure setup, monitoring, deployment procedures, and troubleshooting for the streaming AI system.
+This guide covers the operational aspects of the AI Studio streaming infrastructure, including ECS service management, monitoring, deployment procedures, and troubleshooting.
+
+**Current Architecture**: Direct ECS streaming (as of PR #340, October 2024)
 
 ## Infrastructure Components
 
@@ -10,772 +12,568 @@ This guide covers the operational aspects of the Universal Polling Architecture,
 
 ```mermaid
 graph TB
-    subgraph "AWS Infrastructure"
-        Amplify[AWS Amplify<br/>Next.js SSR Hosting]
-        Lambda[Lambda Workers<br/>AI Processing]
-        SQS[Amazon SQS<br/>Job Queue]
-        RDS[Aurora Serverless v2<br/>PostgreSQL Database]
-        Secrets[Secrets Manager<br/>API Keys & Config]
-        CloudWatch[CloudWatch<br/>Logs & Metrics]
-        IAM[IAM Roles<br/>& Policies]
+    subgraph "Frontend & Streaming"
+        Client[Client Browser]
+        CF[CloudFront CDN]
+        ALB[Application Load Balancer]
+        ECS[ECS Fargate Service<br/>Next.js + AI Streaming]
     end
-    
-    subgraph "External Services"
+
+    subgraph "Data & Storage"
+        RDS[Aurora Serverless v2<br/>PostgreSQL Database]
+        S3[S3 Storage<br/>Documents & Uploads]
+        Secrets[Secrets Manager<br/>API Keys & Config]
+    end
+
+    subgraph "Background Processing"
+        Lambda[Lambda Workers]
+        SQS[SQS Queues]
+    end
+
+    subgraph "External AI Services"
         OpenAI[OpenAI API]
         Bedrock[Amazon Bedrock]
         Google[Google Gemini API]
         Azure[Azure OpenAI]
     end
-    
-    Amplify --> Lambda
-    Lambda --> SQS
+
+    Client --> CF
+    CF --> ALB
+    ALB --> ECS
+
+    ECS --> RDS
+    ECS --> S3
+    ECS --> Secrets
+    ECS --> OpenAI
+    ECS --> Bedrock
+    ECS --> Google
+    ECS --> Azure
+
+    ECS -.Document Processing.-> SQS
+    SQS --> Lambda
     Lambda --> RDS
-    Lambda --> Secrets
-    Lambda --> OpenAI
-    Lambda --> Bedrock
-    Lambda --> Google
-    Lambda --> Azure
-    
-    Amplify --> RDS
-    Amplify --> Secrets
-    
-    Lambda --> CloudWatch
-    Amplify --> CloudWatch
-    
-    IAM --> Lambda
-    IAM --> Amplify
-    
-    style Amplify fill:#ff9800
-    style Lambda fill:#4caf50
-    style SQS fill:#2196f3
+    Lambda --> S3
+
+    style ECS fill:#4caf50
+    style ALB fill:#2196f3
     style RDS fill:#9c27b0
+    style Lambda fill:#ff9800
 ```
 
-## SQS Queue Configuration
+### Component Responsibilities
 
-### Queue Settings
+#### ECS Fargate Service
+- **Purpose**: Hosts Next.js application with real-time AI streaming
+- **Configuration**:
+  - CPU: 0.5-2 vCPU (auto-scaling)
+  - Memory: 1-4 GB (auto-scaling)
+  - Tasks: 2-10 (based on load)
+- **Features**:
+  - HTTP/2 streaming support
+  - No timeout limits
+  - Auto-scaling based on CPU/memory
+  - Health checks via ALB
+
+#### Application Load Balancer
+- **Purpose**: Routes HTTP traffic to ECS containers
+- **Features**:
+  - SSL/TLS termination
+  - Health checks every 30 seconds
+  - Chunked transfer encoding
+  - WebSocket support (future)
+
+#### Lambda Workers (Background Only)
+- **Purpose**: Asynchronous document and data processing
+- **Use Cases**:
+  - Document processing (`file-processor`)
+  - Textract processing (`textract-processor`)
+  - URL processing (`url-processor`)
+  - Embedding generation (`embedding-generator`)
+- **NOT used for**: AI streaming (handled by ECS)
+
+#### Aurora Serverless v2
+- **Purpose**: PostgreSQL database for all application data
+- **Access**: RDS Data API (no direct connections)
+- **Auto-scaling**: 0.5-16 ACUs based on load
+- **Backup**: Automated daily snapshots
+
+## ECS Service Configuration
+
+### Task Definition
 
 ```yaml
-# aistudio-{environment}-streaming-jobs-queue
-Queue Type: Standard
-Visibility Timeout: 300 seconds (5 minutes)
-Message Retention Period: 1209600 seconds (14 days)
-Receive Wait Time: 0 seconds (short polling)
-Maximum Receives: 3
-Dead Letter Queue: aistudio-{environment}-streaming-jobs-dlq
+Family: aistudio-frontend
+CPU: 512 (0.5 vCPU)
+Memory: 1024 MB (1 GB)
+Network Mode: awsvpc
+Requires Compatibilities: FARGATE
+
+Container:
+  Name: next-app
+  Image: {ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com/aistudio-frontend:latest
+  Port Mappings:
+    - 3000:3000 (HTTP)
+  Environment Variables:
+    - NODE_ENV=production
+    - NEXT_PUBLIC_ENVIRONMENT={env}
+    - RDS_RESOURCE_ARN={arn}
+    - DATABASE_SECRET_ARN={arn}
+    # ... (see ENVIRONMENT_VARIABLES.md)
+
+  Health Check:
+    Command: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+    Interval: 30 seconds
+    Timeout: 5 seconds
+    Retries: 3
 ```
 
-### Queue Permissions
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "arn:aws:iam::{ACCOUNT}:role/amplify-backend-role"
-      },
-      "Action": [
-        "sqs:SendMessage",
-        "sqs:GetQueueAttributes"
-      ],
-      "Resource": "arn:aws:sqs:{REGION}:{ACCOUNT}:aistudio-{ENV}-streaming-jobs-queue"
-    },
-    {
-      "Effect": "Allow", 
-      "Principal": {
-        "AWS": "arn:aws:iam::{ACCOUNT}:role/lambda-streaming-worker-role"
-      },
-      "Action": [
-        "sqs:ReceiveMessage",
-        "sqs:DeleteMessage",
-        "sqs:GetQueueAttributes"
-      ],
-      "Resource": "arn:aws:sqs:{REGION}:{ACCOUNT}:aistudio-{ENV}-streaming-jobs-queue"
-    }
-  ]
-}
-```
-
-### Dead Letter Queue Setup
+### Auto-Scaling Configuration
 
 ```yaml
-# aistudio-{environment}-streaming-jobs-dlq
-Queue Type: Standard
-Visibility Timeout: 300 seconds
-Message Retention Period: 1209600 seconds (14 days)
-Maximum Receives: (not applicable for DLQ)
-```
+Service Auto-Scaling:
+  Min Capacity: 2 tasks
+  Max Capacity: 10 tasks
 
-## Lambda Worker Configuration
+  Target Tracking Policies:
+    - Metric: ECS Service Average CPU Utilization
+      Target Value: 70%
+      Scale Out Cooldown: 60 seconds
+      Scale In Cooldown: 300 seconds
 
-### Function Settings
-
-```yaml
-Function Name: aistudio-{environment}-streaming-worker
-Runtime: Node.js 20.x
-Architecture: x86_64
-Memory: 1024 MB
-Timeout: 900 seconds (15 minutes)
-Environment Variables:
-  - NODE_ENV: production
-  - DATABASE_SECRET_ARN: arn:aws:secretsmanager:...
-  - RDS_RESOURCE_ARN: arn:aws:rds:...
-  - STREAMING_JOBS_QUEUE_URL: https://sqs...
-  - AWS_REGION: us-east-1
-```
-
-### IAM Role Permissions
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "rds-data:BatchExecuteStatement",
-        "rds-data:BeginTransaction", 
-        "rds-data:CommitTransaction",
-        "rds-data:ExecuteStatement",
-        "rds-data:RollbackTransaction"
-      ],
-      "Resource": "arn:aws:rds:{REGION}:{ACCOUNT}:cluster:aistudio-{ENV}-db"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "secretsmanager:GetSecretValue",
-        "secretsmanager:DescribeSecret"
-      ],
-      "Resource": [
-        "arn:aws:secretsmanager:{REGION}:{ACCOUNT}:secret:aistudio-{ENV}-db-*",
-        "arn:aws:secretsmanager:{REGION}:{ACCOUNT}:secret:aistudio-{ENV}-api-keys-*"
-      ]
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "sqs:ReceiveMessage",
-        "sqs:DeleteMessage",
-        "sqs:SendMessage",
-        "sqs:GetQueueAttributes"
-      ],
-      "Resource": [
-        "arn:aws:sqs:{REGION}:{ACCOUNT}:aistudio-{ENV}-streaming-jobs-queue",
-        "arn:aws:sqs:{REGION}:{ACCOUNT}:aistudio-{ENV}-streaming-jobs-dlq"
-      ]
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "bedrock:InvokeModel",
-        "bedrock:InvokeModelWithResponseStream"
-      ],
-      "Resource": "arn:aws:bedrock:{REGION}::foundation-model/*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "logs:CreateLogGroup",
-        "logs:CreateLogStream", 
-        "logs:PutLogEvents"
-      ],
-      "Resource": "arn:aws:logs:{REGION}:{ACCOUNT}:*"
-    }
-  ]
-}
-```
-
-### Event Source Mapping
-
-```yaml
-Event Source: Amazon SQS
-SQS Queue: aistudio-{environment}-streaming-jobs-queue
-Batch Size: 1
-Maximum Batching Window: 0 seconds
-Parallelization Factor: 10
-Starting Position: TRIM_HORIZON
-```
-
-## Database Schema Management
-
-### Migration Process
-
-The AI streaming jobs table is managed through the standard migration system:
-
-```sql
--- File: /infra/database/schema/033-ai-streaming-jobs.sql
-CREATE TABLE ai_streaming_jobs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  conversation_id TEXT,                    -- Supports both integer and UUID
-  user_id INTEGER NOT NULL,
-  model_id INTEGER NOT NULL,
-  status job_status NOT NULL DEFAULT 'pending',
-  request_data JSONB NOT NULL,
-  response_data JSONB,
-  partial_content TEXT,
-  error_message TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  completed_at TIMESTAMP WITH TIME ZONE
-);
-```
-
-### Database Functions
-
-```sql
--- Update job status with atomic operations
-CREATE OR REPLACE FUNCTION update_job_status(
-  p_job_id UUID,
-  p_status job_status,
-  p_partial_content TEXT DEFAULT NULL,
-  p_progress_info JSONB DEFAULT NULL,
-  p_error_message TEXT DEFAULT NULL
-) RETURNS BOOLEAN AS $$
-DECLARE
-  updated_rows INTEGER;
-BEGIN
-  UPDATE ai_streaming_jobs 
-  SET 
-    status = p_status,
-    partial_content = COALESCE(p_partial_content, partial_content),
-    progress_info = COALESCE(p_progress_info, progress_info),
-    error_message = COALESCE(p_error_message, error_message),
-    started_at = CASE 
-      WHEN p_status = 'running' AND started_at IS NULL 
-      THEN NOW() 
-      ELSE started_at 
-    END,
-    completed_at = CASE 
-      WHEN p_status IN ('completed', 'failed') 
-      THEN NOW() 
-      ELSE completed_at 
-    END
-  WHERE id = p_job_id;
-  
-  GET DIAGNOSTICS updated_rows = ROW_COUNT;
-  RETURN updated_rows > 0;
-END;
-$$ LANGUAGE plpgsql;
-
--- Cleanup expired jobs
-CREATE OR REPLACE FUNCTION cleanup_expired_streaming_jobs()
-RETURNS INTEGER AS $$
-DECLARE
-  deleted_count INTEGER;
-BEGIN
-  DELETE FROM ai_streaming_jobs 
-  WHERE expires_at < NOW() 
-    OR (created_at < NOW() - INTERVAL '24 hours' AND status = 'completed')
-    OR (created_at < NOW() - INTERVAL '1 hour' AND status = 'failed')
-    OR (created_at < NOW() - INTERVAL '2 hours' AND status = 'pending');
-  
-  GET DIAGNOSTICS deleted_count = ROW_COUNT;
-  RETURN deleted_count;
-END;
-$$ LANGUAGE plpgsql;
-```
-
-### Index Optimization
-
-```sql
--- Performance indexes for job queries
-CREATE INDEX idx_ai_streaming_jobs_user_status 
-ON ai_streaming_jobs(user_id, status, created_at DESC);
-
-CREATE INDEX idx_ai_streaming_jobs_status_created 
-ON ai_streaming_jobs(status, created_at) 
-WHERE status IN ('pending', 'running');
-
-CREATE INDEX idx_ai_streaming_jobs_expires 
-ON ai_streaming_jobs(expires_at) 
-WHERE expires_at IS NOT NULL;
-
-CREATE INDEX idx_ai_streaming_jobs_conversation 
-ON ai_streaming_jobs(conversation_id, user_id, created_at DESC);
+    - Metric: ECS Service Average Memory Utilization
+      Target Value: 80%
+      Scale Out Cooldown: 60 seconds
+      Scale In Cooldown: 300 seconds
 ```
 
 ## Deployment Procedures
 
-### Infrastructure Deployment
-
-Using AWS CDK for complete infrastructure provisioning:
+### Standard Deployment
 
 ```bash
-# Deploy all infrastructure stacks
+# 1. Build and test locally
+npm install
+npm run build
+npm run typecheck
+npm run lint
+
+# 2. Commit changes
+git add .
+git commit -m "feat: description of changes"
+git push origin dev
+
+# 3. Automatic deployment via AWS Amplify
+# Amplify detects changes and triggers build/deploy
+```
+
+### Manual ECS Deployment (if needed)
+
+```bash
+# 1. Build Docker image
+docker build -t aistudio-frontend:latest .
+
+# 2. Tag image
+docker tag aistudio-frontend:latest \
+  {ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com/aistudio-frontend:latest
+
+# 3. Push to ECR
+aws ecr get-login-password --region {REGION} | \
+  docker login --username AWS --password-stdin \
+  {ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com
+
+docker push {ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com/aistudio-frontend:latest
+
+# 4. Deploy via CDK
 cd infra
-npx cdk deploy --all
-
-# Deploy specific stacks
-npx cdk deploy AIStudio-DatabaseStack-{ENV}
-npx cdk deploy AIStudio-QueueStack-{ENV}
-npx cdk deploy AIStudio-LambdaStack-{ENV}
-npx cdk deploy AIStudio-FrontendStack-{ENV}
+npx cdk deploy AIStudio-ECSServiceStack-Dev
 ```
 
-### Application Deployment
+### Rollback Procedure
 
 ```bash
-# Build and deploy the shared package
-cd packages/ai-streaming-core
-npm run build
-npm run lint
-npm run typecheck
+# Option 1: Revert to previous task definition
+aws ecs update-service \
+  --cluster aistudio-dev-cluster \
+  --service aistudio-dev-frontend \
+  --task-definition aistudio-frontend:{PREVIOUS_REVISION}
 
-# Deploy Next.js application
-npm run build
-npm run lint
-npm run typecheck
-
-# Amplify auto-deploys on git push to main/dev branches
-```
-
-### Database Migrations
-
-```bash
-# Run database migrations
-cd infra/database
-npm run migrate
-
-# Verify migration status
-npm run migrate:status
-```
-
-### Lambda Function Deployment
-
-```bash
-# Package Lambda function with dependencies
-cd lambda/streaming-worker
-npm run build
-npm run package
-
-# Deploy via CDK
-cd ../../infra
-npx cdk deploy AIStudio-LambdaStack-{ENV}
+# Option 2: Git revert and redeploy
+git revert {BAD_COMMIT_HASH}
+git push origin dev
+# Wait for automatic deployment
 ```
 
 ## Monitoring and Observability
 
-### CloudWatch Metrics
+### Key Metrics to Monitor
 
-#### Custom Metrics
+#### ECS Service Metrics
 
-```typescript
-// Application metrics published to CloudWatch
-const publishMetrics = async (metrics: {
-  JobCreated: number;
-  JobCompleted: number;
-  JobFailed: number;
-  ProcessingLatency: number;
-  QueueDepth: number;
-}) => {
-  const cloudwatch = new CloudWatchClient({ region: process.env.AWS_REGION });
-  
-  await cloudwatch.send(new PutMetricDataCommand({
-    Namespace: 'AIStudio/Streaming',
-    MetricData: [
-      {
-        MetricName: 'JobsCreated',
-        Value: metrics.JobCreated,
-        Unit: 'Count',
-        Timestamp: new Date()
-      },
-      {
-        MetricName: 'ProcessingLatencyMs',
-        Value: metrics.ProcessingLatency,
-        Unit: 'Milliseconds',
-        Dimensions: [
-          { Name: 'Environment', Value: process.env.NODE_ENV }
-        ]
-      }
-    ]
-  }));
-};
+```bash
+# View ECS service metrics in CloudWatch
+Namespace: AWS/ECS
+
+Metrics:
+  - CPUUtilization (should be <80%)
+  - MemoryUtilization (should be <80%)
+  - DesiredTaskCount
+  - RunningTaskCount
+  - PendingTaskCount
 ```
 
-#### Dashboard Configuration
+#### Application Load Balancer Metrics
 
-```json
-{
-  "widgets": [
-    {
-      "type": "metric",
-      "properties": {
-        "metrics": [
-          ["AIStudio/Streaming", "JobsCreated", "Environment", "production"],
-          ["AIStudio/Streaming", "JobsCompleted", "Environment", "production"],
-          ["AIStudio/Streaming", "JobsFailed", "Environment", "production"]
-        ],
-        "period": 300,
-        "stat": "Sum",
-        "region": "us-east-1",
-        "title": "Job Processing Metrics"
-      }
-    },
-    {
-      "type": "metric", 
-      "properties": {
-        "metrics": [
-          ["AWS/SQS", "ApproximateNumberOfVisibleMessages", "QueueName", "aistudio-prod-streaming-jobs-queue"],
-          ["AWS/SQS", "NumberOfMessagesSent", "QueueName", "aistudio-prod-streaming-jobs-queue"],
-          ["AWS/SQS", "NumberOfMessagesReceived", "QueueName", "aistudio-prod-streaming-jobs-queue"]
-        ],
-        "period": 300,
-        "stat": "Average",
-        "region": "us-east-1", 
-        "title": "SQS Queue Metrics"
-      }
-    }
-  ]
-}
+```bash
+Namespace: AWS/ApplicationELB
+
+Metrics:
+  - TargetResponseTime (should be <5s for most requests)
+  - HealthyHostCount (should equal DesiredTaskCount)
+  - UnHealthyHostCount (should be 0)
+  - RequestCount
+  - HTTPCode_Target_2XX_Count
+  - HTTPCode_Target_5XX_Count (should be <1%)
 ```
 
-### Log Aggregation
+#### Custom Application Metrics
 
-#### Structured Logging Format
-
-```typescript
-// Consistent log format across all components
-interface LogEntry {
-  timestamp: string;
-  level: 'info' | 'warn' | 'error' | 'debug';
-  message: string;
-  requestId?: string;
-  jobId?: string;
-  userId?: string;
-  provider?: string;
-  modelId?: string;
-  duration?: number;
-  error?: {
-    name: string;
-    message: string;
-    stack?: string;
-  };
-}
+```bash
+# Logged via structured logging
+- AI Provider API Latency
+- Streaming Session Duration
+- Database Query Time
+- Error Rates by Endpoint
 ```
 
-#### CloudWatch Log Groups
+### CloudWatch Dashboards
+
+Create dashboards for:
+1. **ECS Service Health**
+   - CPU/Memory utilization
+   - Task count
+   - Container instance status
+
+2. **Application Performance**
+   - Request rate
+   - Response time (p50, p95, p99)
+   - Error rates
+   - AI provider latency
+
+3. **Database Performance**
+   - Connection count
+   - Query duration
+   - Read/write IOPS
+
+### CloudWatch Alarms
+
+```bash
+# Critical Alarms
+1. ECS CPU > 80% for 5 minutes
+   → Trigger auto-scaling (should auto-resolve)
+
+2. ECS Memory > 80% for 5 minutes
+   → Trigger auto-scaling (should auto-resolve)
+
+3. Unhealthy Target Count > 0 for 2 minutes
+   → Page on-call engineer
+
+4. Error Rate > 5% for 5 minutes
+   → Page on-call engineer
+
+5. ALB 5XX Errors > 10/minute for 5 minutes
+   → Page on-call engineer
+
+# Warning Alarms
+1. Response Time > 10 seconds (p95)
+   → Send Slack notification
+
+2. Database Connections > 80% of max
+   → Send Slack notification
+
+3. ECS Tasks < Desired Count for 10 minutes
+   → Send Slack notification
+```
+
+### Log Management
+
+#### ECS Logs
+
+```bash
+# Stream ECS service logs
+aws logs tail /aws/ecs/aistudio-dev-frontend --follow
+
+# Filter for errors
+aws logs tail /aws/ecs/aistudio-dev-frontend \
+  --follow \
+  --filter-pattern "ERROR"
+
+# Filter for specific request
+aws logs tail /aws/ecs/aistudio-dev-frontend \
+  --follow \
+  --filter-pattern "{$.requestId = \"req-123\"}"
+
+# Get logs for specific time range
+aws logs tail /aws/ecs/aistudio-dev-frontend \
+  --since 1h \
+  --format short
+```
+
+#### Log Retention
 
 ```yaml
 Log Groups:
-  - /aws/lambda/aistudio-{env}-streaming-worker
-  - /aws/amplify/aistudio-{env}/server-logs
-  - /aws/rds/cluster/aistudio-{env}-db/slowquery
-  - /aws/sqs/aistudio-{env}-streaming-jobs-queue
+  - /aws/ecs/aistudio-dev-frontend
+    Retention: 30 days
+
+  - /aws/lambda/file-processor
+    Retention: 14 days
+
+  - /aws/lambda/textract-processor
+    Retention: 14 days
 ```
 
-### Alerting Setup
+## Troubleshooting Guide
 
-#### CloudWatch Alarms
+### Issue: Slow Streaming Responses
 
-```typescript
-// High-priority alarms
-const alarms = [
-  {
-    name: 'HighJobFailureRate',
-    metric: 'AIStudio/Streaming/JobsFailed',
-    threshold: 10,
-    comparisonOperator: 'GreaterThanThreshold',
-    evaluationPeriods: 2,
-    period: 300,
-    statistic: 'Sum',
-    treatMissingData: 'notBreaching'
-  },
-  {
-    name: 'LongQueueDepth',
-    metric: 'AWS/SQS/ApproximateNumberOfVisibleMessages',
-    threshold: 100,
-    comparisonOperator: 'GreaterThanThreshold',
-    evaluationPeriods: 3,
-    period: 300,
-    dimensions: { QueueName: 'aistudio-prod-streaming-jobs-queue' }
-  },
-  {
-    name: 'HighLambdaErrors',
-    metric: 'AWS/Lambda/Errors',
-    threshold: 5,
-    comparisonOperator: 'GreaterThanThreshold',
-    evaluationPeriods: 2,
-    period: 300,
-    dimensions: { FunctionName: 'aistudio-prod-streaming-worker' }
-  }
-];
+**Symptoms**: AI responses take longer than expected to start streaming
+
+**Debugging Steps**:
+1. Check ECS service CPU/memory utilization
+2. Check ALB target response time metrics
+3. Review CloudWatch logs for AI provider API latency
+4. Check database query performance
+
+**Common Causes**:
+- ECS service under-provisioned (scale up)
+- AI provider API slow (check provider status)
+- Database queries slow (add indexes)
+- Network latency to AI providers
+
+**Resolution**:
+```bash
+# Check ECS service status
+aws ecs describe-services \
+  --cluster aistudio-dev-cluster \
+  --services aistudio-dev-frontend
+
+# Scale up if needed
+aws ecs update-service \
+  --cluster aistudio-dev-cluster \
+  --service aistudio-dev-frontend \
+  --desired-count 5
 ```
 
-#### SNS Notification Topics
+### Issue: ECS Tasks Failing Health Checks
+
+**Symptoms**: Tasks marked as unhealthy and replaced frequently
+
+**Debugging Steps**:
+1. Check CloudWatch logs for application errors
+2. Review ALB target health check results
+3. Check container health check command
+4. Verify network connectivity
+
+**Common Causes**:
+- Application crash on startup
+- Health check endpoint failing
+- Insufficient memory/CPU
+- Database connection failures
+
+**Resolution**:
+```bash
+# View recent task failures
+aws ecs list-tasks \
+  --cluster aistudio-dev-cluster \
+  --service-name aistudio-dev-frontend \
+  --desired-status STOPPED
+
+# Get failure reason
+aws ecs describe-tasks \
+  --cluster aistudio-dev-cluster \
+  --tasks {TASK_ARN}
+```
+
+### Issue: High Error Rate
+
+**Symptoms**: 500 errors, failed requests
+
+**Debugging Steps**:
+1. Check CloudWatch logs for stack traces
+2. Check database connectivity
+3. Review AI provider API errors
+4. Check Secrets Manager access
+
+**Common Causes**:
+- Database connection pool exhausted
+- AI provider API quota exceeded
+- Missing environment variables
+- Secrets Manager permission issues
+
+**Resolution**:
+```bash
+# Check recent errors
+aws logs filter-log-events \
+  --log-group-name /aws/ecs/aistudio-dev-frontend \
+  --filter-pattern "ERROR" \
+  --start-time $(date -u -d '1 hour ago' +%s)000
+
+# Check database connections
+# Run query in Aurora to see active connections
+```
+
+### Issue: Auto-Scaling Not Working
+
+**Symptoms**: Service not scaling despite high load
+
+**Debugging Steps**:
+1. Check auto-scaling policies
+2. Review CloudWatch metrics
+3. Check IAM permissions
+4. Verify cooldown periods
+
+**Resolution**:
+```bash
+# Verify auto-scaling target tracking
+aws application-autoscaling describe-scaling-policies \
+  --service-namespace ecs \
+  --resource-id service/aistudio-dev-cluster/aistudio-dev-frontend
+
+# Check current scaling activities
+aws application-autoscaling describe-scaling-activities \
+  --service-namespace ecs \
+  --resource-id service/aistudio-dev-cluster/aistudio-dev-frontend \
+  --max-results 10
+```
+
+## Backup and Disaster Recovery
+
+### Database Backups
 
 ```yaml
-Topics:
-  - aistudio-{env}-critical-alerts
-  - aistudio-{env}-operational-alerts
-  
-Subscriptions:
-  - Protocol: email
-    Endpoint: ops-team@domain.com
-    Topic: aistudio-{env}-critical-alerts
-  - Protocol: slack
-    Endpoint: https://hooks.slack.com/...
-    Topic: aistudio-{env}-operational-alerts
-```
+Automated Backups:
+  - Frequency: Daily
+  - Retention: 7 days
+  - Backup Window: 03:00-04:00 UTC
+  - Point-in-time Recovery: Up to 7 days
 
-## Performance Tuning
-
-### Database Optimization
-
-#### Connection Pooling
-
-```typescript
-// RDS Data API with connection management
-const executeSQL = async (query: string, parameters: Parameter[] = []) => {
-  const rdsData = new RDSDataClient({
-    region: process.env.AWS_REGION,
-    maxAttempts: 3,
-    retryMode: 'adaptive'
-  });
-  
-  return await rdsData.send(new ExecuteStatementCommand({
-    resourceArn: process.env.RDS_RESOURCE_ARN,
-    secretArn: process.env.DATABASE_SECRET_ARN,
-    database: 'aistudio',
-    sql: query,
-    parameters,
-    includeResultMetadata: true
-  }));
-};
-```
-
-#### Query Optimization
-
-```sql
--- Optimized job lookup with proper indexing
-EXPLAIN (ANALYZE, BUFFERS) 
-SELECT id, status, partial_content, response_data 
-FROM ai_streaming_jobs 
-WHERE id = $1::uuid;
-
--- Efficient status polling query
-EXPLAIN (ANALYZE, BUFFERS)
-SELECT * FROM ai_streaming_jobs 
-WHERE user_id = $1 
-  AND status IN ('pending', 'running') 
-ORDER BY created_at DESC 
-LIMIT 10;
-```
-
-### Lambda Performance
-
-#### Cold Start Optimization
-
-```typescript
-// Pre-initialize connections outside handler
-import { RDSDataClient } from '@aws-sdk/client-rds-data';
-import { SQSClient } from '@aws-sdk/client-sqs';
-
-// Initialize clients once
-const rdsClient = new RDSDataClient({ region: process.env.AWS_REGION });
-const sqsClient = new SQSClient({ region: process.env.AWS_REGION });
-
-// Lambda handler
-export const handler = async (event: SQSEvent) => {
-  // Handler code uses pre-initialized clients
-};
-```
-
-#### Memory Allocation
-
-```yaml
-# Optimal memory settings based on workload
-Memory Settings:
-  - Streaming Worker: 1024 MB (balance CPU/memory)
-  - Database Functions: 512 MB (lightweight operations)
-  - Queue Processors: 768 MB (moderate workload)
-```
-
-### SQS Optimization
-
-#### Batch Processing
-
-```typescript
-// Process multiple jobs efficiently
-export const processBatch = async (messages: SQSMessage[]) => {
-  const jobPromises = messages.map(async (message) => {
-    const jobId = message.Body;
-    return processStreamingJob(jobId);
-  });
-  
-  // Process jobs in parallel with concurrency limit
-  const results = await Promise.allSettled(jobPromises);
-  
-  // Handle successes and failures appropriately
-  results.forEach((result, index) => {
-    if (result.status === 'fulfilled') {
-      // Delete message from queue
-      deleteSQSMessage(messages[index].ReceiptHandle);
-    } else {
-      // Log error for DLQ processing
-      logger.error('Job processing failed', {
-        jobId: messages[index].Body,
-        error: result.reason
-      });
-    }
-  });
-};
-```
-
-## Security Configuration
-
-### API Security
-
-#### Authentication Flow
-
-```typescript
-// JWT validation for all API endpoints
-export const validateSession = async (req: Request): Promise<Session | null> => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  
-  if (!token) return null;
-  
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    return decoded as Session;
-  } catch (error) {
-    return null;
-  }
-};
-```
-
-#### Rate Limiting
-
-```typescript
-// Implement rate limiting for job creation
-const rateLimiter = new Map<string, { count: number; resetTime: number }>();
-
-export const checkRateLimit = (userId: string): boolean => {
-  const now = Date.now();
-  const limit = rateLimiter.get(userId);
-  
-  if (!limit || now > limit.resetTime) {
-    rateLimiter.set(userId, { count: 1, resetTime: now + 60000 }); // 1 minute window
-    return true;
-  }
-  
-  if (limit.count >= 10) { // 10 requests per minute
-    return false;
-  }
-  
-  limit.count++;
-  return true;
-};
-```
-
-### Data Protection
-
-#### Encryption at Rest
-
-```yaml
-Database:
-  Encryption: AES-256
-  Key Management: AWS KMS
-  Backup Encryption: Enabled
-
-SQS:
-  Encryption: Server-side encryption (SSE-SQS)
-  Message Retention: 14 days
-
-Lambda:
-  Environment Variables: Encrypted with KMS
-  Secrets: AWS Secrets Manager
-```
-
-#### PII Sanitization
-
-```typescript
-// Remove sensitive data from logs
-export const sanitizeForLogging = (data: any): any => {
-  const sensitiveFields = ['apiKey', 'password', 'token', 'email', 'phone'];
-  
-  if (typeof data !== 'object' || data === null) {
-    return data;
-  }
-  
-  const sanitized = { ...data };
-  
-  sensitiveFields.forEach(field => {
-    if (field in sanitized) {
-      sanitized[field] = '[REDACTED]';
-    }
-  });
-  
-  return sanitized;
-};
-```
-
-## Disaster Recovery
-
-### Backup Strategy
-
-#### Database Backups
-
-```yaml
-Aurora Cluster Backup:
-  Automatic Backups: Enabled
-  Backup Retention: 30 days
-  Preferred Backup Window: 03:00-04:00 UTC
-  Copy Tags to Snapshots: Enabled
-  
 Manual Snapshots:
-  Frequency: Weekly
-  Retention: 1 year
-  Cross-region Copy: Enabled (dr-region)
+  - Before major deployments
+  - Before schema migrations
+  - Retention: 30 days (manual deletion)
 ```
 
-#### Configuration Backup
+### Backup Procedures
 
 ```bash
-#!/bin/bash
-# Backup infrastructure configuration
-aws ssm put-parameter \
-  --name "/aistudio/backup/infrastructure-config" \
-  --value "$(cat infrastructure-config.json)" \
-  --type "SecureString" \
-  --overwrite
+# Create manual database snapshot
+aws rds create-db-cluster-snapshot \
+  --db-cluster-identifier aistudio-dev-db \
+  --db-cluster-snapshot-identifier aistudio-dev-manual-$(date +%Y%m%d-%H%M%S)
 
-# Backup application configuration
-aws s3 cp config/ s3://aistudio-backups/config/ --recursive
-```
+# List available snapshots
+aws rds describe-db-cluster-snapshots \
+  --db-cluster-identifier aistudio-dev-db
 
-### Recovery Procedures
-
-#### Database Recovery
-
-```bash
-# Point-in-time recovery
-aws rds restore-db-cluster-to-point-in-time \
-  --db-cluster-identifier aistudio-recovered \
-  --source-db-cluster-identifier aistudio-prod-db \
-  --restore-to-time 2024-01-15T10:30:00.000Z
-
-# Snapshot restoration
+# Restore from snapshot (creates new cluster)
 aws rds restore-db-cluster-from-snapshot \
-  --db-cluster-identifier aistudio-recovered \
-  --snapshot-identifier aistudio-prod-db-snapshot-2024-01-15
+  --db-cluster-identifier aistudio-dev-db-restored \
+  --snapshot-identifier {SNAPSHOT_ID} \
+  --engine aurora-postgresql
 ```
 
-#### Service Recovery
+### Disaster Recovery Plan
+
+1. **RTO (Recovery Time Objective)**: 1 hour
+2. **RPO (Recovery Point Objective)**: 1 hour (point-in-time recovery)
+
+**Recovery Steps**:
+```bash
+# 1. Restore database from snapshot/PITR
+# 2. Update CDK with restored database ARN
+# 3. Deploy ECS service pointing to restored database
+# 4. Verify application functionality
+# 5. Update DNS if needed (ALB remains same)
+```
+
+## Security Operations
+
+### Secret Rotation
 
 ```bash
-# Redeploy infrastructure
-cd infra
-npx cdk deploy --all
+# Rotate database credentials
+aws secretsmanager rotate-secret \
+  --secret-id aistudio-dev-db-secret \
+  --rotation-lambda-arn {ROTATION_LAMBDA_ARN}
 
-# Restore application from git
-git checkout main
-npm run build
-npm run deploy
-
-# Verify service health
-curl -f https://api.aistudio.psd401.ai/health || exit 1
+# Rotate AI provider API keys
+# (Manual process - update in Secrets Manager, restart ECS tasks)
 ```
 
-This comprehensive infrastructure guide provides the foundation for reliable, scalable, and secure operation of the Universal Polling Architecture.
+### Access Reviews
+
+- **Frequency**: Quarterly
+- **Review**: IAM roles, security groups, database access
+- **Document**: Access changes in security log
+
+### Vulnerability Scanning
+
+```bash
+# Scan Docker images
+aws ecr start-image-scan \
+  --repository-name aistudio-frontend \
+  --image-id imageTag=latest
+
+# View scan results
+aws ecr describe-image-scan-findings \
+  --repository-name aistudio-frontend \
+  --image-id imageTag=latest
+```
+
+## Cost Optimization
+
+### Current Cost Breakdown (Dev Environment)
+
+```yaml
+ECS Fargate: ~$30-40/month
+  - 2-4 tasks running 24/7
+  - 0.5 vCPU, 1 GB RAM per task
+
+Application Load Balancer: ~$16/month
+  - Base cost + data transfer
+
+Aurora Serverless v2: ~$30-50/month
+  - 0.5-2 ACUs based on load
+  - Storage: ~10 GB
+
+Lambda (Background Processing): ~$10-20/month
+  - Document processing
+  - Embedding generation
+
+S3 Storage: ~$5-10/month
+  - Documents and uploads
+
+Total: ~$90-140/month
+```
+
+### Cost Optimization Tips
+
+1. **Right-size ECS tasks**: Monitor CPU/memory, adjust if over-provisioned
+2. **Optimize auto-scaling**: Tune thresholds to avoid over-scaling
+3. **Use spot instances**: For dev/staging (50-70% cost reduction)
+4. **Compress logs**: Reduce CloudWatch Logs storage costs
+5. **S3 lifecycle policies**: Move old documents to Glacier
+
+## Related Documentation
+
+- [ECS Deployment Guide](../ECS_DEPLOYMENT.md)
+- [Architecture Overview](../ARCHITECTURE.md)
+- [ADR-002: Streaming Architecture Migration](../architecture/ADR-002-streaming-architecture-migration.md)
+- [ADR-003: ECS Streaming Migration](../architecture/ADR-003-ecs-streaming-migration.md)
+- [Environment Variables](../ENVIRONMENT_VARIABLES.md)
+
+---
+
+**Last Updated**: October 2024
+**Migration**: PR #340 - Remove Lambda streaming workers
+**Architecture**: Direct ECS streaming (no SQS polling)

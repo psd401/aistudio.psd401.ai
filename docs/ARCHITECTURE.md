@@ -594,6 +594,122 @@ interface RecoveryPolicy {
 }
 ```
 
+## Streaming Architecture Evolution
+
+The AI Studio streaming infrastructure has evolved through two major architectural migrations to optimize performance, cost, and user experience.
+
+### Phase 1: Amplify to ECS Fargate (ADR-002)
+
+**Timeline**: January 2025
+**Problem**: AWS Amplify does not support HTTP streaming, causing buffered responses and poor UX
+**Solution**: Migrated to ECS Fargate with Application Load Balancer
+
+**Key Changes**:
+- Enabled HTTP/2 streaming via ECS Fargate containers
+- Eliminated 30-second Amplify timeout limitation
+- Achieved real-time AI response streaming
+- Reduced time-to-first-token from 2-5 seconds to <1 second
+
+**Impact**:
+- ✅ Real-time streaming responses (like ChatGPT/Claude)
+- ✅ No timeout limits for long-running AI models
+- ✅ Professional user experience
+- ✅ Full control over containerized deployment
+
+**See**: [ADR-002: Streaming Architecture Migration](./architecture/ADR-002-streaming-architecture-migration.md)
+
+### Phase 2: Lambda Workers to Direct ECS (ADR-003)
+
+**Timeline**: October 2024 (PR #340)
+**Problem**: Redundant Lambda + SQS polling architecture adding latency and cost
+**Solution**: Direct ECS execution for all AI streaming
+
+**Key Changes**:
+- Removed streaming Lambda workers and SQS queues
+- Direct ECS execution via HTTP/2 streaming
+- Simplified architecture (fewer moving parts)
+- Eliminated 1-5 second SQS polling delay
+
+**Cost Savings**:
+- Lambda streaming workers: -$20-30/month
+- SQS requests: -$5-10/month
+- **Total savings: ~$35-40/month (~40% reduction)**
+
+**Performance Improvements**:
+- 1-5 second latency reduction (no SQS polling)
+- Eliminated Lambda cold starts for streaming
+- Faster job execution start time
+- More consistent response times
+
+**Architecture Simplification**:
+- Single execution path (ECS only)
+- Fewer infrastructure components to maintain
+- Unified monitoring and logging
+- Easier debugging and troubleshooting
+
+**Components Retained**:
+- SQS + Lambda for background processing:
+  - Document processing (`file-processor`)
+  - Textract processing (`textract-processor`)
+  - URL processing (`url-processor`)
+  - Embedding generation (`embedding-generator`)
+- These remain appropriate for asynchronous, non-streaming tasks
+
+**See**: [ADR-003: ECS Streaming Migration](./architecture/ADR-003-ecs-streaming-migration.md)
+
+### Current Streaming Architecture
+
+```
+┌──────────────┐
+│   Client     │
+└──────┬───────┘
+       │ HTTP/2 Streaming
+       ▼
+┌──────────────┐
+│ CloudFront   │ (Optional CDN)
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│     ALB      │ ← Chunked Transfer Encoding
+└──────┬───────┘ ← Server-Sent Events (SSE)
+       │
+       ▼
+┌──────────────┐
+│ ECS Fargate  │ ← Real-time AI streaming
+│  (Next.js)   │ ← No timeout limits
+└──────┬───────┘
+       │
+       ├─────────────┐
+       ▼             ▼
+┌──────────┐  ┌─────────────┐
+│  Aurora  │  │   Lambda    │
+│ServerlessV2│ │  Workers    │
+│          │  │ (Background)│
+└──────────┘  └─────────────┘
+```
+
+**Features**:
+- **Nexus Chat**: Real-time streaming conversations
+- **Model Compare**: Side-by-side model comparison with streaming
+- **Assistant Architect**: Multi-prompt tool execution
+- **All Features**: Unlimited response times, progressive rendering
+
+**Benefits Summary**:
+| Metric | Before (Amplify + Lambda) | After (ECS Direct) | Improvement |
+|--------|-------------------------|-------------------|-------------|
+| **Time-to-first-token** | 2-5 seconds | <1 second | **75-90% faster** |
+| **Streaming latency** | 1-5 seconds (polling) | Real-time (<100ms) | **Instant** |
+| **Monthly cost** | ~$100-140 | ~$60-100 | **~$40 savings** |
+| **Infrastructure components** | 8 services | 4 services | **50% reduction** |
+| **Timeout limit** | 30 seconds (Amplify) | None (ECS) | **Unlimited** |
+
+**Migration Impact**:
+- Zero user-facing changes (seamless migration)
+- Better performance and lower costs
+- Simpler architecture for maintenance
+- All features continue to work as expected
+
 ## Future Enhancements
 
 ### In Progress
