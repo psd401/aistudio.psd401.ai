@@ -27,7 +27,7 @@ import { collectAndSanitizeEnabledTools, getToolDisplayName } from '@/lib/assist
 import { ScheduleModal } from "./schedule-modal"
 import Image from "next/image"
 import DocumentUploadButton from "@/components/ui/document-upload-button"
-import { AssistantRuntimeProvider, useThreadRuntime, useLocalRuntime } from '@assistant-ui/react'
+import { AssistantRuntimeProvider, useThreadRuntime, useLocalRuntime, type ChatModelRunOptions, type ChatModelRunResult } from '@assistant-ui/react'
 import { Thread } from '@/components/assistant-ui/thread'
 import { createLogger } from '@/lib/client-logger'
 import { ExecutionProgress } from './execution-progress'
@@ -70,6 +70,250 @@ function sanitizeOptionLabel(label: string): string {
 
 interface AssistantArchitectStreamingProps {
   tool: AssistantArchitectWithRelations
+}
+
+// Options interface for creating the adapter
+interface AssistantArchitectAdapterOptions {
+  toolId: number
+  inputsRef: React.MutableRefObject<Record<string, unknown>>
+  hasCompletedExecutionRef: React.MutableRefObject<boolean>
+  executionIdRef: React.MutableRefObject<number | null>
+  conversationIdRef: React.MutableRefObject<string | null>
+  executionModelRef: React.MutableRefObject<{ modelId: string; provider: string } | null>
+  onExecutionIdChange: (id: number) => void
+  onPromptCountChange: (count: number) => void
+}
+
+// Factory function to create a stable ChatModelAdapter
+function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptions) {
+  const {
+    toolId,
+    inputsRef,
+    hasCompletedExecutionRef,
+    executionIdRef,
+    conversationIdRef,
+    executionModelRef,
+    onExecutionIdChange,
+    onPromptCountChange
+  } = options
+
+  return {
+    async *run(options: ChatModelRunOptions): AsyncGenerator<ChatModelRunResult> {
+      const { messages, abortSignal } = options
+
+      try {
+        // DYNAMIC ENDPOINT ROUTING based on execution state
+        const endpoint = hasCompletedExecutionRef.current
+          ? '/api/nexus/chat'
+          : '/api/assistant-architect/execute'
+
+        const mode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
+
+        log.info('Assistant Architect stream request', {
+          mode,
+          messageCount: messages.length
+        })
+
+        // Convert messages to proper format
+        const processedMessages = Array.from(messages).map(message => {
+          const parts = []
+
+          if (Array.isArray(message.content)) {
+            message.content.forEach(contentPart => {
+              if (contentPart.type === 'text') {
+                parts.push({ type: 'text', text: contentPart.text })
+              } else {
+                parts.push(contentPart)
+              }
+            })
+          } else if (typeof message.content === 'string') {
+            parts.push({ type: 'text', text: message.content })
+          }
+
+          return {
+            id: message.id || `msg-${Date.now()}`,
+            role: message.role,
+            parts: parts.length > 0 ? parts : [{ type: 'text', text: '' }]
+          }
+        })
+
+        // Build request body based on mode
+        let body: unknown
+        if (hasCompletedExecutionRef.current) {
+          // CONVERSATION MODE: After execution completes
+          const modelConfig = executionModelRef.current || {
+            modelId: '3',
+            provider: 'openai'
+          }
+
+          body = {
+            messages: processedMessages,
+            modelId: modelConfig.modelId,
+            provider: modelConfig.provider,
+            conversationId: conversationIdRef.current || undefined,
+            enabledTools: []
+          }
+        } else {
+          // EXECUTION MODE: Initial assistant execution
+          body = {
+            toolId,
+            inputs: inputsRef.current
+          }
+        }
+
+        // Make the fetch request
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(body),
+          signal: abortSignal
+        })
+
+        if (!response.ok) {
+          log.error('Stream request failed', { status: response.status, mode })
+          throw new Error(`Stream request failed: ${response.status}`)
+        }
+
+        // Extract execution metadata from headers
+        const executionId = response.headers.get('X-Execution-Id')
+        const promptCount = response.headers.get('X-Prompt-Count')
+        const newConversationId = response.headers.get('X-Conversation-Id')
+
+        if (executionId) {
+          executionIdRef.current = Number(executionId)
+          onExecutionIdChange(Number(executionId))
+          log.info('Execution started', { executionId, promptCount })
+        }
+
+        if (promptCount) {
+          onPromptCountChange(Number(promptCount))
+        }
+
+        if (newConversationId) {
+          conversationIdRef.current = newConversationId
+        }
+
+        // Process and yield the response stream
+        if (!response.body) {
+          throw new Error('Response body is null')
+        }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let accumulatedText = ''
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() || ''
+
+            for (const line of lines) {
+              if (!line.trim() || line.startsWith(':')) continue
+
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6)
+                if (data === '[DONE]') break
+
+                try {
+                  const parsed = JSON.parse(data)
+
+                  // Handle text deltas from AI SDK UIMessageStream format
+                  if (parsed.type === 'text-delta' && parsed.textDelta) {
+                    accumulatedText += parsed.textDelta
+                    yield {
+                      content: [{
+                        type: 'text' as const,
+                        text: accumulatedText
+                      }]
+                    }
+                    log.debug('Streamed text delta', {
+                      deltaLength: parsed.textDelta.length,
+                      totalLength: accumulatedText.length
+                    })
+                  }
+                  // Handle tool calls
+                  else if (parsed.type === 'tool-call' || parsed.type === 'tool-call-delta') {
+                    log.debug('Tool call received', {
+                      toolName: parsed.toolName,
+                      type: parsed.type
+                    })
+                    // Tool calls are handled by the UI components
+                  }
+                  // Handle errors
+                  else if (parsed.type === 'error') {
+                    log.error('Stream error received', {
+                      error: parsed.error
+                    })
+                    throw new Error(parsed.error || 'Stream error')
+                  }
+                  // Log unhandled types for debugging
+                  else {
+                    log.debug('Unhandled SSE event type', { type: parsed.type })
+                  }
+                } catch (parseError) {
+                  log.warn('Failed to parse SSE data', {
+                    data: data.substring(0, 100),
+                    error: parseError instanceof Error ? parseError.message : String(parseError)
+                  })
+                }
+              }
+            }
+          }
+
+          // Final yield with complete accumulated text
+          if (accumulatedText) {
+            yield {
+              content: [{
+                type: 'text' as const,
+                text: accumulatedText
+              }]
+            }
+          }
+
+          log.info('Streaming completed successfully', {
+            totalLength: accumulatedText.length,
+            mode
+          })
+
+        } finally {
+          try {
+            reader.releaseLock()
+          } catch (releaseError) {
+            log.warn('Failed to release reader lock', {
+              error: releaseError instanceof Error ? releaseError.message : String(releaseError)
+            })
+          }
+        }
+
+      } catch (error) {
+        const errorMode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
+        log.error('Streaming adapter error', {
+          error: error instanceof Error ? {
+            message: error.message,
+            name: error.name
+          } : String(error),
+          mode: errorMode
+        })
+
+        // Yield error message to user
+        yield {
+          content: [{
+            type: 'text' as const,
+            text: `Error: ${error instanceof Error ? error.message : 'An unknown error occurred'}`
+          }]
+        }
+
+        throw error
+      }
+    }
+  }
 }
 
 // Runtime provider component to handle streaming with single runtime and custom fetch routing
@@ -155,222 +399,23 @@ function AssistantArchitectRuntimeProvider({
     }
   }, [hasCompletedExecution, tool.prompts])
 
-  // Use LocalRuntime with full control over fetch logic
-  const runtime = useLocalRuntime({
-    async *run({ messages, abortSignal }) {
-      try {
-        // DYNAMIC ENDPOINT ROUTING based on execution state
-        const endpoint = hasCompletedExecutionRef.current
-          ? '/api/nexus/chat'
-          : '/api/assistant-architect/execute'
+  // Create stable adapter using useMemo to prevent recreation on every render
+  const adapter = useMemo(
+    () => createAssistantArchitectAdapter({
+      toolId: tool.id,
+      inputsRef,
+      hasCompletedExecutionRef,
+      executionIdRef,
+      conversationIdRef,
+      executionModelRef,
+      onExecutionIdChange: onExecutionIdChangeRef.current,
+      onPromptCountChange: onPromptCountChangeRef.current
+    }),
+    [tool.id] // Only recreate adapter when tool changes
+  )
 
-        const mode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
-
-        log.info('Assistant Architect stream request', {
-          mode,
-          messageCount: messages.length
-        })
-
-      // Convert messages to proper format
-      const processedMessages = messages.map(message => {
-        const parts = []
-
-        if (Array.isArray(message.content)) {
-          message.content.forEach(contentPart => {
-            if (contentPart.type === 'text') {
-              parts.push({ type: 'text', text: contentPart.text })
-            } else {
-              parts.push(contentPart)
-            }
-          })
-        } else if (typeof message.content === 'string') {
-          parts.push({ type: 'text', text: message.content })
-        }
-
-        return {
-          id: message.id || `msg-${Date.now()}`,
-          role: message.role,
-          parts: parts.length > 0 ? parts : [{ type: 'text', text: '' }]
-        }
-      })
-
-      // Build request body based on mode
-      let body: unknown
-      if (hasCompletedExecutionRef.current) {
-        // CONVERSATION MODE: After execution completes
-        const modelConfig = executionModelRef.current || {
-          modelId: '3',
-          provider: 'openai'
-        }
-
-        body = {
-          messages: processedMessages,
-          modelId: modelConfig.modelId,
-          provider: modelConfig.provider,
-          conversationId: conversationIdRef.current || undefined,
-          enabledTools: []
-        }
-      } else {
-        // EXECUTION MODE: Initial assistant execution
-        body = {
-          toolId: tool.id,
-          inputs: inputsRef.current
-        }
-      }
-
-      // Make the fetch request
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(body),
-        signal: abortSignal
-      })
-
-      if (!response.ok) {
-        log.error('Stream request failed', { status: response.status, mode })
-        throw new Error(`Stream request failed: ${response.status}`)
-      }
-
-      // Extract execution metadata from headers
-      const executionId = response.headers.get('X-Execution-Id')
-      const promptCount = response.headers.get('X-Prompt-Count')
-      const newConversationId = response.headers.get('X-Conversation-Id')
-
-      if (executionId) {
-        executionIdRef.current = Number(executionId)
-        onExecutionIdChangeRef.current(Number(executionId))
-        log.info('Execution started', { executionId, promptCount })
-      }
-
-      if (promptCount) {
-        onPromptCountChangeRef.current(Number(promptCount))
-      }
-
-      if (newConversationId) {
-        conversationIdRef.current = newConversationId
-      }
-
-      // Process and yield the response stream
-      if (!response.body) {
-        throw new Error('Response body is null')
-      }
-
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let accumulatedText = ''
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            if (!line.trim() || line.startsWith(':')) continue
-
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6)
-              if (data === '[DONE]') break
-
-              try {
-                const parsed = JSON.parse(data)
-
-                // Handle text deltas from AI SDK UIMessageStream format
-                if (parsed.type === 'text-delta' && parsed.textDelta) {
-                  accumulatedText += parsed.textDelta
-                  yield {
-                    content: [{
-                      type: 'text' as const,
-                      text: accumulatedText
-                    }]
-                  }
-                  log.debug('Streamed text delta', {
-                    deltaLength: parsed.textDelta.length,
-                    totalLength: accumulatedText.length
-                  })
-                }
-                // Handle tool calls
-                else if (parsed.type === 'tool-call' || parsed.type === 'tool-call-delta') {
-                  log.debug('Tool call received', {
-                    toolName: parsed.toolName,
-                    type: parsed.type
-                  })
-                  // Tool calls are handled by the UI components
-                }
-                // Handle errors
-                else if (parsed.type === 'error') {
-                  log.error('Stream error received', {
-                    error: parsed.error
-                  })
-                  throw new Error(parsed.error || 'Stream error')
-                }
-                // Log unhandled types for debugging
-                else {
-                  log.debug('Unhandled SSE event type', { type: parsed.type })
-                }
-              } catch (parseError) {
-                log.warn('Failed to parse SSE data', {
-                  data: data.substring(0, 100),
-                  error: parseError instanceof Error ? parseError.message : String(parseError)
-                })
-              }
-            }
-          }
-        }
-
-        // Final yield with complete accumulated text
-        if (accumulatedText) {
-          yield {
-            content: [{
-              type: 'text' as const,
-              text: accumulatedText
-            }]
-          }
-        }
-
-        log.info('Streaming completed successfully', {
-          totalLength: accumulatedText.length,
-          mode
-        })
-
-      } finally {
-        try {
-          reader.releaseLock()
-        } catch (releaseError) {
-          log.warn('Failed to release reader lock', {
-            error: releaseError instanceof Error ? releaseError.message : String(releaseError)
-          })
-        }
-      }
-
-      } catch (error) {
-        const errorMode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
-        log.error('Streaming adapter error', {
-          error: error instanceof Error ? {
-            message: error.message,
-            name: error.name
-          } : String(error),
-          mode: errorMode
-        })
-
-        // Yield error message to user
-        yield {
-          content: [{
-            type: 'text' as const,
-            text: `Error: ${error instanceof Error ? error.message : 'An unknown error occurred'}`
-          }]
-        }
-
-        throw error
-      }
-    }
-  })
+  // Use LocalRuntime with stable adapter reference
+  const runtime = useLocalRuntime(adapter)
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
