@@ -38,26 +38,27 @@ export async function getModelConfig(modelId: string | number) {
     ];
   }
 
-  const result = await executeSQL<{ id: number; name: string; provider: string; model_id: string }>(query, parameters);
+  // The RDS Data API adapter converts snake_case to camelCase
+  const result = await executeSQL<{ id: number; name: string; provider: string; modelId: string }>(query, parameters);
 
   if (result.length === 0) {
     log.error('Model not found', { modelId });
     return null;
   }
 
-  // The database returns snake_case but RDS Data API adapter converts to camelCase
-  // However, 'model_id' might not be converted properly, so access it directly
-  const rawResult = result[0] as { id: number; name: string; provider: string; model_id?: string; modelId?: string };
+  const rawResult = result[0];
 
   log.info('Model found in database', {
-    rawResult,
-    model_id: rawResult.model_id || rawResult.modelId
+    id: rawResult.id,
+    name: rawResult.name,
+    provider: rawResult.provider,
+    modelId: rawResult.modelId
   });
 
   return {
     id: ensureRDSNumber(rawResult.id),
     name: ensureRDSString(rawResult.name),
     provider: ensureRDSString(rawResult.provider),
-    model_id: ensureRDSString(rawResult.model_id || rawResult.modelId)
+    model_id: ensureRDSString(rawResult.modelId)
   };
 }

@@ -39,18 +39,18 @@ export function SimpleChatInput({
   }, [input])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey && !isLoading) {
+    if (e.key === "Enter" && !e.shiftKey && !isLoading && !disabled && input.trim()) {
       e.preventDefault()
-      const syntheticEvent = {
-        preventDefault: () => {},
-        currentTarget: { reset: () => {} }
-      } as FormEvent<HTMLFormElement>
-      handleSubmit(syntheticEvent)
+      // Trigger form submission by dispatching a submit event
+      const form = textareaRef.current?.form
+      if (form) {
+        form.requestSubmit()
+      }
     }
   }
 
   return (
-    <div className="relative w-full">
+    <form onSubmit={handleSubmit} className="relative w-full">
       <Textarea
         ref={textareaRef}
         value={input}
@@ -65,17 +65,10 @@ export function SimpleChatInput({
         type="submit"
         size="icon"
         disabled={disabled || isLoading || !input.trim()}
-        onClick={() => {
-          const syntheticEvent = {
-            preventDefault: () => {},
-            currentTarget: { reset: () => {} }
-          } as FormEvent<HTMLFormElement>
-          handleSubmit(syntheticEvent)
-        }}
         className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10"
       >
         <IconSend className="h-4 w-4" />
       </Button>
-    </div>
+    </form>
   )
 }
