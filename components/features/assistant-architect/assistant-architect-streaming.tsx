@@ -101,6 +101,11 @@ function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptio
     async *run(options: ChatModelRunOptions): AsyncGenerator<ChatModelRunResult> {
       const { messages, abortSignal } = options
 
+      log.info('🚀 LocalRuntime run() CALLED', {
+        messageCount: messages.length,
+        hasAbortSignal: !!abortSignal
+      })
+
       try {
         // DYNAMIC ENDPOINT ROUTING based on execution state
         const endpoint = hasCompletedExecutionRef.current
@@ -233,7 +238,7 @@ function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptio
                         text: accumulatedText
                       }]
                     }
-                    log.debug('Streamed text delta', {
+                    log.debug('✅ YIELDED text-delta', {
                       deltaLength: parsed.textDelta.length,
                       totalLength: accumulatedText.length
                     })
@@ -253,9 +258,64 @@ function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptio
                     })
                     throw new Error(parsed.error || 'Stream error')
                   }
+                  // Handle message or assistant-message events (complete messages)
+                  else if (parsed.type === 'message' || parsed.type === 'assistant-message') {
+                    log.info('Received message event', { type: parsed.type })
+                    const text = parsed.parts?.find((p: { type: string; text?: string }) => p.type === 'text')?.text
+                    if (text) {
+                      accumulatedText = text
+                      yield {
+                        content: [{
+                          type: 'text' as const,
+                          text: accumulatedText
+                        }]
+                      }
+                      log.debug('✅ YIELDED content from message event', {
+                        textLength: accumulatedText.length
+                      })
+                    }
+                  }
+                  // Handle finish events (stream completion)
+                  else if (parsed.type === 'finish') {
+                    log.info('Received finish event')
+                    const text = parsed.message?.parts?.find((p: { type: string; text?: string }) => p.type === 'text')?.text
+                    if (text) {
+                      accumulatedText = text
+                      yield {
+                        content: [{
+                          type: 'text' as const,
+                          text: accumulatedText
+                        }]
+                      }
+                      log.debug('✅ YIELDED content from finish event', {
+                        textLength: accumulatedText.length
+                      })
+                    }
+                  }
+                  // Handle complete assistant messages (direct format)
+                  else if (parsed.role === 'assistant' && parsed.parts) {
+                    log.info('Received complete assistant message')
+                    const text = parsed.parts.find((p: { type: string; text?: string }) => p.type === 'text')?.text
+                    if (text) {
+                      accumulatedText = text
+                      yield {
+                        content: [{
+                          type: 'text' as const,
+                          text: accumulatedText
+                        }]
+                      }
+                      log.debug('✅ YIELDED content from assistant message', {
+                        textLength: accumulatedText.length
+                      })
+                    }
+                  }
                   // Log unhandled types for debugging
                   else {
-                    log.debug('Unhandled SSE event type', { type: parsed.type })
+                    log.warn('⚠️ UNHANDLED SSE EVENT TYPE', {
+                      type: parsed.type,
+                      keys: Object.keys(parsed),
+                      sample: JSON.stringify(parsed).substring(0, 200)
+                    })
                   }
                 } catch (parseError) {
                   log.warn('Failed to parse SSE data', {
