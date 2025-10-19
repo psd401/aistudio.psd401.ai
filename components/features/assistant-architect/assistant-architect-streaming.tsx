@@ -171,15 +171,20 @@ function AssistantArchitectRuntimeProvider({
           ? '/api/nexus/chat'
           : '/api/assistant-architect/execute'
 
-        log.debug('Fetch routing', {
+        log.info('CUSTOM FETCH CALLED', {
+          originalInput: input,
+          overrideEndpoint: endpoint,
           mode: hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION',
-          endpoint,
           executionId: executionIdRef.current,
           conversationId: conversationIdRef.current
         })
 
         // Call fetch with the dynamically determined endpoint
         const response = await fetch(endpoint, init)
+        log.info('Fetch response received', {
+          endpoint,
+          status: response.status
+        })
 
         // Extract execution metadata from headers
         const executionId = response.headers.get('X-Execution-Id')
@@ -208,11 +213,12 @@ function AssistantArchitectRuntimeProvider({
       // DYNAMIC BODY: Send different data based on mode
       body: (threadState: ThreadState) => {
         const mode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
-        log.debug('Transport body', {
+
+        log.info('BODY FUNCTION CALLED', {
           mode,
+          messageCount: threadState.messages.length,
           executionId: executionIdRef.current,
-          conversationId: conversationIdRef.current,
-          messageCount: threadState.messages.length
+          conversationId: conversationIdRef.current
         })
 
         if (hasCompletedExecutionRef.current) {
@@ -343,16 +349,28 @@ function AutoStartExecution({
   const hasStarted = useRef(false)
 
   useEffect(() => {
+    log.info('AutoStartExecution effect triggered', {
+      hasStarted: hasStarted.current,
+      hasCompletedExecution,
+      hasCompletedExecutionRef: hasCompletedExecutionRef.current,
+      willReset: !hasCompletedExecution && hasCompletedExecutionRef.current,
+      willStart: !hasStarted.current && !hasCompletedExecution
+    })
+
     // Reset mode when starting fresh execution
     if (!hasCompletedExecution && hasCompletedExecutionRef.current) {
+      log.info('Resetting to execution mode')
       hasCompletedExecutionRef.current = false
       hasStarted.current = false
-      log.debug('Reset to execution mode for new run')
     }
 
     // Only start once when runtime is ready AND not already completed
     if (!hasStarted.current && !hasCompletedExecution) {
       hasStarted.current = true
+      log.info('CALLING runtime.append()', {
+        message: `Execute ${tool.name}`,
+        threadState: runtime.getState()
+      })
 
       // Append initial message to trigger execution
       runtime.append({
@@ -360,7 +378,13 @@ function AutoStartExecution({
         content: [{ type: 'text', text: `Execute ${tool.name}` }]
       })
 
-      log.debug('Auto-started assistant architect execution', { toolName: tool.name })
+      log.info('runtime.append() COMPLETED - execution should start')
+    } else {
+      log.warn('NOT calling runtime.append()', {
+        hasStarted: hasStarted.current,
+        hasCompletedExecution,
+        reason: hasStarted.current ? 'already started' : 'execution already completed'
+      })
     }
   }, [runtime, tool.name, hasCompletedExecution, hasCompletedExecutionRef])
 
