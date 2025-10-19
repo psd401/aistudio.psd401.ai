@@ -187,5 +187,5 @@ Key architectural decisions documented:
 
 ---
 
-*Last updated: October 2024*
+*Last updated: October 2025*
 *For AI assistant guidelines, see [CLAUDE.md](../CLAUDE.md)*

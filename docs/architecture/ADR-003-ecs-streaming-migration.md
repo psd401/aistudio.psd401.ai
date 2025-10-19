@@ -1,7 +1,7 @@
 # ADR-003: Migrate AI Streaming from Lambda Workers to Direct ECS Execution
 
 ## Status
-**Implemented** - PR #340 (October 2024)
+**Implemented** - PR #340 (October 2025)
 
 ## Context
 
@@ -488,6 +488,6 @@ This migration demonstrates the importance of re-evaluating architectural patter
 - **Prior Decision**: ADR-002 - Streaming Architecture Migration (Amplify → ECS)
 - **Epic**: #305 - Streaming architecture optimization
 
-**Decision Date**: October 2024
-**Implemented**: October 2024 (PR #340)
+**Decision Date**: October 2025
+**Implemented**: October 2025 (PR #340)
 **Status**: Production - Fully deployed and validated

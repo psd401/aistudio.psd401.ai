@@ -620,7 +620,7 @@ The AI Studio streaming infrastructure has evolved through two major architectur
 
 ### Phase 2: Lambda Workers to Direct ECS (ADR-003)
 
-**Timeline**: October 2024 (PR #340)
+**Timeline**: October 2025 (PR #340)
 **Problem**: Redundant Lambda + SQS polling architecture adding latency and cost
 **Solution**: Direct ECS execution for all AI streaming
 

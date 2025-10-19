@@ -4,7 +4,7 @@
 
 This guide covers the operational aspects of the AI Studio streaming infrastructure, including ECS service management, monitoring, deployment procedures, and troubleshooting.
 
-**Current Architecture**: Direct ECS streaming (as of PR #340, October 2024)
+**Current Architecture**: Direct ECS streaming (as of PR #340, October 2025)
 
 ## Infrastructure Components
 
@@ -574,6 +574,6 @@ Total: ~$90-140/month
 
 ---
 
-**Last Updated**: October 2024
+**Last Updated**: October 2025
 **Migration**: PR #340 - Remove Lambda streaming workers
 **Architecture**: Direct ECS streaming (no SQS polling)

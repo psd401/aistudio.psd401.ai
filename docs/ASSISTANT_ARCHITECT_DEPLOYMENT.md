@@ -317,6 +317,6 @@ If issues persist, check:
 
 ---
 
-**Last Updated**: October 2024
+**Last Updated**: October 2025
 **Migration**: PR #340 - Remove Lambda streaming workers, use direct ECS execution
 **Related Issues**: #313, #341, #343
