@@ -17,9 +17,9 @@ export function useModels() {
   const fetchModels = useCallback(async () => {
     setIsLoading(true)
     setError(null)
-    
+
     try {
-      const response = await fetch("/api/chat/models", {
+      const response = await fetch("/api/models", {
         cache: 'no-store'
       })
       

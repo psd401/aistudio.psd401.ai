@@ -125,7 +125,7 @@ function AssistantArchitectRuntimeProvider({
       const firstPrompt = tool.prompts[0]
       if (firstPrompt?.modelId) {
         // Fetch model details to get provider
-        fetch(`/api/chat/models`)
+        fetch(`/api/models`)
           .then(res => res.json())
           .then(result => {
             const models = result.data || result
