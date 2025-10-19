@@ -27,8 +27,7 @@ import { collectAndSanitizeEnabledTools, getToolDisplayName } from '@/lib/assist
 import { ScheduleModal } from "./schedule-modal"
 import Image from "next/image"
 import DocumentUploadButton from "@/components/ui/document-upload-button"
-import { AssistantRuntimeProvider, useThreadRuntime, type ThreadState } from '@assistant-ui/react'
-import { useChatRuntime, AssistantChatTransport } from '@assistant-ui/react-ai-sdk'
+import { AssistantRuntimeProvider, useThreadRuntime, useLocalRuntime, type ChatModelRunOptions, type ChatModelRunResult } from '@assistant-ui/react'
 import { Thread } from '@/components/assistant-ui/thread'
 import { createLogger } from '@/lib/client-logger'
 import { ExecutionProgress } from './execution-progress'
@@ -73,7 +72,345 @@ interface AssistantArchitectStreamingProps {
   tool: AssistantArchitectWithRelations
 }
 
-// Runtime provider component to handle streaming
+// Options interface for creating the adapter
+interface AssistantArchitectAdapterOptions {
+  toolId: number
+  inputsRef: React.MutableRefObject<Record<string, unknown>>
+  hasCompletedExecutionRef: React.MutableRefObject<boolean>
+  executionIdRef: React.MutableRefObject<number | null>
+  conversationIdRef: React.MutableRefObject<string | null>
+  executionModelRef: React.MutableRefObject<{ modelId: string; provider: string } | null>
+  onExecutionIdChange: (id: number) => void
+  onPromptCountChange: (count: number) => void
+}
+
+// Factory function to create a stable ChatModelAdapter
+function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptions) {
+  const {
+    toolId,
+    inputsRef,
+    hasCompletedExecutionRef,
+    executionIdRef,
+    conversationIdRef,
+    executionModelRef,
+    onExecutionIdChange,
+    onPromptCountChange
+  } = options
+
+  return {
+    async *run(options: ChatModelRunOptions): AsyncGenerator<ChatModelRunResult> {
+      const { messages, abortSignal } = options
+
+      log.info('🚀 LocalRuntime run() CALLED', {
+        messageCount: messages.length,
+        hasAbortSignal: !!abortSignal
+      })
+
+      try {
+        // DYNAMIC ENDPOINT ROUTING based on execution state
+        const endpoint = hasCompletedExecutionRef.current
+          ? '/api/nexus/chat'
+          : '/api/assistant-architect/execute'
+
+        const mode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
+
+        log.info('Assistant Architect stream request', {
+          mode,
+          messageCount: messages.length
+        })
+
+        // Convert messages to proper format
+        const processedMessages = Array.from(messages).map(message => {
+          const parts = []
+
+          if (Array.isArray(message.content)) {
+            message.content.forEach(contentPart => {
+              if (contentPart.type === 'text') {
+                parts.push({ type: 'text', text: contentPart.text })
+              } else {
+                parts.push(contentPart)
+              }
+            })
+          } else if (typeof message.content === 'string') {
+            parts.push({ type: 'text', text: message.content })
+          }
+
+          return {
+            id: message.id || `msg-${Date.now()}`,
+            role: message.role,
+            parts: parts.length > 0 ? parts : [{ type: 'text', text: '' }]
+          }
+        })
+
+        // Build request body based on mode
+        let body: unknown
+        if (hasCompletedExecutionRef.current) {
+          // CONVERSATION MODE: After execution completes
+          const modelConfig = executionModelRef.current || {
+            modelId: '3',
+            provider: 'openai'
+          }
+
+          body = {
+            messages: processedMessages,
+            modelId: modelConfig.modelId,
+            provider: modelConfig.provider,
+            conversationId: conversationIdRef.current || undefined,
+            enabledTools: []
+          }
+        } else {
+          // EXECUTION MODE: Initial assistant execution
+          body = {
+            toolId,
+            inputs: inputsRef.current
+          }
+        }
+
+        // Make the fetch request
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(body),
+          signal: abortSignal
+        })
+
+        if (!response.ok) {
+          log.error('Stream request failed', { status: response.status, mode })
+          throw new Error(`Stream request failed: ${response.status}`)
+        }
+
+        // Extract execution metadata from headers
+        const executionId = response.headers.get('X-Execution-Id')
+        const promptCount = response.headers.get('X-Prompt-Count')
+        const newConversationId = response.headers.get('X-Conversation-Id')
+
+        if (executionId) {
+          executionIdRef.current = Number(executionId)
+          onExecutionIdChange(Number(executionId))
+          log.info('Execution started', { executionId, promptCount })
+        }
+
+        if (promptCount) {
+          onPromptCountChange(Number(promptCount))
+        }
+
+        if (newConversationId) {
+          conversationIdRef.current = newConversationId
+        }
+
+        // Process and yield the response stream
+        if (!response.body) {
+          throw new Error('Response body is null')
+        }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let accumulatedText = ''
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() || ''
+
+            for (const line of lines) {
+              if (!line.trim() || line.startsWith(':')) continue
+
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6)
+                if (data === '[DONE]') break
+
+                try {
+                  const parsed = JSON.parse(data)
+
+                  // Handle text deltas from Vercel AI SDK native stream format
+                  if (parsed.type === 'text-delta' && parsed.delta) {
+                    accumulatedText += parsed.delta
+                    yield {
+                      content: [{
+                        type: 'text' as const,
+                        text: accumulatedText
+                      }]
+                    }
+                    log.debug('✅ YIELDED text-delta', {
+                      deltaLength: parsed.delta.length,
+                      totalLength: accumulatedText.length
+                    })
+                  }
+                  // Handle text stream lifecycle events
+                  else if (parsed.type === 'text-start') {
+                    log.debug('Text stream started', { id: parsed.id })
+                  }
+                  else if (parsed.type === 'text-end') {
+                    log.debug('Text stream ended', { id: parsed.id })
+                  }
+                  // Handle O1/reasoning model events
+                  else if (parsed.type === 'reasoning-start') {
+                    log.debug('Reasoning started', { id: parsed.id })
+                  }
+                  else if (parsed.type === 'reasoning-end') {
+                    log.debug('Reasoning completed', { id: parsed.id })
+                  }
+                  // Handle step lifecycle events
+                  else if (parsed.type === 'start-step' || parsed.type === 'start') {
+                    log.debug('Step started')
+                  }
+                  else if (parsed.type === 'finish-step') {
+                    log.debug('Step finished')
+                  }
+                  // Handle tool calls
+                  else if (parsed.type === 'tool-call' || parsed.type === 'tool-call-delta') {
+                    log.debug('Tool call received', {
+                      toolName: parsed.toolName,
+                      type: parsed.type
+                    })
+                    // Tool calls are handled by the UI components
+                  }
+                  // Handle tool input events (from web_search_preview, etc.)
+                  else if (parsed.type === 'tool-input-start') {
+                    log.debug('Tool input started', { toolCallId: parsed.toolCallId, toolName: parsed.toolName })
+                  }
+                  else if (parsed.type === 'tool-input-error') {
+                    log.debug('Tool input error', { toolCallId: parsed.toolCallId, toolName: parsed.toolName })
+                  }
+                  else if (parsed.type === 'tool-output-error') {
+                    log.debug('Tool output error', { toolCallId: parsed.toolCallId, errorText: parsed.errorText })
+                  }
+                  else if (parsed.type === 'tool-output-available') {
+                    log.debug('Tool output available', { toolCallId: parsed.toolCallId })
+                  }
+                  // Handle errors
+                  else if (parsed.type === 'error') {
+                    log.error('Stream error received', {
+                      error: parsed.error
+                    })
+                    throw new Error(parsed.error || 'Stream error')
+                  }
+                  // Handle message or assistant-message events (complete messages)
+                  else if (parsed.type === 'message' || parsed.type === 'assistant-message') {
+                    log.info('Received message event', { type: parsed.type })
+                    const text = parsed.parts?.find((p: { type: string; text?: string }) => p.type === 'text')?.text
+                    if (text) {
+                      accumulatedText = text
+                      yield {
+                        content: [{
+                          type: 'text' as const,
+                          text: accumulatedText
+                        }]
+                      }
+                      log.debug('✅ YIELDED content from message event', {
+                        textLength: accumulatedText.length
+                      })
+                    }
+                  }
+                  // Handle finish events (stream completion)
+                  else if (parsed.type === 'finish') {
+                    log.info('Received finish event')
+                    const text = parsed.message?.parts?.find((p: { type: string; text?: string }) => p.type === 'text')?.text
+                    if (text) {
+                      accumulatedText = text
+                      yield {
+                        content: [{
+                          type: 'text' as const,
+                          text: accumulatedText
+                        }]
+                      }
+                      log.debug('✅ YIELDED content from finish event', {
+                        textLength: accumulatedText.length
+                      })
+                    }
+                  }
+                  // Handle complete assistant messages (direct format)
+                  else if (parsed.role === 'assistant' && parsed.parts) {
+                    log.info('Received complete assistant message')
+                    const text = parsed.parts.find((p: { type: string; text?: string }) => p.type === 'text')?.text
+                    if (text) {
+                      accumulatedText = text
+                      yield {
+                        content: [{
+                          type: 'text' as const,
+                          text: accumulatedText
+                        }]
+                      }
+                      log.debug('✅ YIELDED content from assistant message', {
+                        textLength: accumulatedText.length
+                      })
+                    }
+                  }
+                  // Log unhandled types for debugging
+                  else {
+                    log.warn('⚠️ UNHANDLED SSE EVENT TYPE', {
+                      type: parsed.type,
+                      keys: Object.keys(parsed),
+                      sample: JSON.stringify(parsed).substring(0, 200)
+                    })
+                  }
+                } catch (parseError) {
+                  log.warn('Failed to parse SSE data', {
+                    data: data.substring(0, 100),
+                    error: parseError instanceof Error ? parseError.message : String(parseError)
+                  })
+                }
+              }
+            }
+          }
+
+          // Final yield with complete accumulated text
+          if (accumulatedText) {
+            yield {
+              content: [{
+                type: 'text' as const,
+                text: accumulatedText
+              }]
+            }
+          }
+
+          log.info('Streaming completed successfully', {
+            totalLength: accumulatedText.length,
+            mode
+          })
+
+        } finally {
+          try {
+            reader.releaseLock()
+          } catch (releaseError) {
+            log.warn('Failed to release reader lock', {
+              error: releaseError instanceof Error ? releaseError.message : String(releaseError)
+            })
+          }
+        }
+
+      } catch (error) {
+        const errorMode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
+        log.error('Streaming adapter error', {
+          error: error instanceof Error ? {
+            message: error.message,
+            name: error.name
+          } : String(error),
+          mode: errorMode
+        })
+
+        // Yield error message to user
+        yield {
+          content: [{
+            type: 'text' as const,
+            text: `Error: ${error instanceof Error ? error.message : 'An unknown error occurred'}`
+          }]
+        }
+
+        throw error
+      }
+    }
+  }
+}
+
+// Runtime provider component to handle streaming with single runtime and custom fetch routing
 function AssistantArchitectRuntimeProvider({
   children,
   tool,
@@ -135,17 +472,13 @@ function AssistantArchitectRuntimeProvider({
                 modelId: model.id.toString(),
                 provider: model.provider
               }
-              log.debug('Stored execution model config', {
-                modelId: model.id,
-                provider: model.provider
-              })
             } else {
               // Fallback to GPT-4o if model not found
               executionModelRef.current = {
                 modelId: '3',
                 provider: 'openai'
               }
-              log.warn('Model not found, using default GPT-4o', { modelId: firstPrompt.modelId })
+              log.warn('Model not found, using default', { modelId: firstPrompt.modelId })
             }
           })
           .catch(err => {
@@ -160,78 +493,23 @@ function AssistantArchitectRuntimeProvider({
     }
   }, [hasCompletedExecution, tool.prompts])
 
-  // Use official useChatRuntime with dynamic transport
-  const runtime = useChatRuntime({
-    transport: new AssistantChatTransport({
-      // DYNAMIC API: Switch endpoint based on whether execution is complete
-      api: hasCompletedExecutionRef.current ? '/api/nexus/chat' : '/api/assistant-architect/execute',
-      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-        const response = await fetch(input, init)
+  // Create stable adapter using useMemo to prevent recreation on every render
+  const adapter = useMemo(
+    () => createAssistantArchitectAdapter({
+      toolId: tool.id,
+      inputsRef,
+      hasCompletedExecutionRef,
+      executionIdRef,
+      conversationIdRef,
+      executionModelRef,
+      onExecutionIdChange: onExecutionIdChangeRef.current,
+      onPromptCountChange: onPromptCountChangeRef.current
+    }),
+    [tool.id] // Only recreate adapter when tool changes
+  )
 
-        // Extract execution metadata from headers
-        const executionId = response.headers.get('X-Execution-Id')
-        const promptCount = response.headers.get('X-Prompt-Count')
-        const newConversationId = response.headers.get('X-Conversation-Id')
-
-        if (executionId) {
-          executionIdRef.current = Number(executionId)
-          onExecutionIdChangeRef.current(Number(executionId))
-          log.debug('Execution started', { executionId, promptCount })
-        }
-
-        if (promptCount) {
-          onPromptCountChangeRef.current(Number(promptCount))
-        }
-
-        // Track conversation ID for follow-up messages
-        if (newConversationId) {
-          conversationIdRef.current = newConversationId
-          log.debug('Conversation created', { conversationId: newConversationId })
-        }
-
-        return response
-      },
-      // DYNAMIC BODY: Send different data based on mode
-      body: (threadState: ThreadState) => {
-        const mode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
-        log.debug('Transport mode', {
-          mode,
-          executionId: executionIdRef.current,
-          conversationId: conversationIdRef.current
-        })
-
-        if (hasCompletedExecutionRef.current) {
-          // CONVERSATION MODE: After execution completes
-          // Validate state before proceeding
-          if (!executionIdRef.current) {
-            log.error('Invalid state: Conversation mode without execution ID')
-            throw new Error('Cannot continue conversation: no execution context')
-          }
-
-          // Use stored model config from execution, fallback to GPT-4o
-          const modelConfig = executionModelRef.current || {
-            modelId: '3',
-            provider: 'openai'
-          }
-
-          // IMPORTANT: Include messages array required by /api/nexus/chat
-          return {
-            messages: threadState.messages,
-            modelId: modelConfig.modelId,
-            provider: modelConfig.provider,
-            conversationId: conversationIdRef.current || undefined,
-            enabledTools: [] // No tools for follow-up chat
-          }
-        } else {
-          // EXECUTION MODE: Initial assistant execution
-          return {
-            toolId: tool.id,
-            inputs: inputsRef.current
-          }
-        }
-      }
-    })
-  })
+  // Use LocalRuntime with stable adapter reference
+  const runtime = useLocalRuntime(adapter)
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -242,7 +520,7 @@ function AssistantArchitectRuntimeProvider({
       />
       <AutoStartExecution
         tool={tool}
-        hasCompletedExecution={hasCompletedExecutionRef.current}
+        hasCompletedExecution={hasCompletedExecution}
         hasCompletedExecutionRef={hasCompletedExecutionRef}
       />
       {children}
@@ -331,8 +609,6 @@ function AutoStartExecution({
     // Reset mode when starting fresh execution
     if (!hasCompletedExecution && hasCompletedExecutionRef.current) {
       hasCompletedExecutionRef.current = false
-      hasStarted.current = false
-      log.debug('Reset to execution mode for new run')
     }
 
     // Only start once when runtime is ready AND not already completed
@@ -345,7 +621,7 @@ function AutoStartExecution({
         content: [{ type: 'text', text: `Execute ${tool.name}` }]
       })
 
-      log.debug('Auto-started assistant architect execution', { toolName: tool.name })
+      log.info('Execution started', { toolName: tool.name })
     }
   }, [runtime, tool.name, hasCompletedExecution, hasCompletedExecutionRef])
 
@@ -362,6 +638,15 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
   const [isExecuting, setIsExecuting] = useState(false)
   const [hasResults, setHasResults] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // CRITICAL FIX: Reset hasResults when tool changes (user navigates to different assistant)
+  // This was causing the bug where hasResults stayed true from a previous session
+  useEffect(() => {
+    log.info('Tool changed - resetting execution state', { toolId: tool.id })
+    setHasResults(false)
+    setIsExecuting(false)
+    setError(null)
+  }, [tool.id])
 
   // Collect enabled tools from the assistant architect when component mounts
   useEffect(() => {
