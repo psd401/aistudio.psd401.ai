@@ -27,8 +27,7 @@ import { collectAndSanitizeEnabledTools, getToolDisplayName } from '@/lib/assist
 import { ScheduleModal } from "./schedule-modal"
 import Image from "next/image"
 import DocumentUploadButton from "@/components/ui/document-upload-button"
-import { AssistantRuntimeProvider, useThreadRuntime, type ThreadState } from '@assistant-ui/react'
-import { useChatRuntime, AssistantChatTransport } from '@assistant-ui/react-ai-sdk'
+import { AssistantRuntimeProvider, useThreadRuntime, useLocalRuntime } from '@assistant-ui/react'
 import { Thread } from '@/components/assistant-ui/thread'
 import { createLogger } from '@/lib/client-logger'
 import { ExecutionProgress } from './execution-progress'
@@ -135,17 +134,13 @@ function AssistantArchitectRuntimeProvider({
                 modelId: model.id.toString(),
                 provider: model.provider
               }
-              log.debug('Stored execution model config', {
-                modelId: model.id,
-                provider: model.provider
-              })
             } else {
               // Fallback to GPT-4o if model not found
               executionModelRef.current = {
                 modelId: '3',
                 provider: 'openai'
               }
-              log.warn('Model not found, using default GPT-4o', { modelId: firstPrompt.modelId })
+              log.warn('Model not found, using default', { modelId: firstPrompt.modelId })
             }
           })
           .catch(err => {
@@ -160,98 +155,149 @@ function AssistantArchitectRuntimeProvider({
     }
   }, [hasCompletedExecution, tool.prompts])
 
-  // Use single runtime with custom fetch routing
-  const runtime = useChatRuntime({
-    transport: new AssistantChatTransport({
-      api: '/api/assistant-architect/execute', // Default endpoint (will be overridden by fetch)
+  // Use LocalRuntime with full control over fetch logic
+  const runtime = useLocalRuntime({
+    async *run({ messages, abortSignal }) {
+      // DYNAMIC ENDPOINT ROUTING based on execution state
+      const endpoint = hasCompletedExecutionRef.current
+        ? '/api/nexus/chat'
+        : '/api/assistant-architect/execute'
 
-      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-        // DYNAMIC ENDPOINT ROUTING based on execution state
-        const endpoint = hasCompletedExecutionRef.current
-          ? '/api/nexus/chat'
-          : '/api/assistant-architect/execute'
+      const mode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
 
-        log.info('CUSTOM FETCH CALLED', {
-          originalInput: input,
-          overrideEndpoint: endpoint,
-          mode: hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION',
-          executionId: executionIdRef.current,
-          conversationId: conversationIdRef.current
-        })
+      log.info('Assistant Architect stream request', {
+        mode,
+        messageCount: messages.length
+      })
 
-        // Call fetch with the dynamically determined endpoint
-        const response = await fetch(endpoint, init)
-        log.info('Fetch response received', {
-          endpoint,
-          status: response.status
-        })
+      // Convert messages to proper format
+      const processedMessages = messages.map(message => {
+        const parts = []
 
-        // Extract execution metadata from headers
-        const executionId = response.headers.get('X-Execution-Id')
-        const promptCount = response.headers.get('X-Prompt-Count')
-        const newConversationId = response.headers.get('X-Conversation-Id')
-
-        if (executionId) {
-          executionIdRef.current = Number(executionId)
-          onExecutionIdChangeRef.current(Number(executionId))
-          log.info('Execution started', { executionId, promptCount })
+        if (Array.isArray(message.content)) {
+          message.content.forEach(contentPart => {
+            if (contentPart.type === 'text') {
+              parts.push({ type: 'text', text: contentPart.text })
+            } else {
+              parts.push(contentPart)
+            }
+          })
+        } else if (typeof message.content === 'string') {
+          parts.push({ type: 'text', text: message.content })
         }
 
-        if (promptCount) {
-          onPromptCountChangeRef.current(Number(promptCount))
+        return {
+          id: message.id || `msg-${Date.now()}`,
+          role: message.role,
+          parts: parts.length > 0 ? parts : [{ type: 'text', text: '' }]
+        }
+      })
+
+      // Build request body based on mode
+      let body: unknown
+      if (hasCompletedExecutionRef.current) {
+        // CONVERSATION MODE: After execution completes
+        const modelConfig = executionModelRef.current || {
+          modelId: '3',
+          provider: 'openai'
         }
 
-        // Track conversation ID for follow-up messages
-        if (newConversationId) {
-          conversationIdRef.current = newConversationId
-          log.info('Conversation ID captured', { conversationId: newConversationId })
+        body = {
+          messages: processedMessages,
+          modelId: modelConfig.modelId,
+          provider: modelConfig.provider,
+          conversationId: conversationIdRef.current || undefined,
+          enabledTools: []
         }
-
-        return response
-      },
-
-      // DYNAMIC BODY: Send different data based on mode
-      body: (threadState: ThreadState) => {
-        const mode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
-
-        log.info('BODY FUNCTION CALLED', {
-          mode,
-          messageCount: threadState.messages.length,
-          executionId: executionIdRef.current,
-          conversationId: conversationIdRef.current
-        })
-
-        if (hasCompletedExecutionRef.current) {
-          // CONVERSATION MODE: After execution completes
-          // Validate state before proceeding
-          if (!executionIdRef.current) {
-            log.error('Invalid state: Conversation mode without execution ID')
-            throw new Error('Cannot continue conversation: no execution context')
-          }
-
-          // Use stored model config from execution, fallback to GPT-4o
-          const modelConfig = executionModelRef.current || {
-            modelId: '3',
-            provider: 'openai'
-          }
-
-          // IMPORTANT: Include messages array required by /api/nexus/chat
-          return {
-            messages: threadState.messages,
-            modelId: modelConfig.modelId,
-            provider: modelConfig.provider,
-            conversationId: conversationIdRef.current || undefined,
-            enabledTools: [] // No tools for follow-up chat
-          }
-        } else {
-          // EXECUTION MODE: Initial assistant execution
-          return {
-            toolId: tool.id,
-            inputs: inputsRef.current
-          }
+      } else {
+        // EXECUTION MODE: Initial assistant execution
+        body = {
+          toolId: tool.id,
+          inputs: inputsRef.current
         }
       }
-    })
+
+      // Make the fetch request
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body),
+        signal: abortSignal
+      })
+
+      if (!response.ok) {
+        log.error('Stream request failed', { status: response.status, mode })
+        throw new Error(`Stream request failed: ${response.status}`)
+      }
+
+      // Extract execution metadata from headers
+      const executionId = response.headers.get('X-Execution-Id')
+      const promptCount = response.headers.get('X-Prompt-Count')
+      const newConversationId = response.headers.get('X-Conversation-Id')
+
+      if (executionId) {
+        executionIdRef.current = Number(executionId)
+        onExecutionIdChangeRef.current(Number(executionId))
+        log.info('Execution started', { executionId, promptCount })
+      }
+
+      if (promptCount) {
+        onPromptCountChangeRef.current(Number(promptCount))
+      }
+
+      if (newConversationId) {
+        conversationIdRef.current = newConversationId
+      }
+
+      // Process and yield the response stream
+      if (!response.body) {
+        throw new Error('Response body is null')
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let accumulatedText = ''
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (!line.trim() || line.startsWith(':')) continue
+
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6)
+              if (data === '[DONE]') break
+
+              try {
+                const parsed = JSON.parse(data)
+                if (parsed.type === 'text-delta' && parsed.textDelta) {
+                  accumulatedText += parsed.textDelta
+                  yield {
+                    content: [{
+                      type: 'text' as const,
+                      text: accumulatedText
+                    }]
+                  }
+                }
+              } catch (parseError) {
+                log.warn('Failed to parse SSE data', { data: data.substring(0, 100) })
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock()
+      }
+    }
   })
 
   return (
@@ -348,38 +394,15 @@ function AutoStartExecution({
   const runtime = useThreadRuntime()
   const hasStarted = useRef(false)
 
-  // CRITICAL FIX: Force reset hasStarted ref when component detects we should be starting fresh
   useEffect(() => {
-    if (!hasCompletedExecution && hasStarted.current) {
-      log.info('FORCE RESET: hasStarted ref was stale, resetting to false', {
-        previousValue: hasStarted.current
-      })
-      hasStarted.current = false
-    }
-  }, [hasCompletedExecution])
-
-  useEffect(() => {
-    log.info('AutoStartExecution effect triggered', {
-      hasStarted: hasStarted.current,
-      hasCompletedExecution,
-      hasCompletedExecutionRef: hasCompletedExecutionRef.current,
-      willReset: !hasCompletedExecution && hasCompletedExecutionRef.current,
-      willStart: !hasStarted.current && !hasCompletedExecution
-    })
-
     // Reset mode when starting fresh execution
     if (!hasCompletedExecution && hasCompletedExecutionRef.current) {
-      log.info('Resetting to execution mode')
       hasCompletedExecutionRef.current = false
     }
 
     // Only start once when runtime is ready AND not already completed
     if (!hasStarted.current && !hasCompletedExecution) {
       hasStarted.current = true
-      log.info('CALLING runtime.append()', {
-        message: `Execute ${tool.name}`,
-        threadState: runtime.getState()
-      })
 
       // Append initial message to trigger execution
       runtime.append({
@@ -387,13 +410,7 @@ function AutoStartExecution({
         content: [{ type: 'text', text: `Execute ${tool.name}` }]
       })
 
-      log.info('runtime.append() COMPLETED - execution should start')
-    } else {
-      log.warn('NOT calling runtime.append()', {
-        hasStarted: hasStarted.current,
-        hasCompletedExecution,
-        reason: hasStarted.current ? 'already started' : 'execution already completed'
-      })
+      log.info('Execution started', { toolName: tool.name })
     }
   }, [runtime, tool.name, hasCompletedExecution, hasCompletedExecutionRef])
 
@@ -740,7 +757,6 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
       {(isExecuting || hasResults) && (
         <ErrorBoundary>
           <AssistantArchitectRuntimeProvider
-            key={`runtime-${tool.id}`}
             tool={tool}
             inputs={inputs}
             onExecutionIdChange={handleExecutionIdChange}
