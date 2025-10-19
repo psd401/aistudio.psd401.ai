@@ -402,6 +402,15 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
   const [hasResults, setHasResults] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // CRITICAL FIX: Reset hasResults when tool changes (user navigates to different assistant)
+  // This was causing the bug where hasResults stayed true from a previous session
+  useEffect(() => {
+    log.info('Tool changed - resetting execution state', { toolId: tool.id, toolName: tool.name })
+    setHasResults(false)
+    setIsExecuting(false)
+    setError(null)
+  }, [tool.id])
+
   // Collect enabled tools from the assistant architect when component mounts
   useEffect(() => {
     const tools = tool.prompts ? collectAndSanitizeEnabledTools(tool.prompts) : []
