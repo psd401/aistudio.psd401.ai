@@ -69,7 +69,6 @@ describe('Security Headers Tests', () => {
       '/knowledge',
       '/settings',
       '/api/documents/upload',
-      '/api/conversations',
       '/api/users'
     ])('should apply security headers to %s', async (path) => {
       const request = new NextRequest(`http://localhost:3000${path}`, {
@@ -150,7 +149,7 @@ describe('Security Headers Tests', () => {
     it('should prevent caching on all routes', async () => {
       const routes = [
         '/dashboard',
-        '/api/conversations',
+        '/api/users',
         '/',
         '/_next/static/test.js'
       ]

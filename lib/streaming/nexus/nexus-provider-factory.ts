@@ -1,5 +1,5 @@
 import { LanguageModel } from 'ai';
-import { createProviderModelWithCapabilities } from '@/app/api/chat/lib/provider-factory';
+import { createProviderModelWithCapabilities } from '@/lib/ai/provider-factory';
 import { createLogger, generateRequestId, sanitizeForLogging } from '@/lib/logger';
 import { executeSQL, type DatabaseRow } from './db-helpers';
 import { transformSnakeToCamel } from '@/lib/db/field-mapper';

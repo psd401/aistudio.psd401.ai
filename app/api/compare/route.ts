@@ -6,7 +6,7 @@ import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from 
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import { transformSnakeToCamel } from '@/lib/db/field-mapper';
 import { hasToolAccess } from '@/utils/roles';
-import { createProviderModel } from '@/app/api/chat/lib/provider-factory';
+import { createProviderModel } from '@/lib/ai/provider-factory';
 import { mergeStreamsWithIdentifiers, asyncGeneratorToStream } from '@/lib/compare/dual-stream-merger';
 
 // Allow streaming responses up to 5 minutes
