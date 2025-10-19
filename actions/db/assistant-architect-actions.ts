@@ -1947,26 +1947,6 @@ function slugify(str: string): string {
     .replace(/(^-|-$)+/g, '');
 }
 
-export async function executeAssistantArchitectAction({
-  toolId,
-  inputs
-}: {
-  toolId: number | string
-  inputs: Record<string, unknown>
-}): Promise<ActionState<{ jobId: string; executionId?: number }>> {
-  const requestId = generateRequestId()
-  const timer = startTimer("executeAssistantArchitect")
-  const log = createLogger({ requestId, action: "executeAssistantArchitect" })
-
-  log.error("executeAssistantArchitectAction is no longer supported", { toolId });
-  timer({ status: "error" })
-
-  return {
-    isSuccess: false,
-    message: "This action is no longer supported. Please use the /api/assistant-architect/execute streaming endpoint directly."
-  };
-}
-
 // For the public view, get only approved tools
 export async function getApprovedAssistantArchitectsAction(): Promise<
   ActionState<ArchitectWithRelations[]>
