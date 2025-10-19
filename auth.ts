@@ -369,7 +369,7 @@ export const authConfig: NextAuthConfig = {
       }
     },
   },
-  debug: true, // Temporarily enabled to debug authentication issues
+  debug: false, // Disabled to suppress CHUNKING_SESSION_COOKIE warnings (#361)
   events: {
     async signOut() {
       // This event fires after NextAuth's signOut
