@@ -257,7 +257,7 @@ function AssistantArchitectRuntimeProvider({
       />
       <AutoStartExecution
         tool={tool}
-        hasCompletedExecution={hasCompletedExecutionRef.current}
+        hasCompletedExecution={hasCompletedExecution}
         hasCompletedExecutionRef={hasCompletedExecutionRef}
       />
       {children}
