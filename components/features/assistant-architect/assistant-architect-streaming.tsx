@@ -73,7 +73,15 @@ interface AssistantArchitectStreamingProps {
   tool: AssistantArchitectWithRelations
 }
 
-// Runtime provider component to handle streaming
+// State bridge to transfer context between execution and conversation runtimes
+interface RuntimeBridge {
+  executionId: number | null
+  conversationId: string | null
+  modelConfig: { modelId: string; provider: string } | null
+  isExecutionComplete: boolean
+}
+
+// Runtime provider component to handle streaming with dual runtime pattern
 function AssistantArchitectRuntimeProvider({
   children,
   tool,
@@ -108,19 +116,19 @@ function AssistantArchitectRuntimeProvider({
     onPromptCountChangeRef.current = onPromptCountChange
   }, [onExecutionIdChange, onPromptCountChange])
 
-  // Track whether we're in execution or conversation mode
-  const hasCompletedExecutionRef = useRef(hasCompletedExecution)
-  const executionIdRef = useRef<number | null>(null)
-  const conversationIdRef = useRef<string | null>(null)
+  // State bridge for runtime coordination
+  const bridgeRef = useRef<RuntimeBridge>({
+    executionId: null,
+    conversationId: null,
+    modelConfig: null,
+    isExecutionComplete: false
+  })
 
-  // Store model configuration from first prompt for follow-up conversations
-  const executionModelRef = useRef<{ modelId: string; provider: string } | null>(null)
+  // Track current mode
+  const [currentMode, setCurrentMode] = useState<'execution' | 'conversation'>('execution')
 
-  // Update refs when parent props change and store model config
+  // Store model configuration from first prompt when starting execution
   useEffect(() => {
-    hasCompletedExecutionRef.current = hasCompletedExecution
-
-    // Store model configuration from first prompt when starting execution
     if (!hasCompletedExecution && tool.prompts && tool.prompts.length > 0) {
       const firstPrompt = tool.prompts[0]
       if (firstPrompt?.modelId) {
@@ -131,7 +139,7 @@ function AssistantArchitectRuntimeProvider({
             const models = result.data || result
             const model = models.find((m: { id: number }) => m.id === firstPrompt.modelId)
             if (model) {
-              executionModelRef.current = {
+              bridgeRef.current.modelConfig = {
                 modelId: model.id.toString(),
                 provider: model.provider
               }
@@ -141,7 +149,7 @@ function AssistantArchitectRuntimeProvider({
               })
             } else {
               // Fallback to GPT-4o if model not found
-              executionModelRef.current = {
+              bridgeRef.current.modelConfig = {
                 modelId: '3',
                 provider: 'openai'
               }
@@ -151,7 +159,7 @@ function AssistantArchitectRuntimeProvider({
           .catch(err => {
             log.error('Failed to fetch model config', { error: err })
             // Fallback to GPT-4o
-            executionModelRef.current = {
+            bridgeRef.current.modelConfig = {
               modelId: '3',
               provider: 'openai'
             }
@@ -160,106 +168,176 @@ function AssistantArchitectRuntimeProvider({
     }
   }, [hasCompletedExecution, tool.prompts])
 
-  // Use official useChatRuntime with dynamic transport
-  const runtime = useChatRuntime({
-    transport: new AssistantChatTransport({
-      // DYNAMIC API: Switch endpoint based on whether execution is complete
-      api: hasCompletedExecutionRef.current ? '/api/nexus/chat' : '/api/assistant-architect/execute',
+  // Create execution runtime transport configuration (memoized to prevent recreation)
+  const executionTransport = useMemo(() => {
+    log.debug('Creating execution transport', { toolId: tool.id })
+
+    return new AssistantChatTransport({
+      api: '/api/assistant-architect/execute',
+
       fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
         const response = await fetch(input, init)
 
         // Extract execution metadata from headers
         const executionId = response.headers.get('X-Execution-Id')
         const promptCount = response.headers.get('X-Prompt-Count')
-        const newConversationId = response.headers.get('X-Conversation-Id')
+        const conversationId = response.headers.get('X-Conversation-Id')
 
         if (executionId) {
-          executionIdRef.current = Number(executionId)
+          bridgeRef.current.executionId = Number(executionId)
           onExecutionIdChangeRef.current(Number(executionId))
-          log.debug('Execution started', { executionId, promptCount })
+          log.info('Execution started', { executionId, promptCount })
         }
 
         if (promptCount) {
           onPromptCountChangeRef.current(Number(promptCount))
         }
 
-        // Track conversation ID for follow-up messages
-        if (newConversationId) {
-          conversationIdRef.current = newConversationId
-          log.debug('Conversation created', { conversationId: newConversationId })
+        if (conversationId) {
+          bridgeRef.current.conversationId = conversationId
+          log.info('Conversation ID captured', { conversationId })
         }
 
         return response
       },
-      // DYNAMIC BODY: Send different data based on mode
-      body: (threadState: ThreadState) => {
-        const mode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
-        log.debug('Transport mode', {
-          mode,
-          executionId: executionIdRef.current,
-          conversationId: conversationIdRef.current
-        })
 
-        if (hasCompletedExecutionRef.current) {
-          // CONVERSATION MODE: After execution completes
-          // Validate state before proceeding
-          if (!executionIdRef.current) {
-            log.error('Invalid state: Conversation mode without execution ID')
-            throw new Error('Cannot continue conversation: no execution context')
-          }
+      body: () => ({
+        toolId: tool.id,
+        inputs: inputsRef.current
+      })
+    })
+  }, [tool.id])
 
-          // Use stored model config from execution, fallback to GPT-4o
-          const modelConfig = executionModelRef.current || {
-            modelId: '3',
-            provider: 'openai'
-          }
+  // Create execution runtime (always present)
+  const executionRuntime = useChatRuntime({
+    transport: executionTransport
+  })
 
-          // IMPORTANT: Include messages array required by /api/nexus/chat
+  // Conversation transport state (created when needed)
+  const [conversationTransport, setConversationTransport] = useState<InstanceType<typeof AssistantChatTransport> | null>(null)
+
+  // Initialize conversation transport when needed
+  useEffect(() => {
+    if (!conversationTransport && bridgeRef.current.isExecutionComplete) {
+      log.info('Initializing conversation transport', {
+        executionId: bridgeRef.current.executionId,
+        conversationId: bridgeRef.current.conversationId
+      })
+
+      // Extract model from stored config or use default
+      const modelConfig = bridgeRef.current.modelConfig || {
+        modelId: '3',
+        provider: 'openai'
+      }
+
+      const transport = new AssistantChatTransport({
+        api: '/api/nexus/chat',
+
+        body: (threadState: ThreadState) => {
+          log.debug('Conversation mode body', {
+            messageCount: threadState.messages.length,
+            conversationId: bridgeRef.current.conversationId
+          })
+
           return {
             messages: threadState.messages,
             modelId: modelConfig.modelId,
             provider: modelConfig.provider,
-            conversationId: conversationIdRef.current || undefined,
+            conversationId: bridgeRef.current.conversationId || undefined,
             enabledTools: [] // No tools for follow-up chat
           }
-        } else {
-          // EXECUTION MODE: Initial assistant execution
-          return {
-            toolId: tool.id,
-            inputs: inputsRef.current
-          }
         }
-      }
-    })
+      })
+
+      setConversationTransport(transport)
+    }
+  }, [conversationTransport, bridgeRef])
+
+  // Create conversation runtime (lazy initialization via conditional hook)
+  const conversationRuntime = useChatRuntime({
+    transport: conversationTransport || executionTransport // Fallback to execution transport initially
   })
 
+  // Handle execution completion
+  const handleExecutionComplete = useCallback(() => {
+    log.info('Execution completed, switching to conversation mode')
+    bridgeRef.current.isExecutionComplete = true
+    setCurrentMode('conversation')
+    onExecutionComplete()
+  }, [onExecutionComplete])
+
+  // Handle execution error
+  const handleExecutionError = useCallback((errorMessage: string) => {
+    log.error('Execution failed', { error: errorMessage })
+    // Stay in execution mode to allow retry
+    bridgeRef.current.isExecutionComplete = false
+    setCurrentMode('execution')
+    onExecutionError(errorMessage)
+  }, [onExecutionError])
+
+  // Handle reset (for re-execution)
+  const handleReset = useCallback(() => {
+    log.info('Resetting to execution mode')
+    bridgeRef.current = {
+      executionId: null,
+      conversationId: null,
+      modelConfig: null,
+      isExecutionComplete: false
+    }
+    setCurrentMode('execution')
+    setConversationTransport(null)
+  }, [])
+
+  // Select active runtime based on mode
+  const activeRuntime = currentMode === 'conversation' && conversationRuntime
+    ? conversationRuntime
+    : executionRuntime
+
+  // Log mode switches
+  useEffect(() => {
+    log.info('Runtime mode changed', {
+      mode: currentMode,
+      hasConversationRuntime: !!conversationRuntime,
+      executionId: bridgeRef.current.executionId
+    })
+  }, [currentMode, conversationRuntime])
+
+  // Reset mode when hasCompletedExecution changes from parent
+  useEffect(() => {
+    if (!hasCompletedExecution && bridgeRef.current.isExecutionComplete) {
+      handleReset()
+    }
+  }, [hasCompletedExecution, handleReset])
+
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <StreamingStateMonitor
-        onExecutionComplete={onExecutionComplete}
-        onExecutionError={onExecutionError}
-        hasCompletedExecutionRef={hasCompletedExecutionRef}
+    <AssistantRuntimeProvider runtime={activeRuntime}>
+      <RuntimeStateManager
+        onExecutionComplete={handleExecutionComplete}
+        onExecutionError={handleExecutionError}
+        currentMode={currentMode}
       />
       <AutoStartExecution
         tool={tool}
-        hasCompletedExecution={hasCompletedExecutionRef.current}
-        hasCompletedExecutionRef={hasCompletedExecutionRef}
+        hasCompletedExecution={hasCompletedExecution}
+        bridgeRef={bridgeRef}
       />
       {children}
     </AssistantRuntimeProvider>
   )
 }
 
-// Component to monitor streaming state changes
-function StreamingStateMonitor({
+// Component to manage runtime state transitions
+interface RuntimeStateManagerProps {
+  onExecutionComplete: () => void
+  onExecutionError: (errorMessage: string) => void
+  currentMode: 'execution' | 'conversation'
+}
+
+function RuntimeStateManager({
   onExecutionComplete,
   onExecutionError,
-  hasCompletedExecutionRef
-}: {
-  onExecutionComplete: () => void
-  onExecutionError: (error: string) => void
-  hasCompletedExecutionRef: React.MutableRefObject<boolean>
-}) {
+  currentMode
+}: RuntimeStateManagerProps) {
   const runtime = useThreadRuntime()
   const [previousRunning, setPreviousRunning] = useState<boolean | null>(null)
   const completionFiredRef = useRef(false)
@@ -273,8 +351,9 @@ function StreamingStateMonitor({
     onExecutionErrorRef.current = onExecutionError
   }, [onExecutionComplete, onExecutionError])
 
+  // Monitor thread state for execution completion
   useEffect(() => {
-    // Reset completion flag when previousRunning changes to true
+    // Reset completion flag when running starts
     if (previousRunning === true) {
       completionFiredRef.current = false
     }
@@ -284,12 +363,9 @@ function StreamingStateMonitor({
       const threadState = runtime.getState()
       const isRunning = threadState.isRunning
 
-      // Detect completion: was running, now not running
-      if (previousRunning === true && !isRunning && !completionFiredRef.current) {
+      // Only track completion in execution mode
+      if (currentMode === 'execution' && previousRunning === true && !isRunning && !completionFiredRef.current) {
         completionFiredRef.current = true
-
-        // IMPORTANT: Switch to conversation mode BEFORE firing completion
-        hasCompletedExecutionRef.current = true
 
         const messages = threadState.messages
         const lastMessage = messages[messages.length - 1]
@@ -309,7 +385,7 @@ function StreamingStateMonitor({
     })
 
     return unsubscribe
-  }, [runtime, previousRunning, hasCompletedExecutionRef])
+  }, [runtime, previousRunning, currentMode])
 
   return null
 }
@@ -318,21 +394,20 @@ function StreamingStateMonitor({
 function AutoStartExecution({
   tool,
   hasCompletedExecution,
-  hasCompletedExecutionRef
+  bridgeRef
 }: {
   tool: AssistantArchitectWithRelations
   hasCompletedExecution: boolean
-  hasCompletedExecutionRef: React.MutableRefObject<boolean>
+  bridgeRef: React.MutableRefObject<RuntimeBridge>
 }) {
   const runtime = useThreadRuntime()
   const hasStarted = useRef(false)
 
   useEffect(() => {
-    // Reset mode when starting fresh execution
-    if (!hasCompletedExecution && hasCompletedExecutionRef.current) {
-      hasCompletedExecutionRef.current = false
+    // Reset execution tracking when starting fresh execution
+    if (!hasCompletedExecution && bridgeRef.current.isExecutionComplete) {
       hasStarted.current = false
-      log.debug('Reset to execution mode for new run')
+      log.debug('Reset execution state for new run')
     }
 
     // Only start once when runtime is ready AND not already completed
@@ -347,7 +422,7 @@ function AutoStartExecution({
 
       log.debug('Auto-started assistant architect execution', { toolName: tool.name })
     }
-  }, [runtime, tool.name, hasCompletedExecution, hasCompletedExecutionRef])
+  }, [runtime, tool.name, hasCompletedExecution, bridgeRef])
 
   return null
 }
