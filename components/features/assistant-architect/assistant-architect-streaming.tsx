@@ -158,17 +158,18 @@ function AssistantArchitectRuntimeProvider({
   // Use LocalRuntime with full control over fetch logic
   const runtime = useLocalRuntime({
     async *run({ messages, abortSignal }) {
-      // DYNAMIC ENDPOINT ROUTING based on execution state
-      const endpoint = hasCompletedExecutionRef.current
-        ? '/api/nexus/chat'
-        : '/api/assistant-architect/execute'
+      try {
+        // DYNAMIC ENDPOINT ROUTING based on execution state
+        const endpoint = hasCompletedExecutionRef.current
+          ? '/api/nexus/chat'
+          : '/api/assistant-architect/execute'
 
-      const mode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
+        const mode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
 
-      log.info('Assistant Architect stream request', {
-        mode,
-        messageCount: messages.length
-      })
+        log.info('Assistant Architect stream request', {
+          mode,
+          messageCount: messages.length
+        })
 
       // Convert messages to proper format
       const processedMessages = messages.map(message => {
@@ -279,6 +280,8 @@ function AssistantArchitectRuntimeProvider({
 
               try {
                 const parsed = JSON.parse(data)
+
+                // Handle text deltas from AI SDK UIMessageStream format
                 if (parsed.type === 'text-delta' && parsed.textDelta) {
                   accumulatedText += parsed.textDelta
                   yield {
@@ -287,15 +290,84 @@ function AssistantArchitectRuntimeProvider({
                       text: accumulatedText
                     }]
                   }
+                  log.debug('Streamed text delta', {
+                    deltaLength: parsed.textDelta.length,
+                    totalLength: accumulatedText.length
+                  })
+                }
+                // Handle tool calls
+                else if (parsed.type === 'tool-call' || parsed.type === 'tool-call-delta') {
+                  log.debug('Tool call received', {
+                    toolName: parsed.toolName,
+                    type: parsed.type
+                  })
+                  // Tool calls are handled by the UI components
+                }
+                // Handle errors
+                else if (parsed.type === 'error') {
+                  log.error('Stream error received', {
+                    error: parsed.error
+                  })
+                  throw new Error(parsed.error || 'Stream error')
+                }
+                // Log unhandled types for debugging
+                else {
+                  log.debug('Unhandled SSE event type', { type: parsed.type })
                 }
               } catch (parseError) {
-                log.warn('Failed to parse SSE data', { data: data.substring(0, 100) })
+                log.warn('Failed to parse SSE data', {
+                  data: data.substring(0, 100),
+                  error: parseError instanceof Error ? parseError.message : String(parseError)
+                })
               }
             }
           }
         }
+
+        // Final yield with complete accumulated text
+        if (accumulatedText) {
+          yield {
+            content: [{
+              type: 'text' as const,
+              text: accumulatedText
+            }]
+          }
+        }
+
+        log.info('Streaming completed successfully', {
+          totalLength: accumulatedText.length,
+          mode
+        })
+
       } finally {
-        reader.releaseLock()
+        try {
+          reader.releaseLock()
+        } catch (releaseError) {
+          log.warn('Failed to release reader lock', {
+            error: releaseError instanceof Error ? releaseError.message : String(releaseError)
+          })
+        }
+      }
+
+      } catch (error) {
+        const errorMode = hasCompletedExecutionRef.current ? 'CONVERSATION' : 'EXECUTION'
+        log.error('Streaming adapter error', {
+          error: error instanceof Error ? {
+            message: error.message,
+            name: error.name
+          } : String(error),
+          mode: errorMode
+        })
+
+        // Yield error message to user
+        yield {
+          content: [{
+            type: 'text' as const,
+            text: `Error: ${error instanceof Error ? error.message : 'An unknown error occurred'}`
+          }]
+        }
+
+        throw error
       }
     }
   })
