@@ -229,9 +229,9 @@ function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptio
                 try {
                   const parsed = JSON.parse(data)
 
-                  // Handle text deltas from AI SDK UIMessageStream format
-                  if (parsed.type === 'text-delta' && parsed.textDelta) {
-                    accumulatedText += parsed.textDelta
+                  // Handle text deltas from Vercel AI SDK native stream format
+                  if (parsed.type === 'text-delta' && parsed.delta) {
+                    accumulatedText += parsed.delta
                     yield {
                       content: [{
                         type: 'text' as const,
@@ -239,9 +239,30 @@ function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptio
                       }]
                     }
                     log.debug('✅ YIELDED text-delta', {
-                      deltaLength: parsed.textDelta.length,
+                      deltaLength: parsed.delta.length,
                       totalLength: accumulatedText.length
                     })
+                  }
+                  // Handle text stream lifecycle events
+                  else if (parsed.type === 'text-start') {
+                    log.debug('Text stream started', { id: parsed.id })
+                  }
+                  else if (parsed.type === 'text-end') {
+                    log.debug('Text stream ended', { id: parsed.id })
+                  }
+                  // Handle O1/reasoning model events
+                  else if (parsed.type === 'reasoning-start') {
+                    log.debug('Reasoning started', { id: parsed.id })
+                  }
+                  else if (parsed.type === 'reasoning-end') {
+                    log.debug('Reasoning completed', { id: parsed.id })
+                  }
+                  // Handle step lifecycle events
+                  else if (parsed.type === 'start-step' || parsed.type === 'start') {
+                    log.debug('Step started')
+                  }
+                  else if (parsed.type === 'finish-step') {
+                    log.debug('Step finished')
                   }
                   // Handle tool calls
                   else if (parsed.type === 'tool-call' || parsed.type === 'tool-call-delta') {
@@ -250,6 +271,19 @@ function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptio
                       type: parsed.type
                     })
                     // Tool calls are handled by the UI components
+                  }
+                  // Handle tool input events (from web_search_preview, etc.)
+                  else if (parsed.type === 'tool-input-start') {
+                    log.debug('Tool input started', { toolCallId: parsed.toolCallId, toolName: parsed.toolName })
+                  }
+                  else if (parsed.type === 'tool-input-error') {
+                    log.debug('Tool input error', { toolCallId: parsed.toolCallId, toolName: parsed.toolName })
+                  }
+                  else if (parsed.type === 'tool-output-error') {
+                    log.debug('Tool output error', { toolCallId: parsed.toolCallId, errorText: parsed.errorText })
+                  }
+                  else if (parsed.type === 'tool-output-available') {
+                    log.debug('Tool output available', { toolCallId: parsed.toolCallId })
                   }
                   // Handle errors
                   else if (parsed.type === 'error') {
