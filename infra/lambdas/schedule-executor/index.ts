@@ -248,8 +248,8 @@ async function getEcsEndpoint(parameterName: string, requestId: string): Promise
  * 2. Direct Lambda Invocations: Schedule management operations (create/update/delete)
  *
  * For scheduled executions:
- * - Uses existing executeAssistantArchitectAction pattern
- * - Submits job to streaming-jobs-worker Lambda via SQS
+ * - Calls the /api/assistant-architect/execute/scheduled streaming endpoint
+ * - Uses Server-Sent Events (SSE) for real-time updates
  * - Stores results in execution_results table
  *
  * For schedule management:
