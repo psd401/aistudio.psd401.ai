@@ -54,7 +54,8 @@ const MIGRATION_FILES = [
   '033-ai-streaming-jobs.sql',
   '034-assistant-architect-enabled-tools.sql',
   '035-schedule-management-schema.sql',
-  '036-remove-legacy-chat-tables.sql'
+  '036-remove-legacy-chat-tables.sql',
+  '037-assistant-architect-events.sql'
   // ADD NEW MIGRATIONS HERE - they will run once and be tracked
 ];
 
