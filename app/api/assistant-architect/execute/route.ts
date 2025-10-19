@@ -430,9 +430,11 @@ async function executePromptChain(
           });
 
           // Emit knowledge-retrieved event
-          // Calculate approximate tokens (chunk.content length / 4 is a rough estimate)
+          // NOTE: Token estimation uses rough approximation (character count / 4)
+          // For precise token counts, consider using js-tiktoken encoder
           const totalTokens = knowledgeChunks.reduce((sum, chunk) => sum + Math.ceil(chunk.content.length / 4), 0);
-          // Use similarity score as relevance
+
+          // Calculate average similarity score (safe due to length > 0 check above)
           const avgRelevance = knowledgeChunks.reduce((sum, chunk) => sum + chunk.similarity, 0) / knowledgeChunks.length;
 
           await storeExecutionEvent(context.executionId, 'knowledge-retrieved', {

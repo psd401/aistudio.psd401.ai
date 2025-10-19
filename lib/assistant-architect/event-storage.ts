@@ -10,6 +10,7 @@
 import { executeSQL } from '@/lib/db/data-api-adapter';
 import type { SSEEventType, SSEEventMap } from '@/types/sse-events';
 import { createLogger } from '@/lib/logger';
+import { transformSnakeToCamel } from '@/lib/db/field-mapper';
 
 const log = createLogger({ module: 'event-storage' });
 
@@ -78,23 +79,32 @@ export async function getExecutionEvents(
   try {
     const results = await executeSQL<{
       id: number;
-      eventType: string;
-      eventData: string;
-      createdAt: string;
+      event_type: string;
+      event_data: string;
+      created_at: string;
     }>(
-      `SELECT id, event_type as "eventType", event_data as "eventData", created_at as "createdAt"
+      `SELECT id, event_type, event_data, created_at
        FROM assistant_architect_events
        WHERE execution_id = :executionId
        ORDER BY created_at ASC`,
       [{ name: 'executionId', value: { longValue: executionId } }]
     );
 
-    return results.map(row => ({
-      id: row.id,
-      eventType: row.eventType as SSEEventType,
-      eventData: JSON.parse(row.eventData) as SSEEventMap[SSEEventType],
-      createdAt: row.createdAt
-    }));
+    return results.map(row => {
+      const transformed = transformSnakeToCamel<{
+        id: number;
+        eventType: string;
+        eventData: string;
+        createdAt: string;
+      }>(row);
+
+      return {
+        id: transformed.id,
+        eventType: transformed.eventType as SSEEventType,
+        eventData: JSON.parse(transformed.eventData) as SSEEventMap[SSEEventType],
+        createdAt: transformed.createdAt
+      };
+    });
   } catch (error) {
     log.error('Failed to retrieve execution events', {
       error: error instanceof Error ? error.message : String(error),
@@ -122,10 +132,10 @@ export async function getExecutionEventsByType<K extends SSEEventType>(
   try {
     const results = await executeSQL<{
       id: number;
-      eventData: string;
-      createdAt: string;
+      event_data: string;
+      created_at: string;
     }>(
-      `SELECT id, event_data as "eventData", created_at as "createdAt"
+      `SELECT id, event_data, created_at
        FROM assistant_architect_events
        WHERE execution_id = :executionId
          AND event_type = :eventType::assistant_event_type
@@ -136,11 +146,19 @@ export async function getExecutionEventsByType<K extends SSEEventType>(
       ]
     );
 
-    return results.map(row => ({
-      id: row.id,
-      eventData: JSON.parse(row.eventData) as SSEEventMap[K],
-      createdAt: row.createdAt
-    }));
+    return results.map(row => {
+      const transformed = transformSnakeToCamel<{
+        id: number;
+        eventData: string;
+        createdAt: string;
+      }>(row);
+
+      return {
+        id: transformed.id,
+        eventData: JSON.parse(transformed.eventData) as SSEEventMap[K],
+        createdAt: transformed.createdAt
+      };
+    });
   } catch (error) {
     log.error('Failed to retrieve execution events by type', {
       error: error instanceof Error ? error.message : String(error),

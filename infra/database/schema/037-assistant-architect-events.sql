@@ -23,7 +23,7 @@ CREATE TABLE assistant_architect_events (
   execution_id INTEGER NOT NULL REFERENCES tool_executions(id) ON DELETE CASCADE,
   event_type assistant_event_type NOT NULL,
   event_data JSONB NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create indexes for efficient querying

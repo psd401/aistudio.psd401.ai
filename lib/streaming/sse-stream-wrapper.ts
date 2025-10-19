@@ -7,7 +7,22 @@
  * This allows us to emit custom events (prompt-start, progress, etc.)
  * alongside the AI response stream without breaking the AI SDK's streaming protocol.
  *
+ * **IMPORTANT: Infrastructure Code - Not Currently Used**
+ *
+ * This module provides the foundation for future real-time SSE streaming but is
+ * NOT imported or used in the current implementation (PR #336/Issue #360).
+ *
+ * Current Implementation:
+ * - Events are stored in database via event-storage.ts
+ * - No real-time streaming to clients
+ *
+ * Future Use Cases:
+ * - Real-time progress streaming via /api/assistant-architect/events/[id]
+ * - Client-side EventSource subscriptions
+ * - Live execution monitoring
+ *
  * @module lib/streaming/sse-stream-wrapper
+ * @see /docs/features/assistant-architect-sse-events.md for implementation roadmap
  */
 
 import type { SSEEventEmitter } from '@/types/sse-events';

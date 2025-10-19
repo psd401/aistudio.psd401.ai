@@ -12,6 +12,13 @@
  *
  * ```
  *
+ * **Current Status**: Infrastructure code for future real-time SSE streaming.
+ * Not actively used in PR #336 but provides foundation for future enhancements.
+ *
+ * **Memory Management Note**: Functions that create intervals (createBatchingEventEmitter)
+ * require explicit cleanup via the returned stopBatching() function to prevent memory leaks.
+ * Callers MUST call cleanup functions when streams are closed.
+ *
  * @module lib/streaming/sse-event-emitter
  */
 
