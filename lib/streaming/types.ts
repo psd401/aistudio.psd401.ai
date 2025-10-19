@@ -1,4 +1,5 @@
 import type { UIMessage, LanguageModel, CoreMessage, ToolSet } from 'ai';
+import type { SSEEventEmitter } from '@/types/sse-events';
 
 /**
  * Core streaming types for the unified streaming architecture
@@ -165,6 +166,12 @@ export interface StreamingCallbacks {
     finishReason: string;
   }) => void;
   onError?: (error: Error) => void;
+
+  /**
+   * SSE event emitter for custom progress events
+   * Only used for assistant architect execution
+   */
+  sseEventEmitter?: SSEEventEmitter;
 }
 
 export interface ProviderAdapter {

@@ -11,6 +11,7 @@ import { hasToolAccess } from '@/utils/roles';
 import { ErrorFactories } from '@/lib/error-utils';
 import { createRepositoryTools } from '@/lib/tools/repository-tools';
 import type { StreamRequest } from '@/lib/streaming/types';
+import { storeExecutionEvent } from '@/lib/assistant-architect/event-storage';
 
 // Allow streaming responses up to 15 minutes for long chains
 export const maxDuration = 900;
@@ -58,6 +59,7 @@ interface PromptExecutionContext {
   userCognitoSub: string;
   assistantOwnerSub?: string;
   userId: number;
+  executionStartTime: number;
 }
 
 /**
@@ -241,20 +243,28 @@ export async function POST(req: Request) {
     const executionId = Number(executionResult[0].id);
     log.info('Tool execution created', { executionId, toolId });
 
-    // 7. Execute prompt chain with streaming
+    // 7. Emit execution-start event
+    await storeExecutionEvent(executionId, 'execution-start', {
+      executionId,
+      totalPrompts: prompts.length,
+      toolName: architect.name
+    });
+
+    // 8. Execute prompt chain with streaming
     const context: PromptExecutionContext = {
       previousOutputs: new Map(),
       accumulatedMessages: [],
       executionId,
       userCognitoSub: session.sub,
       assistantOwnerSub: architect.userId ? String(architect.userId) : undefined,
-      userId
+      userId,
+      executionStartTime: Date.now()
     };
 
     try {
       const streamResponse = await executePromptChain(prompts, inputs, context, requestId, log);
 
-      // 8. Update execution status to completed on stream completion
+      // 9. Update execution status to completed on stream completion
       // This is done in the onFinish callback of the last prompt
 
       // Return SSE stream with headers
@@ -290,6 +300,14 @@ export async function POST(req: Request) {
         ]
       );
 
+      // Emit execution-error event
+      await storeExecutionEvent(executionId, 'execution-error', {
+        executionId,
+        error: executionError instanceof Error ? executionError.message : String(executionError),
+        recoverable: false,
+        details: executionError instanceof Error ? executionError.stack : undefined
+      }).catch(err => log.error('Failed to store execution-error event', { error: err }));
+
       throw executionError;
     }
 
@@ -323,6 +341,7 @@ export async function POST(req: Request) {
 
 /**
  * Execute a chain of prompts sequentially with state management
+ * Now includes event emission for fine-grained progress tracking
  */
 async function executePromptChain(
   prompts: ChainPrompt[],
@@ -351,6 +370,17 @@ async function executePromptChain(
       executionId: context.executionId
     });
 
+    // Emit prompt-start event
+    await storeExecutionEvent(context.executionId, 'prompt-start', {
+      promptId: prompt.id,
+      promptName: prompt.name,
+      position: index + 1,
+      totalPrompts: prompts.length,
+      modelId: String(prompt.modelId || 'unknown'),
+      hasKnowledge: !!(prompt.repositoryIds && prompt.repositoryIds.length > 0),
+      hasTools: !!(prompt.enabledTools && prompt.enabledTools.length > 0)
+    });
+
     try {
       // Validate prompt has a model configured
       if (!prompt.modelId) {
@@ -368,6 +398,13 @@ async function executePromptChain(
         log.debug('Retrieving repository knowledge', {
           promptId: prompt.id,
           repositoryIds: prompt.repositoryIds
+        });
+
+        // Emit knowledge-retrieval-start event
+        await storeExecutionEvent(context.executionId, 'knowledge-retrieval-start', {
+          promptId: prompt.id,
+          repositories: prompt.repositoryIds,
+          searchType: 'hybrid'
         });
 
         const knowledgeChunks = await retrieveKnowledgeForPrompt(
@@ -391,6 +428,19 @@ async function executePromptChain(
             promptId: prompt.id,
             chunkCount: knowledgeChunks.length
           });
+
+          // Emit knowledge-retrieved event
+          // Calculate approximate tokens (chunk.content length / 4 is a rough estimate)
+          const totalTokens = knowledgeChunks.reduce((sum, chunk) => sum + Math.ceil(chunk.content.length / 4), 0);
+          // Use similarity score as relevance
+          const avgRelevance = knowledgeChunks.reduce((sum, chunk) => sum + chunk.similarity, 0) / knowledgeChunks.length;
+
+          await storeExecutionEvent(context.executionId, 'knowledge-retrieved', {
+            promptId: prompt.id,
+            documentsFound: knowledgeChunks.length,
+            relevanceScore: avgRelevance,
+            tokens: totalTokens
+          });
         }
       }
 
@@ -408,6 +458,33 @@ async function executePromptChain(
         originalLength: prompt.content.length,
         processedLength: processedContent.length
       });
+
+      // Emit variable-substitution event if variables were used
+      if (Object.keys(inputMapping).length > 0 || processedContent !== prompt.content) {
+        const substitutedVars: Record<string, string> = {};
+        const sourcePrompts: number[] = [];
+
+        // Extract which variables were substituted
+        Object.entries(inputMapping).forEach(([varName, mappedPath]) => {
+          const promptMatch = mappedPath.match(/^prompt_(\d+)\.output$/);
+          if (promptMatch) {
+            const sourcePromptId = parseInt(promptMatch[1], 10);
+            sourcePrompts.push(sourcePromptId);
+            const value = context.previousOutputs.get(sourcePromptId);
+            if (value) {
+              substitutedVars[varName] = value.substring(0, 100); // Truncate for storage
+            }
+          } else if (varName in inputs) {
+            substitutedVars[varName] = String(inputs[varName]).substring(0, 100);
+          }
+        });
+
+        await storeExecutionEvent(context.executionId, 'variable-substitution', {
+          promptId: prompt.id,
+          variables: substitutedVars,
+          sourcePrompts: Array.from(new Set(sourcePrompts))
+        });
+      }
 
       // 3. Build messages with accumulated context
       const userMessage: UIMessage = {
@@ -550,6 +627,14 @@ async function executePromptChain(
                 executionTimeMs
               });
 
+              // Emit prompt-complete event
+              await storeExecutionEvent(context.executionId, 'prompt-complete', {
+                promptId: prompt.id,
+                outputTokens: usage?.completionTokens || 0,
+                duration: executionTimeMs,
+                cached: false // TODO: detect if response was cached
+              }).catch(err => log.error('Failed to store prompt-complete event', { error: err }));
+
               // If this is the last prompt, update execution status to completed
               if (isLastPrompt) {
                 await executeSQL(
@@ -559,6 +644,15 @@ async function executePromptChain(
                    WHERE id = :executionId`,
                   [{ name: 'executionId', value: { longValue: context.executionId } }]
                 );
+
+                // Emit execution-complete event
+                const totalDuration = Date.now() - context.executionStartTime;
+                await storeExecutionEvent(context.executionId, 'execution-complete', {
+                  executionId: context.executionId,
+                  totalTokens: usage?.totalTokens || 0,
+                  duration: totalDuration,
+                  success: true
+                }).catch(err => log.error('Failed to store execution-complete event', { error: err }));
 
                 log.info('Execution completed successfully', {
                   executionId: context.executionId,
@@ -597,6 +691,15 @@ async function executePromptChain(
         promptName: prompt.name,
         executionId: context.executionId
       });
+
+      // Emit execution-error event for prompt failure
+      await storeExecutionEvent(context.executionId, 'execution-error', {
+        executionId: context.executionId,
+        error: promptError instanceof Error ? promptError.message : String(promptError),
+        promptId: prompt.id,
+        recoverable: false,
+        details: promptError instanceof Error ? promptError.stack : undefined
+      }).catch(err => log.error('Failed to store prompt error event', { error: err }));
 
       // Save failed prompt result
       await executeSQL(
