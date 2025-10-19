@@ -52,7 +52,9 @@ const MIGRATION_FILES = [
   '031-nexus-messages.sql',
   '032-remove-nexus-provider-constraint.sql',
   '033-ai-streaming-jobs.sql',
-  '034-assistant-architect-enabled-tools.sql'
+  '034-assistant-architect-enabled-tools.sql',
+  '035-schedule-management-schema.sql',
+  '036-remove-legacy-chat-tables.sql'
   // ADD NEW MIGRATIONS HERE - they will run once and be tracked
 ];
 

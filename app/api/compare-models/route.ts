@@ -2,7 +2,7 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { createLogger, generateRequestId, startTimer } from '@/lib/logger';
 import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
-import { getModelConfig } from '@/app/api/chat/lib/conversation-handler';
+import { getModelConfig } from '@/lib/ai/model-config';
 import type { StreamRequest } from '@/lib/streaming/types';
 import { UIMessage } from 'ai';
 

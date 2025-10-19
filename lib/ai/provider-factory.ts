@@ -16,7 +16,7 @@ const log = createLogger({ module: 'provider-factory' });
  */
 export async function createProviderModel(provider: string, modelId: string): Promise<LanguageModel> {
   log.info(`Creating model for provider: ${provider}, modelId: ${modelId}`);
-  
+
   // Add validation
   if (!provider) {
     log.error('Provider is undefined or null');
@@ -24,17 +24,17 @@ export async function createProviderModel(provider: string, modelId: string): Pr
       { field: 'provider', message: 'Provider is required but was undefined' }
     ]);
   }
-  
+
   if (!modelId) {
     log.error('ModelId is undefined or null');
     throw ErrorFactories.validationFailed([
       { field: 'modelId', message: 'ModelId is required but was undefined' }
     ]);
   }
-  
+
   // Ensure provider is lowercase for comparison
   const normalizedProvider = provider.toLowerCase();
-  
+
   switch (normalizedProvider) {
     case 'openai':
       return await createOpenAIModel(modelId);
@@ -62,19 +62,19 @@ async function createOpenAIModel(modelId: string): Promise<LanguageModel> {
       log.error('OpenAI API key not configured');
       throw ErrorFactories.sysConfigurationError('OpenAI API key not configured');
     }
-    
+
     // Ensure apiKey is a string (not null or undefined)
     if (typeof apiKey !== 'string' || apiKey.trim() === '') {
       log.error('Invalid OpenAI API key format', { keyType: typeof apiKey });
       throw ErrorFactories.sysConfigurationError('OpenAI API key is invalid or empty');
     }
-    
+
     log.debug(`Creating OpenAI model: ${modelId}`);
     const openai = createOpenAI({ apiKey });
     return openai(modelId);
   } catch (error) {
-    log.error('Failed to create OpenAI model', { 
-      modelId, 
+    log.error('Failed to create OpenAI model', {
+      modelId,
       error,
       errorMessage: error instanceof Error ? error.message : String(error),
       errorStack: error instanceof Error ? error.stack : undefined
@@ -93,7 +93,7 @@ async function createGoogleModel(modelId: string): Promise<LanguageModel> {
       log.error('Google API key not configured');
       throw ErrorFactories.sysConfigurationError('Google API key not configured');
     }
-    
+
     log.debug(`Creating Google model: ${modelId}`);
     // Set environment variable for Google SDK
     process.env.GOOGLE_GENERATIVE_AI_API_KEY = apiKey;
@@ -111,18 +111,18 @@ async function createBedrockModel(modelId: string): Promise<LanguageModel> {
   try {
     const config = await Settings.getBedrock();
     const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
-    
+
     log.debug(`Creating Bedrock model: ${modelId}`, {
       hasAccessKey: !!config.accessKeyId,
       hasSecretKey: !!config.secretAccessKey,
       region: config.region || 'us-east-1',
       isLambda
     });
-    
+
     const bedrockOptions: Parameters<typeof createAmazonBedrock>[0] = {
       region: config.region || 'us-east-1'
     };
-    
+
     // Only use explicit credentials for local development
     // In Lambda, use IAM role credentials
     if (!isLambda && config.accessKeyId && config.secretAccessKey) {
@@ -134,7 +134,7 @@ async function createBedrockModel(modelId: string): Promise<LanguageModel> {
       // Let SDK use the default credential provider chain
       // This works with IAM roles in Lambda
     }
-    
+
     const bedrock = createAmazonBedrock(bedrockOptions);
     return bedrock(modelId);
   } catch (error) {
@@ -153,11 +153,11 @@ async function createAzureModel(modelId: string): Promise<LanguageModel> {
       log.error('Azure OpenAI not configured');
       throw ErrorFactories.sysConfigurationError('Azure OpenAI not configured');
     }
-    
+
     log.debug(`Creating Azure model: ${modelId}`);
-    const azure = createAzure({ 
-      apiKey: config.key, 
-      resourceName: config.resourceName 
+    const azure = createAzure({
+      apiKey: config.key,
+      resourceName: config.resourceName
     });
     return azure(modelId);
   } catch (error) {
@@ -185,7 +185,7 @@ export function getSupportedProviders(): string[] {
  * Returns both the model and its capabilities for the unified streaming system
  */
 export async function createProviderModelWithCapabilities(
-  provider: string, 
+  provider: string,
   modelId: string,
   options?: {
     reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
@@ -202,13 +202,13 @@ export async function createProviderModelWithCapabilities(
 
   // Get the provider adapter for enhanced capabilities
   const adapter = await getProviderAdapter(provider);
-  
+
   // Create the model using the adapter
   const model = await adapter.createModel(modelId, options);
-  
+
   // Get model capabilities
   const capabilities = adapter.getCapabilities(modelId);
-  
+
   log.debug('Model created with capabilities', {
     provider,
     modelId,
@@ -216,7 +216,7 @@ export async function createProviderModelWithCapabilities(
     supportsThinking: capabilities.supportsThinking,
     maxTimeoutMs: capabilities.maxTimeoutMs
   });
-  
+
   return { model, capabilities };
 }
 

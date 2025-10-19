@@ -1,4 +1,4 @@
-import { getModelCapabilities } from '@/app/api/chat/lib/provider-factory';
+import { getModelCapabilities } from '@/lib/ai/provider-factory';
 import { createLogger, generateRequestId } from '@/lib/logger';
 import { ErrorFactories } from '@/lib/error-utils';
 

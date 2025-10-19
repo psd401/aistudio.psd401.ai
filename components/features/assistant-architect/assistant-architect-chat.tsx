@@ -5,8 +5,8 @@ import { useChat } from '@ai-sdk/react'
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/components/ui/use-toast"
-import { ChatInput } from "@/app/(protected)/chat/_components/chat-input"
-import { Message } from "@/app/(protected)/chat/_components/message"
+import { SimpleChatInput } from "@/components/assistant-ui/simple-chat-input"
+import { SimpleMessage } from "@/components/assistant-ui/simple-message"
 import { ExecutionResultDetails } from "@/types/assistant-architect-types"
 import { IconPlayerStop } from "@tabler/icons-react"
 import { Loader2, Info } from "lucide-react"
@@ -16,7 +16,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import type { SelectMessage } from "@/types/schema-types"
 import { generateUUID } from "@/lib/utils/uuid"
 
 interface PromptResult {
@@ -227,7 +226,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
             // Only set messages if we don't have any (prevents race condition)
             setMessages(prevMessages => {
               if (prevMessages.length === 0) {
-                return data.messages.map((msg: SelectMessage) => ({
+                return data.messages.map((msg: { id: number; role: string; content: string }) => ({
                   id: msg.id.toString(),
                   role: msg.role,
                   content: msg.content
@@ -287,15 +286,11 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
           }
           
           return (
-            <Message 
-              key={message.id} 
-              message={{ 
-                id: message.id, 
-                role: message.role === "user" ? "user" : "assistant", 
-                content: content,
-                parts: [{ type: 'text', text: content }]
-              }}
-              messageId={message.id}
+            <SimpleMessage
+              key={message.id}
+              role={message.role === "user" ? "user" : "assistant"}
+              content={content}
+              className="mb-4"
             />
           );
         })}
@@ -360,7 +355,7 @@ export const AssistantArchitectChat = memo(function AssistantArchitectChat({
 
       <div className="p-4 border-t">
         <div className="flex items-end gap-2">
-          <ChatInput
+          <SimpleChatInput
             input={input}
             handleInputChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setInput(e.target.value)}
             handleSubmit={handleSubmit}

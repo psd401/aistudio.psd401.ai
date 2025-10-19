@@ -1,11 +1,12 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { ChatInput } from "@/app/(protected)/chat/_components/chat-input"
+import { Textarea } from "@/components/ui/textarea"
 import { ModelSelector } from "@/components/features/model-selector"
-import { IconPlayerPlay, IconPlayerStop, IconRefresh } from "@tabler/icons-react"
+import { IconPlayerPlay, IconPlayerStop, IconRefresh, IconSend } from "@tabler/icons-react"
 import type { SelectAiModel } from "@/types"
 import { useModels } from "@/lib/hooks/use-models"
+import { useRef, useEffect } from "react"
 
 interface CompareInputProps {
   prompt: string
@@ -32,12 +33,31 @@ export function CompareInput({
   onNewComparison,
   hasResponses
 }: CompareInputProps) {
-  // Use shared models hook for fetching available models
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { models } = useModels()
+
+  // Auto-resize textarea based on content
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto"
+      const scrollHeight = textareaRef.current.scrollHeight
+      const maxHeight = 200
+      const minHeight = 48
+      const finalHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight)
+      textareaRef.current.style.height = `${finalHeight}px`
+    }
+  }, [prompt])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     onSubmit()
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey && !isLoading) {
+      e.preventDefault()
+      onSubmit()
+    }
   }
 
   return (
@@ -79,19 +99,29 @@ export function CompareInput({
       </div>
 
       {/* Input and Actions */}
-      <div className="flex gap-2">
-        <div className="flex-1">
-          <ChatInput
-            input={prompt}
-            handleInputChange={(e) => onPromptChange(e.target.value)}
-            handleSubmit={handleSubmit}
-            isLoading={isLoading}
-            disabled={!selectedModel1 || !selectedModel2}
+      <form onSubmit={handleSubmit} className="flex gap-2">
+        <div className="flex-1 relative">
+          <Textarea
+            ref={textareaRef}
+            id="compare-prompt-input"
+            value={prompt}
+            onChange={(e) => onPromptChange(e.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder="Enter a prompt to compare model responses..."
-            ariaLabel="Comparison prompt"
-            inputId="compare-prompt-input"
-            sendButtonAriaLabel="Compare models"
+            disabled={!selectedModel1 || !selectedModel2 || isLoading}
+            className="min-h-[48px] w-full resize-none bg-background py-3 pr-14 pl-4 border border-border rounded-xl shadow-sm focus-visible:ring-1 focus-visible:ring-primary"
+            style={{ maxHeight: "200px", overflowY: "auto" }}
+            aria-label="Comparison prompt"
           />
+          <Button
+            type="submit"
+            size="icon"
+            disabled={!selectedModel1 || !selectedModel2 || !prompt.trim() || isLoading}
+            className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10"
+            aria-label="Submit comparison"
+          >
+            <IconSend className="h-4 w-4" />
+          </Button>
         </div>
         
         {/* Action Buttons */}
@@ -130,7 +160,7 @@ export function CompareInput({
             </Button>
           )}
         </div>
-      </div>
+      </form>
     </div>
   )
 }

@@ -7,7 +7,7 @@ import { executeSQL } from '@/lib/db/data-api-adapter';
 import { processMessagesWithAttachments } from '@/lib/services/attachment-storage-service';
 import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
 import type { StreamRequest } from '@/lib/streaming/types';
-import { getModelConfig } from '@/app/api/chat/lib/conversation-handler';
+import { getModelConfig } from '@/lib/ai/model-config';
 import { sanitizeTextForDatabase } from '@/lib/utils/text-sanitizer';
 
 // Allow streaming responses up to 5 minutes for long-running conversations
