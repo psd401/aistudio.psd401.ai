@@ -348,6 +348,16 @@ function AutoStartExecution({
   const runtime = useThreadRuntime()
   const hasStarted = useRef(false)
 
+  // CRITICAL FIX: Force reset hasStarted ref when component detects we should be starting fresh
+  useEffect(() => {
+    if (!hasCompletedExecution && hasStarted.current) {
+      log.info('FORCE RESET: hasStarted ref was stale, resetting to false', {
+        previousValue: hasStarted.current
+      })
+      hasStarted.current = false
+    }
+  }, [hasCompletedExecution])
+
   useEffect(() => {
     log.info('AutoStartExecution effect triggered', {
       hasStarted: hasStarted.current,
@@ -361,7 +371,6 @@ function AutoStartExecution({
     if (!hasCompletedExecution && hasCompletedExecutionRef.current) {
       log.info('Resetting to execution mode')
       hasCompletedExecutionRef.current = false
-      hasStarted.current = false
     }
 
     // Only start once when runtime is ready AND not already completed
@@ -405,7 +414,7 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
   // CRITICAL FIX: Reset hasResults when tool changes (user navigates to different assistant)
   // This was causing the bug where hasResults stayed true from a previous session
   useEffect(() => {
-    log.info('Tool changed - resetting execution state', { toolId: tool.id, toolName: tool.name })
+    log.info('Tool changed - resetting execution state', { toolId: tool.id })
     setHasResults(false)
     setIsExecuting(false)
     setError(null)
@@ -731,6 +740,7 @@ export const AssistantArchitectStreaming = memo(function AssistantArchitectStrea
       {(isExecuting || hasResults) && (
         <ErrorBoundary>
           <AssistantArchitectRuntimeProvider
+            key={`runtime-${tool.id}`}
             tool={tool}
             inputs={inputs}
             onExecutionIdChange={handleExecutionIdChange}
