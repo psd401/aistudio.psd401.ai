@@ -4,6 +4,18 @@ import { getTelemetryConfig } from './telemetry-service';
 import { getProviderAdapter, type ProviderCapabilities } from './provider-adapters';
 import { CircuitBreaker, CircuitBreakerOpenError } from './circuit-breaker';
 import type { StreamRequest, StreamResponse, StreamConfig, StreamingProgress, TelemetrySpan, TelemetryConfig } from './types';
+import {
+  isTextDeltaEvent,
+  isTextStartEvent,
+  isTextEndEvent,
+  isToolCallEvent,
+  isToolCallDeltaEvent,
+  isReasoningDeltaEvent,
+  isReasoningStartEvent,
+  isReasoningEndEvent,
+  isErrorEvent,
+  isFinishEvent
+} from './sse-event-types';
 
 /**
  * Unified streaming service that handles all AI streaming operations
@@ -272,14 +284,79 @@ export class UnifiedStreamingService {
   }
   
   /**
-   * Handle streaming progress events
+   * Handle streaming progress events using typed SSE events and type guards
    */
-  private handleProgress(event: StreamingProgress, span: TelemetrySpan | undefined, telemetryConfig: TelemetryConfig) {
-    // Record progress metrics
-    if (telemetryConfig.isEnabled && span) {
+  private handleProgress(progress: StreamingProgress, span: TelemetrySpan | undefined, telemetryConfig: TelemetryConfig) {
+    if (!telemetryConfig.isEnabled || !span) {
+      return;
+    }
+
+    const event = progress.event;
+
+    // Use type guards for safe property access and specific event handling
+    if (isTextDeltaEvent(event)) {
+      span.addEvent('ai.stream.text.delta', {
+        timestamp: Date.now(),
+        'ai.text.delta.length': event.delta.length,
+        'ai.tokens.estimated': progress.tokens || Math.ceil(event.delta.length / 4)
+      });
+    } else if (isTextStartEvent(event)) {
+      span.addEvent('ai.stream.text.start', {
+        timestamp: Date.now(),
+        'ai.text.id': event.id
+      });
+    } else if (isTextEndEvent(event)) {
+      span.addEvent('ai.stream.text.end', {
+        timestamp: Date.now(),
+        'ai.text.id': event.id
+      });
+    } else if (isToolCallEvent(event)) {
+      span.addEvent('ai.stream.tool.call', {
+        timestamp: Date.now(),
+        'ai.tool.name': event.toolName,
+        'ai.tool.call.id': event.toolCallId
+      });
+    } else if (isToolCallDeltaEvent(event)) {
+      span.addEvent('ai.stream.tool.delta', {
+        timestamp: Date.now(),
+        'ai.tool.name': event.toolName,
+        'ai.tool.call.id': event.toolCallId,
+        'ai.tool.delta.length': event.delta?.length || 0
+      });
+    } else if (isReasoningDeltaEvent(event)) {
+      span.addEvent('ai.stream.reasoning.delta', {
+        timestamp: Date.now(),
+        'ai.reasoning.delta.length': event.delta.length
+      });
+    } else if (isReasoningStartEvent(event)) {
+      span.addEvent('ai.stream.reasoning.start', {
+        timestamp: Date.now(),
+        'ai.reasoning.id': event.id
+      });
+    } else if (isReasoningEndEvent(event)) {
+      span.addEvent('ai.stream.reasoning.end', {
+        timestamp: Date.now(),
+        'ai.reasoning.id': event.id
+      });
+    } else if (isErrorEvent(event)) {
+      span.addEvent('ai.stream.error', {
+        timestamp: Date.now(),
+        'ai.error.message': event.error,
+        'ai.error.code': event.code || 'unknown'
+      });
+    } else if (isFinishEvent(event)) {
+      span.addEvent('ai.stream.finish', {
+        timestamp: Date.now(),
+        'ai.usage.prompt_tokens': event.usage?.promptTokens || 0,
+        'ai.usage.completion_tokens': event.usage?.completionTokens || 0,
+        'ai.usage.total_tokens': event.usage?.totalTokens || 0
+      });
+    } else {
+      // Fallback for unrecognized event types
       span.addEvent('ai.stream.progress', {
         timestamp: Date.now(),
-        'ai.tokens.streamed': (event.metadata?.tokens as number) || 0
+        'ai.event.type': event.type,
+        'ai.tokens.streamed': progress.tokens || 0
       });
     }
   }

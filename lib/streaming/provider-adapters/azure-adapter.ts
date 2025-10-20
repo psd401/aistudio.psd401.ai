@@ -179,10 +179,16 @@ export class AzureAdapter extends BaseProviderAdapter {
     // Handle Azure-specific content filtering results
     if (data.contentFilterResults && callbacks.onProgress) {
       callbacks.onProgress({
+        event: {
+          type: 'tool-output-available',
+          toolCallId: `azure-content-filter-${Date.now()}`,
+          output: data.contentFilterResults
+        },
+        timestamp: Date.now(),
+        // Legacy fields for backward compatibility
         type: 'tool_result',
         content: `Content filtering: ${JSON.stringify(data.contentFilterResults)}`,
-        timestamp: Date.now(),
-        metadata: { 
+        metadata: {
           tool: 'content_filter',
           azure: true
         }

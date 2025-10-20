@@ -1,5 +1,6 @@
 import type { UIMessage, LanguageModel, CoreMessage, ToolSet } from 'ai';
 import type { SSEEventEmitter } from '@/types/sse-events';
+import type { SSEEvent } from './sse-event-types';
 
 /**
  * Core streaming types for the unified streaming architecture
@@ -142,11 +143,26 @@ export interface TelemetryConfig {
   };
 }
 
+/**
+ * Streaming progress event with typed SSE event
+ * This replaces the generic metadata-based approach with typed SSE events
+ */
 export interface StreamingProgress {
-  type: 'token' | 'reasoning' | 'thinking' | 'tool_call' | 'tool_result';
-  content?: string;
-  text?: string; // For token events
+  /** Typed SSE event - provides compile-time safety for all event types */
+  event: SSEEvent;
+  /** Optional token count for progress tracking */
+  tokens?: number;
+  /** Timestamp for debugging and monitoring */
   timestamp: number;
+
+  // Legacy fields for backward compatibility
+  /** @deprecated Use event.type instead */
+  type?: 'token' | 'reasoning' | 'thinking' | 'tool_call' | 'tool_result';
+  /** @deprecated Use event-specific fields (e.g., event.delta) instead */
+  content?: string;
+  /** @deprecated Use event.delta for text-delta events instead */
+  text?: string;
+  /** @deprecated Use typed event fields instead */
   metadata?: Record<string, unknown>;
 }
 

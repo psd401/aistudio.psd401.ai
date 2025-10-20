@@ -164,9 +164,16 @@ export class ResponsesAPIClient {
                   
                   if (callbacks?.onProgress) {
                     callbacks.onProgress({
+                      event: {
+                        type: 'reasoning-delta',
+                        delta: event.content,
+                        reasoning: event.content
+                      },
+                      timestamp: Date.now(),
+                      tokens: event.tokens,
+                      // Legacy fields for backward compatibility
                       type: 'reasoning',
                       content: event.content,
-                      timestamp: Date.now(),
                       metadata: {
                         step: event.step_number,
                         tokens: event.tokens
@@ -180,9 +187,14 @@ export class ResponsesAPIClient {
                   
                   if (callbacks?.onProgress) {
                     callbacks.onProgress({
+                      event: {
+                        type: 'text-delta',
+                        delta: event.content
+                      },
+                      timestamp: Date.now(),
+                      // Legacy fields for backward compatibility
                       type: 'token',
-                      content: event.content,
-                      timestamp: Date.now()
+                      content: event.content
                     });
                   }
                   break;
@@ -195,9 +207,16 @@ export class ResponsesAPIClient {
                   
                   if (callbacks?.onProgress) {
                     callbacks.onProgress({
+                      event: {
+                        type: 'tool-call',
+                        toolCallId: event.tool_call_id || `tool-${Date.now()}`,
+                        toolName: event.tool_name || 'unknown',
+                        args: event.arguments as Record<string, unknown> | undefined
+                      },
+                      timestamp: Date.now(),
+                      // Legacy fields for backward compatibility
                       type: 'tool_call',
                       content: JSON.stringify(event),
-                      timestamp: Date.now(),
                       metadata: event
                     });
                   }

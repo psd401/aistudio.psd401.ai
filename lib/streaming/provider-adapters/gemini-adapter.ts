@@ -231,9 +231,15 @@ export class GeminiAdapter extends BaseProviderAdapter {
     // Handle code execution results
     if (data.codeExecutionResults && callbacks.onProgress) {
       callbacks.onProgress({
+        event: {
+          type: 'tool-output-available',
+          toolCallId: `gemini-code-exec-${Date.now()}`,
+          output: data.codeExecutionResults
+        },
+        timestamp: Date.now(),
+        // Legacy fields for backward compatibility
         type: 'tool_result',
         content: JSON.stringify(data.codeExecutionResults),
-        timestamp: Date.now(),
         metadata: { tool: 'code_execution' }
       });
     }
