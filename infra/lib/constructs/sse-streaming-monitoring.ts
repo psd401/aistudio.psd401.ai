@@ -48,6 +48,15 @@ export class SSEStreamingMonitoring extends Construct {
     // Namespace for SSE streaming metrics
     const namespace = 'AIStudio/Streaming'
 
+    // Initialize alarms object
+    // We'll populate each property below, but TypeScript requires initialization
+    this.alarms = {} as {
+      fieldMismatch: cloudwatch.Alarm
+      parseErrors: cloudwatch.Alarm
+      unknownEvents: cloudwatch.Alarm
+      streamFailures: cloudwatch.Alarm
+    }
+
     // ========================================================================
     // CRITICAL ALARM: Field Mismatches
     // ========================================================================
