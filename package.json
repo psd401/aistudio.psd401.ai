@@ -21,7 +21,9 @@
     "test:perf:long": "jest --testMatch='**/long-running-streams.test.ts' --runInBand",
     "test:perf:memory": "jest --testMatch='**/memory-leak-detection.test.ts' --runInBand",
     "test:perf:stress": "jest --testMatch='**/stress-test.test.ts' --runInBand",
-    "ts-node": "tsx"
+    "ts-node": "tsx",
+    "check-sdk-version": "node -p \"require('ai/package.json').version\"",
+    "preflight:ai-sdk-upgrade": "npm run test:streaming:contract && npm run test:streaming && npm run typecheck"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^3.0.22",
@@ -84,7 +86,7 @@
     "@types/uuid": "^11.0.0",
     "@uiw/react-markdown-preview": "^5.1.5",
     "@xyflow/react": "^12.8.5",
-    "ai": "^5.0.0",
+    "ai": "~5.0.0",
     "aws-amplify": "^6.15.6",
     "aws-jwt-verify": "^5.1.0",
     "class-variance-authority": "^0.7.1",
@@ -161,6 +163,7 @@
     "prismjs": "^1.30.0",
     "openai": {
       "zod": "^4.1.11"
-    }
+    },
+    "ai": "~5.0.0"
   }
 }

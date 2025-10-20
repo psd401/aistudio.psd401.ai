@@ -12,11 +12,14 @@
  *
  * @see https://sdk.vercel.ai/docs
  * @see https://github.com/psd401/aistudio.psd401.ai/issues/364
+ * @see https://github.com/psd401/aistudio.psd401.ai/issues/366
  */
 
 import { streamText } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { parseSSEEvent, isTextDeltaEvent, isFinishEvent } from '../../sse-event-types';
+import { SDKVersionDetector } from '../../sdk-version-detector';
+import { SSEEventAdapter } from '../../sdk-compatibility-adapter';
 
 /**
  * Parse SSE data stream format
@@ -49,12 +52,136 @@ function parseSSEDataLine(line: string): string | null {
  * - Run: npm run test:streaming-contract
  */
 describe.skip('Vercel AI SDK v5 Contract Tests', () => {
+  const adapter = new SSEEventAdapter();
+  const version = SDKVersionDetector.detect();
+
   // Skip all tests if no API key is available
   beforeAll(() => {
     if (!process.env.OPENAI_API_KEY) {
       // eslint-disable-next-line no-console
       console.warn('⚠️  Skipping contract tests: OPENAI_API_KEY not found');
     }
+
+    // Log detected SDK version
+    // eslint-disable-next-line no-console
+    console.log(`\n📦 Detected AI SDK: ${SDKVersionDetector.getVersionString()}\n`);
+  });
+
+  describe('SDK Version Detection', () => {
+    it('should detect SDK version correctly', () => {
+      expect(version.major).toBeGreaterThanOrEqual(5);
+      expect(version.minor).toBeGreaterThanOrEqual(0);
+      expect(version.patch).toBeGreaterThanOrEqual(0);
+      expect(version.detected).toMatch(/^(runtime|package|fallback)$/);
+    });
+
+    it('should not use fallback detection method', () => {
+      // Warn if fallback is used (means detection failed)
+      if (version.detected === 'fallback') {
+        // eslint-disable-next-line no-console
+        console.warn('⚠️  SDK version detection is using fallback method');
+      }
+
+      // In a real environment, we should be able to detect the version
+      expect(version.detected).not.toBe('fallback');
+    });
+
+    it('should provide version string for logging', () => {
+      const versionString = SDKVersionDetector.getVersionString();
+      expect(versionString).toContain('v');
+      expect(versionString).toContain(version.major.toString());
+    });
+
+    it('should correctly check version compatibility', () => {
+      expect(SDKVersionDetector.isCompatible(version.major)).toBe(true);
+      expect(SDKVersionDetector.isCompatible(version.major, version.minor)).toBe(true);
+
+      // Should not be compatible with very old versions
+      expect(SDKVersionDetector.isCompatible(1)).toBe(false);
+
+      // Should not be compatible with future major versions
+      expect(SDKVersionDetector.isCompatible(version.major + 10)).toBe(false);
+    });
+  });
+
+  describe('SDK Compatibility Adapter', () => {
+    it('should normalize events correctly', () => {
+      const mockEvent = {
+        type: 'text-delta',
+        delta: 'Hello World',
+      };
+
+      const normalized = adapter.normalizeEvent(mockEvent);
+      expect(normalized.type).toBe('text-delta');
+      if (isTextDeltaEvent(normalized)) {
+        expect(normalized.delta).toBe('Hello World');
+      } else {
+        throw new Error('Expected text-delta event');
+      }
+    });
+
+    it('should validate well-formed events', () => {
+      const validEvent = {
+        type: 'text-delta',
+        delta: 'Test content',
+      };
+
+      const normalized = adapter.normalizeEvent(validEvent);
+      const validation = adapter.validateEventStructure(normalized);
+
+      expect(validation.valid).toBe(true);
+      expect(validation.issues).toHaveLength(0);
+    });
+
+    it('should detect malformed events', () => {
+      const malformedEvent = {
+        type: 'text-delta',
+        // Missing 'delta' field
+      };
+
+      const validation = adapter.validateEventStructure(malformedEvent);
+
+      expect(validation.valid).toBe(false);
+      expect(validation.issues.length).toBeGreaterThan(0);
+    });
+
+    it('should handle v4-style events with backward compatibility', () => {
+      // Simulate a v4-style event with old field name
+      const v4Event = {
+        type: 'text-delta',
+        textDelta: 'Old format content',
+      };
+
+      const normalized = adapter.normalizeEvent(v4Event);
+
+      // Should have normalized to v5 format
+      if (version.major === 4) {
+        if (isTextDeltaEvent(normalized)) {
+          expect(normalized.delta).toBe('Old format content');
+          expect('textDelta' in normalized).toBe(false);
+        } else {
+          throw new Error('Expected text-delta event');
+        }
+      }
+    });
+
+    it('should parse and normalize in one step', () => {
+      const jsonData = '{"type":"text-delta","delta":"Test"}';
+      const event = adapter.parseAndNormalize(jsonData);
+
+      expect(event.type).toBe('text-delta');
+      if (isTextDeltaEvent(event)) {
+        expect(event.delta).toBe('Test');
+      } else {
+        throw new Error('Expected text-delta event');
+      }
+    });
+
+    it('should throw on invalid JSON', () => {
+      expect(() => {
+        adapter.parseAndNormalize('invalid json');
+      }).toThrow();
+    });
   });
 
   describe('streamText SSE Event Format', () => {

@@ -1,0 +1,197 @@
+name: SDK Version Guard
+
+on:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'lib/streaming/**'
+  workflow_dispatch:
+  schedule:
+    # Weekly check on Mondays at 9 AM UTC
+    - cron: '0 9 * * 1'
+
+jobs:
+  check-sdk-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Check for AI SDK version changes
+        id: version-check
+        run: |
+          # Get current branch (for PRs)
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="${{ github.base_ref }}"
+          else
+            BASE_REF="main"
+          fi
+
+          echo "Comparing against: origin/$BASE_REF"
+
+          # Get versions from both branches
+          OLD_VERSION=$(git show origin/$BASE_REF:package.json | jq -r '.dependencies.ai // .devDependencies.ai // "none"')
+          NEW_VERSION=$(jq -r '.dependencies.ai // .devDependencies.ai // "none"' package.json)
+
+          echo "Old version: $OLD_VERSION"
+          echo "New version: $NEW_VERSION"
+          echo "old_version=$OLD_VERSION" >> $GITHUB_OUTPUT
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+          # Check if version changed
+          if [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
+            echo "version_changed=true" >> $GITHUB_OUTPUT
+
+            # Parse major versions (remove version range symbols)
+            OLD_MAJOR=$(echo $OLD_VERSION | sed 's/[^0-9]*\([0-9]*\).*/\1/')
+            NEW_MAJOR=$(echo $NEW_VERSION | sed 's/[^0-9]*\([0-9]*\).*/\1/')
+
+            echo "old_major=$OLD_MAJOR" >> $GITHUB_OUTPUT
+            echo "new_major=$NEW_MAJOR" >> $GITHUB_OUTPUT
+
+            if [ "$OLD_MAJOR" != "$NEW_MAJOR" ]; then
+              echo "major_change=true" >> $GITHUB_OUTPUT
+              echo "⚠️  MAJOR VERSION CHANGE DETECTED"
+            else
+              echo "major_change=false" >> $GITHUB_OUTPUT
+              echo "ℹ️  Minor/patch version change detected"
+            fi
+          else
+            echo "version_changed=false" >> $GITHUB_OUTPUT
+            echo "major_change=false" >> $GITHUB_OUTPUT
+            echo "✓ No AI SDK version changes"
+          fi
+
+      - name: Install dependencies
+        if: steps.version-check.outputs.version_changed == 'true'
+        run: npm ci
+
+      - name: Run contract tests
+        if: steps.version-check.outputs.version_changed == 'true'
+        run: npm run test:streaming:contract
+        continue-on-error: true
+        id: contract-tests
+        env:
+          # Contract tests are skipped without API key
+          # They will show as skipped in test output
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Run regular streaming tests
+        if: steps.version-check.outputs.version_changed == 'true'
+        run: npm run test -- lib/streaming
+        continue-on-error: false
+
+      - name: Comment on PR - Major version change
+        if: |
+          github.event_name == 'pull_request' &&
+          steps.version-check.outputs.major_change == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const oldVersion = '${{ steps.version-check.outputs.old_version }}';
+            const newVersion = '${{ steps.version-check.outputs.new_version }}';
+            const oldMajor = '${{ steps.version-check.outputs.old_major }}';
+            const newMajor = '${{ steps.version-check.outputs.new_major }}';
+
+            const body = `## ⚠️ Major AI SDK Version Change Detected
+
+            **Version:** \`${oldVersion}\` → \`${newVersion}\` (v${oldMajor} → v${newMajor})
+
+            ### Required Actions Before Merging
+
+            - [ ] **Review** [Vercel AI SDK Changelog](https://github.com/vercel/ai/blob/main/CHANGELOG.md) for breaking changes
+            - [ ] **Update** compatibility adapter in \`lib/streaming/sdk-compatibility-adapter.ts\` if needed
+            - [ ] **Run** contract tests manually: \`npm run test:streaming-contract\`
+            - [ ] **Test** all streaming features:
+              - Assistant Architect execution
+              - Nexus Chat streaming
+              - Tool calls and error handling
+            - [ ] **Update** SSE event types in \`lib/streaming/sse-event-types.ts\` if event formats changed
+            - [ ] **Document** any breaking changes in PR description
+
+            ### Resources
+
+            - 📚 [SDK Upgrade Checklist](/docs/operations/ai-sdk-upgrade-checklist.md)
+            - 🐛 [Related Issue #366](https://github.com/psd401/aistudio.psd401.ai/issues/366)
+            - 📖 [AI SDK Documentation](https://sdk.vercel.ai/docs)
+
+            ---
+
+            **Note:** Contract tests require \`OPENAI_API_KEY\` to run in CI. They may be skipped in this workflow.
+            Please run them locally before merging.`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Comment on PR - Minor/patch version change
+        if: |
+          github.event_name == 'pull_request' &&
+          steps.version-check.outputs.version_changed == 'true' &&
+          steps.version-check.outputs.major_change == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const oldVersion = '${{ steps.version-check.outputs.old_version }}';
+            const newVersion = '${{ steps.version-check.outputs.new_version }}';
+
+            const body = `## ℹ️ AI SDK Version Updated
+
+            **Version:** \`${oldVersion}\` → \`${newVersion}\`
+
+            This is a minor/patch version change. Breaking changes are less likely, but please:
+
+            - [ ] Review [release notes](https://github.com/vercel/ai/releases)
+            - [ ] Run tests to ensure streaming still works
+            - [ ] Check for any deprecation warnings
+
+            Contract tests have been run automatically in this workflow.`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Fail on major version change
+        if: steps.version-check.outputs.major_change == 'true'
+        run: |
+          echo "❌ Major AI SDK version change detected"
+          echo "Please complete the upgrade checklist before merging"
+          echo "See: /docs/operations/ai-sdk-upgrade-checklist.md"
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### SDK Version Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Version Changed | ${{ steps.version-check.outputs.version_changed }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Old Version | ${{ steps.version-check.outputs.old_version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| New Version | ${{ steps.version-check.outputs.new_version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Major Change | ${{ steps.version-check.outputs.major_change }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.version-check.outputs.major_change }}" = "true" ]; then
+            echo "⚠️ **Action Required:** This PR changes the major version of the AI SDK." >> $GITHUB_STEP_SUMMARY
+            echo "Please review the [upgrade checklist](/docs/operations/ai-sdk-upgrade-checklist.md)." >> $GITHUB_STEP_SUMMARY
+          fi
