@@ -81,7 +81,7 @@ jobs:
 
       - name: Run contract tests
         if: steps.version-check.outputs.version_changed == 'true'
-        run: npm run test:streaming-contract
+        run: npm run test:streaming:contract
         continue-on-error: true
         id: contract-tests
         env:

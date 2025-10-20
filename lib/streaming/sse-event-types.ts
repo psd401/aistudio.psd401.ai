@@ -12,34 +12,48 @@
  * @see https://github.com/psd401/aistudio.psd401.ai/issues/366
  */
 
-import { SDKVersionDetector } from './sdk-version-detector';
+// SDK version detection - only import when needed to avoid side effects during tests
+let versionLogged = false;
 
-// Log SDK version on first import (server-side only)
-if (typeof window === 'undefined' && typeof process !== 'undefined') {
+/**
+ * Log SDK version information on first use (lazy initialization)
+ * This prevents side effects during test module loading
+ */
+function ensureVersionLogged(): void {
+  if (versionLogged || typeof window !== 'undefined' || process.env.NODE_ENV === 'test') {
+    return;
+  }
+
+  versionLogged = true;
+
   try {
+    // Use require() for lazy loading to avoid side effects during test module initialization
+    // This prevents the version detection from running when test files import this module
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { SDKVersionDetector } = require('./sdk-version-detector');
     const version = SDKVersionDetector.detect();
-    // Only log in non-test environments
-    if (process.env.NODE_ENV !== 'test') {
-      // eslint-disable-next-line no-console
-      console.log(`[SSE] AI SDK version detected: ${version.version} (via ${version.detected})`);
 
-      // Warn if using fallback detection
-      if (version.detected === 'fallback') {
-        // eslint-disable-next-line no-console
-        console.warn('[SSE] Warning: SDK version detection used fallback method');
-      }
-
-      // Warn if using prerelease version
-      if (version.prerelease) {
-        // eslint-disable-next-line no-console
-        console.warn(`[SSE] Warning: Using prerelease SDK: ${version.version}`);
-      }
-    }
-  } catch (error) {
     // eslint-disable-next-line no-console
-    console.error('[SSE] Failed to detect SDK version:', error);
+    console.log(`[SSE] AI SDK version: ${version.version} (detected via ${version.detected})`);
+
+    // Warn if using fallback detection
+    if (version.detected === 'fallback') {
+      // eslint-disable-next-line no-console
+      console.warn('[SSE] Warning: SDK version detection used fallback method');
+    }
+
+    // Warn if using prerelease version
+    if (version.prerelease) {
+      // eslint-disable-next-line no-console
+      console.warn(`[SSE] Warning: Using prerelease SDK: ${version.version}`);
+    }
+  } catch {
+    // Silently ignore in case of import errors
   }
 }
+
+// Export for manual triggering if needed
+export { ensureVersionLogged }
 
 /**
  * Base interface for all SSE events

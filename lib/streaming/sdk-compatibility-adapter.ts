@@ -150,15 +150,19 @@ export class SSEEventAdapter {
     // Apply field mappings
     for (const [oldField, newField] of mappings.entries()) {
       if (oldField in normalized && !(newField in normalized)) {
-        normalized[newField] = normalized[oldField];
-        delete normalized[oldField];
+        const value = normalized[oldField];
+        // Only map non-null, non-undefined values
+        if (value !== null && value !== undefined) {
+          normalized[newField] = value;
+          delete normalized[oldField];
 
-        log.debug('Applied field mapping', {
-          type: normalized.type,
-          oldField,
-          newField,
-          version: this.version.version,
-        });
+          log.debug('Applied field mapping', {
+            type: normalized.type,
+            oldField,
+            newField,
+            version: this.version.version,
+          });
+        }
       }
     }
 

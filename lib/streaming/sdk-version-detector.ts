@@ -14,6 +14,12 @@ import { createLogger } from '@/lib/logger';
 
 const log = createLogger({ module: 'sdk-version-detector' });
 
+/**
+ * Fallback SDK version when all detection methods fail
+ * Update this when the minimum supported SDK version changes
+ */
+const FALLBACK_SDK_VERSION = '5.0.0';
+
 export interface SDKVersionInfo {
   /** Full semver version string (e.g., "5.0.0") */
   version: string;
@@ -34,8 +40,10 @@ export interface SDKVersionInfo {
  *
  * Detects the installed AI SDK version using multiple strategies:
  * 1. Runtime detection via module exports (fastest)
- * 2. Reading package.json from node_modules (reliable)
- * 3. Fallback to known version (last resort)
+ * 2. Workspace-aware resolution via require.resolve (monorepo/pnpm support)
+ * 3. Reading package.json from node_modules (traditional)
+ * 4. Fallback to root package.json version
+ * 5. Hardcoded fallback (last resort)
  *
  * The detected version is cached for the lifetime of the process.
  */
@@ -76,7 +84,26 @@ export class SDKVersionDetector {
       // Continue to next method
     }
 
-    // Method 2: Read from package.json
+    // Method 2: Try workspace-aware resolution (for monorepos/pnpm)
+    try {
+      // Use require.resolve to find the actual package location
+      const resolvedPath = require.resolve('ai/package.json');
+      const packageJson = JSON.parse(readFileSync(resolvedPath, 'utf8')) as { version: string };
+
+      if (packageJson.version) {
+        this.instance = this.parseVersion(packageJson.version, 'package');
+        log.debug('Detected SDK version via require.resolve', {
+          version: this.instance,
+          path: resolvedPath
+        });
+        return this.instance;
+      }
+    } catch (error) {
+      log.debug('Workspace-aware detection failed', { error });
+      // Continue to next method
+    }
+
+    // Method 3: Read from package.json (traditional path)
     try {
       const packagePath = join(process.cwd(), 'node_modules/ai/package.json');
       const packageJson = JSON.parse(readFileSync(packagePath, 'utf8')) as { version: string };
@@ -91,7 +118,7 @@ export class SDKVersionDetector {
       // Continue to fallback
     }
 
-    // Method 3: Fallback to known version from package.json
+    // Method 4: Fallback to known version from root package.json
     try {
       const rootPackagePath = join(process.cwd(), 'package.json');
       const rootPackage = JSON.parse(readFileSync(rootPackagePath, 'utf8')) as {
@@ -104,6 +131,16 @@ export class SDKVersionDetector {
       if (aiVersion) {
         // Remove version range specifiers (^, ~, >=, etc.)
         const cleanVersion = aiVersion.replace(/^[\^~>=<]+/, '');
+
+        // Validate the cleaned version looks like a semver version
+        if (!/^\d+\.\d+\.\d+/.test(cleanVersion)) {
+          log.error('Invalid version format in package.json', {
+            aiVersion,
+            cleanVersion,
+          });
+          throw new Error(`Invalid version format in package.json: ${aiVersion}`);
+        }
+
         this.instance = this.parseVersion(cleanVersion, 'fallback');
         log.warn('Using fallback SDK version detection', { version: this.instance });
         return this.instance;
@@ -112,10 +149,11 @@ export class SDKVersionDetector {
       log.error('All version detection methods failed', { error });
     }
 
-    // Absolute fallback - use v5.0.0 (current version at time of implementation)
-    this.instance = this.parseVersion('5.0.0', 'fallback');
+    // Absolute fallback - use hardcoded version (current version at time of implementation)
+    this.instance = this.parseVersion(FALLBACK_SDK_VERSION, 'fallback');
     log.warn('Unable to detect AI SDK version, using hardcoded fallback', {
       version: this.instance,
+      fallbackVersion: FALLBACK_SDK_VERSION,
     });
     return this.instance;
   }
