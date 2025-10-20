@@ -126,7 +126,8 @@ if (typeof global.ReadableStream === 'undefined') {
 }
 
 // Add Response polyfill for SSE testing
-if (typeof global.Response === 'undefined' || !global.Response.prototype || !global.Response.prototype.body) {
+// Note: Don't check Response.prototype.body - it's a getter and causes "Illegal invocation" error
+if (typeof global.Response === 'undefined' || !global.Response.prototype) {
   try {
     const { Response, Headers } = require('undici');
     global.Response = Response;
