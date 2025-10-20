@@ -92,7 +92,7 @@
     "nanoid": "^5.1.6",
     "next": "^15.5.4",
     "next-auth": "^5.0.0-beta.29",
-    "openai": "^5.22.0",
+    "openai": "^6.6.0",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "^5.4.296",
