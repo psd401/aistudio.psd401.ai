@@ -121,7 +121,26 @@ export type NexusSSEEvent =
 
 export class NexusStreamHandler {
   private encoder = new TextEncoder();
-  
+
+  /**
+   * Safely parse JSON with error handling
+   * @param jsonString - JSON string to parse
+   * @param context - Context for logging (e.g., 'openai-tool-call')
+   * @returns Parsed object or undefined if parsing fails
+   */
+  private safeParseJSON(jsonString: string, context: string): Record<string, unknown> | undefined {
+    try {
+      return JSON.parse(jsonString) as Record<string, unknown>;
+    } catch (error) {
+      log.warn('Failed to parse JSON', {
+        context,
+        error: error instanceof Error ? error.message : String(error),
+        jsonStringLength: jsonString.length
+      });
+      return undefined;
+    }
+  }
+
   /**
    * Convert OpenAI stream to Server-Sent Events using canonical SSE types
    */
@@ -171,7 +190,9 @@ export class NexusStreamHandler {
               type: 'tool-call',
               toolCallId: toolCall.id || `tool-${Date.now()}`,
               toolName: toolCall.function?.name || 'unknown',
-              args: toolCall.function?.arguments ? JSON.parse(toolCall.function.arguments) : undefined
+              args: toolCall.function?.arguments
+                ? this.safeParseJSON(toolCall.function.arguments, 'openai-tool-call')
+                : undefined
             };
 
             yield this.formatSSE(event);
@@ -363,6 +384,7 @@ export class NexusStreamHandler {
 
     try {
       let totalContent = '';
+      let toolCallCounter = 0;
 
       // Emit text-start event
       const startEvent: TextStartEvent = {
@@ -389,7 +411,8 @@ export class NexusStreamHandler {
         if (chunk.functionCall) {
           const event: ToolCallEvent = {
             type: 'tool-call',
-            toolCallId: `gemini-tool-${Date.now()}`,
+            // Use counter to prevent ID collisions for multiple tool calls in same millisecond
+            toolCallId: `gemini-tool-${requestId}-${toolCallCounter++}`,
             toolName: chunk.functionCall.name,
             args: chunk.functionCall.args as Record<string, unknown> | undefined
           };
@@ -451,50 +474,6 @@ export class NexusStreamHandler {
     return this.encoder.encode(`data: ${data}\n\n`);
   }
 
-  /**
-   * Helper method to create a legacy StreamEvent from SSE events
-   * Used for backward compatibility with existing frontend code
-   * @deprecated Remove when frontend is updated to use canonical SSE events
-   */
-  private toLegacyEvent(event: NexusSSEEvent): StreamEvent {
-    // Map canonical events to legacy format
-    switch (event.type) {
-      case 'text-delta':
-        return {
-          type: 'text',
-          content: event.delta
-        };
-      case 'tool-call':
-        return {
-          type: 'tool_use',
-          content: JSON.stringify({ toolName: event.toolName, args: event.args }),
-          metadata: {
-            toolName: event.toolName
-          }
-        };
-      case 'error':
-        return {
-          type: 'error',
-          content: event.error
-        };
-      case 'finish':
-        return {
-          type: 'done',
-          content: '',
-          metadata: event.usage ? {
-            usage: {
-              promptTokens: event.usage.promptTokens || 0,
-              completionTokens: event.usage.completionTokens || 0,
-              totalTokens: event.usage.totalTokens || 0
-            }
-          } : undefined
-        };
-      default:
-        // For custom Nexus events, pass through
-        return event as unknown as StreamEvent;
-    }
-  }
-  
   /**
    * Create a readable stream from async generator
    */
