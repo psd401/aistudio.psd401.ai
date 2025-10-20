@@ -77,6 +77,81 @@ if (typeof global.TextEncoder === 'undefined') {
   global.TextDecoder = TextDecoder;
 }
 
+// Add ReadableStream polyfill for SSE testing
+if (typeof global.ReadableStream === 'undefined') {
+  try {
+    const { ReadableStream } = require('stream/web');
+    global.ReadableStream = ReadableStream;
+  } catch (e) {
+    // Fallback for older Node versions
+    // Create a minimal polyfill for testing purposes
+    global.ReadableStream = class ReadableStream {
+      constructor({ start }) {
+        this._chunks = [];
+        this._done = false;
+        this._controller = {
+          enqueue: (chunk) => this._chunks.push(chunk),
+          close: () => { this._done = true; },
+          error: (error) => { this._error = error; this._done = true; }
+        };
+        if (start) {
+          Promise.resolve().then(() => start(this._controller));
+        }
+      }
+
+      getReader() {
+        let index = 0;
+        return {
+          read: async () => {
+            // Wait for chunks to be available or stream to be done
+            while (index >= this._chunks.length && !this._done) {
+              await new Promise(resolve => setTimeout(resolve, 10));
+            }
+
+            if (this._error) {
+              throw this._error;
+            }
+
+            if (index < this._chunks.length) {
+              return { done: false, value: this._chunks[index++] };
+            }
+
+            return { done: true, value: undefined };
+          },
+          releaseLock: () => {}
+        };
+      }
+    };
+  }
+}
+
+// Add Response polyfill for SSE testing
+if (typeof global.Response === 'undefined' || !global.Response.prototype || !global.Response.prototype.body) {
+  try {
+    const { Response, Headers } = require('undici');
+    global.Response = Response;
+    global.Headers = Headers;
+  } catch (e) {
+    // Minimal Response polyfill
+    global.Headers = class Headers extends Map {
+      get(key) {
+        return super.get(key.toLowerCase());
+      }
+      set(key, value) {
+        return super.set(key.toLowerCase(), value);
+      }
+    };
+
+    global.Response = class Response {
+      constructor(body, init = {}) {
+        this.body = body;
+        this.status = init.status || 200;
+        this.headers = init.headers instanceof global.Headers ? init.headers : new global.Headers(Object.entries(init.headers || {}));
+      }
+    };
+  }
+}
+
 // Add TransformStream polyfill for eventsource-parser
 if (typeof global.TransformStream === 'undefined') {
   global.TransformStream = class TransformStream {
@@ -84,8 +159,8 @@ if (typeof global.TransformStream === 'undefined') {
       getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) })
     };
     writable = {
-      getWriter: () => ({ 
-        write: () => Promise.resolve(), 
+      getWriter: () => ({
+        write: () => Promise.resolve(),
         close: () => Promise.resolve(),
         releaseLock: () => {}
       })
