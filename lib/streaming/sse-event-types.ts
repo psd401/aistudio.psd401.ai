@@ -9,7 +9,37 @@
  *
  * @see https://sdk.vercel.ai/docs/ai-sdk-ui/stream-protocol
  * @see https://github.com/psd401/aistudio.psd401.ai/issues/363
+ * @see https://github.com/psd401/aistudio.psd401.ai/issues/366
  */
+
+import { SDKVersionDetector } from './sdk-version-detector';
+
+// Log SDK version on first import (server-side only)
+if (typeof window === 'undefined' && typeof process !== 'undefined') {
+  try {
+    const version = SDKVersionDetector.detect();
+    // Only log in non-test environments
+    if (process.env.NODE_ENV !== 'test') {
+      // eslint-disable-next-line no-console
+      console.log(`[SSE] AI SDK version detected: ${version.version} (via ${version.detected})`);
+
+      // Warn if using fallback detection
+      if (version.detected === 'fallback') {
+        // eslint-disable-next-line no-console
+        console.warn('[SSE] Warning: SDK version detection used fallback method');
+      }
+
+      // Warn if using prerelease version
+      if (version.prerelease) {
+        // eslint-disable-next-line no-console
+        console.warn(`[SSE] Warning: Using prerelease SDK: ${version.version}`);
+      }
+    }
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('[SSE] Failed to detect SDK version:', error);
+  }
+}
 
 /**
  * Base interface for all SSE events
