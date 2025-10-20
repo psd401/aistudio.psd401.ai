@@ -340,16 +340,20 @@ export function validateSSEEvent(event: unknown): ValidationResult {
   let hint: string | undefined
 
   // Check for field name mismatches (like textDelta vs delta)
+  // Zod v4 may say "expected string, received undefined" for missing required fields
   const fieldNameIssues = issues.filter(i =>
-    i.message.includes('Unrecognized key') || i.message.includes('Required')
+    i.message.includes('Unrecognized key') ||
+    i.message.includes('Required') ||
+    i.message.includes('received undefined') ||
+    (i.message.includes('Invalid input') && i.path.includes('delta'))
   )
 
   if (fieldNameIssues.length > 0) {
-    hint = 'Field name mismatch detected. This may indicate an AI SDK version mismatch or provider adapter issue. Check that field names match the Vercel AI SDK v5 specification.'
+    hint = 'Field name mismatch detected. This may indicate an AI SDK compatibility issue or version mismatch. Check that field names match the Vercel AI SDK v5 specification.'
   }
 
   // Check for type mismatches
-  const typeIssues = issues.filter(i => i.message.includes('Expected'))
+  const typeIssues = issues.filter(i => i.message.includes('Expected') || i.message.includes('invalid_type'))
   if (typeIssues.length > 0 && !hint) {
     hint = 'Type mismatch detected. Verify that the event fields have the correct data types.'
   }
