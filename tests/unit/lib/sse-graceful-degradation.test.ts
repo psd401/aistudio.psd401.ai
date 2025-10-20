@@ -249,7 +249,7 @@ describe('SSE Graceful Degradation', () => {
       expect(message).toContain('new-type')
       expect(message).toContain('Successfully extracted')
       expect(message).toContain('delta')
-      expect(message).toContain('13 characters') // Length of 'Hello world'
+      expect(message).toContain('11 characters') // Length of 'Hello world'
     })
 
     it('should generate message for failed extraction', () => {
