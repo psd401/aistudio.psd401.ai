@@ -36,7 +36,8 @@ const customJestConfig = {
     '/node_modules/',
     '/tests/e2e/',
     '/.next/',
-    '/infra/cdk.out/'
+    '/infra/cdk.out/',
+    'mock-sse-factory.ts' // Utility file, not a test file
   ]
 };
 

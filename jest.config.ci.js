@@ -49,6 +49,7 @@ const customJestConfig = {
     '/.next/',
     '/infra/cdk.out/',
     '/tests/performance/',  // EXCLUDE performance tests in CI
+    'mock-sse-factory.ts',  // Utility file, not a test file
   ]
 };
 
