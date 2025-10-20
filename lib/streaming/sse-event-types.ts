@@ -322,87 +322,130 @@ export type SSEEvent =
 
 /**
  * Type guard for text-delta events
- * Validates both type and required fields
+ * Validates both type and required fields with strict runtime checks
  */
 export function isTextDeltaEvent(event: SSEEvent): event is TextDeltaEvent {
-  return event.type === 'text-delta' && 'delta' in event;
+  return event.type === 'text-delta' &&
+         'delta' in event &&
+         typeof event.delta === 'string';
 }
 
 /**
  * Type guard for text-start events
+ * Validates both type and required fields with strict runtime checks
  */
 export function isTextStartEvent(event: SSEEvent): event is TextStartEvent {
-  return event.type === 'text-start' && 'id' in event;
+  return event.type === 'text-start' &&
+         'id' in event &&
+         typeof event.id === 'string';
 }
 
 /**
  * Type guard for text-end events
+ * Validates both type and required fields with strict runtime checks
  */
 export function isTextEndEvent(event: SSEEvent): event is TextEndEvent {
-  return event.type === 'text-end' && 'id' in event;
+  return event.type === 'text-end' &&
+         'id' in event &&
+         typeof event.id === 'string';
 }
 
 /**
  * Type guard for reasoning-delta events
+ * Validates both type and required fields with strict runtime checks
  */
 export function isReasoningDeltaEvent(event: SSEEvent): event is ReasoningDeltaEvent {
-  return event.type === 'reasoning-delta' && 'delta' in event;
+  return event.type === 'reasoning-delta' &&
+         'delta' in event &&
+         typeof event.delta === 'string';
 }
 
 /**
  * Type guard for reasoning-start events
+ * Validates both type and required fields with strict runtime checks
  */
 export function isReasoningStartEvent(event: SSEEvent): event is ReasoningStartEvent {
-  return event.type === 'reasoning-start' && 'id' in event;
+  return event.type === 'reasoning-start' &&
+         'id' in event &&
+         typeof event.id === 'string';
 }
 
 /**
  * Type guard for reasoning-end events
+ * Validates both type and required fields with strict runtime checks
  */
 export function isReasoningEndEvent(event: SSEEvent): event is ReasoningEndEvent {
-  return event.type === 'reasoning-end' && 'id' in event;
+  return event.type === 'reasoning-end' &&
+         'id' in event &&
+         typeof event.id === 'string';
 }
 
 /**
  * Type guard for tool-call events
+ * Validates both type and required fields with strict runtime checks
  */
 export function isToolCallEvent(event: SSEEvent): event is ToolCallEvent {
-  return event.type === 'tool-call' && 'toolCallId' in event;
+  return event.type === 'tool-call' &&
+         'toolCallId' in event &&
+         typeof event.toolCallId === 'string' &&
+         'toolName' in event &&
+         typeof event.toolName === 'string';
 }
 
 /**
  * Type guard for tool-call-delta events
+ * Validates both type and required fields with strict runtime checks
  */
 export function isToolCallDeltaEvent(event: SSEEvent): event is ToolCallDeltaEvent {
-  return event.type === 'tool-call-delta' && 'toolCallId' in event;
+  return event.type === 'tool-call-delta' &&
+         'toolCallId' in event &&
+         typeof event.toolCallId === 'string' &&
+         'toolName' in event &&
+         typeof event.toolName === 'string';
 }
 
 /**
  * Type guard for tool-input-start events
+ * Validates both type and required fields with strict runtime checks
  */
 export function isToolInputStartEvent(event: SSEEvent): event is ToolInputStartEvent {
-  return event.type === 'tool-input-start' && 'toolCallId' in event;
+  return event.type === 'tool-input-start' &&
+         'toolCallId' in event &&
+         typeof event.toolCallId === 'string' &&
+         'toolName' in event &&
+         typeof event.toolName === 'string';
 }
 
 /**
  * Type guard for tool-input-error events
+ * Validates both type and required fields with strict runtime checks
  */
 export function isToolInputErrorEvent(event: SSEEvent): event is ToolInputErrorEvent {
-  return event.type === 'tool-input-error' && 'toolCallId' in event;
+  return event.type === 'tool-input-error' &&
+         'toolCallId' in event &&
+         typeof event.toolCallId === 'string' &&
+         'toolName' in event &&
+         typeof event.toolName === 'string';
 }
 
 /**
  * Type guard for tool-output-error events
+ * Validates both type and required fields with strict runtime checks
  */
 export function isToolOutputErrorEvent(event: SSEEvent): event is ToolOutputErrorEvent {
-  return event.type === 'tool-output-error' && 'toolCallId' in event;
+  return event.type === 'tool-output-error' &&
+         'toolCallId' in event &&
+         typeof event.toolCallId === 'string';
 }
 
 /**
  * Type guard for tool-output-available events
+ * Validates both type and required fields with strict runtime checks
  */
 export function isToolOutputAvailableEvent(event: SSEEvent): event is ToolOutputAvailableEvent {
-  return event.type === 'tool-output-available' && 'toolCallId' in event;
+  return event.type === 'tool-output-available' &&
+         'toolCallId' in event &&
+         typeof event.toolCallId === 'string';
 }
 
 /**
@@ -449,14 +492,40 @@ export function isAssistantMessageEvent(event: SSEEvent): event is AssistantMess
 
 /**
  * Type guard for error events
+ * Validates both type and required fields with strict runtime checks
  */
 export function isErrorEvent(event: SSEEvent): event is ErrorEvent {
-  return event.type === 'error' && 'error' in event;
+  return event.type === 'error' &&
+         'error' in event &&
+         typeof event.error === 'string';
 }
 
 // ============================================================================
 // PARSING FUNCTIONS
 // ============================================================================
+
+// Valid SSE event types for runtime validation
+const VALID_SSE_EVENT_TYPES = new Set([
+  'text-start',
+  'text-delta',
+  'text-end',
+  'reasoning-start',
+  'reasoning-delta',
+  'reasoning-end',
+  'tool-call',
+  'tool-call-delta',
+  'tool-input-start',
+  'tool-input-error',
+  'tool-output-error',
+  'tool-output-available',
+  'start',
+  'start-step',
+  'finish-step',
+  'finish',
+  'message',
+  'assistant-message',
+  'error'
+]);
 
 /**
  * Parse SSE event data string into typed event object
@@ -480,6 +549,16 @@ export function parseSSEEvent(data: string): SSEEvent {
     // Validate required 'type' field
     if (!parsed.type || typeof parsed.type !== 'string') {
       throw new Error('SSE event missing required "type" field');
+    }
+
+    // Warn about unrecognized event types (but don't throw - allow extensibility)
+    if (!VALID_SSE_EVENT_TYPES.has(parsed.type)) {
+      // In development, log a warning. In production, this could be sent to monitoring.
+      // eslint-disable-next-line no-console
+      if (typeof console !== 'undefined' && console.warn) {
+        // eslint-disable-next-line no-console
+        console.warn(`[SSE] Unrecognized event type: "${parsed.type}". This may indicate a new event type from the SDK or a malformed event.`);
+      }
     }
 
     return parsed as unknown as SSEEvent;
