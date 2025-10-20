@@ -31,6 +31,27 @@ import { AssistantRuntimeProvider, useThreadRuntime, useLocalRuntime, type ChatM
 import { Thread } from '@/components/assistant-ui/thread'
 import { createLogger } from '@/lib/client-logger'
 import { ExecutionProgress } from './execution-progress'
+import {
+  parseSSEEvent,
+  isTextDeltaEvent,
+  isTextStartEvent,
+  isTextEndEvent,
+  isReasoningStartEvent,
+  isReasoningEndEvent,
+  isStartStepEvent,
+  isStartEvent,
+  isFinishStepEvent,
+  isToolCallEvent,
+  isToolCallDeltaEvent,
+  isToolInputStartEvent,
+  isToolInputErrorEvent,
+  isToolOutputErrorEvent,
+  isToolOutputAvailableEvent,
+  isErrorEvent,
+  isMessageEvent,
+  isAssistantMessageEvent,
+  isFinishEvent
+} from '@/lib/streaming/sse-event-types'
 
 const log = createLogger({ moduleName: 'assistant-architect-streaming' })
 
@@ -227,11 +248,12 @@ function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptio
                 if (data === '[DONE]') break
 
                 try {
-                  const parsed = JSON.parse(data)
+                  // Use typed parser with comprehensive type guards
+                  const event = parseSSEEvent(data)
 
                   // Handle text deltas from Vercel AI SDK native stream format
-                  if (parsed.type === 'text-delta' && parsed.delta) {
-                    accumulatedText += parsed.delta
+                  if (isTextDeltaEvent(event)) {
+                    accumulatedText += event.delta
                     yield {
                       content: [{
                         type: 'text' as const,
@@ -239,63 +261,63 @@ function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptio
                       }]
                     }
                     log.debug('✅ YIELDED text-delta', {
-                      deltaLength: parsed.delta.length,
+                      deltaLength: event.delta.length,
                       totalLength: accumulatedText.length
                     })
                   }
                   // Handle text stream lifecycle events
-                  else if (parsed.type === 'text-start') {
-                    log.debug('Text stream started', { id: parsed.id })
+                  else if (isTextStartEvent(event)) {
+                    log.debug('Text stream started', { id: event.id })
                   }
-                  else if (parsed.type === 'text-end') {
-                    log.debug('Text stream ended', { id: parsed.id })
+                  else if (isTextEndEvent(event)) {
+                    log.debug('Text stream ended', { id: event.id })
                   }
                   // Handle O1/reasoning model events
-                  else if (parsed.type === 'reasoning-start') {
-                    log.debug('Reasoning started', { id: parsed.id })
+                  else if (isReasoningStartEvent(event)) {
+                    log.debug('Reasoning started', { id: event.id })
                   }
-                  else if (parsed.type === 'reasoning-end') {
-                    log.debug('Reasoning completed', { id: parsed.id })
+                  else if (isReasoningEndEvent(event)) {
+                    log.debug('Reasoning completed', { id: event.id })
                   }
                   // Handle step lifecycle events
-                  else if (parsed.type === 'start-step' || parsed.type === 'start') {
+                  else if (isStartStepEvent(event) || isStartEvent(event)) {
                     log.debug('Step started')
                   }
-                  else if (parsed.type === 'finish-step') {
+                  else if (isFinishStepEvent(event)) {
                     log.debug('Step finished')
                   }
                   // Handle tool calls
-                  else if (parsed.type === 'tool-call' || parsed.type === 'tool-call-delta') {
+                  else if (isToolCallEvent(event) || isToolCallDeltaEvent(event)) {
                     log.debug('Tool call received', {
-                      toolName: parsed.toolName,
-                      type: parsed.type
+                      toolName: event.toolName,
+                      type: event.type
                     })
                     // Tool calls are handled by the UI components
                   }
                   // Handle tool input events (from web_search_preview, etc.)
-                  else if (parsed.type === 'tool-input-start') {
-                    log.debug('Tool input started', { toolCallId: parsed.toolCallId, toolName: parsed.toolName })
+                  else if (isToolInputStartEvent(event)) {
+                    log.debug('Tool input started', { toolCallId: event.toolCallId, toolName: event.toolName })
                   }
-                  else if (parsed.type === 'tool-input-error') {
-                    log.debug('Tool input error', { toolCallId: parsed.toolCallId, toolName: parsed.toolName })
+                  else if (isToolInputErrorEvent(event)) {
+                    log.debug('Tool input error', { toolCallId: event.toolCallId, toolName: event.toolName })
                   }
-                  else if (parsed.type === 'tool-output-error') {
-                    log.debug('Tool output error', { toolCallId: parsed.toolCallId, errorText: parsed.errorText })
+                  else if (isToolOutputErrorEvent(event)) {
+                    log.debug('Tool output error', { toolCallId: event.toolCallId, errorText: event.errorText })
                   }
-                  else if (parsed.type === 'tool-output-available') {
-                    log.debug('Tool output available', { toolCallId: parsed.toolCallId })
+                  else if (isToolOutputAvailableEvent(event)) {
+                    log.debug('Tool output available', { toolCallId: event.toolCallId })
                   }
                   // Handle errors
-                  else if (parsed.type === 'error') {
+                  else if (isErrorEvent(event)) {
                     log.error('Stream error received', {
-                      error: parsed.error
+                      error: event.error
                     })
-                    throw new Error(parsed.error || 'Stream error')
+                    throw new Error(event.error || 'Stream error')
                   }
                   // Handle message or assistant-message events (complete messages)
-                  else if (parsed.type === 'message' || parsed.type === 'assistant-message') {
-                    log.info('Received message event', { type: parsed.type })
-                    const text = parsed.parts?.find((p: { type: string; text?: string }) => p.type === 'text')?.text
+                  else if (isMessageEvent(event) || isAssistantMessageEvent(event)) {
+                    log.info('Received message event', { type: event.type })
+                    const text = event.parts?.find(p => p.type === 'text')?.text
                     if (text) {
                       accumulatedText = text
                       yield {
@@ -310,9 +332,9 @@ function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptio
                     }
                   }
                   // Handle finish events (stream completion)
-                  else if (parsed.type === 'finish') {
+                  else if (isFinishEvent(event)) {
                     log.info('Received finish event')
-                    const text = parsed.message?.parts?.find((p: { type: string; text?: string }) => p.type === 'text')?.text
+                    const text = event.message?.parts?.find(p => p.type === 'text')?.text
                     if (text) {
                       accumulatedText = text
                       yield {
@@ -326,29 +348,32 @@ function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptio
                       })
                     }
                   }
-                  // Handle complete assistant messages (direct format)
-                  else if (parsed.role === 'assistant' && parsed.parts) {
-                    log.info('Received complete assistant message')
-                    const text = parsed.parts.find((p: { type: string; text?: string }) => p.type === 'text')?.text
-                    if (text) {
-                      accumulatedText = text
-                      yield {
-                        content: [{
-                          type: 'text' as const,
-                          text: accumulatedText
-                        }]
+                  // Handle complete assistant messages (direct format - legacy support)
+                  else if ('role' in event && event.role === 'assistant' && 'parts' in event) {
+                    log.info('Received complete assistant message (legacy format)')
+                    const parts = (event as { parts: unknown }).parts
+                    if (Array.isArray(parts)) {
+                      const text = parts.find((p: { type: string; text?: string }) => p.type === 'text')?.text
+                      if (text) {
+                        accumulatedText = text
+                        yield {
+                          content: [{
+                            type: 'text' as const,
+                            text: accumulatedText
+                          }]
+                        }
+                        log.debug('✅ YIELDED content from assistant message', {
+                          textLength: accumulatedText.length
+                        })
                       }
-                      log.debug('✅ YIELDED content from assistant message', {
-                        textLength: accumulatedText.length
-                      })
                     }
                   }
                   // Log unhandled types for debugging
                   else {
                     log.warn('⚠️ UNHANDLED SSE EVENT TYPE', {
-                      type: parsed.type,
-                      keys: Object.keys(parsed),
-                      sample: JSON.stringify(parsed).substring(0, 200)
+                      type: event.type,
+                      keys: Object.keys(event),
+                      sample: JSON.stringify(event).substring(0, 200)
                     })
                   }
                 } catch (parseError) {
