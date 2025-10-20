@@ -52,6 +52,10 @@ import {
   isAssistantMessageEvent,
   isFinishEvent
 } from '@/lib/streaming/sse-event-types'
+import { createSSEMonitor } from '@/lib/streaming/sse-monitoring'
+import { validateSSEEvent } from '@/lib/streaming/sse-event-schemas'
+import { processUnknownEvent } from '@/lib/streaming/graceful-degradation'
+import { publishSSEMonitorMetrics } from '@/lib/streaming/cloudwatch-metrics'
 
 const log = createLogger({ moduleName: 'assistant-architect-streaming' })
 
@@ -231,6 +235,12 @@ function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptio
         let buffer = ''
         let accumulatedText = ''
 
+        // Create SSE monitor for this stream
+        const monitor = createSSEMonitor({
+          executionId: executionIdRef.current || undefined,
+          toolId
+        })
+
         try {
           while (true) {
             const { done, value } = await reader.read()
@@ -248,11 +258,33 @@ function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptio
                 if (data === '[DONE]') break
 
                 try {
-                  // Use typed parser with comprehensive type guards
+                  // Parse and validate the SSE event
                   const event = parseSSEEvent(data)
+
+                  // Record the event in the monitor
+                  monitor.recordEvent(event.type)
+
+                  // Validate the event structure (catches field mismatches)
+                  const validationResult = validateSSEEvent(event)
+                  if (!validationResult.success && validationResult.error) {
+                    // Log validation errors but continue processing (graceful degradation)
+                    log.warn('SSE event validation failed', {
+                      type: event.type,
+                      error: validationResult.error.message,
+                      hint: validationResult.error.hint
+                    })
+
+                    // Record field mismatches if detected
+                    if (validationResult.error.hint?.includes('Field name mismatch')) {
+                      const eventFields = Object.keys(event)
+                      monitor.recordFieldMismatch('delta', eventFields, event.type)
+                    }
+                  }
 
                   // Handle text deltas from Vercel AI SDK native stream format
                   if (isTextDeltaEvent(event)) {
+                    // Validate critical field exists
+                    monitor.validateEventFields(event, ['delta'])
                     accumulatedText += event.delta
                     yield {
                       content: [{
@@ -368,15 +400,42 @@ function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptio
                       }
                     }
                   }
-                  // Log unhandled types for debugging
+                  // Graceful degradation for unknown event types
                   else {
                     log.warn('⚠️ UNHANDLED SSE EVENT TYPE', {
                       type: event.type,
                       keys: Object.keys(event),
                       sample: JSON.stringify(event).substring(0, 200)
                     })
+
+                    // Attempt to extract text content from unknown event
+                    const unknownContext = {
+                      accumulatedText,
+                      monitor,
+                      verbose: process.env.NODE_ENV === 'development'
+                    }
+
+                    if (processUnknownEvent(event as unknown as Record<string, unknown>, unknownContext)) {
+                      accumulatedText = unknownContext.accumulatedText
+                      yield {
+                        content: [{
+                          type: 'text' as const,
+                          text: accumulatedText
+                        }]
+                      }
+                      log.debug('✅ YIELDED content from unknown event', {
+                        type: event.type,
+                        textLength: accumulatedText.length
+                      })
+                    }
                   }
                 } catch (parseError) {
+                  // Record parse error in monitor
+                  monitor.recordParseError(
+                    parseError instanceof Error ? parseError : new Error(String(parseError)),
+                    data
+                  )
+
                   log.warn('Failed to parse SSE data', {
                     data: data.substring(0, 100),
                     error: parseError instanceof Error ? parseError.message : String(parseError)
@@ -396,9 +455,28 @@ function createAssistantArchitectAdapter(options: AssistantArchitectAdapterOptio
             }
           }
 
+          // Complete monitoring and publish metrics
+          const metrics = monitor.complete()
+
+          // Publish metrics to CloudWatch (non-blocking)
+          publishSSEMonitorMetrics(metrics, {
+            executionId: executionIdRef.current || undefined,
+            toolId
+          }).catch(err => {
+            log.warn('Failed to publish SSE metrics to CloudWatch', {
+              error: err instanceof Error ? err.message : String(err)
+            })
+          })
+
           log.info('Streaming completed successfully', {
             totalLength: accumulatedText.length,
-            mode
+            mode,
+            metrics: {
+              totalEvents: metrics.totalEvents,
+              unknownTypes: metrics.unknownTypes.length,
+              parseErrors: metrics.parseErrors,
+              fieldMismatches: metrics.fieldMismatches.length
+            }
           })
 
         } finally {

@@ -6,6 +6,7 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
+import { SSEStreamingMonitoring } from './constructs/sse-streaming-monitoring';
 
 export interface MonitoringStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
@@ -99,6 +100,13 @@ export class MonitoringStack extends cdk.Stack {
     this.dashboard.addWidgets(
       this.createInsightQueriesWidget(amplifyLogGroupName)
     );
+
+    // Add SSE Streaming monitoring (issue #365)
+    new SSEStreamingMonitoring(this, 'SSEStreamingMonitoring', {
+      environment,
+      alarmTopic: this.alarmTopic,
+      dashboard: this.dashboard
+    });
 
     // Create alarms
     this.createAlarms(environment);
