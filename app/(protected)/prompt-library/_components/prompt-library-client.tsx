@@ -49,7 +49,10 @@ export function PromptLibraryClient() {
 
   const [debouncedSearch] = useDebounce(searchQuery, 300)
 
-  const { execute: executeList } = useAction(listPrompts)
+  const { execute: executeList } = useAction(listPrompts, {
+    showSuccessToast: false,
+    showErrorToast: false
+  })
 
   // Load prompts
   useEffect(() => {
@@ -71,7 +74,7 @@ export function PromptLibraryClient() {
     }
 
     loadPrompts()
-  }, [debouncedSearch, selectedTags, visibilityFilter, sortBy, executeList])
+  }, [debouncedSearch, selectedTags, visibilityFilter, sortBy]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedCount = selectedPrompts.size
 

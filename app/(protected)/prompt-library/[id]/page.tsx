@@ -36,7 +36,10 @@ export default function PromptEditPage() {
   const [loading, setLoading] = useState(true)
   const [promptData, setPromptData] = useState<Prompt | null>(null)
 
-  const { execute: executeGet } = useAction(getPrompt)
+  const { execute: executeGet } = useAction(getPrompt, {
+    showSuccessToast: false,
+    showErrorToast: false
+  })
   const { execute: executeDelete, isPending: isDeleting } = useAction(deletePrompt)
   const [isUpdating, setIsUpdating] = useState(false)
 
@@ -62,7 +65,7 @@ export default function PromptEditPage() {
     if (promptId) {
       loadPrompt()
     }
-  }, [promptId, executeGet])
+  }, [promptId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = async () => {
     if (!formData.title || !formData.content) {
