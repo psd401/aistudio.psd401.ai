@@ -1,7 +1,7 @@
 "use server"
 
 import { getServerSession } from "@/lib/auth/server-session"
-import { executeSQL, executeTransaction } from "@/lib/db/data-api-adapter"
+import { executeSQL } from "@/lib/db/data-api-adapter"
 import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { type ActionState } from "@/types/actions-types"
 import {

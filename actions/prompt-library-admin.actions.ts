@@ -12,8 +12,7 @@ import {
 import {
   createLogger,
   generateRequestId,
-  startTimer,
-  sanitizeForLogging
+  startTimer
 } from "@/lib/logger"
 import { revalidatePath } from "next/cache"
 import {
