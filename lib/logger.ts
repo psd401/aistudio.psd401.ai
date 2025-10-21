@@ -41,22 +41,31 @@ function sanitizeForLogger(data: unknown): unknown {
       safeError.name = sanitizeForLogger(data.name)
       safeError.message = sanitizeForLogger(data.message)
       safeError.stack = typeof data.stack === "string" ? sanitizeForLogger(data.stack) : ""
+      // Use Map to avoid any prototype pollution risks
+      const customProps = new Map<string, unknown>()
       for (const key of Object.keys(data)) {
         if (!(key in safeError)) {
-          // Some frameworks add own props; ensure all are sanitized
-          safeError[key] = sanitizeForLogger((data as unknown as Record<string, unknown>)[key])
+          const safeKey = String(key).replace(/[^\w\-_.]/g, '_')
+          if (safeKey && safeKey !== '__proto__' && safeKey !== 'constructor' && safeKey !== 'prototype') {
+            customProps.set(safeKey, sanitizeForLogger((data as unknown as Record<string, unknown>)[key]))
+          }
         }
+      }
+      // Convert Map to plain object safely
+      if (customProps.size > 0) {
+        safeError.customProperties = Object.fromEntries(customProps)
       }
       return safeError
     } else {
-      // Create a completely new object to break taint flow
-      const sanitized: Record<string, unknown> = {}
+      // Use Map to avoid prototype pollution completely
+      const propMap = new Map<string, unknown>()
       for (const [key, value] of Object.entries(data)) {
-        // Sanitize both key and value to break all taint paths
         const cleanKey = String(key).replace(/[^\w\-_.]/g, '_')
-        sanitized[cleanKey] = sanitizeForLogger(value)
+        if (cleanKey && cleanKey !== '__proto__' && cleanKey !== 'constructor' && cleanKey !== 'prototype') {
+          propMap.set(cleanKey, sanitizeForLogger(value))
+        }
       }
-      return sanitized
+      return Object.fromEntries(propMap)
     }
   }
 
@@ -119,25 +128,33 @@ function filterSensitiveData(data: unknown): unknown {
   }
   
   if (data && typeof data === "object") {
-    const filtered: Record<string, unknown> = {}
+    const propMap = new Map<string, unknown>()
     for (const [key, value] of Object.entries(data)) {
-      // Check if key contains sensitive field names
-      const lowerKey = key.toLowerCase()
-      if (lowerKey.includes("password") || 
-          lowerKey.includes("token") || 
+      const cleanKey = String(key).replace(/[^\w\-_.]/g, '_')
+      if (!cleanKey || cleanKey === '__proto__' || cleanKey === 'constructor' || cleanKey === 'prototype') {
+        continue
+      }
+
+      const lowerKey = cleanKey.toLowerCase()
+      let filteredValue: unknown
+
+      if (lowerKey.includes("password") ||
+          lowerKey.includes("token") ||
           lowerKey.includes("secret") ||
           lowerKey.includes("apikey") ||
           lowerKey.includes("api_key")) {
-        filtered[key] = "[REDACTED]"
+        filteredValue = "[REDACTED]"
       } else if (lowerKey.includes("email")) {
-        filtered[key] = typeof value === "string" 
+        filteredValue = typeof value === "string"
           ? value.replace(EMAIL_PATTERN, "***@$1")
           : value
       } else {
-        filtered[key] = filterSensitiveData(value)
+        filteredValue = filterSensitiveData(value)
       }
+
+      propMap.set(cleanKey, filteredValue)
     }
-    return filtered
+    return Object.fromEntries(propMap)
   }
   
   return data
@@ -255,27 +272,32 @@ export function createLogger(context: LogContext): Logger {
     ...logger,
     info: (message: string, meta?: object) => {
       const safeMessage = sanitizeForLogger(message) as string
-      const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
-      const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
-      logger.info(safeMessage, { ...safeContext, ...safeMeta })
+      const contextData = sanitizeForLogger({ ...getLogContext(), ...context }) as Record<string, unknown>
+      const metaData = meta ? sanitizeForLogger(meta) as Record<string, unknown> : {}
+      // Serialize to JSON and parse to break taint flow completely
+      const safeData = JSON.parse(JSON.stringify({ ...contextData, ...metaData }))
+      logger.info(safeMessage, safeData)
     },
     warn: (message: string, meta?: object) => {
       const safeMessage = sanitizeForLogger(message) as string
-      const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
-      const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
-      logger.warn(safeMessage, { ...safeContext, ...safeMeta })
+      const contextData = sanitizeForLogger({ ...getLogContext(), ...context }) as Record<string, unknown>
+      const metaData = meta ? sanitizeForLogger(meta) as Record<string, unknown> : {}
+      const safeData = JSON.parse(JSON.stringify({ ...contextData, ...metaData }))
+      logger.warn(safeMessage, safeData)
     },
     error: (message: string, meta?: object) => {
       const safeMessage = sanitizeForLogger(message) as string
-      const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
-      const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
-      logger.error(safeMessage, { ...safeContext, ...safeMeta })
+      const contextData = sanitizeForLogger({ ...getLogContext(), ...context }) as Record<string, unknown>
+      const metaData = meta ? sanitizeForLogger(meta) as Record<string, unknown> : {}
+      const safeData = JSON.parse(JSON.stringify({ ...contextData, ...metaData }))
+      logger.error(safeMessage, safeData)
     },
     debug: (message: string, meta?: object) => {
       const safeMessage = sanitizeForLogger(message) as string
-      const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
-      const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
-      logger.debug(safeMessage, { ...safeContext, ...safeMeta })
+      const contextData = sanitizeForLogger({ ...getLogContext(), ...context }) as Record<string, unknown>
+      const metaData = meta ? sanitizeForLogger(meta) as Record<string, unknown> : {}
+      const safeData = JSON.parse(JSON.stringify({ ...contextData, ...metaData }))
+      logger.debug(safeMessage, safeData)
     },
   } as Logger
 }
