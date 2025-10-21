@@ -4,39 +4,36 @@ import { Button } from "@/components/ui/button"
 import { Trash2, X, Eye, EyeOff } from "lucide-react"
 import { usePromptLibraryStore } from "@/lib/stores/prompt-library-store"
 import { deletePrompt } from "@/actions/prompt-library.actions"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useAction } from "@/lib/hooks/use-action"
 import { toast } from "sonner"
 
 interface BulkActionsBarProps {
   selectedCount: number
   onClearSelection: () => void
+  onDelete?: () => void
 }
 
 export function BulkActionsBar({
   selectedCount,
-  onClearSelection
+  onClearSelection,
+  onDelete
 }: BulkActionsBarProps) {
-  const queryClient = useQueryClient()
   const { selectedPrompts } = usePromptLibraryStore()
+  const { execute: executeDelete, isPending: isDeleting } = useAction(deletePrompt)
 
-  const deleteMutation = useMutation({
-    mutationFn: async () => {
-      const promises = Array.from(selectedPrompts).map((id) => deletePrompt(id))
-      await Promise.all(promises)
-    },
-    onSuccess: () => {
-      toast.success(`${selectedCount} prompt(s) deleted successfully`)
-      queryClient.invalidateQueries({ queryKey: ['prompts'] })
-      onClearSelection()
-    },
-    onError: () => {
-      toast.error("Failed to delete prompts")
-    }
-  })
-
-  const handleBulkDelete = () => {
+  const handleBulkDelete = async () => {
     if (confirm(`Are you sure you want to delete ${selectedCount} prompt(s)?`)) {
-      deleteMutation.mutate()
+      const promises = Array.from(selectedPrompts).map((id) => executeDelete(id))
+      const results = await Promise.all(promises)
+
+      const successCount = results.filter(r => r?.isSuccess).length
+      if (successCount > 0) {
+        toast.success(`${successCount} prompt(s) deleted successfully`)
+        onDelete?.()
+        onClearSelection()
+      } else {
+        toast.error("Failed to delete prompts")
+      }
     }
   }
 
@@ -52,7 +49,7 @@ export function BulkActionsBar({
             variant="outline"
             size="sm"
             onClick={handleBulkDelete}
-            disabled={deleteMutation.isPending}
+            disabled={isDeleting}
           >
             <Trash2 className="mr-2 h-4 w-4" />
             Delete

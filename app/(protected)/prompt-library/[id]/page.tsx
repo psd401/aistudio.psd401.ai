@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useAction } from "@/lib/hooks/use-action"
 import { getPrompt, updatePrompt, deletePrompt } from "@/actions/prompt-library.actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -24,7 +24,6 @@ import type { Prompt, PromptVisibility } from "@/lib/prompt-library/types"
 export default function PromptEditPage() {
   const params = useParams()
   const router = useRouter()
-  const queryClient = useQueryClient()
   const promptId = params.id as string
 
   const [formData, setFormData] = useState<Partial<Prompt>>({
@@ -34,92 +33,74 @@ export default function PromptEditPage() {
     visibility: 'private',
     tags: []
   })
+  const [loading, setLoading] = useState(true)
+  const [promptData, setPromptData] = useState<Prompt | null>(null)
 
-  // Fetch prompt
-  const { data: promptResult, isLoading } = useQuery({
-    queryKey: ['prompt', promptId],
-    queryFn: async () => {
-      const response = await getPrompt(promptId)
-      if (!response.isSuccess) {
-        throw new Error(response.message)
-      }
-      return response.data
-    },
-    enabled: !!promptId
-  })
+  const { execute: executeGet } = useAction(getPrompt)
+  const { execute: executeDelete, isPending: isDeleting } = useAction(deletePrompt)
+  const [isUpdating, setIsUpdating] = useState(false)
 
-  // Populate form when data loads
+  // Load prompt
   useEffect(() => {
-    if (promptResult) {
-      setFormData({
-        title: promptResult.title,
-        content: promptResult.content,
-        description: promptResult.description || '',
-        visibility: promptResult.visibility,
-        tags: promptResult.tags || []
-      })
-    }
-  }, [promptResult])
+    async function loadPrompt() {
+      setLoading(true)
+      const result = await executeGet(promptId)
 
-  // Update mutation
-  const updateMutation = useMutation({
-    mutationFn: async () => {
-      return await updatePrompt(promptId, {
-        title: formData.title,
-        content: formData.content,
-        description: formData.description || undefined,
-        visibility: formData.visibility,
-        tags: formData.tags
-      })
-    },
-    onSuccess: (response) => {
-      if (response.isSuccess) {
-        toast.success("Prompt updated successfully")
-        queryClient.invalidateQueries({ queryKey: ['prompt', promptId] })
-        queryClient.invalidateQueries({ queryKey: ['prompts'] })
-      } else {
-        toast.error(response.message)
+      if (result?.isSuccess && result.data) {
+        setPromptData(result.data)
+        setFormData({
+          title: result.data.title,
+          content: result.data.content,
+          description: result.data.description || '',
+          visibility: result.data.visibility,
+          tags: result.data.tags || []
+        })
       }
-    },
-    onError: () => {
-      toast.error("Failed to update prompt")
+      setLoading(false)
     }
-  })
 
-  // Delete mutation
-  const deleteMutation = useMutation({
-    mutationFn: async () => {
-      return await deletePrompt(promptId)
-    },
-    onSuccess: (response) => {
-      if (response.isSuccess) {
-        toast.success("Prompt deleted successfully")
-        queryClient.invalidateQueries({ queryKey: ['prompts'] })
-        router.push('/prompt-library')
-      } else {
-        toast.error(response.message)
-      }
-    },
-    onError: () => {
-      toast.error("Failed to delete prompt")
+    if (promptId) {
+      loadPrompt()
     }
-  })
+  }, [promptId, executeGet])
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.title || !formData.content) {
       toast.error("Title and content are required")
       return
     }
-    updateMutation.mutate()
+
+    setIsUpdating(true)
+    const result = await updatePrompt(promptId, {
+      title: formData.title,
+      content: formData.content,
+      description: formData.description || undefined,
+      visibility: formData.visibility,
+      tags: formData.tags
+    })
+
+    if (result?.isSuccess) {
+      toast.success("Prompt updated successfully")
+    } else {
+      toast.error(result?.message || "Failed to update prompt")
+    }
+    setIsUpdating(false)
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (confirm("Are you sure you want to delete this prompt?")) {
-      deleteMutation.mutate()
+      const result = await executeDelete(promptId)
+
+      if (result?.isSuccess) {
+        toast.success("Prompt deleted successfully")
+        router.push('/prompt-library')
+      } else {
+        toast.error(result?.message || "Failed to delete prompt")
+      }
     }
   }
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
@@ -127,7 +108,7 @@ export default function PromptEditPage() {
     )
   }
 
-  if (!promptResult) {
+  if (!promptData) {
     return (
       <div className="flex h-screen items-center justify-center">
         <p className="text-destructive">Prompt not found</p>
@@ -154,17 +135,17 @@ export default function PromptEditPage() {
           <Button
             variant="outline"
             onClick={handleDelete}
-            disabled={deleteMutation.isPending}
+            disabled={isDeleting}
           >
             <Trash2 className="mr-2 h-4 w-4" />
             Delete
           </Button>
           <Button
             onClick={handleSave}
-            disabled={updateMutation.isPending}
+            disabled={isUpdating}
           >
             <Save className="mr-2 h-4 w-4" />
-            {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
+            {isUpdating ? 'Saving...' : 'Save Changes'}
           </Button>
         </div>
       </div>
@@ -258,7 +239,7 @@ export default function PromptEditPage() {
                 Views
               </div>
               <div className="text-2xl font-semibold">
-                {promptResult.viewCount}
+                {promptData.viewCount}
               </div>
             </div>
             <div>
@@ -266,7 +247,7 @@ export default function PromptEditPage() {
                 Uses
               </div>
               <div className="text-2xl font-semibold">
-                {promptResult.useCount}
+                {promptData.useCount}
               </div>
             </div>
             <div>
@@ -274,7 +255,7 @@ export default function PromptEditPage() {
                 Status
               </div>
               <div className="text-sm font-semibold capitalize">
-                {promptResult.moderationStatus}
+                {promptData.moderationStatus}
               </div>
             </div>
           </div>

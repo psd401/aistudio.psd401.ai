@@ -13,32 +13,23 @@ import { Play, MoreVertical, Edit, Share2, Trash2, Eye } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { usePromptLibraryStore } from "@/lib/stores/prompt-library-store"
 import { deletePrompt } from "@/actions/prompt-library.actions"
+import { useAction } from "@/lib/hooks/use-action"
 import { toast } from "sonner"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import type { PromptListItem as PromptListItemType } from "@/lib/prompt-library/types"
 import { format } from "date-fns"
 
 interface PromptListItemProps {
   prompt: PromptListItemType
+  onDelete?: () => void
 }
 
-export function PromptListItem({ prompt }: PromptListItemProps) {
+export function PromptListItem({ prompt, onDelete }: PromptListItemProps) {
   const router = useRouter()
-  const queryClient = useQueryClient()
   const { selectedPrompts, toggleSelection } = usePromptLibraryStore()
 
   const isSelected = selectedPrompts.has(prompt.id)
 
-  const deleteMutation = useMutation({
-    mutationFn: deletePrompt,
-    onSuccess: () => {
-      toast.success("Prompt deleted successfully")
-      queryClient.invalidateQueries({ queryKey: ['prompts'] })
-    },
-    onError: () => {
-      toast.error("Failed to delete prompt")
-    }
-  })
+  const { execute: executeDelete } = useAction(deletePrompt)
 
   const handleLaunch = () => {
     router.push(`/nexus?promptId=${prompt.id}`)
@@ -48,9 +39,15 @@ export function PromptListItem({ prompt }: PromptListItemProps) {
     router.push(`/prompt-library/${prompt.id}`)
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (confirm("Are you sure you want to delete this prompt?")) {
-      deleteMutation.mutate(prompt.id)
+      const result = await executeDelete(prompt.id)
+      if (result?.isSuccess) {
+        toast.success("Prompt deleted successfully")
+        onDelete?.()
+      } else {
+        toast.error(result?.message || "Failed to delete prompt")
+      }
     }
   }
 
