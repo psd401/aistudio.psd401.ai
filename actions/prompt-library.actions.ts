@@ -180,13 +180,13 @@ export async function getPrompt(id: string): Promise<ActionState<Prompt>> {
     const results = await executeSQL<Prompt>(
       `SELECT p.*,
               array_agg(DISTINCT t.name) FILTER (WHERE t.id IS NOT NULL) as tags,
-              u.full_name as owner_name
+              CONCAT(u.first_name, ' ', u.last_name) as owner_name
        FROM prompt_library p
        LEFT JOIN prompt_library_tags plt ON p.id = plt.prompt_id
        LEFT JOIN prompt_tags t ON plt.tag_id = t.id
        LEFT JOIN users u ON p.user_id = u.id
        WHERE p.id = :id AND p.deleted_at IS NULL
-       GROUP BY p.id, u.full_name`,
+       GROUP BY p.id, u.first_name, u.last_name`,
       [{ name: "id", value: { stringValue: id } }]
     )
 
@@ -332,13 +332,13 @@ export async function listPrompts(
         p.created_at,
         p.updated_at,
         array_agg(DISTINCT t.name) FILTER (WHERE t.id IS NOT NULL) as tags,
-        u.full_name as owner_name
+        CONCAT(u.first_name, ' ', u.last_name) as owner_name
       FROM prompt_library p
       LEFT JOIN prompt_library_tags plt ON p.id = plt.prompt_id
       LEFT JOIN prompt_tags t ON plt.tag_id = t.id
       LEFT JOIN users u ON p.user_id = u.id
       WHERE ${conditions.join(" AND ")}
-      GROUP BY p.id, u.full_name
+      GROUP BY p.id, u.first_name, u.last_name
       ORDER BY ${orderBy}
       LIMIT :limit OFFSET :offset
     `
