@@ -7,6 +7,7 @@ import { PromptSaveDialog } from "./prompt-save-dialog"
 import { usePromptSave } from "../hooks/use-prompt-save"
 import { useToast } from "@/components/ui/use-toast"
 import { Button } from "@/components/ui/button"
+import Link from "next/link"
 
 interface PromptSaveButtonProps {
   content: string
@@ -45,7 +46,7 @@ export function PromptSaveButton({
         description: "Added to your prompt library",
         action: (
           <Button variant="outline" size="sm" asChild>
-            <a href="/prompt-library">View Library</a>
+            <Link href="/prompt-library">View Library</Link>
           </Button>
         )
       })
