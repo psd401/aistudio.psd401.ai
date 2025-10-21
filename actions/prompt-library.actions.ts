@@ -456,7 +456,12 @@ export async function updatePrompt(
     }
 
     if (fields.length === 0 && !validated.tags) {
-      return createSuccess(null as any, "No changes to update")
+      // No changes requested, fetch and return current prompt
+      const getResult = await getPrompt(id)
+      if (!getResult.isSuccess) {
+        throw new Error("Failed to fetch prompt")
+      }
+      return createSuccess(getResult.data, "No changes to update")
     }
 
     // Update prompt
@@ -567,15 +572,20 @@ async function assignTagsToPrompt(
 ): Promise<void> {
   if (tagNames.length === 0) return
 
-  // Insert tags if they don't exist
-  for (const tagName of tagNames) {
-    await executeSQL(
-      `INSERT INTO prompt_tags (name)
-       VALUES (:name)
-       ON CONFLICT (name) DO NOTHING`,
-      [{ name: "name", value: { stringValue: tagName.trim() } }]
-    )
-  }
+  const trimmedNames = tagNames.map(t => t.trim())
+
+  // Batch insert tags if they don't exist using unnest
+  await executeSQL(
+    `INSERT INTO prompt_tags (name)
+     SELECT unnest(:names::text[])
+     ON CONFLICT (name) DO NOTHING`,
+    [
+      {
+        name: "names",
+        value: { arrayValue: { stringValues: trimmedNames } }
+      }
+    ]
+  )
 
   // Get tag IDs
   const tagResults = await executeSQL<{ id: number }>(
@@ -583,23 +593,24 @@ async function assignTagsToPrompt(
     [
       {
         name: "names",
-        value: { arrayValue: { stringValues: tagNames.map(t => t.trim()) } }
+        value: { arrayValue: { stringValues: trimmedNames } }
       }
     ]
   )
 
-  // Create associations
-  for (const tag of tagResults) {
-    await executeSQL(
-      `INSERT INTO prompt_library_tags (prompt_id, tag_id)
-       VALUES (:promptId, :tagId)
-       ON CONFLICT DO NOTHING`,
-      [
-        { name: "promptId", value: { stringValue: promptId } },
-        { name: "tagId", value: { longValue: tag.id } }
-      ]
-    )
-  }
+  // Batch insert associations using unnest
+  await executeSQL(
+    `INSERT INTO prompt_library_tags (prompt_id, tag_id)
+     SELECT :promptId, unnest(:tagIds::bigint[])
+     ON CONFLICT DO NOTHING`,
+    [
+      { name: "promptId", value: { stringValue: promptId } },
+      {
+        name: "tagIds",
+        value: { arrayValue: { longValues: tagResults.map(t => t.id) } }
+      }
+    ]
+  )
 
   log.debug("Tags assigned to prompt", {
     promptId,

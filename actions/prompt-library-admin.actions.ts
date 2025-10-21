@@ -1,7 +1,7 @@
 "use server"
 
 import { getServerSession } from "@/lib/auth/server-session"
-import { executeSQL } from "@/lib/db/data-api-adapter"
+import { executeSQL, executeTransaction } from "@/lib/db/data-api-adapter"
 import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import { type ActionState } from "@/types/actions-types"
 import {
@@ -74,7 +74,7 @@ export async function usePrompt(
 
     const prompt = promptResults[0]
 
-    // Create new conversation with the prompt content
+    // Create conversation - this is the critical operation that needs to succeed
     const conversationResults = await executeSQL<{ id: string }>(
       `INSERT INTO nexus_conversations
        (user_id, provider, title, metadata)
@@ -97,25 +97,26 @@ export async function usePrompt(
 
     const conversationId = conversationResults[0].id
 
-    // Track usage event
-    await executeSQL(
-      `INSERT INTO prompt_usage_events
-       (prompt_id, user_id, event_type, conversation_id)
-       VALUES (:promptId, :userId, 'use', :conversationId)`,
-      [
-        { name: "promptId", value: { stringValue: promptId } },
-        { name: "userId", value: { longValue: userId } },
-        { name: "conversationId", value: { stringValue: conversationId } }
-      ]
-    )
-
-    // Increment use count
-    await executeSQL(
-      `UPDATE prompt_library
-       SET use_count = use_count + 1
-       WHERE id = :promptId`,
-      [{ name: "promptId", value: { stringValue: promptId } }]
-    )
+    // Track usage event and increment counter as batch transaction
+    // These are less critical and grouped together for atomicity
+    await executeTransaction([
+      {
+        sql: `INSERT INTO prompt_usage_events
+              (prompt_id, user_id, event_type, conversation_id)
+              VALUES (:promptId, :userId, 'use', :conversationId)`,
+        parameters: [
+          { name: "promptId", value: { stringValue: promptId } },
+          { name: "userId", value: { longValue: userId } },
+          { name: "conversationId", value: { stringValue: conversationId } }
+        ]
+      },
+      {
+        sql: `UPDATE prompt_library
+              SET use_count = use_count + 1
+              WHERE id = :promptId`,
+        parameters: [{ name: "promptId", value: { stringValue: promptId } }]
+      }
+    ])
 
     timer({ status: "success" })
     log.info("Prompt used successfully", { promptId, conversationId })

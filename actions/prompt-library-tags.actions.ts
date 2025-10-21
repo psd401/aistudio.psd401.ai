@@ -93,7 +93,10 @@ export async function getPopularTags(
   const log = createLogger({ requestId, action: "getPopularTags" })
 
   try {
-    log.info("Action started: Getting popular tags", { limit })
+    // Validate and clamp limit to prevent abuse
+    const validatedLimit = Math.max(1, Math.min(limit, 100))
+
+    log.info("Action started: Getting popular tags", { limit: validatedLimit })
 
     // Auth check
     const session = await getServerSession()
@@ -133,7 +136,7 @@ export async function getPopularTags(
        HAVING COUNT(plt.prompt_id) > 0
        ORDER BY usage_count DESC, t.name ASC
        LIMIT :limit`,
-      [{ name: "limit", value: { longValue: limit } }]
+      [{ name: "limit", value: { longValue: validatedLimit } }]
     )
 
     const tags = results.map(r => transformSnakeToCamel<PromptTag & { usageCount: number }>(r))
@@ -229,7 +232,10 @@ export async function searchTags(
   const log = createLogger({ requestId, action: "searchTags" })
 
   try {
-    log.info("Action started: Searching tags", { query, limit })
+    // Validate and clamp limit to prevent abuse
+    const validatedLimit = Math.max(1, Math.min(limit, 100))
+
+    log.info("Action started: Searching tags", { query, limit: validatedLimit })
 
     // Auth check
     const session = await getServerSession()
@@ -260,7 +266,7 @@ export async function searchTags(
        LIMIT :limit`,
       [
         { name: "query", value: { stringValue: `%${query}%` } },
-        { name: "limit", value: { longValue: limit } }
+        { name: "limit", value: { longValue: validatedLimit } }
       ]
     )
 
