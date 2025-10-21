@@ -85,7 +85,7 @@ export async function createPrompt(
     const results = await executeSQL<Prompt>(
       `INSERT INTO prompt_library
        (user_id, title, content, description, visibility, source_message_id, source_conversation_id)
-       VALUES (:userId, :title, :content, :description, :visibility, :sourceMessageId, :sourceConversationId)
+       VALUES (:userId, :title, :content, :description, :visibility, :sourceMessageId::uuid, :sourceConversationId::uuid)
        RETURNING *`,
       [
         { name: "userId", value: { longValue: userId } },
