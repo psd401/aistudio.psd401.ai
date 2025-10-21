@@ -1,4 +1,4 @@
--- 038-prompt-library-schema-rollback.sql
+-- 039-prompt-library-schema-rollback.sql
 -- Rollback for Prompt Library schema
 
 DROP TABLE IF EXISTS prompt_usage_events;

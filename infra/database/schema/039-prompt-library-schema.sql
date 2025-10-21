@@ -1,4 +1,4 @@
--- 038-prompt-library-schema.sql
+-- 039-prompt-library-schema.sql
 -- Database schema for Prompt Library feature (Issue #387)
 CREATE TABLE IF NOT EXISTS prompt_library (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
