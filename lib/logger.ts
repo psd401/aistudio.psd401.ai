@@ -43,8 +43,16 @@ function sanitizeForLogger(data: unknown): unknown {
       safeError.stack = typeof data.stack === "string" ? sanitizeForLogger(data.stack) : ""
       for (const key of Object.keys(data)) {
         if (!(key in safeError)) {
-          // Some frameworks add own props; ensure all are sanitized
-          safeError[key] = sanitizeForLogger((data as unknown as Record<string, unknown>)[key])
+          // Validate key to prevent prototype pollution
+          const safeKey = String(key).replace(/[^\w\-_.]/g, '_')
+          if (safeKey && safeKey !== '__proto__' && safeKey !== 'constructor' && safeKey !== 'prototype') {
+            Object.defineProperty(safeError, safeKey, {
+              value: sanitizeForLogger((data as unknown as Record<string, unknown>)[key]),
+              enumerable: true,
+              writable: false,
+              configurable: false
+            })
+          }
         }
       }
       return safeError
@@ -54,7 +62,15 @@ function sanitizeForLogger(data: unknown): unknown {
       for (const [key, value] of Object.entries(data)) {
         // Sanitize both key and value to break all taint paths
         const cleanKey = String(key).replace(/[^\w\-_.]/g, '_')
-        sanitized[cleanKey] = sanitizeForLogger(value)
+        // Prevent prototype pollution
+        if (cleanKey && cleanKey !== '__proto__' && cleanKey !== 'constructor' && cleanKey !== 'prototype') {
+          Object.defineProperty(sanitized, cleanKey, {
+            value: sanitizeForLogger(value),
+            enumerable: true,
+            writable: false,
+            configurable: false
+          })
+        }
       }
       return sanitized
     }
@@ -121,21 +137,36 @@ function filterSensitiveData(data: unknown): unknown {
   if (data && typeof data === "object") {
     const filtered: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(data)) {
+      // Sanitize key to prevent prototype pollution
+      const cleanKey = String(key).replace(/[^\w\-_.]/g, '_')
+      if (!cleanKey || cleanKey === '__proto__' || cleanKey === 'constructor' || cleanKey === 'prototype') {
+        continue
+      }
+
       // Check if key contains sensitive field names
-      const lowerKey = key.toLowerCase()
-      if (lowerKey.includes("password") || 
-          lowerKey.includes("token") || 
+      const lowerKey = cleanKey.toLowerCase()
+      let filteredValue: unknown
+
+      if (lowerKey.includes("password") ||
+          lowerKey.includes("token") ||
           lowerKey.includes("secret") ||
           lowerKey.includes("apikey") ||
           lowerKey.includes("api_key")) {
-        filtered[key] = "[REDACTED]"
+        filteredValue = "[REDACTED]"
       } else if (lowerKey.includes("email")) {
-        filtered[key] = typeof value === "string" 
+        filteredValue = typeof value === "string"
           ? value.replace(EMAIL_PATTERN, "***@$1")
           : value
       } else {
-        filtered[key] = filterSensitiveData(value)
+        filteredValue = filterSensitiveData(value)
       }
+
+      Object.defineProperty(filtered, cleanKey, {
+        value: filteredValue,
+        enumerable: true,
+        writable: false,
+        configurable: false
+      })
     }
     return filtered
   }
@@ -257,25 +288,30 @@ export function createLogger(context: LogContext): Logger {
       const safeMessage = sanitizeForLogger(message) as string
       const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
       const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
-      logger.info(safeMessage, { ...safeContext, ...safeMeta })
+      // Use Object.assign to safely merge without spread operator risks
+      const logData = Object.assign(Object.create(null), safeContext, safeMeta)
+      logger.info(safeMessage, logData)
     },
     warn: (message: string, meta?: object) => {
       const safeMessage = sanitizeForLogger(message) as string
       const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
       const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
-      logger.warn(safeMessage, { ...safeContext, ...safeMeta })
+      const logData = Object.assign(Object.create(null), safeContext, safeMeta)
+      logger.warn(safeMessage, logData)
     },
     error: (message: string, meta?: object) => {
       const safeMessage = sanitizeForLogger(message) as string
       const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
       const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
-      logger.error(safeMessage, { ...safeContext, ...safeMeta })
+      const logData = Object.assign(Object.create(null), safeContext, safeMeta)
+      logger.error(safeMessage, logData)
     },
     debug: (message: string, meta?: object) => {
       const safeMessage = sanitizeForLogger(message) as string
       const safeContext = sanitizeForLogger({ ...getLogContext(), ...context }) as object
       const safeMeta = meta ? sanitizeForLogger(meta) as object : {}
-      logger.debug(safeMessage, { ...safeContext, ...safeMeta })
+      const logData = Object.assign(Object.create(null), safeContext, safeMeta)
+      logger.debug(safeMessage, logData)
     },
   } as Logger
 }
