@@ -638,3 +638,88 @@ export type InsertNexusConversationFolder = {
   pinned?: boolean;
   archivedAt?: Date;
 }
+
+// =====================================================
+// PROMPT LIBRARY TYPES
+// =====================================================
+
+// Prompt Library - Main prompts table
+export type SelectPromptLibrary = {
+  id: string;
+  userId: number;
+  title: string;
+  content: string;
+  description: string | null;
+  visibility: 'private' | 'public';
+  moderationStatus: 'pending' | 'approved' | 'rejected';
+  moderatedBy: number | null;
+  moderatedAt: Date | null;
+  moderationNotes: string | null;
+  sourceMessageId: string | null;
+  sourceConversationId: string | null;
+  viewCount: number;
+  useCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
+}
+
+export type InsertPromptLibrary = {
+  id?: string;
+  userId: number;
+  title: string;
+  content: string;
+  description?: string;
+  visibility?: 'private' | 'public';
+  moderationStatus?: 'pending' | 'approved' | 'rejected';
+  moderatedBy?: number;
+  moderatedAt?: Date;
+  moderationNotes?: string;
+  sourceMessageId?: string;
+  sourceConversationId?: string;
+  viewCount?: number;
+  useCount?: number;
+  deletedAt?: Date;
+}
+
+// Prompt Tags - Tag taxonomy
+export type SelectPromptTag = {
+  id: number;
+  name: string;
+  createdAt: Date;
+}
+
+export type InsertPromptTag = {
+  id?: number;
+  name: string;
+}
+
+// Prompt Library Tags - Many-to-many relationship
+export type SelectPromptLibraryTag = {
+  promptId: string;
+  tagId: number;
+  createdAt: Date;
+}
+
+export type InsertPromptLibraryTag = {
+  promptId: string;
+  tagId: number;
+}
+
+// Prompt Usage Events - Analytics tracking
+export type SelectPromptUsageEvent = {
+  id: number;
+  promptId: string;
+  userId: number;
+  eventType: 'view' | 'use' | 'share';
+  conversationId: string | null;
+  createdAt: Date;
+}
+
+export type InsertPromptUsageEvent = {
+  id?: number;
+  promptId: string;
+  userId: number;
+  eventType: 'view' | 'use' | 'share';
+  conversationId?: string;
+}
