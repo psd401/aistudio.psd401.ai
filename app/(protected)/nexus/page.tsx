@@ -9,6 +9,7 @@ import { useEffect, useMemo, useCallback, useState, useRef, Suspense } from 'rea
 import { NexusShell } from './_components/layout/nexus-shell'
 import { ErrorBoundary } from './_components/error-boundary'
 import { ConversationPanel } from './_components/conversation-panel'
+import { PromptAutoLoader } from './_components/prompt-auto-loader'
 import { useConversationContext, createNexusHistoryAdapter } from '@/lib/nexus/history-adapter'
 import { MultiProviderToolUIs } from './_components/tools/multi-provider-tools'
 import { useModelsWithPersistence } from '@/lib/hooks/use-models'
@@ -268,6 +269,9 @@ function NexusPageContent() {
             >
               {/* Register tool UI components for all providers */}
               <MultiProviderToolUIs />
+
+              {/* Auto-load prompts from Prompt Library */}
+              <PromptAutoLoader />
 
               <div className="flex h-full flex-col">
                 <Thread processingAttachments={processingAttachments} conversationId={conversationId} />
