@@ -5,8 +5,10 @@ import {
   ActionBarPrimitive,
   BranchPickerPrimitive,
   ErrorPrimitive,
+  useMessage,
 } from "@assistant-ui/react";
 import type { FC } from "react";
+import { createContext, useContext } from "react";
 import { useSession } from "next-auth/react";
 import {
   ArrowDownIcon,
@@ -34,6 +36,12 @@ import {
   ComposerAddAttachment,
   UserMessageAttachments,
 } from "@/components/assistant-ui/attachment";
+import { PromptSaveButton } from "@/app/(protected)/nexus/_components/chat/prompt-save-button";
+
+// Context for passing conversationId to message components
+const ConversationIdContext = createContext<string | null>(null);
+
+export const useConversationId = () => useContext(ConversationIdContext);
 
 interface ThreadProps {
   processingAttachments?: Set<string>;
@@ -42,31 +50,33 @@ interface ThreadProps {
 
 export const Thread: FC<ThreadProps> = ({ processingAttachments, conversationId }) => {
   return (
-    <ThreadPrimitive.Root
-      className="bg-white flex h-full flex-col"
-      style={{
-        ["--thread-max-width" as string]: "48rem",
-        ["--thread-padding-x" as string]: "1rem",
-      }}
-    >
-      <ThreadPrimitive.Viewport className="relative flex min-w-0 flex-1 flex-col gap-6 overflow-y-scroll">
-        <ThreadWelcome conversationId={conversationId} />
+    <ConversationIdContext.Provider value={conversationId || null}>
+      <ThreadPrimitive.Root
+        className="bg-white flex h-full flex-col"
+        style={{
+          ["--thread-max-width" as string]: "48rem",
+          ["--thread-padding-x" as string]: "1rem",
+        }}
+      >
+        <ThreadPrimitive.Viewport className="relative flex min-w-0 flex-1 flex-col gap-6 overflow-y-scroll">
+          <ThreadWelcome conversationId={conversationId} />
 
-        <ThreadPrimitive.Messages
-          components={{
-            UserMessage,
-            EditComposer,
-            AssistantMessage,
-          }}
-        />
+          <ThreadPrimitive.Messages
+            components={{
+              UserMessage,
+              EditComposer,
+              AssistantMessage,
+            }}
+          />
 
-        <ThreadPrimitive.If empty={false}>
-          <motion.div className="min-h-6 min-w-6 shrink-0" />
-        </ThreadPrimitive.If>
-      </ThreadPrimitive.Viewport>
+          <ThreadPrimitive.If empty={false}>
+            <motion.div className="min-h-6 min-w-6 shrink-0" />
+          </ThreadPrimitive.If>
+        </ThreadPrimitive.Viewport>
 
-      <Composer processingAttachments={processingAttachments} />
-    </ThreadPrimitive.Root>
+        <Composer processingAttachments={processingAttachments} />
+      </ThreadPrimitive.Root>
+    </ConversationIdContext.Provider>
   );
 };
 
@@ -379,17 +389,33 @@ const UserMessage: FC = () => {
 };
 
 const UserActionBar: FC = () => {
+  const message = useMessage();
+  const conversationId = useConversationId();
+
+  // Extract text content from message
+  const messageContent = message.content
+    .filter(part => part.type === "text")
+    .map(part => (part as { type: "text"; text: string }).text)
+    .join("\n");
+
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
       autohide="not-last"
-      className="col-start-1 mr-3 mt-2.5 flex flex-col items-end"
+      className="col-start-1 mr-3 mt-2.5 flex flex-col items-end gap-1"
     >
       <ActionBarPrimitive.Edit asChild>
         <TooltipIconButton tooltip="Edit">
           <PencilIcon />
         </TooltipIconButton>
       </ActionBarPrimitive.Edit>
+
+      {messageContent && (
+        <PromptSaveButton
+          content={messageContent}
+          conversationId={conversationId}
+        />
+      )}
     </ActionBarPrimitive.Root>
   );
 };
