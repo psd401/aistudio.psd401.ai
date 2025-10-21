@@ -43,7 +43,9 @@ ENV NODE_ENV=production
 ENV DOCUMENTS_BUCKET_NAME=build-time-placeholder
 ENV NEXT_PUBLIC_AWS_REGION=us-east-1
 ENV RDS_RESOURCE_ARN=arn:aws:rds:us-east-1:000000000000:cluster:build-placeholder
-ENV RDS_SECRET_ARN=arn:aws:secretsmanager:us-east-1:000000000000:secret:build-placeholder
+# Use ARG for secret ARN to avoid security warning (it's just a build placeholder)
+ARG RDS_SECRET_ARN=arn:aws:secretsmanager:us-east-1:000000000000:secret:build-placeholder
+ENV RDS_SECRET_ARN=${RDS_SECRET_ARN}
 
 # Build with cache mount for Next.js build artifacts
 RUN --mount=type=cache,target=/app/.next/cache \

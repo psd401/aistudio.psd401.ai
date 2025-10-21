@@ -14,7 +14,7 @@
  * @see https://github.com/psd401/aistudio.psd401.ai/issues/365
  */
 
-import { createLogger } from '@/lib/logger'
+import { createLogger } from '@/lib/client-logger'
 import type { SSEMonitor } from './sse-monitoring'
 
 const log = createLogger({ moduleName: 'sse-graceful-degradation' })
