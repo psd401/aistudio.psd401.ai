@@ -535,7 +535,7 @@ export async function updatePrompt(
       const updateQuery = `
         UPDATE prompt_library
         SET ${fields.join(", ")}
-        WHERE id = :id AND deleted_at IS NULL
+        WHERE id = :id::uuid AND deleted_at IS NULL
         RETURNING *
       `
 
@@ -605,7 +605,7 @@ export async function deletePrompt(id: string): Promise<ActionState<void>> {
     await executeSQL(
       `UPDATE prompt_library
        SET deleted_at = CURRENT_TIMESTAMP
-       WHERE id = :id AND deleted_at IS NULL`,
+       WHERE id = :id::uuid AND deleted_at IS NULL`,
       [{ name: "id", value: { stringValue: id } }]
     )
 
@@ -692,7 +692,7 @@ async function updateTagsForPrompt(
 ): Promise<void> {
   // Remove existing tags
   await executeSQL(
-    `DELETE FROM prompt_library_tags WHERE prompt_id = :promptId`,
+    `DELETE FROM prompt_library_tags WHERE prompt_id = :promptId::uuid`,
     [{ name: "promptId", value: { stringValue: promptId } }]
   )
 

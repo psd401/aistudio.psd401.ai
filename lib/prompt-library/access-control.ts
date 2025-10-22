@@ -34,10 +34,10 @@ export async function canReadPrompt(
   userId: number
 ): Promise<boolean> {
   const results = await executeSQL<{
-    user_id: number
+    userId: number
     visibility: string
-    moderation_status: string
-    deleted_at: string | null
+    moderationStatus: string
+    deletedAt: string | null
   }>(
     `SELECT user_id, visibility, moderation_status, deleted_at
      FROM prompt_library
@@ -45,19 +45,19 @@ export async function canReadPrompt(
     [{ name: "promptId", value: { stringValue: promptId } }]
   )
 
-  if (results.length === 0 || results[0].deleted_at) {
+  if (results.length === 0 || results[0].deletedAt) {
     return false
   }
 
   const prompt = results[0]
 
   // Owner can always read their own prompts - ensure numeric comparison
-  if (Number(prompt.user_id) === Number(userId)) {
+  if (Number(prompt.userId) === Number(userId)) {
     return true
   }
 
   // Public prompts must be approved to be visible to others
-  if (prompt.visibility === 'public' && prompt.moderation_status === 'approved') {
+  if (prompt.visibility === 'public' && prompt.moderationStatus === 'approved') {
     return true
   }
 
@@ -82,7 +82,7 @@ export async function canUpdatePrompt(
 
   log.info("Permission check started", { promptId, userId })
 
-  const results = await executeSQL<{ user_id: number; deleted_at: string | null }>(
+  const results = await executeSQL<{ userId: number; deletedAt: string | null }>(
     `SELECT user_id, deleted_at FROM prompt_library WHERE id = :promptId::uuid`,
     [{ name: "promptId", value: { stringValue: promptId } }]
   )
@@ -92,13 +92,13 @@ export async function canUpdatePrompt(
     return false
   }
 
-  if (results[0].deleted_at) {
-    log.warn("Prompt is deleted", { promptId, deletedAt: results[0].deleted_at })
+  if (results[0].deletedAt) {
+    log.warn("Prompt is deleted", { promptId, deletedAt: results[0].deletedAt })
     return false
   }
 
-  // Get the raw database value
-  const dbUserId = results[0].user_id
+  // Get the raw database value (field is transformed from user_id to userId by data-api-adapter)
+  const dbUserId = results[0].userId
   const dbUserIdType = typeof dbUserId
 
   // Convert both to numbers with validation
@@ -168,19 +168,19 @@ export async function canDeletePrompt(
   promptId: string,
   userId: number
 ): Promise<boolean> {
-  const results = await executeSQL<{ user_id: number; deleted_at: string | null }>(
+  const results = await executeSQL<{ userId: number; deletedAt: string | null }>(
     `SELECT user_id, deleted_at FROM prompt_library WHERE id = :promptId::uuid`,
     [{ name: "promptId", value: { stringValue: promptId } }]
   )
 
-  if (results.length === 0 || results[0].deleted_at) {
+  if (results.length === 0 || results[0].deletedAt) {
     return false
   }
 
   const prompt = results[0]
 
   // Owner can delete their own prompts - ensure numeric comparison
-  if (Number(prompt.user_id) === Number(userId)) {
+  if (Number(prompt.userId) === Number(userId)) {
     return true
   }
 
