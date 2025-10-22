@@ -115,11 +115,11 @@ export function GlobalHeader() {
           <Button variant="ghost" size="icon" aria-label="Toggle Theme" className="hidden sm:flex">
             <Sun className="h-5 w-5" />
           </Button>
-          <Link href="/prompt-library">
-            <Button variant="ghost" size="icon" aria-label="Open Prompt Library" className="hidden sm:flex">
+          <Button variant="ghost" size="icon" aria-label="Open Prompt Library" className="hidden sm:flex" asChild>
+            <Link href="/prompt-library">
               <BookOpen className="h-5 w-5" />
-            </Button>
-          </Link>
+            </Link>
+          </Button>
 
           {/* Message Center - Execution Results */}
           <MessageCenter
