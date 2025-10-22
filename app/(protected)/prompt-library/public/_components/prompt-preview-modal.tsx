@@ -39,43 +39,61 @@ export function PromptPreviewModal({
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
+    let mounted = true
+
+    const loadPrompt = async () => {
+      if (!mounted) return
+
+      setLoading(true)
+      const result = await getPrompt(promptId)
+
+      if (!mounted) return
+
+      if (result.isSuccess) {
+        setPrompt(result.data)
+        // Track view asynchronously (silently fail if tracking fails)
+        trackPromptView(promptId).catch(() => {
+          // Tracking is non-critical, continue showing prompt
+        })
+      } else {
+        toast.error(result.message || "Failed to load prompt")
+        onOpenChange(false)
+      }
+
+      setLoading(false)
+    }
+
     if (open && promptId) {
       loadPrompt()
     }
-  }, [open, promptId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadPrompt = async () => {
-    setLoading(true)
-    const result = await getPrompt(promptId)
-
-    if (result.isSuccess) {
-      setPrompt(result.data)
-      // Track view asynchronously (silently fail if tracking fails)
-      trackPromptView(promptId).catch(() => {
-        // Tracking is non-critical, continue showing prompt
-      })
-    } else {
-      toast.error(result.message || "Failed to load prompt")
-      onOpenChange(false)
+    return () => {
+      mounted = false
     }
-
-    setLoading(false)
-  }
+  }, [open, promptId, onOpenChange])
 
   const handleCopy = async () => {
-    if (prompt) {
+    if (!prompt) return
+
+    try {
       await navigator.clipboard.writeText(prompt.content)
       toast.success("Copied to clipboard")
+    } catch {
+      toast.error("Failed to copy to clipboard")
     }
   }
 
   const getInitials = (name: string) => {
-    return name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2)
+    return (
+      name
+        .trim()
+        .split(/\s+/)
+        .filter((n) => n.length > 0)
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2) || "??"
+    )
   }
 
   return (

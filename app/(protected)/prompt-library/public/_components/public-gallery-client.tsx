@@ -30,17 +30,13 @@ export function PublicGalleryClient({
 
   const [prompts, setPrompts] = useState<PromptListItem[]>([])
   const [total, setTotal] = useState(0)
-  const [currentPage, setCurrentPage] = useState(initialPage)
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [selectedTags, setSelectedTags] = useState<string[]>(initialTags)
-  const [sortBy, setSortBy] = useState<'created' | 'usage' | 'views'>(initialSort)
-
   useEffect(() => {
     loadPrompts()
-  }, [initialQuery, initialPage]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialQuery, initialPage, initialTags, initialSort]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadPrompts = async () => {
     setLoading(true)
@@ -49,9 +45,9 @@ export function PublicGalleryClient({
     const result = await listPrompts({
       visibility: 'public',
       search: initialQuery || undefined,
-      tags: selectedTags.length > 0 ? selectedTags : undefined,
-      sort: sortBy,
-      page: currentPage,
+      tags: initialTags.length > 0 ? initialTags : undefined,
+      sort: initialSort,
+      page: initialPage,
       limit: 24
     })
 
@@ -67,7 +63,6 @@ export function PublicGalleryClient({
   }
 
   const handleTagChange = (tags: string[]) => {
-    setSelectedTags(tags)
     startTransition(() => {
       const params = new URLSearchParams(searchParams.toString())
       if (tags.length > 0) {
@@ -81,7 +76,6 @@ export function PublicGalleryClient({
   }
 
   const handleSortChange = (sort: 'created' | 'usage' | 'views') => {
-    setSortBy(sort)
     startTransition(() => {
       const params = new URLSearchParams(searchParams.toString())
       params.set("sort", sort)
@@ -93,9 +87,8 @@ export function PublicGalleryClient({
   const handleLoadMore = () => {
     startTransition(() => {
       const params = new URLSearchParams(searchParams.toString())
-      const nextPage = currentPage + 1
+      const nextPage = initialPage + 1
       params.set("page", String(nextPage))
-      setCurrentPage(nextPage)
       router.push(`/prompt-library/public?${params.toString()}`)
     })
   }
@@ -113,9 +106,9 @@ export function PublicGalleryClient({
     <div className="space-y-6">
       {/* Filters */}
       <SearchFilterBar
-        selectedTags={selectedTags}
+        selectedTags={initialTags}
         onTagsChange={handleTagChange}
-        sortBy={sortBy}
+        sortBy={initialSort}
         onSortChange={handleSortChange}
         totalCount={total}
       />
@@ -161,7 +154,7 @@ export function PublicGalleryClient({
           {/* Results Info */}
           <div className="text-center text-sm text-muted-foreground">
             Showing {prompts.length} of {total} prompts
-            {currentPage > 1 && ` (Page ${currentPage})`}
+            {initialPage > 1 && ` (Page ${initialPage})`}
           </div>
         </>
       )}
