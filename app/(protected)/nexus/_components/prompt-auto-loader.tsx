@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useComposerRuntime } from '@assistant-ui/react'
 import { useAction } from '@/lib/hooks/use-action'
-import { getPrompt } from '@/actions/prompt-library.actions'
+import { getPrompt, trackPromptUse } from '@/actions/prompt-library.actions'
 import { toast } from 'sonner'
 import { createLogger } from '@/lib/client-logger'
 
@@ -25,6 +25,11 @@ export function PromptAutoLoader() {
   const processedPromptsRef = useRef<Set<string>>(new Set())
 
   const { execute: executeGetPrompt } = useAction(getPrompt, {
+    showSuccessToast: false,
+    showErrorToast: false
+  })
+
+  const { execute: executeTrackUse } = useAction(trackPromptUse, {
     showSuccessToast: false,
     showErrorToast: false
   })
@@ -86,7 +91,10 @@ export function PromptAutoLoader() {
         log.debug('Prompt text set in composer', { promptId })
 
         // Small delay to ensure the text is fully set before sending
-        setTimeout(() => {
+        setTimeout(async () => {
+          // Track prompt use before sending
+          await executeTrackUse(promptId)
+
           // Send the message
           composer.send()
 
@@ -117,7 +125,7 @@ export function PromptAutoLoader() {
     }
 
     loadAndSendPrompt()
-  }, [promptId, composer, executeGetPrompt, router, searchParams])
+  }, [promptId, composer, executeGetPrompt, executeTrackUse, router, searchParams])
 
   // This component doesn't render anything - it's purely for side effects
   return null

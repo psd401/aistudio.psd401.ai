@@ -9,7 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu"
-import { Play, MoreVertical, Edit, Share2, Trash2, Eye } from "lucide-react"
+import { Play, MoreVertical, Edit, Trash2, Eye } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { usePromptLibraryStore } from "@/lib/stores/prompt-library-store"
 import { deletePrompt } from "@/actions/prompt-library.actions"
@@ -124,10 +124,6 @@ export function PromptListItem({ prompt, onDelete }: PromptListItemProps) {
             <DropdownMenuItem onClick={handleLaunch}>
               <Play className="mr-2 h-4 w-4" />
               Use in Chat
-            </DropdownMenuItem>
-            <DropdownMenuItem>
-              <Share2 className="mr-2 h-4 w-4" />
-              Share
             </DropdownMenuItem>
             <DropdownMenuItem className="text-destructive" onClick={handleDelete}>
               <Trash2 className="mr-2 h-4 w-4" />

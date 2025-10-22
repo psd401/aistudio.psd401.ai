@@ -50,8 +50,8 @@ export async function canReadPrompt(
 
   const prompt = results[0]
 
-  // Owner can always read their own prompts
-  if (prompt.user_id === userId) {
+  // Owner can always read their own prompts - ensure numeric comparison
+  if (Number(prompt.user_id) === Number(userId)) {
     return true
   }
 
@@ -85,8 +85,11 @@ export async function canUpdatePrompt(
     return false
   }
 
-  // Only owner can update
-  return results[0].user_id === userId
+  // Only owner can update - ensure both are numbers for comparison
+  const promptUserId = Number(results[0].user_id)
+  const sessionUserId = Number(userId)
+
+  return promptUserId === sessionUserId
 }
 
 /**
@@ -107,8 +110,8 @@ export async function canDeletePrompt(
 
   const prompt = results[0]
 
-  // Owner can delete their own prompts
-  if (prompt.user_id === userId) {
+  // Owner can delete their own prompts - ensure numeric comparison
+  if (Number(prompt.user_id) === Number(userId)) {
     return true
   }
 

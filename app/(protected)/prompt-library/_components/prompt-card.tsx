@@ -15,7 +15,6 @@ import {
   Play,
   MoreVertical,
   Edit,
-  Share2,
   Trash2,
   Eye
 } from "lucide-react"
@@ -104,10 +103,6 @@ export function PromptCard({ prompt, onDelete }: PromptCardProps) {
               <DropdownMenuItem onClick={handleLaunch}>
                 <Play className="mr-2 h-4 w-4" />
                 Use in Chat
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <Share2 className="mr-2 h-4 w-4" />
-                Share
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive"
