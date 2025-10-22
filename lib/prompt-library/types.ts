@@ -16,15 +16,15 @@ export interface Prompt {
   visibility: PromptVisibility
   moderationStatus: ModerationStatus
   moderatedBy: number | null
-  moderatedAt: Date | null
+  moderatedAt: string | null
   moderationNotes: string | null
   sourceMessageId: string | null
   sourceConversationId: string | null
   viewCount: number
   useCount: number
-  createdAt: Date
-  updatedAt: Date
-  deletedAt: Date | null
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
   // Joined fields
   tags?: string[]
   ownerName?: string
@@ -33,7 +33,7 @@ export interface Prompt {
 export interface PromptTag {
   id: number
   name: string
-  createdAt: Date
+  createdAt: string
 }
 
 export interface PromptUsageEvent {
@@ -42,7 +42,7 @@ export interface PromptUsageEvent {
   userId: number
   eventType: EventType
   conversationId: string | null
-  createdAt: Date
+  createdAt: string
 }
 
 export interface PromptListItem extends Omit<Prompt, 'content'> {
