@@ -31,6 +31,21 @@ export interface ModerationAction {
   notes?: string
 }
 
+// Type for valid session user
+type SessionUser = { id: number; email: string }
+
+// Allowed moderation statuses
+const ALLOWED_STATUSES = ['pending', 'approved', 'rejected', 'all'] as const
+type ModerationStatus = typeof ALLOWED_STATUSES[number]
+
+/**
+ * UUID validation helper
+ */
+function isValidUUID(uuid: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  return uuidRegex.test(uuid)
+}
+
 /**
  * Get the moderation queue with filtering options
  */
@@ -56,14 +71,30 @@ export async function getModerationQueue(
 
     const isAdmin = await hasRole('administrator')
     if (!isAdmin) {
-      log.warn("Non-admin user attempted to access moderation queue", { userId: (session.user as { id: number }).id })
+      log.warn("Non-admin user attempted to access moderation queue", { userId: (session.user as SessionUser).id })
       throw ErrorFactories.authzAdminRequired("access moderation queue")
     }
 
     const { status = 'pending', limit = 50, offset = 0 } = filters
 
-    // Build the query
-    const whereClause = status === 'all' ? '' : 'WHERE p.moderation_status = :status'
+    // Validate status parameter
+    if (!ALLOWED_STATUSES.includes(status as ModerationStatus)) {
+      throw ErrorFactories.invalidInput('status', status, 'Must be pending, approved, rejected, or all')
+    }
+
+    // Validate pagination parameters
+    if (limit < 1 || limit > 100) {
+      throw ErrorFactories.invalidInput('limit', limit, 'Must be between 1 and 100')
+    }
+
+    if (offset < 0) {
+      throw ErrorFactories.invalidInput('offset', offset, 'Must be non-negative')
+    }
+
+    // Build the query - fix WHERE clause for 'all' status
+    const whereClause = status === 'all'
+      ? 'WHERE p.deleted_at IS NULL'
+      : 'WHERE p.moderation_status = :status AND p.deleted_at IS NULL'
 
     const query = `
       SELECT
@@ -90,7 +121,6 @@ export async function getModerationQueue(
       LEFT JOIN prompt_library_tags plt ON p.id = plt.prompt_id
       LEFT JOIN prompt_tags pt ON plt.tag_id = pt.id
       ${whereClause}
-      AND p.deleted_at IS NULL
       GROUP BY p.id, u.id, u.first_name, u.last_name, u.email
       ORDER BY p.created_at DESC
       LIMIT :limit OFFSET :offset
@@ -100,7 +130,6 @@ export async function getModerationQueue(
       SELECT COUNT(*) as total
       FROM prompt_library p
       ${whereClause}
-      AND p.deleted_at IS NULL
     `
 
     const queryParams = status === 'all'
@@ -163,8 +192,13 @@ export async function moderatePrompt(
 
     const isAdmin = await hasRole('administrator')
     if (!isAdmin) {
-      log.warn("Non-admin user attempted to moderate prompt", { userId: (session.user as { id: number }).id })
+      log.warn("Non-admin user attempted to moderate prompt", { userId: (session.user as SessionUser).id })
       throw ErrorFactories.authzAdminRequired("moderate prompts")
+    }
+
+    // Validate UUID format
+    if (!isValidUUID(promptId)) {
+      throw ErrorFactories.invalidInput('promptId', promptId, 'Must be a valid UUID')
     }
 
     const query = `
@@ -179,12 +213,17 @@ export async function moderatePrompt(
       AND deleted_at IS NULL
     `
 
-    await executeSQL(query, [
+    const result = await executeSQL(query, [
       createParameter('status', action.status),
-      createParameter('moderatedBy', (session.user as { id: number }).id),
+      createParameter('moderatedBy', (session.user as SessionUser).id),
       createParameter('notes', action.notes || ''),
       createParameter('promptId', promptId)
     ])
+
+    // Verify the update actually affected a row
+    if (!result || result.length === 0) {
+      throw ErrorFactories.dbRecordNotFound('prompt_library', promptId)
+    }
 
     timer({ status: "success" })
     log.info("Prompt moderated successfully", { promptId, status: action.status })
@@ -226,7 +265,7 @@ export async function bulkModeratePrompts(
 
     const isAdmin = await hasRole('administrator')
     if (!isAdmin) {
-      log.warn("Non-admin user attempted bulk moderation", { userId: (session.user as { id: number }).id })
+      log.warn("Non-admin user attempted bulk moderation", { userId: (session.user as SessionUser).id })
       throw ErrorFactories.authzAdminRequired("bulk moderate prompts")
     }
 
@@ -238,11 +277,21 @@ export async function bulkModeratePrompts(
       throw ErrorFactories.invalidInput("promptIds", promptIds.length, "Maximum 100 prompts")
     }
 
+    // Validate all UUIDs
+    const invalidIds = promptIds.filter(id => !isValidUUID(id))
+    if (invalidIds.length > 0) {
+      throw ErrorFactories.invalidInput(
+        'promptIds',
+        invalidIds,
+        `Contains ${invalidIds.length} invalid UUID(s)`
+      )
+    }
+
     // Build the IN clause for the query
     const placeholders = promptIds.map((_, i) => `:id${i}`).join(', ')
     const params = [
       createParameter('status', action.status),
-      createParameter('moderatedBy', (session.user as { id: number }).id),
+      createParameter('moderatedBy', (session.user as SessionUser).id),
       createParameter('notes', action.notes || ''),
       ...promptIds.map((id, i) => createParameter(`id${i}`, id))
     ]
@@ -257,9 +306,24 @@ export async function bulkModeratePrompts(
         updated_at = CURRENT_TIMESTAMP
       WHERE id IN (${placeholders})
       AND deleted_at IS NULL
+      RETURNING id
     `
 
-    await executeSQL(query, params)
+    const result = await executeSQL(query, params)
+
+    // Verify at least some rows were updated
+    const actualCount = result.length
+    if (actualCount === 0) {
+      throw ErrorFactories.dbRecordNotFound('prompt_library', `bulk operation - no prompts found`)
+    }
+
+    // Log if fewer prompts were updated than requested (some may have been deleted)
+    if (actualCount < promptIds.length) {
+      log.warn("Some prompts were not found during bulk moderation", {
+        requested: promptIds.length,
+        updated: actualCount
+      })
+    }
 
     timer({ status: "success" })
     log.info("Bulk moderation completed", { count: promptIds.length, status: action.status })

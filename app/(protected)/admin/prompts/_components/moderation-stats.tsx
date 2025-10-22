@@ -62,7 +62,7 @@ export function ModerationStats({ stats }: ModerationStatsProps) {
         <CardContent>
           <div className="text-2xl font-bold">{stats.totalToday}</div>
           <p className="text-xs text-muted-foreground">
-            Actions taken today
+            Total actions today (all admins)
           </p>
         </CardContent>
       </Card>
