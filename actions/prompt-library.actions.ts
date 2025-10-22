@@ -185,7 +185,7 @@ export async function getPrompt(id: string): Promise<ActionState<Prompt>> {
        LEFT JOIN prompt_library_tags plt ON p.id = plt.prompt_id
        LEFT JOIN prompt_tags t ON plt.tag_id = t.id
        LEFT JOIN users u ON p.user_id = u.id
-       WHERE p.id = :id AND p.deleted_at IS NULL
+       WHERE p.id = :id::uuid AND p.deleted_at IS NULL
        GROUP BY p.id, u.first_name, u.last_name`,
       [{ name: "id", value: { stringValue: id } }]
     )

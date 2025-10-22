@@ -41,10 +41,17 @@ export function PromptAutoLoader() {
         return
       }
 
+      // Mark as processed IMMEDIATELY to prevent infinite loops on errors
+      processedPromptsRef.current.add(promptId)
+
       // Check if composer is ready
       const composerState = composer.getState()
       if (!composerState) {
         log.warn('Composer not ready yet', { promptId })
+        // Remove promptId from URL since we can't process it
+        const params = new URLSearchParams(searchParams.toString())
+        params.delete('promptId')
+        router.replace(`/nexus?${params.toString()}`)
         return
       }
 
@@ -72,9 +79,6 @@ export function PromptAutoLoader() {
           title: prompt.title,
           contentLength: prompt.content.length
         })
-
-        // Mark as processed before sending to prevent race conditions
-        processedPromptsRef.current.add(promptId)
 
         // Set the prompt content in the composer
         composer.setText(prompt.content)
