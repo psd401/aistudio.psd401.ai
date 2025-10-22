@@ -16,16 +16,19 @@ export abstract class BaseStack extends cdk.Stack {
   protected readonly projectName: string
 
   constructor(scope: Construct, id: string, props: BaseStackProps) {
+    // Extract our custom properties and pass only StackProps to parent
+    const { environment, config, projectName, owner, ...stackProps } = props
+
     super(scope, id, {
-      ...props,
-      stackName: `${props.projectName || "AIStudio"}-${id}-${props.environment}`,
-      description: `${id} for ${props.environment} environment`,
-      terminationProtection: props.environment === "prod",
+      ...stackProps,
+      stackName: `${projectName || "AIStudio"}-${id}-${environment}`,
+      description: `${id} for ${environment} environment`,
+      terminationProtection: environment === "prod",
     })
 
-    this.environment = props.environment
-    this.config = props.config
-    this.projectName = props.projectName || "AIStudio"
+    this.environment = environment
+    this.config = config
+    this.projectName = projectName || "AIStudio"
 
     // Apply tagging aspect automatically
     cdk.Aspects.of(this).add(

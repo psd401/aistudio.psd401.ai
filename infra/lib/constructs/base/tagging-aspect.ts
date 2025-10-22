@@ -61,7 +61,12 @@ export class TaggingAspect implements cdk.IAspect {
   private getDataClassification(node: IConstruct): string {
     // Intelligent classification based on resource type
     const nodeType = node.constructor.name
-    if (nodeType.includes("Database") || nodeType.includes("Secret")) {
+    if (
+      nodeType.includes("Database") ||
+      nodeType.includes("Secret") ||
+      nodeType.includes("DBCluster") ||
+      (nodeType.includes("Cluster") && nodeType.includes("Rds"))
+    ) {
       return "Sensitive"
     } else if (nodeType.includes("Log") || nodeType.includes("Monitoring")) {
       return "Internal"

@@ -1,5 +1,5 @@
 import * as cdk from "aws-cdk-lib"
-import { Template } from "aws-cdk-lib/assertions"
+import { Template, Match } from "aws-cdk-lib/assertions"
 import { TaggingAspect, TaggingConfig } from "../../lib/constructs/base/tagging-aspect"
 
 describe("TaggingAspect", () => {
@@ -29,7 +29,7 @@ describe("TaggingAspect", () => {
       const template = Template.fromStack(stack)
 
       template.hasResourceProperties("AWS::S3::Bucket", {
-        Tags: [
+        Tags: Match.arrayWith([
           { Key: "BusinessUnit", Value: "Technology" },
           { Key: "Compliance", Value: "None" },
           { Key: "CostCenter", Value: "DEV-001" },
@@ -39,10 +39,15 @@ describe("TaggingAspect", () => {
           { Key: "Owner", Value: "TSD Engineering" },
           { Key: "Project", Value: "AIStudio" },
           { Key: "Stack", Value: "TestStack" },
-          // DeployedAt is dynamic, so we just verify it exists
-          { Key: "DeployedAt", Value: expect.any(String) },
-        ],
+        ]),
       })
+
+      // Also verify DeployedAt exists (value is dynamic)
+      const resources = template.findResources("AWS::S3::Bucket")
+      const bucket = Object.values(resources)[0]
+      const deployedAtTag = bucket.Properties.Tags.find((t: any) => t.Key === "DeployedAt")
+      expect(deployedAtTag).toBeDefined()
+      expect(deployedAtTag.Value).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     })
 
     test("should capitalize environment name", () => {
@@ -61,7 +66,7 @@ describe("TaggingAspect", () => {
       const template = Template.fromStack(stack)
 
       template.hasResourceProperties("AWS::S3::Bucket", {
-        Tags: expect.arrayContaining([
+        Tags: Match.arrayWith([
           { Key: "Environment", Value: "Prod" },
         ]),
       })
@@ -83,7 +88,7 @@ describe("TaggingAspect", () => {
       const template = Template.fromStack(stack)
 
       template.hasResourceProperties("AWS::S3::Bucket", {
-        Tags: expect.arrayContaining([
+        Tags: Match.arrayWith([
           { Key: "Environment", Value: "Staging" },
         ]),
       })
@@ -107,7 +112,7 @@ describe("TaggingAspect", () => {
       const template = Template.fromStack(stack)
 
       template.hasResourceProperties("AWS::S3::Bucket", {
-        Tags: expect.arrayContaining([
+        Tags: Match.arrayWith([
           { Key: "CostCenter", Value: "PROD-001" },
         ]),
       })
@@ -129,7 +134,7 @@ describe("TaggingAspect", () => {
       const template = Template.fromStack(stack)
 
       template.hasResourceProperties("AWS::S3::Bucket", {
-        Tags: expect.arrayContaining([
+        Tags: Match.arrayWith([
           { Key: "CostCenter", Value: "DEV-001" },
         ]),
       })
@@ -151,7 +156,7 @@ describe("TaggingAspect", () => {
       const template = Template.fromStack(stack)
 
       template.hasResourceProperties("AWS::S3::Bucket", {
-        Tags: expect.arrayContaining([
+        Tags: Match.arrayWith([
           { Key: "BusinessUnit", Value: "Technology" },
         ]),
       })
@@ -175,7 +180,7 @@ describe("TaggingAspect", () => {
       const template = Template.fromStack(stack)
 
       template.hasResourceProperties("AWS::S3::Bucket", {
-        Tags: expect.arrayContaining([
+        Tags: Match.arrayWith([
           { Key: "Compliance", Value: "Required" },
         ]),
       })
@@ -197,7 +202,7 @@ describe("TaggingAspect", () => {
       const template = Template.fromStack(stack)
 
       template.hasResourceProperties("AWS::S3::Bucket", {
-        Tags: expect.arrayContaining([
+        Tags: Match.arrayWith([
           { Key: "Compliance", Value: "None" },
         ]),
       })
@@ -228,7 +233,7 @@ describe("TaggingAspect", () => {
       const template = Template.fromStack(stack)
 
       template.hasResourceProperties("AWS::RDS::DBCluster", {
-        Tags: expect.arrayContaining([
+        Tags: Match.arrayWith([
           { Key: "DataClassification", Value: "Sensitive" },
         ]),
       })
@@ -250,7 +255,7 @@ describe("TaggingAspect", () => {
       const template = Template.fromStack(stack)
 
       template.hasResourceProperties("AWS::SecretsManager::Secret", {
-        Tags: expect.arrayContaining([
+        Tags: Match.arrayWith([
           { Key: "DataClassification", Value: "Sensitive" },
         ]),
       })
@@ -272,7 +277,7 @@ describe("TaggingAspect", () => {
       const template = Template.fromStack(stack)
 
       template.hasResourceProperties("AWS::Logs::LogGroup", {
-        Tags: expect.arrayContaining([
+        Tags: Match.arrayWith([
           { Key: "DataClassification", Value: "Internal" },
         ]),
       })
@@ -294,7 +299,7 @@ describe("TaggingAspect", () => {
       const template = Template.fromStack(stack)
 
       template.hasResourceProperties("AWS::S3::Bucket", {
-        Tags: expect.arrayContaining([
+        Tags: Match.arrayWith([
           { Key: "DataClassification", Value: "Public" },
         ]),
       })
@@ -322,7 +327,7 @@ describe("TaggingAspect", () => {
       const template = Template.fromStack(stack)
 
       template.hasResourceProperties("AWS::S3::Bucket", {
-        Tags: expect.arrayContaining([
+        Tags: Match.arrayWith([
           { Key: "Team", Value: "Platform" },
           { Key: "Application", Value: "WebApp" },
         ]),
@@ -346,7 +351,7 @@ describe("TaggingAspect", () => {
 
       // Should still have core tags
       template.hasResourceProperties("AWS::S3::Bucket", {
-        Tags: expect.arrayContaining([
+        Tags: Match.arrayWith([
           { Key: "Environment", Value: "Prod" },
           { Key: "Project", Value: "AIStudio" },
         ]),
@@ -393,7 +398,7 @@ describe("TaggingAspect", () => {
       const template = Template.fromStack(stack)
 
       template.hasResourceProperties("AWS::S3::Bucket", {
-        Tags: expect.arrayContaining([
+        Tags: Match.arrayWith([
           { Key: "ManagedBy", Value: "CDK" },
         ]),
       })

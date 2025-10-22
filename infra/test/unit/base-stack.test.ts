@@ -20,6 +20,12 @@ class TestStack extends BaseStack {
 describe("BaseStack", () => {
   let app: cdk.App
 
+  // Standard test environment for CDK stacks
+  const testEnv = {
+    account: "123456789012",
+    region: "us-east-1",
+  }
+
   beforeEach(() => {
     app = new cdk.App()
   })
@@ -56,6 +62,7 @@ describe("BaseStack", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
         environment: "dev",
         config: EnvironmentConfig.get("dev"),
+        env: testEnv,
       })
 
       const template = Template.fromStack(stack)
@@ -68,6 +75,7 @@ describe("BaseStack", () => {
       const stack = new TestStack(app, "TestStack-Prod", {
         environment: "prod",
         config: EnvironmentConfig.get("prod"),
+        env: testEnv,
       })
 
       expect(stack.terminationProtection).toBe(true)
@@ -77,6 +85,7 @@ describe("BaseStack", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
         environment: "dev",
         config: EnvironmentConfig.get("dev"),
+        env: testEnv,
       })
 
       expect(stack.terminationProtection).toBe(false)
@@ -86,6 +95,7 @@ describe("BaseStack", () => {
       const stack = new TestStack(app, "TestStack-Staging", {
         environment: "staging",
         config: EnvironmentConfig.get("staging"),
+        env: testEnv,
       })
 
       expect(stack.terminationProtection).toBe(false)
@@ -97,6 +107,7 @@ describe("BaseStack", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
         environment: "dev",
         config: EnvironmentConfig.get("dev"),
+        env: testEnv,
       })
 
       const template = Template.fromStack(stack)
@@ -116,6 +127,7 @@ describe("BaseStack", () => {
       const stack = new TestStack(app, "TestStack-Prod", {
         environment: "prod",
         config: EnvironmentConfig.get("prod"),
+        env: testEnv,
       })
 
       const template = Template.fromStack(stack)
@@ -132,6 +144,7 @@ describe("BaseStack", () => {
         environment: "dev",
         config: EnvironmentConfig.get("dev"),
         projectName: "CustomProject",
+        env: testEnv,
       })
 
       const template = Template.fromStack(stack)
@@ -148,6 +161,7 @@ describe("BaseStack", () => {
         environment: "dev",
         config: EnvironmentConfig.get("dev"),
         owner: "Custom Team",
+        env: testEnv,
       })
 
       const template = Template.fromStack(stack)
@@ -165,6 +179,7 @@ describe("BaseStack", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
         environment: "dev",
         config: EnvironmentConfig.get("dev"),
+        env: testEnv,
       })
 
       const template = Template.fromStack(stack)
@@ -182,6 +197,7 @@ describe("BaseStack", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
         environment: "dev",
         config: EnvironmentConfig.get("dev"),
+        env: testEnv,
       })
 
       const template = Template.fromStack(stack)
@@ -197,6 +213,10 @@ describe("BaseStack", () => {
       const stack = new TestStack(app, "TestStack-Prod", {
         environment: "prod",
         config: EnvironmentConfig.get("prod"),
+        env: {
+          account: "123456789012",
+          region: "us-east-1",
+        },
       })
 
       const template = Template.fromStack(stack)
@@ -211,6 +231,10 @@ describe("BaseStack", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
         environment: "dev",
         config: EnvironmentConfig.get("dev"),
+        env: {
+          account: "123456789012",
+          region: "us-east-1",
+        },
       })
 
       const template = Template.fromStack(stack)
@@ -225,6 +249,7 @@ describe("BaseStack", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
         environment: "dev",
         config: EnvironmentConfig.get("dev"),
+        env: testEnv,
       })
 
       // Access the protected method through a type assertion
@@ -236,6 +261,7 @@ describe("BaseStack", () => {
       const stack = new TestStack(app, "TestStack-Prod", {
         environment: "prod",
         config: EnvironmentConfig.get("prod"),
+        env: testEnv,
       })
 
       const result = (stack as any).getEnvValue("dev-value", "prod-value")
@@ -246,6 +272,10 @@ describe("BaseStack", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
         environment: "dev",
         config: EnvironmentConfig.get("dev"),
+        env: {
+          account: "123456789012",
+          region: "us-east-1",
+        },
       })
 
       const template = Template.fromStack(stack)
@@ -263,6 +293,10 @@ describe("BaseStack", () => {
         environment: "dev",
         config: EnvironmentConfig.get("dev"),
         projectName: "CustomProject",
+        env: {
+          account: "123456789012",
+          region: "us-east-1",
+        },
       })
 
       const template = Template.fromStack(stack)
@@ -279,6 +313,7 @@ describe("BaseStack", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
         environment: "dev",
         config: EnvironmentConfig.get("dev"),
+        env: testEnv,
       })
 
       expect(stack.config.database.minCapacity).toBe(0.5)
@@ -290,6 +325,7 @@ describe("BaseStack", () => {
       const stack = new TestStack(app, "TestStack-Prod", {
         environment: "prod",
         config: EnvironmentConfig.get("prod"),
+        env: testEnv,
       })
 
       expect(stack.environment).toBe("prod")

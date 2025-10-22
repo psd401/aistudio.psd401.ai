@@ -167,9 +167,12 @@ describe("EnvironmentConfig", () => {
   })
 
   describe("Configuration Override", () => {
-    beforeEach(() => {
-      // Reset configuration before each test
-      // Note: In a real scenario, you might want to restore the original config
+    // Save original configs to restore after tests
+    const originalDevConfig = EnvironmentConfig.get("dev")
+
+    afterEach(() => {
+      // Restore original config after each test
+      EnvironmentConfig.override("dev", originalDevConfig)
     })
 
     test("should allow overriding specific configuration values", () => {
