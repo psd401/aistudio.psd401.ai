@@ -3,7 +3,7 @@
  */
 
 import { executeSQL } from "@/lib/db/data-api-adapter"
-import { hasToolAccess } from "@/utils/roles"
+import { hasToolAccess, hasRole } from "@/utils/roles"
 
 /**
  * Check if user can access the Prompt Library feature
@@ -18,13 +18,11 @@ export async function canAccessPromptLibrary(userId?: number): Promise<boolean> 
 /**
  * Check if user can moderate prompts (admin only)
  */
-export async function canModeratePrompts(userId: number): Promise<boolean> {
-  const results = await executeSQL<{ is_admin: boolean }>(
-    `SELECT is_admin FROM users WHERE id = :userId`,
-    [{ name: "userId", value: { longValue: userId } }]
-  )
-
-  return results.length > 0 && results[0].is_admin
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function canModeratePrompts(_userId: number): Promise<boolean> {
+  // Use role-based access control (matches pattern used throughout codebase)
+  // Note: hasRole checks the current session, userId parameter kept for API compatibility
+  return await hasRole('administrator')
 }
 
 /**
