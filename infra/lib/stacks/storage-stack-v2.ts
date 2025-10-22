@@ -5,7 +5,19 @@ import { Construct } from "constructs"
 import { BaseStack, BaseStackProps } from "../constructs/base/base-stack"
 
 export interface StorageStackV2Props extends BaseStackProps {
-  // Add any additional storage-specific props here
+  /**
+   * Allowed CORS origins for the documents bucket.
+   * If not provided, defaults to localhost:3000 for development only.
+   * For production deployments, you should provide the actual domains.
+   *
+   * @example
+   * // Development
+   * allowedOrigins: ["https://dev.example.com", "http://localhost:3000"]
+   *
+   * // Production
+   * allowedOrigins: ["https://example.com"]
+   */
+  allowedOrigins?: string[]
 }
 
 export class StorageStackV2 extends BaseStack {
@@ -16,6 +28,12 @@ export class StorageStackV2 extends BaseStack {
   }
 
   protected defineResources(props: StorageStackV2Props): void {
+    // Determine allowed CORS origins
+    const allowedOrigins = props.allowedOrigins || [
+      // Default to localhost only for development
+      "http://localhost:3000",
+    ]
+
     // S3 bucket for document storage
     const bucket = new s3.Bucket(this, "DocumentsBucket", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -39,12 +57,7 @@ export class StorageStackV2 extends BaseStack {
             s3.HttpMethods.POST,
             s3.HttpMethods.HEAD,
           ],
-          allowedOrigins: [
-            this.environment === "prod"
-              ? "https://aistudio.psd401.ai"
-              : "https://dev.aistudio.psd401.ai",
-            "http://localhost:3000", // For local development
-          ],
+          allowedOrigins,
           allowedHeaders: ["*"],
           exposedHeaders: ["ETag"],
           maxAge: 3000,

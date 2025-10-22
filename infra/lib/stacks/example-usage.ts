@@ -14,7 +14,7 @@
 
 import * as cdk from "aws-cdk-lib"
 import { EnvironmentConfig } from "../constructs/config/environment-config"
-import { StorageStackV2 } from "./storage-stack-v2"
+import { StorageStackV2, StorageStackV2Props } from "./storage-stack-v2"
 
 /**
  * BEFORE (Old Pattern):
@@ -39,15 +39,24 @@ import { StorageStackV2 } from "./storage-stack-v2"
  */
 
 export function createStorageStackExample(app: cdk.App) {
+  // Get base domain from context (for open-source deployments)
+  const baseDomain = app.node.tryGetContext("baseDomain") || "example.com"
+
   // Create dev storage stack - automatic tagging, configuration, etc.
-  const devStorageStack = new StorageStackV2(app, "StorageStackV2-Dev", {
+  const devProps: StorageStackV2Props = {
     environment: "dev",
     config: EnvironmentConfig.get("dev"),
+    // CORS origins should be provided from context or environment variables
+    allowedOrigins: [
+      `https://dev.${baseDomain}`,
+      "http://localhost:3000", // For local development
+    ],
     env: {
       account: process.env.CDK_DEFAULT_ACCOUNT,
       region: process.env.CDK_DEFAULT_REGION,
     },
-  })
+  }
+  const devStorageStack = new StorageStackV2(app, "StorageStackV2-Dev", devProps)
 
   // That's it! The following happens automatically:
   // ✅ Tags applied (Environment, Project, Owner, Stack, ManagedBy, etc.)
@@ -57,14 +66,17 @@ export function createStorageStackExample(app: cdk.App) {
   // ✅ Stack naming convention followed: AIStudio-StorageStackV2-Dev-dev
 
   // Create prod storage stack - same simplicity
-  const prodStorageStack = new StorageStackV2(app, "StorageStackV2-Prod", {
+  const prodProps: StorageStackV2Props = {
     environment: "prod",
     config: EnvironmentConfig.get("prod"),
+    // Production should use actual domain
+    allowedOrigins: [`https://${baseDomain}`],
     env: {
       account: process.env.CDK_DEFAULT_ACCOUNT,
       region: process.env.CDK_DEFAULT_REGION,
     },
-  })
+  }
+  const prodStorageStack = new StorageStackV2(app, "StorageStackV2-Prod", prodProps)
 
   // Prod-specific settings applied automatically:
   // ✅ Termination protection enabled
