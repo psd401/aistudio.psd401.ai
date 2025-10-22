@@ -13,7 +13,7 @@ import { useExecutionResults } from "@/hooks/use-execution-results"
 import {
   Search,
   Sun,
-  Globe,
+  BookOpen,
   Bug,
   Check,
   X,
@@ -115,9 +115,11 @@ export function GlobalHeader() {
           <Button variant="ghost" size="icon" aria-label="Toggle Theme" className="hidden sm:flex">
             <Sun className="h-5 w-5" />
           </Button>
-          <Button variant="ghost" size="icon" aria-label="Select Language" className="hidden sm:flex">
-            <Globe className="h-5 w-5" />
-          </Button>
+          <Link href="/prompt-library">
+            <Button variant="ghost" size="icon" aria-label="Open Prompt Library" className="hidden sm:flex">
+              <BookOpen className="h-5 w-5" />
+            </Button>
+          </Link>
 
           {/* Message Center - Execution Results */}
           <MessageCenter
