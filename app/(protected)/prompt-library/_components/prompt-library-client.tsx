@@ -19,7 +19,8 @@ import {
   LayoutGrid,
   List,
   Plus,
-  Search
+  Search,
+  Globe
 } from "lucide-react"
 import { useDebounce } from "use-debounce"
 import { useHotkeys } from "react-hotkeys-hook"
@@ -113,10 +114,19 @@ export function PromptLibraryClient() {
             </CardDescription>
           </div>
 
-          <Button onClick={() => router.push('/prompt-library/new')}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Prompt
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => router.push('/prompt-library/public')}
+            >
+              <Globe className="mr-2 h-4 w-4" />
+              Browse Public
+            </Button>
+            <Button onClick={() => router.push('/prompt-library/new')}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Prompt
+            </Button>
+          </div>
         </div>
 
         {/* Search and View Toggle */}
