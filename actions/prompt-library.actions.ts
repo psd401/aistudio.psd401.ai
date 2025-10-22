@@ -81,11 +81,14 @@ export async function createPrompt(
       tagCount: validated.tags?.length || 0
     })
 
-    // Create prompt
+    // Create prompt with moderation_status based on visibility
+    // Private prompts are auto-approved, public prompts need moderation
+    const moderationStatus = validated.visibility === 'private' ? 'approved' : 'pending'
+
     const results = await executeSQL<Prompt>(
       `INSERT INTO prompt_library
-       (user_id, title, content, description, visibility, source_message_id, source_conversation_id)
-       VALUES (:userId, :title, :content, :description, :visibility, :sourceMessageId::uuid, :sourceConversationId::uuid)
+       (user_id, title, content, description, visibility, moderation_status, source_message_id, source_conversation_id)
+       VALUES (:userId, :title, :content, :description, :visibility, :moderationStatus, :sourceMessageId::uuid, :sourceConversationId::uuid)
        RETURNING *`,
       [
         { name: "userId", value: { longValue: userId } },
@@ -98,6 +101,7 @@ export async function createPrompt(
             : { isNull: true }
         },
         { name: "visibility", value: { stringValue: validated.visibility } },
+        { name: "moderationStatus", value: { stringValue: moderationStatus } },
         {
           name: "sourceMessageId",
           value: validated.sourceMessageId
@@ -175,6 +179,13 @@ export async function getPrompt(id: string): Promise<ActionState<Prompt>> {
       log.warn("Prompt access denied", { promptId: id, userId })
       throw ErrorFactories.authzResourceNotFound("Prompt", id)
     }
+
+    // Increment view count
+    await executeSQL(
+      `UPDATE prompt_library SET view_count = view_count + 1 WHERE id = :id::uuid`,
+      [{ name: "id", value: { stringValue: id } }]
+    )
+    log.debug("View count incremented", { promptId: id })
 
     // Fetch prompt data (explicitly select fields like listPrompts does)
     const promptResults = await executeSQL<Omit<Prompt, 'tags'>>(
@@ -492,9 +503,16 @@ export async function updatePrompt(
         value: { stringValue: validated.visibility }
       })
 
-      // Reset moderation status if changing to public
+      // Reset moderation status based on visibility
       if (validated.visibility === 'public') {
+        // Public prompts need moderation
         fields.push("moderation_status = 'pending'")
+        fields.push("moderated_by = NULL")
+        fields.push("moderated_at = NULL")
+        fields.push("moderation_notes = NULL")
+      } else if (validated.visibility === 'private') {
+        // Private prompts are auto-approved
+        fields.push("moderation_status = 'approved'")
         fields.push("moderated_by = NULL")
         fields.push("moderated_at = NULL")
         fields.push("moderation_notes = NULL")
