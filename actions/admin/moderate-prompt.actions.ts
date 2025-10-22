@@ -221,7 +221,7 @@ export async function moderatePrompt(
         moderated_at = CURRENT_TIMESTAMP,
         moderation_notes = :notes,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = :promptId
+      WHERE id = :promptId::uuid
       AND deleted_at IS NULL
       RETURNING id
     `
@@ -318,8 +318,8 @@ export async function bulkModeratePrompts(
       )
     }
 
-    // Build the IN clause for the query
-    const placeholders = promptIds.map((_, i) => `:id${i}`).join(', ')
+    // Build the IN clause for the query with UUID casting
+    const placeholders = promptIds.map((_, i) => `:id${i}::uuid`).join(', ')
     const params = [
       createParameter('status', action.status),
       createParameter('moderatedBy', userIdNum),
