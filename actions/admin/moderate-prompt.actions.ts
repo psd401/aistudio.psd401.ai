@@ -92,9 +92,10 @@ export async function getModerationQueue(
     }
 
     // Build the query - fix WHERE clause for 'all' status
+    // ONLY show public prompts in moderation queue (private prompts should never need moderation)
     const whereClause = status === 'all'
-      ? 'WHERE p.deleted_at IS NULL'
-      : 'WHERE p.moderation_status = :status AND p.deleted_at IS NULL'
+      ? 'WHERE p.visibility = \'public\' AND p.deleted_at IS NULL'
+      : 'WHERE p.visibility = \'public\' AND p.moderation_status = :status AND p.deleted_at IS NULL'
 
     const query = `
       SELECT
@@ -211,6 +212,7 @@ export async function moderatePrompt(
         updated_at = CURRENT_TIMESTAMP
       WHERE id = :promptId
       AND deleted_at IS NULL
+      RETURNING id
     `
 
     const result = await executeSQL(query, [
@@ -376,7 +378,7 @@ export async function getModerationStats(): Promise<ActionState<{
         COUNT(*) FILTER (WHERE moderation_status = 'rejected') as rejected,
         COUNT(*) FILTER (WHERE moderated_at >= CURRENT_DATE) as total_today
       FROM prompt_library
-      WHERE deleted_at IS NULL
+      WHERE visibility = 'public' AND deleted_at IS NULL
     `
 
     const result = await executeSQL(query, [])
