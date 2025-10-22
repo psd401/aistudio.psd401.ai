@@ -201,6 +201,13 @@ export async function moderatePrompt(
       throw ErrorFactories.authNoSession()
     }
 
+    // Convert string to number for INTEGER column (moderated_by is INTEGER in database)
+    const userIdNum = parseInt(userId, 10)
+    if (isNaN(userIdNum) || userIdNum <= 0) {
+      log.error("Invalid user ID format", { userId })
+      throw ErrorFactories.sysInternalError("Invalid user ID format")
+    }
+
     // Validate UUID format
     if (!isValidUUID(promptId)) {
       throw ErrorFactories.invalidInput('promptId', promptId, 'Must be a valid UUID')
@@ -221,7 +228,7 @@ export async function moderatePrompt(
 
     const result = await executeSQL(query, [
       createParameter('status', action.status),
-      createParameter('moderatedBy', userId),
+      createParameter('moderatedBy', userIdNum),
       createParameter('notes', action.notes || ''),
       createParameter('promptId', promptId)
     ])
@@ -286,6 +293,13 @@ export async function bulkModeratePrompts(
       throw ErrorFactories.authNoSession()
     }
 
+    // Convert string to number for INTEGER column (moderated_by is INTEGER in database)
+    const userIdNum = parseInt(userId, 10)
+    if (isNaN(userIdNum) || userIdNum <= 0) {
+      log.error("Invalid user ID format", { userId })
+      throw ErrorFactories.sysInternalError("Invalid user ID format")
+    }
+
     if (promptIds.length === 0) {
       throw ErrorFactories.missingRequiredField("promptIds")
     }
@@ -308,7 +322,7 @@ export async function bulkModeratePrompts(
     const placeholders = promptIds.map((_, i) => `:id${i}`).join(', ')
     const params = [
       createParameter('status', action.status),
-      createParameter('moderatedBy', userId),
+      createParameter('moderatedBy', userIdNum),
       createParameter('notes', action.notes || ''),
       ...promptIds.map((id, i) => createParameter(`id${i}`, id))
     ]
