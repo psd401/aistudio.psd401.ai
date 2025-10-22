@@ -55,12 +55,22 @@ export function BulkActionsBar({
             Delete
           </Button>
 
-          <Button variant="outline" size="sm">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled
+            title="Coming soon - bulk visibility change"
+          >
             <Eye className="mr-2 h-4 w-4" />
             Make Public
           </Button>
 
-          <Button variant="outline" size="sm">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled
+            title="Coming soon - bulk visibility change"
+          >
             <EyeOff className="mr-2 h-4 w-4" />
             Make Private
           </Button>
