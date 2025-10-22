@@ -176,10 +176,27 @@ export async function getPrompt(id: string): Promise<ActionState<Prompt>> {
       throw ErrorFactories.authzResourceNotFound("Prompt", id)
     }
 
-    // Fetch prompt data (without tags to avoid array_agg serialization issues)
+    // Fetch prompt data (explicitly select fields like listPrompts does)
     const promptResults = await executeSQL<Omit<Prompt, 'tags'>>(
-      `SELECT p.*,
-              CONCAT(u.first_name, ' ', u.last_name) as owner_name
+      `SELECT
+        p.id,
+        p.user_id,
+        p.title,
+        p.content,
+        p.description,
+        p.visibility,
+        p.moderation_status,
+        p.moderated_by,
+        p.moderated_at,
+        p.moderation_notes,
+        p.source_message_id,
+        p.source_conversation_id,
+        p.view_count,
+        p.use_count,
+        p.created_at,
+        p.updated_at,
+        p.deleted_at,
+        CONCAT(u.first_name, ' ', u.last_name) as owner_name
        FROM prompt_library p
        LEFT JOIN users u ON p.user_id = u.id
        WHERE p.id = :id::uuid AND p.deleted_at IS NULL`,
