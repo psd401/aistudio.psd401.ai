@@ -42,7 +42,7 @@ export async function canReadPrompt(
   }>(
     `SELECT user_id, visibility, moderation_status, deleted_at
      FROM prompt_library
-     WHERE id = :promptId`,
+     WHERE id = :promptId::uuid`,
     [{ name: "promptId", value: { stringValue: promptId } }]
   )
 
@@ -79,7 +79,7 @@ export async function canUpdatePrompt(
   userId: number
 ): Promise<boolean> {
   const results = await executeSQL<{ user_id: number; deleted_at: string | null }>(
-    `SELECT user_id, deleted_at FROM prompt_library WHERE id = :promptId`,
+    `SELECT user_id, deleted_at FROM prompt_library WHERE id = :promptId::uuid`,
     [{ name: "promptId", value: { stringValue: promptId } }]
   )
 
@@ -99,7 +99,7 @@ export async function canDeletePrompt(
   userId: number
 ): Promise<boolean> {
   const results = await executeSQL<{ user_id: number; deleted_at: string | null }>(
-    `SELECT user_id, deleted_at FROM prompt_library WHERE id = :promptId`,
+    `SELECT user_id, deleted_at FROM prompt_library WHERE id = :promptId::uuid`,
     [{ name: "promptId", value: { stringValue: promptId } }]
   )
 
