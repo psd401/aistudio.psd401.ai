@@ -176,25 +176,54 @@ export async function getPrompt(id: string): Promise<ActionState<Prompt>> {
       throw ErrorFactories.authzResourceNotFound("Prompt", id)
     }
 
-    // Get prompt with tags
-    const results = await executeSQL<Prompt>(
+    // Fetch prompt data (without tags to avoid array_agg serialization issues)
+    const promptResults = await executeSQL<Omit<Prompt, 'tags'>>(
       `SELECT p.*,
-              array_agg(DISTINCT t.name) FILTER (WHERE t.id IS NOT NULL) as tags,
               CONCAT(u.first_name, ' ', u.last_name) as owner_name
        FROM prompt_library p
-       LEFT JOIN prompt_library_tags plt ON p.id = plt.prompt_id
-       LEFT JOIN prompt_tags t ON plt.tag_id = t.id
        LEFT JOIN users u ON p.user_id = u.id
-       WHERE p.id = :id::uuid AND p.deleted_at IS NULL
-       GROUP BY p.id, u.first_name, u.last_name`,
+       WHERE p.id = :id::uuid AND p.deleted_at IS NULL`,
       [{ name: "id", value: { stringValue: id } }]
     )
 
-    if (results.length === 0) {
+    if (promptResults.length === 0) {
       throw ErrorFactories.dbRecordNotFound("prompt_library", id)
     }
 
-    const prompt = transformSnakeToCamel<Prompt>(results[0])
+    // Fetch tags separately to ensure simple JavaScript array
+    const tagResults = await executeSQL<{ name: string }>(
+      `SELECT t.name
+       FROM prompt_library_tags plt
+       JOIN prompt_tags t ON plt.tag_id = t.id
+       WHERE plt.prompt_id = :id::uuid`,
+      [{ name: "id", value: { stringValue: id } }]
+    )
+
+    // Transform and combine results with explicit type handling
+    const transformedPrompt = transformSnakeToCamel<Omit<Prompt, 'tags'>>(promptResults[0])
+
+    const prompt: Prompt = {
+      ...transformedPrompt,
+      tags: tagResults.map(t => t.name), // Simple JavaScript array
+      // Explicitly ensure all dates are strings for Next.js serialization
+      createdAt: String(transformedPrompt.createdAt || ''),
+      updatedAt: String(transformedPrompt.updatedAt || ''),
+      moderatedAt: transformedPrompt.moderatedAt ? String(transformedPrompt.moderatedAt) : null,
+      deletedAt: transformedPrompt.deletedAt ? String(transformedPrompt.deletedAt) : null,
+    }
+
+    // Verify serialization before returning
+    try {
+      JSON.stringify(prompt)
+      log.info("Prompt serialization verified", { promptId: id })
+    } catch (serializationError) {
+      log.error("Prompt serialization failed", {
+        error: serializationError,
+        promptKeys: Object.keys(prompt),
+        promptTypes: Object.entries(prompt).map(([k, v]) => `${k}: ${typeof v}`)
+      })
+      throw new Error("Failed to serialize prompt data for Next.js")
+    }
 
     timer({ status: "success" })
     log.info("Prompt retrieved successfully", { promptId: id })
