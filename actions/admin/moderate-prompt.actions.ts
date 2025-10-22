@@ -4,7 +4,7 @@ import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from 
 import { handleError, ErrorFactories, createSuccess } from "@/lib/error-utils"
 import { getServerSession } from "@/lib/auth/server-session"
 import { hasRole } from "@/utils/roles"
-import { executeSQL, createParameter } from "@/lib/db/data-api-adapter"
+import { executeSQL, createParameter, getUserIdByCognitoSub } from "@/lib/db/data-api-adapter"
 import { transformSnakeToCamel } from "@/lib/db/field-mapper"
 import type { ActionState } from "@/types/actions-types"
 
@@ -30,9 +30,6 @@ export interface ModerationAction {
   status: 'approved' | 'rejected'
   notes?: string
 }
-
-// Type for valid session user
-type SessionUser = { id: number; email: string }
 
 // Allowed moderation statuses
 const ALLOWED_STATUSES = ['pending', 'approved', 'rejected', 'all'] as const
@@ -71,7 +68,7 @@ export async function getModerationQueue(
 
     const isAdmin = await hasRole('administrator')
     if (!isAdmin) {
-      log.warn("Non-admin user attempted to access moderation queue", { userId: (session.user as SessionUser).id })
+      log.warn("Non-admin user attempted to access moderation queue", { cognitoSub: session.sub })
       throw ErrorFactories.authzAdminRequired("access moderation queue")
     }
 
@@ -193,8 +190,15 @@ export async function moderatePrompt(
 
     const isAdmin = await hasRole('administrator')
     if (!isAdmin) {
-      log.warn("Non-admin user attempted to moderate prompt", { userId: (session.user as SessionUser).id })
+      log.warn("Non-admin user attempted to moderate prompt", { cognitoSub: session.sub })
       throw ErrorFactories.authzAdminRequired("moderate prompts")
+    }
+
+    // Get the database user ID from the Cognito sub
+    const userId = await getUserIdByCognitoSub(session.sub)
+    if (!userId) {
+      log.error("Could not find user ID for Cognito sub", { cognitoSub: session.sub })
+      throw ErrorFactories.authNoSession()
     }
 
     // Validate UUID format
@@ -217,13 +221,17 @@ export async function moderatePrompt(
 
     const result = await executeSQL(query, [
       createParameter('status', action.status),
-      createParameter('moderatedBy', (session.user as SessionUser).id),
+      createParameter('moderatedBy', userId),
       createParameter('notes', action.notes || ''),
       createParameter('promptId', promptId)
     ])
 
+    // Log the result for debugging
+    log.info("Update query result", { result, resultType: typeof result, resultLength: result?.length })
+
     // Verify the update actually affected a row
-    if (!result || result.length === 0) {
+    if (!result || !Array.isArray(result) || result.length === 0) {
+      log.warn("Prompt not found or already deleted", { promptId, result })
       throw ErrorFactories.dbRecordNotFound('prompt_library', promptId)
     }
 
@@ -267,8 +275,15 @@ export async function bulkModeratePrompts(
 
     const isAdmin = await hasRole('administrator')
     if (!isAdmin) {
-      log.warn("Non-admin user attempted bulk moderation", { userId: (session.user as SessionUser).id })
+      log.warn("Non-admin user attempted bulk moderation", { cognitoSub: session.sub })
       throw ErrorFactories.authzAdminRequired("bulk moderate prompts")
+    }
+
+    // Get the database user ID from the Cognito sub
+    const userId = await getUserIdByCognitoSub(session.sub)
+    if (!userId) {
+      log.error("Could not find user ID for Cognito sub", { cognitoSub: session.sub })
+      throw ErrorFactories.authNoSession()
     }
 
     if (promptIds.length === 0) {
@@ -293,7 +308,7 @@ export async function bulkModeratePrompts(
     const placeholders = promptIds.map((_, i) => `:id${i}`).join(', ')
     const params = [
       createParameter('status', action.status),
-      createParameter('moderatedBy', (session.user as SessionUser).id),
+      createParameter('moderatedBy', userId),
       createParameter('notes', action.notes || ''),
       ...promptIds.map((id, i) => createParameter(`id${i}`, id))
     ]
