@@ -688,3 +688,170 @@ async function updateTagsForPrompt(
     tagCount: tagNames.length
   })
 }
+
+/**
+ * Track a prompt view event
+ */
+export async function trackPromptView(
+  promptId: string
+): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("trackPromptView")
+  const log = createLogger({ requestId, action: "trackPromptView" })
+
+  try {
+    log.info("Action started: Tracking prompt view", { promptId })
+
+    // Auth check
+    const session = await getServerSession()
+    if (!session) {
+      log.warn("Unauthorized prompt view tracking attempt")
+      throw ErrorFactories.authNoSession()
+    }
+
+    const userId = await getUserIdFromSession(session.sub)
+
+    // Increment view count
+    await executeSQL(
+      `UPDATE prompt_library
+       SET view_count = view_count + 1
+       WHERE id = :promptId::uuid AND deleted_at IS NULL`,
+      [{ name: "promptId", value: { stringValue: promptId } }]
+    )
+
+    // Create usage event
+    await executeSQL(
+      `INSERT INTO prompt_usage_events (prompt_id, user_id, event_type)
+       VALUES (:promptId::uuid, :userId, 'view')`,
+      [
+        { name: "promptId", value: { stringValue: promptId } },
+        { name: "userId", value: { longValue: userId } }
+      ]
+    )
+
+    timer({ status: "success" })
+    log.info("Prompt view tracked", { promptId, userId })
+
+    return createSuccess(undefined)
+  } catch (error) {
+    timer({ status: "error" })
+    return handleError(error, "Failed to track prompt view", {
+      context: "trackPromptView",
+      requestId,
+      operation: "trackPromptView",
+      metadata: { promptId }
+    })
+  }
+}
+
+/**
+ * Track a prompt use event
+ */
+export async function trackPromptUse(
+  promptId: string,
+  conversationId?: string
+): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("trackPromptUse")
+  const log = createLogger({ requestId, action: "trackPromptUse" })
+
+  try {
+    log.info("Action started: Tracking prompt use", {
+      promptId,
+      conversationId
+    })
+
+    // Auth check
+    const session = await getServerSession()
+    if (!session) {
+      log.warn("Unauthorized prompt use tracking attempt")
+      throw ErrorFactories.authNoSession()
+    }
+
+    const userId = await getUserIdFromSession(session.sub)
+
+    // Increment use count
+    await executeSQL(
+      `UPDATE prompt_library
+       SET use_count = use_count + 1
+       WHERE id = :promptId::uuid AND deleted_at IS NULL`,
+      [{ name: "promptId", value: { stringValue: promptId } }]
+    )
+
+    // Create usage event
+    await executeSQL(
+      `INSERT INTO prompt_usage_events (prompt_id, user_id, event_type, conversation_id)
+       VALUES (:promptId::uuid, :userId, 'use', :conversationId::uuid)`,
+      [
+        { name: "promptId", value: { stringValue: promptId } },
+        { name: "userId", value: { longValue: userId } },
+        {
+          name: "conversationId",
+          value: conversationId
+            ? { stringValue: conversationId }
+            : { isNull: true }
+        }
+      ]
+    )
+
+    timer({ status: "success" })
+    log.info("Prompt use tracked", { promptId, userId, conversationId })
+
+    return createSuccess(undefined)
+  } catch (error) {
+    timer({ status: "error" })
+    return handleError(error, "Failed to track prompt use", {
+      context: "trackPromptUse",
+      requestId,
+      operation: "trackPromptUse",
+      metadata: { promptId, conversationId }
+    })
+  }
+}
+
+/**
+ * Track a prompt share event
+ */
+export async function trackPromptShare(
+  promptId: string
+): Promise<ActionState<void>> {
+  const requestId = generateRequestId()
+  const timer = startTimer("trackPromptShare")
+  const log = createLogger({ requestId, action: "trackPromptShare" })
+
+  try {
+    log.info("Action started: Tracking prompt share", { promptId })
+
+    // Auth check
+    const session = await getServerSession()
+    if (!session) {
+      log.warn("Unauthorized prompt share tracking attempt")
+      throw ErrorFactories.authNoSession()
+    }
+
+    const userId = await getUserIdFromSession(session.sub)
+
+    // Create usage event (no counter for shares, just events)
+    await executeSQL(
+      `INSERT INTO prompt_usage_events (prompt_id, user_id, event_type)
+       VALUES (:promptId::uuid, :userId, 'share')`,
+      [
+        { name: "promptId", value: { stringValue: promptId } },
+        { name: "userId", value: { longValue: userId } }
+      ]
+    )
+
+    timer({ status: "success" })
+    log.info("Prompt share tracked", { promptId, userId })
+
+    return createSuccess(undefined)
+  } catch (error) {
+    timer({ status: "error" })
+    return handleError(error, "Failed to track prompt share", {
+      context: "trackPromptShare",
+      requestId,
+      operation: "trackPromptShare",
+      metadata: { promptId }
+    })
+  }
+}
