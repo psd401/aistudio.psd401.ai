@@ -14,3 +14,13 @@ export {
 
 // Compute constructs
 export { LambdaConstruct, LambdaConstructProps } from "./compute/lambda-construct"
+
+// Database constructs
+export {
+  AuroraCostOptimizer,
+  AuroraCostOptimizerProps,
+} from "./database/aurora-cost-optimizer"
+export {
+  AuroraCostDashboard,
+  AuroraCostDashboardProps,
+} from "./database/aurora-cost-dashboard"
