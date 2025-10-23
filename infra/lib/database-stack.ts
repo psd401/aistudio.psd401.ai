@@ -9,6 +9,10 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as cr from 'aws-cdk-lib/custom-resources';
 import * as path from 'path';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
+import {
+  AuroraCostOptimizer,
+  AuroraCostDashboard,
+} from './constructs';
 
 export interface DatabaseStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
@@ -17,6 +21,7 @@ export interface DatabaseStackProps extends cdk.StackProps {
 export class DatabaseStack extends cdk.Stack {
   public readonly databaseResourceArn: string;
   public readonly databaseSecretArn: string;
+  public readonly cluster: rds.DatabaseCluster;
   
   constructor(scope: Construct, id: string, props: DatabaseStackProps) {
     super(scope, id, props);
@@ -74,7 +79,7 @@ export class DatabaseStack extends cdk.Stack {
     });
 
     // Aurora Serverless v2 cluster (using only writer/readers, no instances/instanceProps)
-    const cluster = new rds.DatabaseCluster(this, 'AuroraCluster', {
+    this.cluster = new rds.DatabaseCluster(this, 'AuroraCluster', {
       engine: rds.DatabaseClusterEngine.auroraPostgres({ version: rds.AuroraPostgresEngineVersion.VER_15_3 }),
       credentials: rds.Credentials.fromSecret(dbSecret),
       defaultDatabaseName: 'aistudio',
@@ -104,13 +109,52 @@ export class DatabaseStack extends cdk.Stack {
     });
 
     // RDS Proxy
-    const proxy = cluster.addProxy('RdsProxy', {
+    const proxy = this.cluster.addProxy('RdsProxy', {
       secrets: [dbSecret],
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
       securityGroups: [dbSg],
       requireTLS: true,
       debugLogging: props.environment !== 'prod',
+    });
+
+    // Add cost optimization features
+    new AuroraCostOptimizer(this, 'CostOptimizer', {
+      cluster: this.cluster,
+      environment: props.environment,
+      // Dev: Aggressive auto-pause for maximum savings
+      ...(props.environment === 'dev' && {
+        enableAutoPause: true,
+        idleMinutesBeforePause: 30,
+        enableScheduledScaling: false,
+      }),
+      // Prod: Predictive scaling only, never pause
+      // Business hours: 7am-5pm Pacific Time (M-F)
+      // Note: EventBridge uses UTC. Pacific Time = UTC-8 (PST) or UTC-7 (PDT)
+      // 7am PT = 3pm UTC (PST) / 2pm UTC (PDT) - will shift 1 hour with DST
+      // 5pm PT = 1am UTC next day (PST) / 12am UTC (PDT)
+      // DST shift is acceptable: becomes 6am-4pm PT during winter months
+      ...(props.environment === 'prod' && {
+        enableAutoPause: false,
+        enableScheduledScaling: true,
+        businessHours: {
+          scaleUpHour: 15,  // 7am Pacific Time (PST) / 6am during PDT
+          scaleDownHour: 1,  // 5pm Pacific Time (PST) / 4pm during PDT
+          daysOfWeek: 'MON-FRI',  // Weekdays only, weekends use lower capacity
+        },
+        scaling: {
+          businessHoursMin: 2.0,  // M-F 7am-5pm PT: 2-8 ACU
+          businessHoursMax: 8.0,
+          offHoursMin: 1.0,       // Nights and weekends: 1-4 ACU
+          offHoursMax: 4.0,
+        },
+      }),
+    });
+
+    // Add cost monitoring dashboard
+    new AuroraCostDashboard(this, 'CostDashboard', {
+      cluster: this.cluster,
+      environment: props.environment,
     });
 
     // Create log group for database init Lambda
@@ -168,7 +212,7 @@ export class DatabaseStack extends cdk.Stack {
     });
 
     // Grant the Lambda permission to use the Data API
-    cluster.grantDataApiAccess(dbInitLambda);
+    this.cluster.grantDataApiAccess(dbInitLambda);
     dbSecret.grantRead(dbInitLambda);
 
     // Create log group for the Provider's internal Lambda function
@@ -188,7 +232,7 @@ export class DatabaseStack extends cdk.Stack {
     const dbInit = new cdk.CustomResource(this, 'DbInit', {
       serviceToken: dbInitProvider.serviceToken,
       properties: {
-        ClusterArn: cluster.clusterArn,
+        ClusterArn: this.cluster.clusterArn,
         SecretArn: dbSecret.secretArn,
         DatabaseName: 'aistudio',
         Environment: props.environment,
@@ -198,7 +242,7 @@ export class DatabaseStack extends cdk.Stack {
     });
 
     // Ensure the database is created before initialization
-    dbInit.node.addDependency(cluster);
+    dbInit.node.addDependency(this.cluster);
 
     // Outputs
     new cdk.CfnOutput(this, 'RdsProxyEndpoint', {
@@ -208,41 +252,41 @@ export class DatabaseStack extends cdk.Stack {
     });
     
     new cdk.CfnOutput(this, 'ClusterEndpoint', {
-      value: cluster.clusterEndpoint.hostname,
+      value: this.cluster.clusterEndpoint.hostname,
       description: 'Aurora cluster writer endpoint',
       exportName: `${props.environment}-ClusterEndpoint`,
     });
-    
+
     new cdk.CfnOutput(this, 'ClusterReaderEndpoint', {
-      value: cluster.clusterReadEndpoint.hostname,
+      value: this.cluster.clusterReadEndpoint.hostname,
       description: 'Aurora cluster reader endpoint',
       exportName: `${props.environment}-ClusterReaderEndpoint`,
     });
-    
+
     // Store ARNs for use by other stacks
-    this.databaseResourceArn = cluster.clusterArn;
+    this.databaseResourceArn = this.cluster.clusterArn;
     this.databaseSecretArn = dbSecret.secretArn;
-    
+
     // Store values in SSM Parameter Store for cross-stack references
     new ssm.StringParameter(this, 'DbClusterArnParam', {
       parameterName: `/aistudio/${props.environment}/db-cluster-arn`,
-      stringValue: cluster.clusterArn,
+      stringValue: this.cluster.clusterArn,
       description: 'Aurora cluster ARN for Data API',
     });
-    
+
     new ssm.StringParameter(this, 'DbSecretArnParam', {
       parameterName: `/aistudio/${props.environment}/db-secret-arn`,
       stringValue: dbSecret.secretArn,
       description: 'Secrets Manager ARN for DB credentials',
     });
-    
+
     // Keep CloudFormation outputs for backward compatibility and monitoring
     new cdk.CfnOutput(this, 'ClusterArn', {
-      value: cluster.clusterArn,
+      value: this.cluster.clusterArn,
       description: 'Aurora cluster ARN for Data API',
       exportName: `${props.environment}-ClusterArn`,
     });
-    
+
     new cdk.CfnOutput(this, 'DbSecretArn', {
       value: dbSecret.secretArn,
       description: 'Secrets Manager ARN for DB credentials',
