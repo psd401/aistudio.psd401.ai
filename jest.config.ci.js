@@ -47,7 +47,7 @@ const customJestConfig = {
     '/node_modules/',
     '/tests/e2e/',
     '/.next/',
-    '/infra/cdk.out/',
+    '/infra/',  // Infra has its own Jest config and CDK dependencies
     '/tests/performance/',  // EXCLUDE performance tests in CI
     'mock-sse-factory.ts',  // Utility file, not a test file
   ]
