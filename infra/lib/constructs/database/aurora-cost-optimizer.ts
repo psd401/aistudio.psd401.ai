@@ -120,14 +120,27 @@ export class AuroraCostOptimizer extends Construct {
       ],
     })
 
+    // Scope RDS actions to specific cluster for least privilege
     pauseResumeFunctionRole.addToPolicy(
       new iam.PolicyStatement({
         actions: [
           "rds:ModifyDBCluster",
           "rds:DescribeDBClusters",
-          "cloudwatch:GetMetricStatistics",
         ],
-        resources: ["*"], // Scoped to cluster ARN pattern
+        resources: [props.cluster.clusterArn],
+      })
+    )
+
+    // CloudWatch metrics require wildcard but we scope to RDS namespace
+    pauseResumeFunctionRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["cloudwatch:GetMetricStatistics"],
+        resources: ["*"], // Required for CloudWatch metrics API
+        conditions: {
+          StringEquals: {
+            "cloudwatch:namespace": "AWS/RDS"
+          }
+        }
       })
     )
 
@@ -140,6 +153,7 @@ export class AuroraCostOptimizer extends Construct {
       timeout: cdk.Duration.minutes(2),
       memorySize: 256,
       role: pauseResumeFunctionRole,
+      reservedConcurrentExecutions: 1, // Prevent concurrent executions and race conditions
       environment: {
         CLUSTER_IDENTIFIER: props.cluster.clusterIdentifier,
         ENVIRONMENT: props.environment,
@@ -190,10 +204,11 @@ export class AuroraCostOptimizer extends Construct {
         ],
       })
 
+      // Scope RDS actions to specific cluster for least privilege
       scalingFunctionRole.addToPolicy(
         new iam.PolicyStatement({
           actions: ["rds:ModifyDBCluster", "rds:DescribeDBClusters"],
-          resources: ["*"],
+          resources: [props.cluster.clusterArn],
         })
       )
 
@@ -206,6 +221,7 @@ export class AuroraCostOptimizer extends Construct {
         timeout: cdk.Duration.minutes(2),
         memorySize: 256,
         role: scalingFunctionRole,
+        reservedConcurrentExecutions: 1, // Prevent concurrent executions and race conditions
         environment: {
           CLUSTER_IDENTIFIER: props.cluster.clusterIdentifier,
           ENVIRONMENT: props.environment,

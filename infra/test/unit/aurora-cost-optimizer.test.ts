@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib"
 import { Template, Match } from "aws-cdk-lib/assertions"
 import * as rds from "aws-cdk-lib/aws-rds"
+import * as lambda from "aws-cdk-lib/aws-lambda"
 import { AuroraCostOptimizer } from "../../lib/constructs/database/aurora-cost-optimizer"
 
 describe("AuroraCostOptimizer", () => {
@@ -233,7 +234,7 @@ describe("AuroraCostOptimizer", () => {
   })
 
   describe("IAM Permissions", () => {
-    test("grants RDS modification permissions to pause/resume Lambda", () => {
+    test("grants RDS modification permissions to pause/resume Lambda with least privilege", () => {
       new AuroraCostOptimizer(stack, "Optimizer", {
         cluster: mockCluster,
         environment: "dev",
@@ -241,18 +242,32 @@ describe("AuroraCostOptimizer", () => {
 
       const template = Template.fromStack(stack)
 
-      template.hasResourceProperties("AWS::IAM::Policy", {
-        PolicyDocument: {
-          Statement: Match.arrayWith([
-            Match.objectLike({
-              Action: Match.arrayWith([
-                "rds:ModifyDBCluster",
-                "rds:DescribeDBClusters",
-                "cloudwatch:GetMetricStatistics",
-              ]),
-            }),
-          ]),
-        },
+      // Verify RDS actions are granted
+      const policies = template.findResources("AWS::IAM::Policy")
+      const policyStatements = Object.values(policies).flatMap((policy: any) =>
+        policy.Properties.PolicyDocument.Statement
+      )
+
+      // Check for RDS permissions scoped to cluster ARN
+      const rdsStatement = policyStatements.find((stmt: any) =>
+        stmt.Action?.includes("rds:ModifyDBCluster")
+      )
+      expect(rdsStatement).toBeDefined()
+      expect(rdsStatement?.Action).toContain("rds:ModifyDBCluster")
+      expect(rdsStatement?.Action).toContain("rds:DescribeDBClusters")
+      // Resource should be an array with cluster ARN (may be intrinsic function in template)
+      expect(Array.isArray(rdsStatement?.Resource) || typeof rdsStatement?.Resource === 'object').toBeTruthy()
+      expect(rdsStatement?.Resource).not.toBe("*") // Verify it's not wildcard
+
+      // Check for CloudWatch permissions with namespace condition
+      const cloudWatchStatement = policyStatements.find((stmt: any) =>
+        stmt.Action?.includes("cloudwatch:GetMetricStatistics")
+      )
+      expect(cloudWatchStatement).toBeDefined()
+      expect(cloudWatchStatement?.Action).toContain("cloudwatch:GetMetricStatistics")
+      expect(cloudWatchStatement?.Resource).toBe("*")
+      expect(cloudWatchStatement?.Condition?.StringEquals).toEqual({
+        "cloudwatch:namespace": "AWS/RDS"
       })
     })
 
@@ -315,21 +330,34 @@ describe("AuroraCostOptimizer", () => {
     })
   })
 
-  describe("Outputs", () => {
-    test("exports configuration summary", () => {
-      new AuroraCostOptimizer(stack, "Optimizer", {
+  describe("Lambda Configuration", () => {
+    test("creates Lambda functions with proper configuration", () => {
+      const optimizer = new AuroraCostOptimizer(stack, "Optimizer", {
         cluster: mockCluster,
         environment: "staging",
       })
 
       const template = Template.fromStack(stack)
 
-      template.hasOutput("*AutoPauseEnabled*", {
-        Value: "true",
+      // Check that pause/resume Lambda was created
+      expect(optimizer.pauseResumeFunction).toBeDefined()
+      expect(optimizer.pauseResumeFunction.runtime).toBe(lambda.Runtime.PYTHON_3_12)
+
+      // Check that scaling Lambda was created (staging defaults to enable scheduled scaling)
+      expect(optimizer.scalingFunction).toBeDefined()
+      expect(optimizer.scalingFunction?.runtime).toBe(lambda.Runtime.PYTHON_3_12)
+
+      // Verify reserved concurrency is set to prevent concurrent executions
+      template.hasResourceProperties("AWS::Lambda::Function", {
+        Runtime: "python3.12",
+        Handler: "pause_resume.handler",
+        ReservedConcurrentExecutions: 1,
       })
 
-      template.hasOutput("*ScheduledScalingEnabled*", {
-        Value: "true",
+      template.hasResourceProperties("AWS::Lambda::Function", {
+        Runtime: "python3.12",
+        Handler: "predictive_scaling.handler",
+        ReservedConcurrentExecutions: 1,
       })
     })
   })

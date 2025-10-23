@@ -29,6 +29,41 @@ rds = boto3.client("rds")
 CLUSTER_ID = os.environ["CLUSTER_IDENTIFIER"]
 ENVIRONMENT = os.environ["ENVIRONMENT"]
 
+# Constants for input validation
+MAX_REASON_LENGTH = 500
+
+
+def validate_capacity(capacity: Optional[float], name: str) -> Optional[float]:
+    """Validate capacity value is within Aurora Serverless v2 bounds."""
+    if capacity is None:
+        return None
+
+    # Aurora Serverless v2 valid range: 0.5 - 128 ACU
+    if capacity < 0.5:
+        logger.warning(f"{name} capacity {capacity} too low. Minimum is 0.5 ACU.")
+        return 0.5
+    if capacity > 128:
+        logger.warning(f"{name} capacity {capacity} too high. Maximum is 128 ACU.")
+        return 128
+
+    return capacity
+
+
+def validate_event(event: Dict[str, Any]) -> tuple[Optional[float], Optional[float], str]:
+    """Validate and sanitize event inputs."""
+    min_capacity = validate_capacity(event.get("minCapacity"), "Minimum")
+    max_capacity = validate_capacity(event.get("maxCapacity"), "Maximum")
+
+    # Sanitize reason string
+    reason = str(event.get("reason", "Scheduled scaling"))
+    if len(reason) > MAX_REASON_LENGTH:
+        logger.warning(
+            f"Reason too long ({len(reason)} chars). Truncating to {MAX_REASON_LENGTH}."
+        )
+        reason = reason[:MAX_REASON_LENGTH] + "... (truncated)"
+
+    return min_capacity, max_capacity, reason
+
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
@@ -44,9 +79,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     logger.info(f"Predictive scaling invoked: {json.dumps(event)}")
 
     try:
-        min_capacity = event.get("minCapacity")
-        max_capacity = event.get("maxCapacity")
-        reason = event.get("reason", "Scheduled scaling")
+        min_capacity, max_capacity, reason = validate_event(event)
 
         # Get current cluster state
         current_config = get_current_scaling_config()

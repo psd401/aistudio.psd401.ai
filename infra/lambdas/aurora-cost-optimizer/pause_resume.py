@@ -29,7 +29,60 @@ cloudwatch = boto3.client("cloudwatch")
 # Configuration from environment variables
 CLUSTER_ID = os.environ["CLUSTER_IDENTIFIER"]
 ENVIRONMENT = os.environ["ENVIRONMENT"]
-IDLE_MINUTES_THRESHOLD = int(os.environ.get("IDLE_MINUTES_THRESHOLD", "30"))
+
+
+def get_idle_threshold() -> int:
+    """Get and validate idle threshold from environment with reasonable bounds."""
+    threshold = int(os.environ.get("IDLE_MINUTES_THRESHOLD", "30"))
+
+    # Enforce reasonable bounds: 5 minutes to 4 hours
+    MIN_THRESHOLD = 5
+    MAX_THRESHOLD = 240
+
+    if threshold < MIN_THRESHOLD:
+        logger.warning(
+            f"IDLE_MINUTES_THRESHOLD {threshold} too low. "
+            f"Using minimum {MIN_THRESHOLD} minutes."
+        )
+        return MIN_THRESHOLD
+
+    if threshold > MAX_THRESHOLD:
+        logger.warning(
+            f"IDLE_MINUTES_THRESHOLD {threshold} too high. "
+            f"Using maximum {MAX_THRESHOLD} minutes."
+        )
+        return MAX_THRESHOLD
+
+    return threshold
+
+
+IDLE_MINUTES_THRESHOLD = get_idle_threshold()
+
+# Constants for input validation
+ALLOWED_ACTIONS = {"pause", "resume", "auto"}
+MAX_REASON_LENGTH = 500
+
+
+def validate_event(event: Dict[str, Any]) -> tuple[str, str]:
+    """Validate and sanitize event inputs."""
+    action = event.get("action", "auto")
+
+    # Validate action is allowed
+    if action not in ALLOWED_ACTIONS:
+        logger.warning(
+            f"Invalid action '{action}' provided. Defaulting to 'auto'."
+        )
+        action = "auto"
+
+    # Sanitize reason string
+    reason = str(event.get("reason", "Manual invocation"))
+    if len(reason) > MAX_REASON_LENGTH:
+        logger.warning(
+            f"Reason too long ({len(reason)} chars). Truncating to {MAX_REASON_LENGTH}."
+        )
+        reason = reason[:MAX_REASON_LENGTH] + "... (truncated)"
+
+    return action, reason
 
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -44,8 +97,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     logger.info(f"Aurora cost optimizer invoked: {json.dumps(event)}")
 
-    action = event.get("action", "auto")
-    reason = event.get("reason", "Manual invocation")
+    action, reason = validate_event(event)
 
     try:
         if action == "pause":

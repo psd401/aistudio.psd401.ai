@@ -50,8 +50,12 @@ export class OptimizedDatabaseStack extends cdk.Stack {
 
     // Reference the existing DatabaseStack
     // This does NOT create a new database, it references the existing one
+    // Note: DatabaseStack only supports 'dev' and 'prod', so map 'staging' to 'dev'
+    const dbEnvironment: "dev" | "prod" =
+      props.environment === "prod" ? "prod" : "dev"
+
     this.databaseStack = new DatabaseStack(this, "Database", {
-      environment: props.environment,
+      environment: dbEnvironment,
     })
 
     // Get the cluster from the database stack
