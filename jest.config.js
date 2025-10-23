@@ -36,6 +36,7 @@ const customJestConfig = {
     '/node_modules/',
     '/tests/e2e/',
     '/.next/',
+    '/infra/', // Infra has its own Jest config
     '/infra/cdk.out/',
     'mock-sse-factory.ts' // Utility file, not a test file
   ]
