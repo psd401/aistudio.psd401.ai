@@ -205,11 +205,17 @@ export class VPCProvider {
       `/aistudio/${environment}/vpc-private-subnet-ids`
     ).split(",")
 
+    const isolatedSubnetIds = ssm.StringParameter.valueForStringParameter(
+      scope,
+      `/aistudio/${environment}/vpc-isolated-subnet-ids`
+    ).split(",")
+
     return ec2.Vpc.fromVpcAttributes(scope, "ImportedVPC", {
       vpcId,
       availabilityZones,
       publicSubnetIds,
       privateSubnetIds,
+      isolatedSubnetIds,
     })
   }
 
