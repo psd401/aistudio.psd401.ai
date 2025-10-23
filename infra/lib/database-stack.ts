@@ -12,6 +12,8 @@ import * as ssm from 'aws-cdk-lib/aws-ssm';
 import {
   AuroraCostOptimizer,
   AuroraCostDashboard,
+  VPCProvider,
+  EnvironmentConfig,
 } from './constructs';
 
 export interface DatabaseStackProps extends cdk.StackProps {
@@ -26,22 +28,12 @@ export class DatabaseStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: DatabaseStackProps) {
     super(scope, id, props);
 
-    // VPC with public and isolated subnets
-    const vpc = new ec2.Vpc(this, 'Vpc', {
-      maxAzs: props.environment === 'prod' ? 3 : 2,
-      subnetConfiguration: [
-        {
-          cidrMask: 24,
-          name: 'public',
-          subnetType: ec2.SubnetType.PUBLIC,
-        },
-        {
-          cidrMask: 24,
-          name: 'isolated',
-          subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
-        },
-      ],
-    });
+    // Get environment configuration
+    const config = EnvironmentConfig.get(props.environment);
+
+    // Use shared VPC instead of creating a new one
+    // This reduces costs by eliminating duplicate NAT gateways and improves security
+    const vpc = VPCProvider.getOrCreate(this, props.environment, config);
 
     // Security group for DB access
     const dbSg = new ec2.SecurityGroup(this, 'DbSecurityGroup', {

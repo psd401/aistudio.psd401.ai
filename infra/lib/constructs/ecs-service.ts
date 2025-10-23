@@ -127,27 +127,14 @@ export class EcsServiceConstruct extends Construct {
     // ============================================================================
     // VPC Endpoints (required because PUBLIC subnets can't reach AWS services)
     // ============================================================================
-    // Even though tasks are in PUBLIC subnets, they can't reach AWS services via internet
-    // Root cause unknown - but VPC endpoints work around the issue
-
-    // S3 Gateway Endpoint (required for ECR - ECR stores layers in S3)
-    vpc.addGatewayEndpoint('S3Endpoint', {
-      service: ec2.GatewayVpcEndpointAwsService.S3,
-    });
-
-    // Secrets Manager endpoint (required for AUTH_SECRET at task startup)
-    const vpcEndpointSg = new ec2.SecurityGroup(this, 'VpcEndpointSg', {
-      vpc,
-      description: 'Allow HTTPS to VPC endpoints',
-      allowAllOutbound: false,
-    });
-    vpcEndpointSg.addIngressRule(ec2.Peer.ipv4(vpc.vpcCidrBlock), ec2.Port.tcp(443), 'HTTPS from VPC');
-
-    vpc.addInterfaceEndpoint('SecretsManagerEndpoint', {
-      service: ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
-      securityGroups: [vpcEndpointSg],
-      privateDnsEnabled: true, // Tasks need this to resolve secretsmanager.us-east-1.amazonaws.com
-    });
+    // VPC Endpoints are now provided by SharedVPC construct
+    // SharedVPC creates comprehensive endpoints including:
+    // - S3 Gateway Endpoint (for ECR - ECR stores layers in S3)
+    // - Secrets Manager Interface Endpoint (for AUTH_SECRET at task startup)
+    // - ECR, CloudWatch Logs, and other AWS service endpoints
+    //
+    // This eliminates duplicate endpoint creation and ensures consistent
+    // VPC endpoint configuration across all stacks using the shared VPC.
 
     // ============================================================================
     // ECS Cluster with Container Insights

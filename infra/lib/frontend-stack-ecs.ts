@@ -8,6 +8,7 @@ import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as targets from 'aws-cdk-lib/aws-route53-targets';
 import { EcsServiceConstruct } from './constructs/ecs-service';
+import { VPCProvider, EnvironmentConfig } from './constructs';
 
 export interface FrontendStackEcsProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
@@ -44,40 +45,18 @@ export class FrontendStackEcs extends cdk.Stack {
 
     const { environment, baseDomain } = props;
 
-    // ============================================================================
-    // Retrieve VPC from database stack (VPC sharing pattern)
-    // ============================================================================
-    let vpc: ec2.IVpc;
+    // Get environment configuration
+    const config = EnvironmentConfig.get(environment);
 
-    if (props.useExistingVpc !== false) {
-      // Look up VPC by SSM parameter or tag
-      // The DatabaseStack creates a VPC, we'll reference it
-      vpc = ec2.Vpc.fromLookup(this, 'Vpc', {
-        tags: {
-          Environment: environment === 'dev' ? 'Dev' : 'Prod',
-          Project: 'AIStudio',
-        },
-      });
-    } else {
-      // Create new VPC for ECS (not recommended for production)
-      // This VPC config matches the database stack VPC for consistency
-      vpc = new ec2.Vpc(this, 'EcsVpc', {
-        maxAzs: environment === 'prod' ? 3 : 2,
-        natGateways: environment === 'prod' ? 2 : 1,
-        subnetConfiguration: [
-          {
-            cidrMask: 24,
-            name: 'public',
-            subnetType: ec2.SubnetType.PUBLIC,
-          },
-          {
-            cidrMask: 24,
-            name: 'private',
-            subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
-          },
-        ],
-      });
-    }
+    // ============================================================================
+    // Use shared VPC (VPC consolidation pattern)
+    // ============================================================================
+    // Uses VPCProvider to get or create the shared VPC
+    // This consolidates networking infrastructure and reduces costs:
+    // - Eliminates duplicate NAT gateways (saves $45-90/month)
+    // - Shared VPC endpoints reduce data transfer costs
+    // - Simplified network management and security
+    const vpc = VPCProvider.getOrCreate(this, environment, config);
 
     // Retrieve bucket name from SSM Parameter Store
     const documentsBucketName = props.documentsBucketName ||

@@ -15,6 +15,10 @@ export {
 // Compute constructs
 export { LambdaConstruct, LambdaConstructProps } from "./compute/lambda-construct"
 
+// Network constructs
+export { SharedVPC, SharedVPCProps } from "./network/shared-vpc"
+export { VPCProvider } from "./network/vpc-provider"
+
 // Database constructs
 export {
   AuroraCostOptimizer,
