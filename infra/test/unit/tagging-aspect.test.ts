@@ -327,10 +327,10 @@ describe("TaggingAspect", () => {
       const template = Template.fromStack(stack)
 
       template.hasResourceProperties("AWS::S3::Bucket", {
-        Tags: Match.arrayWith([
-          { Key: "Team", Value: "Platform" },
-          { Key: "Application", Value: "WebApp" },
-        ]),
+        Tags: Match.arrayWith([{ Key: "Team", Value: "Platform" }]),
+      })
+      template.hasResourceProperties("AWS::S3::Bucket", {
+        Tags: Match.arrayWith([{ Key: "Application", Value: "WebApp" }]),
       })
     })
 

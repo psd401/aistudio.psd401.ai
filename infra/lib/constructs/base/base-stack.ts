@@ -4,36 +4,36 @@ import { TaggingAspect } from "./tagging-aspect"
 import { IEnvironmentConfig } from "../config/environment-config"
 
 export interface BaseStackProps extends cdk.StackProps {
-  environment: "dev" | "staging" | "prod"
+  deploymentEnvironment: "dev" | "staging" | "prod"
   config: IEnvironmentConfig
   projectName?: string
   owner?: string
 }
 
 export abstract class BaseStack extends cdk.Stack {
-  public readonly environment: string
+  public readonly deploymentEnvironment: string
   public readonly config: IEnvironmentConfig
   protected readonly projectName: string
 
   constructor(scope: Construct, id: string, props: BaseStackProps) {
     // Extract our custom properties and pass only StackProps to parent
-    const { environment, config, projectName, owner, ...stackProps } = props
+    const { deploymentEnvironment, config, projectName, owner, ...stackProps } = props
 
     super(scope, id, {
       ...stackProps,
-      stackName: `${projectName || "AIStudio"}-${id}-${environment}`,
-      description: `${id} for ${environment} environment`,
-      terminationProtection: environment === "prod",
+      stackName: `${projectName || "AIStudio"}-${id}-${deploymentEnvironment}`,
+      description: `${id} for ${deploymentEnvironment} environment`,
+      terminationProtection: deploymentEnvironment === "prod",
     })
 
-    this.environment = environment
+    this.deploymentEnvironment = deploymentEnvironment
     this.config = config
     this.projectName = projectName || "AIStudio"
 
     // Apply tagging aspect automatically
     cdk.Aspects.of(this).add(
       new TaggingAspect({
-        environment: props.environment,
+        environment: props.deploymentEnvironment,
         projectName: this.projectName,
         owner: props.owner || "TSD Engineering",
         stackName: this.stackName,
@@ -56,14 +56,14 @@ export abstract class BaseStack extends cdk.Stack {
    * Helper method to get environment-specific values
    */
   protected getEnvValue<T>(devValue: T, prodValue: T): T {
-    return this.environment === "prod" ? prodValue : devValue
+    return this.deploymentEnvironment === "prod" ? prodValue : devValue
   }
 
   /**
    * Helper to determine removal policy based on environment
    */
   protected getRemovalPolicy(): cdk.RemovalPolicy {
-    return this.environment === "prod"
+    return this.deploymentEnvironment === "prod"
       ? cdk.RemovalPolicy.RETAIN
       : cdk.RemovalPolicy.DESTROY
   }
@@ -73,7 +73,7 @@ export abstract class BaseStack extends cdk.Stack {
    */
   private addStandardOutputs(): void {
     new cdk.CfnOutput(this, "StackEnvironment", {
-      value: this.environment,
+      value: this.deploymentEnvironment,
       description: "Environment for this stack",
       exportName: `${this.stackName}-Environment`,
     })
@@ -93,7 +93,7 @@ export abstract class BaseStack extends cdk.Stack {
     description?: string
   ): void {
     new cdk.aws_ssm.StringParameter(this, `${name}Param`, {
-      parameterName: `/${this.projectName.toLowerCase()}/${this.environment}/${name}`,
+      parameterName: `/${this.projectName.toLowerCase()}/${this.deploymentEnvironment}/${name}`,
       stringValue: value,
       description: description || `${name} for ${this.stackName}`,
     })

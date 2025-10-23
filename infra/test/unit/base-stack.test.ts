@@ -33,7 +33,7 @@ describe("BaseStack", () => {
   describe("Stack Naming and Configuration", () => {
     test("should create stack with correct naming convention", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
-        environment: "dev",
+        deploymentEnvironment: "dev",
         config: EnvironmentConfig.get("dev"),
         env: {
           account: "123456789012",
@@ -46,7 +46,7 @@ describe("BaseStack", () => {
 
     test("should use custom project name in stack name", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
-        environment: "dev",
+        deploymentEnvironment: "dev",
         config: EnvironmentConfig.get("dev"),
         projectName: "CustomProject",
         env: {
@@ -60,7 +60,7 @@ describe("BaseStack", () => {
 
     test("should set description based on environment", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
-        environment: "dev",
+        deploymentEnvironment: "dev",
         config: EnvironmentConfig.get("dev"),
         env: testEnv,
       })
@@ -73,7 +73,7 @@ describe("BaseStack", () => {
   describe("Termination Protection", () => {
     test("should enable termination protection for prod", () => {
       const stack = new TestStack(app, "TestStack-Prod", {
-        environment: "prod",
+        deploymentEnvironment: "prod",
         config: EnvironmentConfig.get("prod"),
         env: testEnv,
       })
@@ -83,7 +83,7 @@ describe("BaseStack", () => {
 
     test("should disable termination protection for dev", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
-        environment: "dev",
+        deploymentEnvironment: "dev",
         config: EnvironmentConfig.get("dev"),
         env: testEnv,
       })
@@ -93,7 +93,7 @@ describe("BaseStack", () => {
 
     test("should disable termination protection for staging", () => {
       const stack = new TestStack(app, "TestStack-Staging", {
-        environment: "staging",
+        deploymentEnvironment: "staging",
         config: EnvironmentConfig.get("staging"),
         env: testEnv,
       })
@@ -105,7 +105,7 @@ describe("BaseStack", () => {
   describe("Automatic Tagging", () => {
     test("should apply all standard tags to resources", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
-        environment: "dev",
+        deploymentEnvironment: "dev",
         config: EnvironmentConfig.get("dev"),
         env: testEnv,
       })
@@ -114,18 +114,22 @@ describe("BaseStack", () => {
 
       // Check that bucket has tags (TaggingAspect should apply them)
       template.hasResourceProperties("AWS::S3::Bucket", {
-        Tags: Match.arrayWith([
-          { Key: "Environment", Value: "Dev" },
-          { Key: "Project", Value: "AIStudio" },
-          { Key: "Owner", Value: "TSD Engineering" },
-          { Key: "ManagedBy", Value: "CDK" },
-        ]),
+        Tags: Match.arrayWith([{ Key: "Environment", Value: "Dev" }]),
+      })
+      template.hasResourceProperties("AWS::S3::Bucket", {
+        Tags: Match.arrayWith([{ Key: "Project", Value: "AIStudio" }]),
+      })
+      template.hasResourceProperties("AWS::S3::Bucket", {
+        Tags: Match.arrayWith([{ Key: "Owner", Value: "TSD Engineering" }]),
+      })
+      template.hasResourceProperties("AWS::S3::Bucket", {
+        Tags: Match.arrayWith([{ Key: "ManagedBy", Value: "CDK" }]),
       })
     })
 
     test("should capitalize environment in tags", () => {
       const stack = new TestStack(app, "TestStack-Prod", {
-        environment: "prod",
+        deploymentEnvironment: "prod",
         config: EnvironmentConfig.get("prod"),
         env: testEnv,
       })
@@ -141,7 +145,7 @@ describe("BaseStack", () => {
 
     test("should apply custom project name to tags", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
-        environment: "dev",
+        deploymentEnvironment: "dev",
         config: EnvironmentConfig.get("dev"),
         projectName: "CustomProject",
         env: testEnv,
@@ -158,7 +162,7 @@ describe("BaseStack", () => {
 
     test("should apply custom owner to tags", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
-        environment: "dev",
+        deploymentEnvironment: "dev",
         config: EnvironmentConfig.get("dev"),
         owner: "Custom Team",
         env: testEnv,
@@ -177,7 +181,7 @@ describe("BaseStack", () => {
   describe("Standard Outputs", () => {
     test("should create StackEnvironment output", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
-        environment: "dev",
+        deploymentEnvironment: "dev",
         config: EnvironmentConfig.get("dev"),
         env: testEnv,
       })
@@ -195,7 +199,7 @@ describe("BaseStack", () => {
 
     test("should create StackVersion output", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
-        environment: "dev",
+        deploymentEnvironment: "dev",
         config: EnvironmentConfig.get("dev"),
         env: testEnv,
       })
@@ -211,7 +215,7 @@ describe("BaseStack", () => {
   describe("Helper Methods", () => {
     test("getRemovalPolicy should return RETAIN for prod", () => {
       const stack = new TestStack(app, "TestStack-Prod", {
-        environment: "prod",
+        deploymentEnvironment: "prod",
         config: EnvironmentConfig.get("prod"),
         env: {
           account: "123456789012",
@@ -229,7 +233,7 @@ describe("BaseStack", () => {
 
     test("getRemovalPolicy should return DESTROY for dev", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
-        environment: "dev",
+        deploymentEnvironment: "dev",
         config: EnvironmentConfig.get("dev"),
         env: {
           account: "123456789012",
@@ -247,7 +251,7 @@ describe("BaseStack", () => {
 
     test("getEnvValue should return dev value for dev environment", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
-        environment: "dev",
+        deploymentEnvironment: "dev",
         config: EnvironmentConfig.get("dev"),
         env: testEnv,
       })
@@ -259,7 +263,7 @@ describe("BaseStack", () => {
 
     test("getEnvValue should return prod value for prod environment", () => {
       const stack = new TestStack(app, "TestStack-Prod", {
-        environment: "prod",
+        deploymentEnvironment: "prod",
         config: EnvironmentConfig.get("prod"),
         env: testEnv,
       })
@@ -270,7 +274,7 @@ describe("BaseStack", () => {
 
     test("createParameter should create SSM parameter with correct naming", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
-        environment: "dev",
+        deploymentEnvironment: "dev",
         config: EnvironmentConfig.get("dev"),
         env: {
           account: "123456789012",
@@ -290,7 +294,7 @@ describe("BaseStack", () => {
 
     test("createParameter should respect custom project name", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
-        environment: "dev",
+        deploymentEnvironment: "dev",
         config: EnvironmentConfig.get("dev"),
         projectName: "CustomProject",
         env: {
@@ -311,7 +315,7 @@ describe("BaseStack", () => {
   describe("Configuration Access", () => {
     test("should provide access to environment configuration", () => {
       const stack = new TestStack(app, "TestStack-Dev", {
-        environment: "dev",
+        deploymentEnvironment: "dev",
         config: EnvironmentConfig.get("dev"),
         env: testEnv,
       })
@@ -321,14 +325,14 @@ describe("BaseStack", () => {
       expect(stack.config.costOptimization).toBe(true)
     })
 
-    test("should provide access to environment string", () => {
+    test("should provide access to deployment environment string", () => {
       const stack = new TestStack(app, "TestStack-Prod", {
-        environment: "prod",
+        deploymentEnvironment: "prod",
         config: EnvironmentConfig.get("prod"),
         env: testEnv,
       })
 
-      expect(stack.environment).toBe("prod")
+      expect(stack.deploymentEnvironment).toBe("prod")
     })
   })
 })

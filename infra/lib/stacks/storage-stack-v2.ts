@@ -40,7 +40,7 @@ export class StorageStackV2 extends BaseStack {
       encryption: s3.BucketEncryption.S3_MANAGED,
       versioned: true,
       removalPolicy: this.getRemovalPolicy(),
-      autoDeleteObjects: this.environment !== "prod",
+      autoDeleteObjects: this.deploymentEnvironment !== "prod",
       lifecycleRules: [
         {
           id: "ExpireDeletedObjects",
@@ -79,7 +79,7 @@ export class StorageStackV2 extends BaseStack {
     new cdk.CfnOutput(this, "DocumentsBucketName", {
       value: bucket.bucketName,
       description: "S3 bucket for document storage",
-      exportName: `${this.environment}-DocumentsBucketName`,
+      exportName: `${this.deploymentEnvironment}-DocumentsBucketName`,
     })
   }
 }

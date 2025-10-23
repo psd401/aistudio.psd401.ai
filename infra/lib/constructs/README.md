@@ -72,7 +72,7 @@ export class MyStack extends BaseStack {
 
 // Usage
 const devStack = new MyStack(app, "MyStack-Dev", {
-  environment: "dev",
+  deploymentEnvironment: "dev",
   config: EnvironmentConfig.get("dev"),
   env: { account: "...", region: "..." },
 })
@@ -103,7 +103,7 @@ export interface MyStackProps extends BaseStackProps {
 
 export class MyStack extends BaseStack {
   protected defineResources(props: MyStackProps): void {
-    // Use this.environment to check environment
+    // Use this.deploymentEnvironment to check environment
     // Use this.config to access configuration
     // Use this.getRemovalPolicy() for environment-aware policies
     // Use this.getEnvValue(devVal, prodVal) for conditional values
@@ -234,7 +234,7 @@ export class StorageStackV2 extends BaseStack {
       encryption: cdk.aws_s3.BucketEncryption.S3_MANAGED,
       versioned: true,
       removalPolicy: this.getRemovalPolicy(),
-      autoDeleteObjects: this.environment !== "prod",
+      autoDeleteObjects: this.deploymentEnvironment !== "prod",
       lifecycleRules: [{
         expiration: this.config.database.backupRetention, // Reuse config
       }],
@@ -253,18 +253,18 @@ export class ProcessingStack extends BaseStack {
   protected defineResources(props: BaseStackProps): void {
     // Lambda with automatic optimization
     const processor = new LambdaConstruct(this, "Processor", {
-      functionName: `processor-${this.environment}`,
+      functionName: `processor-${this.deploymentEnvironment}`,
       handler: "index.handler",
       codePath: "./lambda/processor",
       environment: {
-        ENVIRONMENT: this.environment,
+        ENVIRONMENT: this.deploymentEnvironment,
       },
       config: this.config,
       // Memory and timeout come from config automatically
     })
 
     // Environment-specific concurrency
-    if (this.environment === "prod") {
+    if (this.deploymentEnvironment === "prod") {
       processor.function.addReservedConcurrentExecutions(10)
     }
   }
@@ -336,7 +336,7 @@ describe("MyStack", () => {
   test("creates expected resources", () => {
     const app = new App()
     const stack = new MyStack(app, "TestStack", {
-      environment: "dev",
+      deploymentEnvironment: "dev",
       config: EnvironmentConfig.get("dev"),
     })
 
@@ -455,7 +455,7 @@ export class MyStack extends cdk.Stack
 const memory = this.config.compute.lambdaMemory
 
 // ❌ Bad - Hardcoded environment checks
-const memory = this.environment === 'prod' ? 3008 : 1024
+const memory = this.deploymentEnvironment === 'prod' ? 3008 : 1024
 ```
 
 ### 3. Use Helper Methods
@@ -465,7 +465,7 @@ const memory = this.environment === 'prod' ? 3008 : 1024
 removalPolicy: this.getRemovalPolicy()
 
 // ❌ Bad
-removalPolicy: this.environment === 'prod'
+removalPolicy: this.deploymentEnvironment === 'prod'
   ? cdk.RemovalPolicy.RETAIN
   : cdk.RemovalPolicy.DESTROY
 ```
@@ -476,7 +476,7 @@ removalPolicy: this.environment === 'prod'
 // ✅ Good - Tags added automatically by BaseStack
 
 // ❌ Bad - Manual tagging
-cdk.Tags.of(resource).add('Environment', this.environment)
+cdk.Tags.of(resource).add('Environment', this.deploymentEnvironment)
 ```
 
 ### 5. Use createParameter for Cross-Stack References

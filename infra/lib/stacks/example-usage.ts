@@ -44,7 +44,7 @@ export function createStorageStackExample(app: cdk.App) {
 
   // Create dev storage stack - automatic tagging, configuration, etc.
   const devProps: StorageStackV2Props = {
-    environment: "dev",
+    deploymentEnvironment: "dev",
     config: EnvironmentConfig.get("dev"),
     // CORS origins should be provided from context or environment variables
     allowedOrigins: [
@@ -67,7 +67,7 @@ export function createStorageStackExample(app: cdk.App) {
 
   // Create prod storage stack - same simplicity
   const prodProps: StorageStackV2Props = {
-    environment: "prod",
+    deploymentEnvironment: "prod",
     config: EnvironmentConfig.get("prod"),
     // Production should use actual domain
     allowedOrigins: [`https://${baseDomain}`],
@@ -142,8 +142,8 @@ export class ExampleStack {
     // this.createParameter('my-value', 'some-value', 'Description')
     // Creates: /aistudio/{environment}/my-value
 
-    // Access environment and config
-    // if (this.environment === 'prod') { ... }
+    // Access deployment environment and config
+    // if (this.deploymentEnvironment === 'prod') { ... }
     // if (this.config.monitoring.detailedMetrics) { ... }
   }
 }
