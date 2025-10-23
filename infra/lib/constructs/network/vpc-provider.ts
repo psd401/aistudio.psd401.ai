@@ -1,6 +1,10 @@
 import * as cdk from "aws-cdk-lib"
 import * as ec2 from "aws-cdk-lib/aws-ec2"
 import * as ssm from "aws-cdk-lib/aws-ssm"
+import * as lambda from "aws-cdk-lib/aws-lambda"
+import * as cr from "aws-cdk-lib/custom-resources"
+import * as iam from "aws-cdk-lib/aws-iam"
+import * as logs from "aws-cdk-lib/aws-logs"
 import { Construct } from "constructs"
 import { SharedVPC } from "./shared-vpc"
 import { IEnvironmentConfig } from "../config/environment-config"
@@ -8,7 +12,7 @@ import { IEnvironmentConfig } from "../config/environment-config"
 /**
  * VPC Provider for cross-stack VPC sharing.
  *
- * This provider implements the singleton pattern to ensure only one VPC
+ * This provider implements a per-environment singleton pattern to ensure only one VPC
  * is created per environment, even when multiple stacks need VPC access.
  *
  * Usage in stacks:
@@ -17,34 +21,38 @@ import { IEnvironmentConfig } from "../config/environment-config"
  * ```
  *
  * How it works:
- * 1. First stack creates the VPC and stores ID in SSM Parameter Store
- * 2. Subsequent stacks look up the VPC by ID from SSM
- * 3. If VPC doesn't exist yet, a new one is created
+ * 1. First stack creates the VPC and stores metadata in SSM Parameter Store
+ * 2. Subsequent stacks use AwsCustomResource to look up VPC at deploy time
+ * 3. The owning stack continues to synthesize the VPC resources on every deploy
+ * 4. SSM parameters are automatically cleaned up when stack is deleted
  *
  * Benefits:
  * - Single VPC shared across all stacks (reduces costs)
  * - Automatic cross-stack reference handling
  * - No circular dependencies
- * - Proper cleanup on stack deletion
+ * - Proper cleanup on stack deletion via custom resource
+ * - Full subnet metadata preserved (tags, groups, etc.)
  *
  * SSM Parameters Created:
  * - /aistudio/{environment}/vpc-id
+ * - /aistudio/{environment}/vpc-owner-stack-id
+ * - /aistudio/{environment}/vpc-cidr
  * - /aistudio/{environment}/vpc-azs
- * - /aistudio/{environment}/vpc-public-subnet-ids
- * - /aistudio/{environment}/vpc-private-subnet-ids
- * - /aistudio/{environment}/vpc-data-subnet-ids
- * - /aistudio/{environment}/vpc-isolated-subnet-ids
+ * - /aistudio/{environment}/vpc-*-subnet-ids (public, private, data, isolated)
  *
  * @see https://docs.aws.amazon.com/cdk/v2/guide/resources.html#resources_referencing
  */
 export class VPCProvider {
-  private static vpcInstance: SharedVPC | undefined
+  // Cache VPC instances per environment to support multi-environment synthesis
+  private static vpcInstances: Map<string, SharedVPC> = new Map()
 
   /**
    * Get or create the shared VPC for the environment.
    *
-   * This method first checks if a VPC already exists in SSM Parameter Store.
-   * If found, it imports the VPC. If not found, it creates a new VPC.
+   * This method determines whether the current stack owns the VPC or should import it:
+   * - If VPC doesn't exist yet: creates it and marks current stack as owner
+   * - If current stack is the owner: continues to synthesize VPC resources
+   * - If another stack owns the VPC: imports it using runtime SSM lookup
    *
    * @param scope - The construct scope
    * @param environment - The environment name (dev, staging, prod)
@@ -57,77 +65,78 @@ export class VPCProvider {
     config: IEnvironmentConfig
   ): ec2.IVpc {
     const stack = cdk.Stack.of(scope)
+    const stackId = stack.stackName
 
-    // Check if VPC already exists in this CDK app context
-    const vpcId = stack.node.tryGetContext(`vpc-${environment}`)
-
-    if (vpcId) {
-      // VPC already exists in this synthesis, look it up
-      return ec2.Vpc.fromLookup(scope, "SharedVPC", {
-        vpcId: vpcId,
-      })
+    // Check if VPC already created in this synthesis (for multiple stacks)
+    const cachedVpc = this.vpcInstances.get(environment)
+    if (cachedVpc) {
+      return cachedVpc.vpc
     }
 
-    // Check if VPC exists in another stack via SSM
-    try {
-      const vpcIdFromSsm = ssm.StringParameter.valueForStringParameter(
-        scope,
-        `/aistudio/${environment}/vpc-id`
-      )
+    // Determine if this stack should own the VPC based on stack name
+    // DatabaseStack creates the VPC, other stacks import it
+    const shouldOwnVpc = stackId.includes("DatabaseStack")
 
-      if (vpcIdFromSsm && vpcIdFromSsm !== "dummy-value") {
-        // VPC exists, import it
-        return this.import(scope, environment)
-      }
-    } catch {
-      // VPC doesn't exist yet, continue to creation
-    }
-
-    // Create new VPC if it doesn't exist
-    if (!this.vpcInstance) {
-      this.vpcInstance = new SharedVPC(scope, "SharedVPC", {
+    if (shouldOwnVpc) {
+      // This stack owns the VPC - create it
+      const vpcInstance = new SharedVPC(scope, "SharedVPC", {
         environment: environment as "dev" | "staging" | "prod",
         config,
         enableFlowLogs: true,
         enableVpcEndpoints: true,
       })
 
-      // Store VPC information in SSM for cross-stack references
-      this.storeVpcParameters(scope, environment, this.vpcInstance)
+      // Store VPC metadata in SSM for cross-stack references
+      this.storeVpcMetadata(scope, environment, vpcInstance, stackId)
 
-      // Store in CDK context for this synthesis
-      stack.node.setContext(
-        `vpc-${environment}`,
-        this.vpcInstance.vpc.vpcId
-      )
+      // Cache for this synthesis
+      this.vpcInstances.set(environment, vpcInstance)
+
+      return vpcInstance.vpc
+    } else {
+      // Another stack owns the VPC - import it using runtime lookup
+      return this.import(scope, environment)
     }
-
-    return this.vpcInstance.vpc
   }
 
   /**
-   * Store VPC information in SSM Parameter Store for cross-stack references.
+   * Store VPC metadata in SSM Parameter Store for cross-stack references.
    *
-   * This allows other stacks to import the VPC without CloudFormation exports,
-   * which can cause circular dependencies and deployment issues.
+   * Stores all VPC metadata including subnet IDs for complete cross-stack references.
+   * Adds custom resource for automatic cleanup on stack deletion.
    */
-  private static storeVpcParameters(
+  private static storeVpcMetadata(
     scope: Construct,
     environment: string,
-    vpcInstance: SharedVPC
+    vpcInstance: SharedVPC,
+    ownerStackId: string
   ): void {
     // Store VPC ID
     new ssm.StringParameter(scope, "VPCIdParameter", {
       parameterName: `/aistudio/${environment}/vpc-id`,
       stringValue: vpcInstance.vpc.vpcId,
-      description: "Shared VPC ID for all stacks",
+      description: `Shared VPC ID for ${environment} environment`,
+    })
+
+    // Store owner stack ID
+    new ssm.StringParameter(scope, "VPCOwnerStackIdParameter", {
+      parameterName: `/aistudio/${environment}/vpc-owner-stack-id`,
+      stringValue: ownerStackId,
+      description: `Stack that owns the VPC for ${environment} environment`,
+    })
+
+    // Store VPC CIDR
+    new ssm.StringParameter(scope, "VPCCidrParameter", {
+      parameterName: `/aistudio/${environment}/vpc-cidr`,
+      stringValue: vpcInstance.vpc.vpcCidrBlock,
+      description: `VPC CIDR block for ${environment} environment`,
     })
 
     // Store Availability Zones
     new ssm.StringParameter(scope, "VPCAZsParameter", {
       parameterName: `/aistudio/${environment}/vpc-azs`,
       stringValue: vpcInstance.vpc.availabilityZones.join(","),
-      description: "Availability zones for the shared VPC",
+      description: `Availability zones for ${environment} environment`,
     })
 
     // Store Public Subnet IDs
@@ -136,16 +145,16 @@ export class VPCProvider {
       stringValue: vpcInstance.publicSubnets
         .map((subnet) => subnet.subnetId)
         .join(","),
-      description: "Public subnet IDs",
+      description: `Public subnet IDs for ${environment} environment`,
     })
 
-    // Store Private Subnet IDs (Application)
+    // Store Private Application Subnet IDs
     new ssm.StringParameter(scope, "VPCPrivateSubnetIdsParameter", {
       parameterName: `/aistudio/${environment}/vpc-private-subnet-ids`,
       stringValue: vpcInstance.privateSubnets
         .map((subnet) => subnet.subnetId)
         .join(","),
-      description: "Private application subnet IDs",
+      description: `Private application subnet IDs for ${environment} environment`,
     })
 
     // Store Data Subnet IDs
@@ -154,7 +163,7 @@ export class VPCProvider {
       stringValue: vpcInstance.dataSubnets
         .map((subnet) => subnet.subnetId)
         .join(","),
-      description: "Private data subnet IDs for databases",
+      description: `Private data subnet IDs for ${environment} environment`,
     })
 
     // Store Isolated Subnet IDs
@@ -163,55 +172,257 @@ export class VPCProvider {
       stringValue: vpcInstance.isolatedSubnets
         .map((subnet) => subnet.subnetId)
         .join(","),
-      description: "Isolated subnet IDs for sensitive workloads",
+      description: `Isolated subnet IDs for ${environment} environment`,
     })
 
-    // Store CIDR block
-    new ssm.StringParameter(scope, "VPCCidrParameter", {
-      parameterName: `/aistudio/${environment}/vpc-cidr`,
-      stringValue: vpcInstance.vpc.vpcCidrBlock,
-      description: "VPC CIDR block",
+    // Add custom resource for SSM parameter cleanup on stack deletion
+    this.addSsmCleanupResource(scope, environment)
+  }
+
+  /**
+   * Add custom resource to clean up SSM parameters when stack is deleted.
+   *
+   * This prevents orphaned parameters that could cause confusion on redeploy.
+   */
+  private static addSsmCleanupResource(
+    scope: Construct,
+    environment: string
+  ): void {
+    // Create log group for cleanup Lambda
+    const logGroup = new logs.LogGroup(scope, "SSMCleanupLogGroup", {
+      logGroupName: `/aws/lambda/vpc-ssm-cleanup-${environment}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    // Lambda function to delete SSM parameters on stack deletion
+    const cleanupLambda = new lambda.Function(scope, "SSMCleanupLambda", {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: "index.handler",
+      timeout: cdk.Duration.minutes(2),
+      logGroup,
+      code: lambda.Code.fromInline(`
+        const { SSMClient, DeleteParameterCommand, GetParametersByPathCommand } = require('@aws-sdk/client-ssm');
+
+        exports.handler = async (event) => {
+          console.log('Event:', JSON.stringify(event, null, 2));
+
+          if (event.RequestType === 'Delete') {
+            const ssm = new SSMClient({ region: process.env.AWS_REGION });
+            const prefix = \`/aistudio/\${event.ResourceProperties.Environment}/vpc-\`;
+
+            try {
+              // Get all VPC-related parameters
+              const getParams = new GetParametersByPathCommand({
+                Path: \`/aistudio/\${event.ResourceProperties.Environment}\`,
+                Recursive: true
+              });
+
+              const response = await ssm.send(getParams);
+
+              // Delete each parameter
+              if (response.Parameters) {
+                for (const param of response.Parameters) {
+                  if (param.Name.includes('vpc-')) {
+                    console.log(\`Deleting parameter: \${param.Name}\`);
+                    const deleteCmd = new DeleteParameterCommand({ Name: param.Name });
+                    await ssm.send(deleteCmd);
+                  }
+                }
+              }
+
+              console.log('SSM parameters cleaned up successfully');
+              return { PhysicalResourceId: event.PhysicalResourceId || 'ssm-cleanup' };
+            } catch (error) {
+              console.error('Error cleaning up SSM parameters:', error);
+              // Don't fail the deletion - just log the error
+              return { PhysicalResourceId: event.PhysicalResourceId || 'ssm-cleanup' };
+            }
+          }
+
+          return { PhysicalResourceId: event.PhysicalResourceId || 'ssm-cleanup' };
+        };
+      `),
+    })
+
+    // Grant permissions to delete SSM parameters
+    cleanupLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "ssm:DeleteParameter",
+          "ssm:GetParametersByPath",
+        ],
+        resources: [
+          `arn:aws:ssm:${cdk.Stack.of(scope).region}:${
+            cdk.Stack.of(scope).account
+          }:parameter/aistudio/${environment}/vpc-*`,
+        ],
+      })
+    )
+
+    // Create custom resource provider
+    const provider = new cr.Provider(scope, "SSMCleanupProvider", {
+      onEventHandler: cleanupLambda,
+      logGroup: new logs.LogGroup(scope, "SSMCleanupProviderLogGroup", {
+        logGroupName: `/aws/lambda/vpc-ssm-cleanup-provider-${environment}`,
+        retention: logs.RetentionDays.ONE_WEEK,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      }),
+    })
+
+    // Create custom resource
+    new cdk.CustomResource(scope, "SSMCleanupResource", {
+      serviceToken: provider.serviceToken,
+      properties: {
+        Environment: environment,
+      },
     })
   }
 
   /**
-   * Import existing VPC from SSM Parameter Store.
+   * Import existing VPC from SSM Parameter Store using runtime lookup.
    *
-   * This method reads VPC information from SSM and creates a VPC reference
-   * that can be used by other stacks.
+   * This method uses AwsCustomResource to look up VPC attributes at deploy time,
+   * then constructs the VPC using fromVpcAttributes with actual values.
    *
    * @param scope - The construct scope
    * @param environment - The environment name
-   * @returns The imported VPC
+   * @returns The imported VPC with full metadata
    */
   public static import(scope: Construct, environment: string): ec2.IVpc {
-    const vpcId = ssm.StringParameter.valueForStringParameter(
+    // Use AwsCustomResource to get VPC attributes at deploy time
+    const vpcIdLookup = new cr.AwsCustomResource(scope, "VpcIdLookup", {
+      onUpdate: {
+        service: "SSM",
+        action: "getParameter",
+        parameters: {
+          Name: `/aistudio/${environment}/vpc-id`,
+        },
+        physicalResourceId: cr.PhysicalResourceId.of(
+          `vpc-id-lookup-${environment}`
+        ),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+        resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
+      }),
+    })
+
+    const vpcCidrLookup = new cr.AwsCustomResource(scope, "VpcCidrLookup", {
+      onUpdate: {
+        service: "SSM",
+        action: "getParameter",
+        parameters: {
+          Name: `/aistudio/${environment}/vpc-cidr`,
+        },
+        physicalResourceId: cr.PhysicalResourceId.of(
+          `vpc-cidr-lookup-${environment}`
+        ),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+        resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
+      }),
+    })
+
+    const vpcAzsLookup = new cr.AwsCustomResource(scope, "VpcAzsLookup", {
+      onUpdate: {
+        service: "SSM",
+        action: "getParameter",
+        parameters: {
+          Name: `/aistudio/${environment}/vpc-azs`,
+        },
+        physicalResourceId: cr.PhysicalResourceId.of(
+          `vpc-azs-lookup-${environment}`
+        ),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+        resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
+      }),
+    })
+
+    const publicSubnetsLookup = new cr.AwsCustomResource(
       scope,
-      `/aistudio/${environment}/vpc-id`
+      "PublicSubnetsLookup",
+      {
+        onUpdate: {
+          service: "SSM",
+          action: "getParameter",
+          parameters: {
+            Name: `/aistudio/${environment}/vpc-public-subnet-ids`,
+          },
+          physicalResourceId: cr.PhysicalResourceId.of(
+            `public-subnets-lookup-${environment}`
+          ),
+        },
+        policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+          resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
+        }),
+      }
     )
 
-    const availabilityZones = ssm.StringParameter.valueForStringParameter(
+    const privateSubnetsLookup = new cr.AwsCustomResource(
       scope,
-      `/aistudio/${environment}/vpc-azs`
-    ).split(",")
+      "PrivateSubnetsLookup",
+      {
+        onUpdate: {
+          service: "SSM",
+          action: "getParameter",
+          parameters: {
+            Name: `/aistudio/${environment}/vpc-private-subnet-ids`,
+          },
+          physicalResourceId: cr.PhysicalResourceId.of(
+            `private-subnets-lookup-${environment}`
+          ),
+        },
+        policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+          resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
+        }),
+      }
+    )
 
-    const publicSubnetIds = ssm.StringParameter.valueForStringParameter(
+    const isolatedSubnetsLookup = new cr.AwsCustomResource(
       scope,
-      `/aistudio/${environment}/vpc-public-subnet-ids`
-    ).split(",")
+      "IsolatedSubnetsLookup",
+      {
+        onUpdate: {
+          service: "SSM",
+          action: "getParameter",
+          parameters: {
+            Name: `/aistudio/${environment}/vpc-isolated-subnet-ids`,
+          },
+          physicalResourceId: cr.PhysicalResourceId.of(
+            `isolated-subnets-lookup-${environment}`
+          ),
+        },
+        policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+          resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
+        }),
+      }
+    )
 
-    const privateSubnetIds = ssm.StringParameter.valueForStringParameter(
-      scope,
-      `/aistudio/${environment}/vpc-private-subnet-ids`
-    ).split(",")
+    // Extract values from custom resources
+    const vpcId = vpcIdLookup.getResponseField("Parameter.Value")
+    const vpcCidrBlock = vpcCidrLookup.getResponseField("Parameter.Value")
+    const availabilityZones = cdk.Fn.split(
+      ",",
+      vpcAzsLookup.getResponseField("Parameter.Value")
+    )
+    const publicSubnetIds = cdk.Fn.split(
+      ",",
+      publicSubnetsLookup.getResponseField("Parameter.Value")
+    )
+    const privateSubnetIds = cdk.Fn.split(
+      ",",
+      privateSubnetsLookup.getResponseField("Parameter.Value")
+    )
+    const isolatedSubnetIds = cdk.Fn.split(
+      ",",
+      isolatedSubnetsLookup.getResponseField("Parameter.Value")
+    )
 
-    const isolatedSubnetIds = ssm.StringParameter.valueForStringParameter(
-      scope,
-      `/aistudio/${environment}/vpc-isolated-subnet-ids`
-    ).split(",")
-
+    // Construct VPC from runtime-resolved attributes
     return ec2.Vpc.fromVpcAttributes(scope, "ImportedVPC", {
       vpcId,
+      vpcCidrBlock,
       availabilityZones,
       publicSubnetIds,
       privateSubnetIds,

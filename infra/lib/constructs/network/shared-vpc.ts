@@ -128,10 +128,17 @@ export class SharedVPC extends Construct {
   }
 
   /**
+   * Check if environment is production or staging (requires prod-level resources).
+   */
+  private isProduction(environment: string): boolean {
+    return environment === "prod" || environment === "staging"
+  }
+
+  /**
    * Create cost-optimized NAT provider based on environment.
    *
    * Development: Uses NAT instance (t3.nano) to save costs (~$5/month)
-   * Production: Uses managed NAT gateways for reliability ($45/month each)
+   * Production/Staging: Uses managed NAT gateways for reliability ($45/month each)
    */
   private createOptimizedNatProvider(
     environment: string
@@ -146,7 +153,7 @@ export class SharedVPC extends Construct {
       })
     }
 
-    // Use managed NAT gateways for production reliability
+    // Use managed NAT gateways for production/staging reliability
     return ec2.NatProvider.gateway()
   }
 
@@ -272,10 +279,10 @@ export class SharedVPC extends Construct {
     ]
 
     // Determine which endpoints to create based on environment
-    const endpointsToCreate =
-      environment === "prod"
-        ? [...essentialEndpoints, ...productionOnlyEndpoints]
-        : essentialEndpoints
+    // Production and staging get full endpoint suite
+    const endpointsToCreate = this.isProduction(environment)
+      ? [...essentialEndpoints, ...productionOnlyEndpoints]
+      : essentialEndpoints
 
     // Create interface endpoints
     for (const endpoint of endpointsToCreate) {
@@ -300,12 +307,16 @@ export class SharedVPC extends Construct {
    *
    * Flow logs are stored in S3 with lifecycle policies for cost optimization:
    * - Dev: 30-day retention
-   * - Prod: 90-day retention with transition to Infrequent Access after 30 days
+   * - Prod/Staging: 90-day retention with transition to Infrequent Access after 30 days
    *
    * Additionally, production environments get real-time CloudWatch Logs
    * for rejected traffic only (for security alerts).
+   *
+   * Creates explicit IAM role with least-privilege permissions for flow logs.
    */
   private enableVpcFlowLogs(environment: string): s3.IBucket {
+    const isProd = this.isProduction(environment)
+
     // S3 bucket for flow logs (cheaper than CloudWatch Logs)
     const flowLogBucket = new s3.Bucket(this, "FlowLogBucket", {
       bucketName: `aistudio-${environment}-vpc-flow-logs-${
@@ -315,27 +326,34 @@ export class SharedVPC extends Construct {
       lifecycleRules: [
         {
           enabled: true,
-          expiration: cdk.Duration.days(environment === "prod" ? 90 : 30),
-          transitions:
-            environment === "prod"
-              ? [
-                  {
-                    storageClass: s3.StorageClass.INFREQUENT_ACCESS,
-                    transitionAfter: cdk.Duration.days(30),
-                  },
-                ]
-              : [],
+          expiration: cdk.Duration.days(isProd ? 90 : 30),
+          transitions: isProd
+            ? [
+                {
+                  storageClass: s3.StorageClass.INFREQUENT_ACCESS,
+                  transitionAfter: cdk.Duration.days(30),
+                },
+              ]
+            : [],
         },
       ],
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      removalPolicy:
-        environment === "prod"
-          ? cdk.RemovalPolicy.RETAIN
-          : cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: environment !== "prod",
+      removalPolicy: isProd
+        ? cdk.RemovalPolicy.RETAIN
+        : cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: !isProd,
     })
 
-    // VPC Flow Logs to S3
+    // Create explicit IAM role for flow logs with least-privilege permissions
+    const flowLogRole = new cdk.aws_iam.Role(this, "FlowLogRole", {
+      assumedBy: new cdk.aws_iam.ServicePrincipal("vpc-flow-logs.amazonaws.com"),
+      description: `IAM role for VPC flow logs in ${environment} environment`,
+    })
+
+    // Grant specific permissions to write flow logs to S3
+    flowLogBucket.grantWrite(flowLogRole, "vpc-flow-logs/*")
+
+    // VPC Flow Logs to S3 with explicit role
     new ec2.FlowLog(this, "VPCFlowLog", {
       resourceType: ec2.FlowLogResourceType.fromVpc(this.vpc),
       destination: ec2.FlowLogDestination.toS3(
@@ -348,17 +366,26 @@ export class SharedVPC extends Construct {
         ec2.FlowLogMaxAggregationInterval.TEN_MINUTES,
     })
 
-    // Optional: CloudWatch Logs for real-time analysis (more expensive, prod only)
-    if (environment === "prod") {
+    // Optional: CloudWatch Logs for real-time analysis (more expensive, prod/staging only)
+    if (isProd) {
       const logGroup = new logs.LogGroup(this, "FlowLogGroup", {
         logGroupName: `/aws/vpc/flowlogs/${environment}`,
         retention: logs.RetentionDays.ONE_WEEK,
         removalPolicy: cdk.RemovalPolicy.RETAIN,
       })
 
+      // Create IAM role for CloudWatch flow logs
+      const cwFlowLogRole = new cdk.aws_iam.Role(this, "CWFlowLogRole", {
+        assumedBy: new cdk.aws_iam.ServicePrincipal("vpc-flow-logs.amazonaws.com"),
+        description: `IAM role for VPC flow logs to CloudWatch in ${environment} environment`,
+      })
+
+      // Grant permissions to write to CloudWatch Logs
+      logGroup.grantWrite(cwFlowLogRole)
+
       new ec2.FlowLog(this, "VPCFlowLogCloudWatch", {
         resourceType: ec2.FlowLogResourceType.fromVpc(this.vpc),
-        destination: ec2.FlowLogDestination.toCloudWatchLogs(logGroup),
+        destination: ec2.FlowLogDestination.toCloudWatchLogs(logGroup, cwFlowLogRole),
         trafficType: ec2.FlowLogTrafficType.REJECT, // Only rejected traffic for alerts
       })
     }
@@ -401,17 +428,24 @@ export class SharedVPC extends Construct {
    * Add CloudWatch metrics for VPC monitoring.
    *
    * Creates a CloudWatch dashboard with:
-   * - NAT Gateway data transfer metrics
+   * - NAT Gateway data transfer metrics (prod/staging only)
    * - VPC Endpoint usage metrics
+   *
+   * Note: Metrics will populate after resources are deployed and generate traffic.
+   * Dashboard shows aggregated metrics across all NAT gateways and endpoints.
    */
   private addVpcMetrics(environment: string): void {
+    const isProd = this.isProduction(environment)
+
     // Custom CloudWatch dashboard for VPC metrics
     const dashboard = new cloudwatch.Dashboard(this, "VPCDashboard", {
       dashboardName: `${environment}-vpc-metrics`,
     })
 
-    // NAT Gateway metrics (if using NAT gateways)
-    if (environment !== "dev") {
+    // NAT Gateway metrics (for production/staging using NAT gateways)
+    // Note: Metrics are aggregated across all NAT gateways in the VPC
+    // Individual NAT gateway metrics will appear after deployment
+    if (isProd) {
       const natGatewayBytes = new cloudwatch.Metric({
         namespace: "AWS/NATGateway",
         metricName: "BytesOutToDestination",
@@ -428,19 +462,20 @@ export class SharedVPC extends Construct {
 
       dashboard.addWidgets(
         new cloudwatch.GraphWidget({
-          title: "NAT Gateway Data Transfer",
+          title: "NAT Gateway Data Transfer (All Gateways)",
           left: [natGatewayBytes],
           width: 12,
         }),
         new cloudwatch.GraphWidget({
-          title: "NAT Gateway Packets",
+          title: "NAT Gateway Packets (All Gateways)",
           left: [natGatewayPackets],
           width: 12,
         })
       )
     }
 
-    // VPC Endpoint metrics
+    // VPC Endpoint metrics (aggregated across all endpoints)
+    // Individual endpoint metrics will appear after deployment
     const vpcEndpointBytes = new cloudwatch.Metric({
       namespace: "AWS/PrivateLinkEndpoints",
       metricName: "BytesProcessed",
@@ -450,7 +485,7 @@ export class SharedVPC extends Construct {
 
     dashboard.addWidgets(
       new cloudwatch.GraphWidget({
-        title: "VPC Endpoint Data Transfer",
+        title: "VPC Endpoint Data Transfer (All Endpoints)",
         left: [vpcEndpointBytes],
         width: 12,
       })
