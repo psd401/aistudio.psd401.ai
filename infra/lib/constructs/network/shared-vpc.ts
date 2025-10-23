@@ -135,25 +135,22 @@ export class SharedVPC extends Construct {
   }
 
   /**
-   * Create cost-optimized NAT provider based on environment.
+   * Create NAT provider for all environments.
    *
-   * Development: Uses NAT instance (t3.nano) to save costs (~$5/month)
-   * Production/Staging: Uses managed NAT gateways for reliability ($45/month each)
+   * Uses managed NAT gateways for all environments (dev, staging, prod).
+   *
+   * Note: Previously used NAT instances for dev to save costs (~$5/month),
+   * but NAT instances require AMI lookups at synth time which don't work
+   * with the --no-lookups flag used in CI/CD pipelines.
+   *
+   * Cost: ~$45/month per NAT gateway (consistent across all environments)
+   * Benefit: Managed service, no AMI lookups, more reliable, consistent behavior
    */
   private createOptimizedNatProvider(
     environment: string
   ): ec2.NatProvider {
-    if (environment === "dev") {
-      // Use NAT instances for dev to save costs
-      return ec2.NatProvider.instance({
-        instanceType: ec2.InstanceType.of(
-          ec2.InstanceClass.T3,
-          ec2.InstanceSize.NANO
-        ),
-      })
-    }
-
-    // Use managed NAT gateways for production/staging reliability
+    // Use managed NAT gateways for all environments
+    // This avoids AMI lookup issues in CI/CD with --no-lookups flag
     return ec2.NatProvider.gateway()
   }
 
