@@ -11,6 +11,7 @@ import { DocumentProcessingStack } from '../lib/document-processing-stack';
 import { MonitoringStack } from '../lib/monitoring-stack';
 import { SchedulerStack } from '../lib/scheduler-stack';
 import { EmailNotificationStack } from '../lib/email-notification-stack';
+import { PowerTuningStack } from '../lib/power-tuning-stack';
 import { SecretValue } from 'aws-cdk-lib';
 
 const app = new cdk.App();
@@ -72,6 +73,15 @@ function getCallbackAndLogoutUrls(environment: string, baseDomain?: string): { c
 }
 
 // Dev environment
+
+// PowerTuning Stack - utility for Lambda optimization
+const devPowerTuningStack = new PowerTuningStack(app, 'AIStudio-PowerTuningStack-Dev', {
+  environment: 'dev',
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+cdk.Tags.of(devPowerTuningStack).add('Environment', 'Dev');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devPowerTuningStack).add(key, value));
+
 const devDbStack = new DatabaseStack(app, 'AIStudio-DatabaseStack-Dev', {
   environment: 'dev',
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },

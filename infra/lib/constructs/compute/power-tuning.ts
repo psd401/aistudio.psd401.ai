@@ -129,7 +129,7 @@ export class PowerTuningStateMachine extends Construct {
             powerValues = [128, 256, 512, 1024, 1536, 2048, 3008, 5120, 10240],
             num = 10,
             payload = {},
-            parallelInvocation = true,
+            parallelInvocation = false,
             strategy = 'balanced'
           } = event;
 
@@ -201,8 +201,32 @@ export class PowerTuningStateMachine extends Construct {
                 MemorySize: memorySize
               }));
 
-              // Wait for update to complete
-              await new Promise(resolve => setTimeout(resolve, 5000));
+              // Wait for update to complete by polling function state
+              let attempts = 0;
+              const maxAttempts = 60; // 60 attempts * 2s = 2 minutes max wait
+              while (attempts < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+                const config = await lambda.send(new GetFunctionConfigurationCommand({
+                  FunctionName: lambdaARN
+                }));
+
+                // Check if update is complete
+                if (config.State === 'Active' && config.LastUpdateStatus === 'Successful') {
+                  console.log('Function update completed successfully');
+                  break;
+                }
+
+                if (config.LastUpdateStatus === 'Failed') {
+                  throw new Error('Function update failed: ' + config.LastUpdateStatusReason);
+                }
+
+                attempts++;
+                console.log('Waiting for function update... (attempt ' + attempts + '/' + maxAttempts + ', state: ' + config.State + ', status: ' + config.LastUpdateStatus + ')');
+              }
+
+              if (attempts >= maxAttempts) {
+                throw new Error('Timeout waiting for function update to complete');
+              }
             }
 
             // Execute function multiple times
@@ -264,10 +288,28 @@ export class PowerTuningStateMachine extends Construct {
           } finally {
             // Restore original memory if changed
             if (originalMemory !== memorySize) {
+              console.log('Restoring original memory: ' + originalMemory + 'MB');
               await lambda.send(new UpdateFunctionConfigurationCommand({
                 FunctionName: lambdaARN,
                 MemorySize: originalMemory
               }));
+
+              // Wait for restore to complete
+              let attempts = 0;
+              const maxAttempts = 60;
+              while (attempts < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                const config = await lambda.send(new GetFunctionConfigurationCommand({
+                  FunctionName: lambdaARN
+                }));
+
+                if (config.State === 'Active' && config.LastUpdateStatus === 'Successful') {
+                  console.log('Function restored successfully');
+                  break;
+                }
+
+                attempts++;
+              }
             }
           }
         };
@@ -500,9 +542,10 @@ export class PowerTuningStateMachine extends Construct {
     })
 
     // Map state to execute function with different memory configurations
+    // maxConcurrency: 1 ensures sequential execution to avoid conflicts when updating Lambda config
     const executeMap = new sfn.Map(this, "ExecuteConfigurations", {
       itemsPath: "$.value",
-      maxConcurrency: 5,
+      maxConcurrency: 1,
       parameters: {
         "lambdaARN.$": "$.lambdaARN",
         "value.$": "$$.Map.Item.Value",
