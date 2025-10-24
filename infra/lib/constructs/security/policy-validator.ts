@@ -85,6 +85,12 @@ export class NoWildcardResourcesRule implements ValidationRule {
     "ec2:DescribeNetworkInterfaces", // VPC Lambda needs this
     "ec2:CreateNetworkInterface", // VPC Lambda needs this but should be conditioned
     "ec2:DeleteNetworkInterface",
+    // Textract doesn't support resource-level permissions (AWS limitation)
+    // See: https://docs.aws.amazon.com/textract/latest/dg/security_iam_service-with-iam.html
+    "textract:StartDocumentTextDetection",
+    "textract:StartDocumentAnalysis",
+    "textract:GetDocumentTextDetection",
+    "textract:GetDocumentAnalysis",
   ]
 
   public validate(policy: iam.PolicyDocument): ValidationResult {

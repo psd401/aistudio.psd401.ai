@@ -11,6 +11,7 @@ import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as path from 'path';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
+import { ServiceRoleFactory } from './constructs/security';
 
 export interface ProcessingStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
@@ -117,6 +118,56 @@ export class ProcessingStack extends cdk.Stack {
 
     // File Processor Lambda
     // PowerTuning Result (2025-10-24): 3008MB → 1024MB (66% reduction)
+
+    // Create secure role using ServiceRoleFactory
+    const fileProcessorRole = ServiceRoleFactory.createLambdaRole(this, 'FileProcessorRole', {
+      functionName: 'file-processor',
+      environment: props.environment,
+      region: this.region,
+      account: this.account,
+      vpcEnabled: false,
+      s3Buckets: [documentsBucketName],
+      dynamodbTables: [this.jobStatusTable.tableName],
+      sqsQueues: [this.embeddingQueue.queueArn],
+      secrets: [databaseSecretArn],
+      additionalPolicies: [
+        new iam.PolicyDocument({
+          statements: [
+            // RDS Data API permissions
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'rds-data:ExecuteStatement',
+                'rds-data:BatchExecuteStatement',
+                'rds-data:BeginTransaction',
+                'rds-data:CommitTransaction',
+                'rds-data:RollbackTransaction',
+              ],
+              resources: [databaseResourceArn],
+            }),
+            // Textract permissions - requires wildcard (AWS Textract limitation)
+            // See: https://docs.aws.amazon.com/textract/latest/dg/security_iam_service-with-iam.html
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'textract:StartDocumentTextDetection',
+                'textract:StartDocumentAnalysis',
+                'textract:GetDocumentTextDetection',
+                'textract:GetDocumentAnalysis',
+              ],
+              resources: ['*'],  // Required: Textract doesn't support resource-level permissions
+            }),
+            // Pass Textract service role
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['iam:PassRole'],
+              resources: [textractRole.roleArn],
+            }),
+          ],
+        }),
+      ],
+    });
+
     const fileProcessor = new lambda.Function(this, 'FileProcessor', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
@@ -136,6 +187,7 @@ export class ProcessingStack extends cdk.Stack {
         TEXTRACT_ROLE_ARN: textractRole.roleArn,
       },
       layers: [processingLayer],
+      role: fileProcessorRole,  // Use secure role from ServiceRoleFactory
     });
 
     // URL Processor Lambda
@@ -196,14 +248,12 @@ export class ProcessingStack extends cdk.Stack {
       new snsSubscriptions.LambdaSubscription(textractProcessor)
     );
 
-    // Grant permissions
-    documentsBucket.grantRead(fileProcessor);
-    this.jobStatusTable.grantReadWriteData(fileProcessor);
+    // Grant permissions (only for functions not yet migrated to ServiceRoleFactory)
+    // fileProcessor: Uses ServiceRoleFactory - permissions already included
     this.jobStatusTable.grantReadWriteData(urlProcessor);
-    this.embeddingQueue.grantSendMessages(fileProcessor);
     this.embeddingQueue.grantSendMessages(textractProcessor);
 
-    // Grant RDS Data API permissions
+    // Grant RDS Data API permissions to non-migrated functions
     const rdsDataApiPolicy = new iam.PolicyStatement({
       actions: [
         'rds-data:ExecuteStatement',
@@ -220,8 +270,7 @@ export class ProcessingStack extends cdk.Stack {
       resources: [databaseSecretArn],
     });
 
-    fileProcessor.addToRolePolicy(rdsDataApiPolicy);
-    fileProcessor.addToRolePolicy(secretsManagerPolicy);
+    // Apply to non-migrated functions
     urlProcessor.addToRolePolicy(rdsDataApiPolicy);
     urlProcessor.addToRolePolicy(secretsManagerPolicy);
     embeddingGenerator.addToRolePolicy(rdsDataApiPolicy);
@@ -229,7 +278,7 @@ export class ProcessingStack extends cdk.Stack {
     textractProcessor.addToRolePolicy(rdsDataApiPolicy);
     textractProcessor.addToRolePolicy(secretsManagerPolicy);
 
-    // Grant Textract permissions to file processor
+    // Grant Textract result retrieval permissions to textract processor
     const textractPolicy = new iam.PolicyStatement({
       actions: [
         'textract:StartDocumentTextDetection',
@@ -239,9 +288,6 @@ export class ProcessingStack extends cdk.Stack {
       ],
       resources: ['*'],
     });
-    fileProcessor.addToRolePolicy(textractPolicy);
-
-    // Grant Textract result retrieval permissions to textract processor
     textractProcessor.addToRolePolicy(textractPolicy);
 
     // SQS event source for file processor
