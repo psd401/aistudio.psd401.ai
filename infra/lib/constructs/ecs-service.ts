@@ -157,7 +157,9 @@ export class EcsServiceConstruct extends Construct {
     this.cluster = new ecs.Cluster(this, 'Cluster', {
       clusterName: `aistudio-${environment}`,
       vpc,
-      containerInsights: props.enableContainerInsights ?? true,
+      containerInsightsV2: (props.enableContainerInsights ?? true)
+        ? ecs.ContainerInsights.ENABLED
+        : ecs.ContainerInsights.DISABLED,
     });
 
     // ============================================================================
