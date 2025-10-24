@@ -68,3 +68,15 @@ export {
   ECSTaskRoleProps,
   ServiceRoleProps,
 } from "./security"
+
+// Observability constructs
+export {
+  ADOTInstrumentation,
+  ADOTInstrumentationProps,
+  InstrumentLambdaProps,
+  InstrumentECSProps,
+  IntelligentAlerting,
+  IntelligentAlertingProps,
+  ObservabilityDashboards,
+  ObservabilityDashboardsProps,
+} from "./observability"
