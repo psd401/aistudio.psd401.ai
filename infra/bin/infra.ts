@@ -13,6 +13,8 @@ import { SchedulerStack } from '../lib/scheduler-stack';
 import { EmailNotificationStack } from '../lib/email-notification-stack';
 import { PowerTuningStack } from '../lib/power-tuning-stack';
 import { SecretValue } from 'aws-cdk-lib';
+import { PermissionBoundaryConstruct } from '../lib/constructs/security';
+import { AccessAnalyzerStack } from '../lib/stacks/access-analyzer-stack';
 
 const app = new cdk.App();
 
@@ -22,8 +24,9 @@ const standardTags = {
   Owner: 'TSD Engineering',
 };
 
-// Get baseDomain from context first
+// Get configuration from context
 const baseDomain = app.node.tryGetContext('baseDomain');
+const alertEmail = app.node.tryGetContext('alertEmail');
 
 // Helper to get callback/logout URLs for any environment
 function getCallbackAndLogoutUrls(environment: string, baseDomain?: string): { callbackUrls: string[], logoutUrls: string[] } {
@@ -81,6 +84,26 @@ const devPowerTuningStack = new PowerTuningStack(app, 'AIStudio-PowerTuningStack
 });
 cdk.Tags.of(devPowerTuningStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devPowerTuningStack).add(key, value));
+
+// Permission Boundary Stack - must be deployed first before other stacks
+const devPermissionBoundaryStack = new cdk.Stack(app, 'AIStudio-PermissionBoundary-Dev', {
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+new PermissionBoundaryConstruct(devPermissionBoundaryStack, 'PermissionBoundary', {
+  environment: 'dev',
+});
+cdk.Tags.of(devPermissionBoundaryStack).add('Environment', 'Dev');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devPermissionBoundaryStack).add(key, value));
+
+// Access Analyzer Stack - continuous IAM compliance monitoring
+const devAccessAnalyzerStack = new AccessAnalyzerStack(app, 'AIStudio-AccessAnalyzer-Dev', {
+  config: {} as any, // Config not used by current implementation
+  environment: 'dev',
+  alertEmail,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+cdk.Tags.of(devAccessAnalyzerStack).add('Environment', 'Dev');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devAccessAnalyzerStack).add(key, value));
 
 const devDbStack = new DatabaseStack(app, 'AIStudio-DatabaseStack-Dev', {
   environment: 'dev',
@@ -288,8 +311,6 @@ if (baseDomain) {
 
 // Monitoring stacks - created after all other stacks for comprehensive monitoring
 // Optional: pass alertEmail context to enable email notifications
-const alertEmail = app.node.tryGetContext('alertEmail');
-
 const devMonitoringStack = new MonitoringStack(app, 'AIStudio-MonitoringStack-Dev', {
   environment: 'dev',
   alertEmail,
