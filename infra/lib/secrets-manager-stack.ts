@@ -76,11 +76,7 @@ export class SecretsManagerStack extends BaseStack {
    * Add CloudFormation outputs for easy reference
    */
   private addStackOutputs(): void {
-    new cdk.CfnOutput(this, "SecretCacheLayerArn", {
-      value: this.secretCacheLayer.layer.layerVersionArn,
-      description: "ARN of the Secret Cache Lambda Layer",
-      exportName: `${this.stackName}-SecretCacheLayerArn`,
-    })
+    // SecretCacheLayer construct already creates its own output with exportName
 
     new cdk.CfnOutput(this, "ComplianceDashboardUrl", {
       value: `https://console.aws.amazon.com/cloudwatch/deeplink.js?region=${this.region}#dashboards:name=${this.complianceAuditor.dashboard.dashboardName}`,
