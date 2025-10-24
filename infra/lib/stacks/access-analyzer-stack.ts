@@ -12,6 +12,8 @@ import { IEnvironmentConfig } from "../constructs/config/environment-config"
 
 export interface AccessAnalyzerStackProps extends cdk.StackProps {
   config: IEnvironmentConfig
+  environment: string
+  alertEmail?: string
 }
 
 /**
@@ -27,26 +29,26 @@ export class AccessAnalyzerStack extends cdk.Stack {
 
     // Create SNS topic for security alerts
     this.alertTopic = new sns.Topic(this, "SecurityAlertTopic", {
-      topicName: `aistudio-${props.config.environment}-security-alerts`,
+      topicName: `aistudio-${props.environment}-security-alerts`,
       displayName: "AI Studio Security Alerts",
     })
 
     // Add email subscription if configured
-    if (props.config.monitoring.alertEmail) {
+    if (props.alertEmail) {
       this.alertTopic.addSubscription(
-        new subscriptions.EmailSubscription(props.config.monitoring.alertEmail)
+        new subscriptions.EmailSubscription(props.alertEmail)
       )
     }
 
     // Create Access Analyzer
     this.analyzer = new accessanalyzer.CfnAnalyzer(this, "AccessAnalyzer", {
       type: "ACCOUNT",
-      analyzerName: `aistudio-${props.config.environment}-analyzer`,
+      analyzerName: `aistudio-${props.environment}-analyzer`,
       archiveRules: this.createArchiveRules(props),
       tags: [
         {
           key: "Environment",
-          value: props.config.environment,
+          value: props.environment,
         },
         {
           key: "Purpose",
@@ -120,8 +122,8 @@ export class AccessAnalyzerStack extends cdk.Stack {
       environment: {
         ANALYZER_ARN: this.analyzer.attrArn,
         SNS_TOPIC_ARN: this.alertTopic.topicArn,
-        AUTO_REMEDIATE: props.config.environment === "dev" ? "true" : "false",
-        ENVIRONMENT: props.config.environment,
+        AUTO_REMEDIATE: props.environment === "dev" ? "true" : "false",
+        ENVIRONMENT: props.environment,
       },
       description: "Automated remediation for IAM Access Analyzer findings",
     })
@@ -165,7 +167,7 @@ export class AccessAnalyzerStack extends cdk.Stack {
     )
 
     // Only grant write permissions in dev for auto-remediation
-    if (props.config.environment === "dev") {
+    if (props.environment === "dev") {
       remediationFunction.addToRolePolicy(
         new iam.PolicyStatement({
           effect: iam.Effect.ALLOW,
@@ -194,7 +196,7 @@ export class AccessAnalyzerStack extends cdk.Stack {
    */
   private createFindingsRule(props: AccessAnalyzerStackProps): void {
     new events.Rule(this, "FindingsRule", {
-      ruleName: `aistudio-${props.config.environment}-analyzer-findings`,
+      ruleName: `aistudio-${props.environment}-analyzer-findings`,
       description: "Trigger remediation on new Access Analyzer findings",
       eventPattern: {
         source: ["aws.access-analyzer"],
@@ -217,7 +219,7 @@ export class AccessAnalyzerStack extends cdk.Stack {
    */
   private createComplianceDashboard(props: AccessAnalyzerStackProps): void {
     const dashboard = new cloudwatch.Dashboard(this, "ComplianceDashboard", {
-      dashboardName: `IAM-Compliance-${props.config.environment}`,
+      dashboardName: `IAM-Compliance-${props.environment}`,
     })
 
     // Lambda metrics
@@ -295,7 +297,7 @@ export class AccessAnalyzerStack extends cdk.Stack {
   private createAlarms(props: AccessAnalyzerStackProps): void {
     // Alarm for new critical findings
     const criticalFindingsAlarm = new cloudwatch.Alarm(this, "CriticalFindingsAlarm", {
-      alarmName: `aistudio-${props.config.environment}-critical-findings`,
+      alarmName: `aistudio-${props.environment}-critical-findings`,
       alarmDescription: "Alert on new critical Access Analyzer findings",
       metric: new cloudwatch.Metric({
         namespace: "AIStudio/Security",
@@ -318,7 +320,7 @@ export class AccessAnalyzerStack extends cdk.Stack {
       this,
       "RemediationFailureAlarm",
       {
-        alarmName: `aistudio-${props.config.environment}-remediation-failures`,
+        alarmName: `aistudio-${props.environment}-remediation-failures`,
         alarmDescription: "Alert on remediation Lambda failures",
         metric: new cloudwatch.Metric({
           namespace: "AWS/Lambda",

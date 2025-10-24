@@ -1,6 +1,7 @@
 import * as iam from "aws-cdk-lib/aws-iam"
 import * as cdk from "aws-cdk-lib"
 import { Construct } from "constructs"
+import { Annotations } from "aws-cdk-lib"
 import { PolicyValidator } from "./policy-validator"
 import { Environment, SecurityLevel } from "./types"
 
@@ -96,10 +97,9 @@ export class BaseIAMRole extends Construct {
             // Throw for critical/high severity
             this.policyValidator.validate(policy)
           } else {
-            // Log warnings for medium/low severity
+            // Log warnings for medium/low severity using CDK Annotations
             result.violations.forEach((violation) => {
-              // eslint-disable-next-line no-console
-              console.warn(
+              Annotations.of(this).addWarning(
                 `[Policy ${index}] ${violation.severity.toUpperCase()}: ${violation.message}`
               )
             })
@@ -127,8 +127,8 @@ export class BaseIAMRole extends Construct {
       )
     } catch {
       // Permission boundary not yet created - this is OK during initial deployment
-      // eslint-disable-next-line no-console
-      console.warn(
+      // Use CDK Annotations to log warning during synthesis
+      Annotations.of(this).addWarning(
         `Permission boundary ${boundaryName} not found. Role will be created without boundary.`
       )
       return undefined
@@ -253,17 +253,6 @@ export class BaseIAMRole extends Construct {
     }
 
     this.role.addToPolicy(statement)
-  }
-
-  /**
-   * Grant permissions to this role
-   */
-  public grant(grantee: iam.IGrantable, ...actions: string[]): iam.Grant {
-    return iam.Grant.addToPrincipal({
-      grantee,
-      actions,
-      resourceArns: ["*"],
-    })
   }
 
   /**
