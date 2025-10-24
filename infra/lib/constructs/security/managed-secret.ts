@@ -209,18 +209,8 @@ export class ManagedSecret extends Construct {
     if (props.customRotationLambda) {
       // Use custom rotation function
       this.setupCustomRotation(props, props.customRotationLambda)
-    } else if (props.secretType === SecretType.DATABASE) {
-      // For database secrets, use built-in RDS rotation
-      // Note: This requires additional configuration with the database
-      // The rotation schedule is set but the actual rotation handler
-      // needs to be configured with the database instance
-      const schedule = props.rotationSchedule ?? this.getDefaultRotationSchedule(props.secretType)
-
-      this.secret.addRotationSchedule("RotationSchedule", {
-        automaticallyAfter: schedule,
-      })
     } else {
-      // For other secret types, create custom rotation lambda
+      // For all secret types, create custom rotation lambda
       this.rotationLambda = this.createRotationLambda(props)
       this.setupCustomRotation(props, this.rotationLambda)
     }
@@ -233,8 +223,11 @@ export class ManagedSecret extends Construct {
     // Get the path to the rotation Lambda code based on secret type
     const rotationCodePath = this.getRotationCodePath(props.secretType)
 
+    // Sanitize secret name for Lambda function name (replace / with -)
+    const sanitizedSecretName = props.secretName.replace(/\//g, "-")
+
     const rotationFunction = new lambda.Function(this, "RotationFunction", {
-      functionName: `${this.projectName}-${this.deploymentEnvironment}-${props.secretName}-rotation`,
+      functionName: `${this.projectName}-${this.deploymentEnvironment}-${sanitizedSecretName}-rotation`,
       runtime: lambda.Runtime.PYTHON_3_11,
       handler: "index.handler",
       code: lambda.Code.fromAsset(rotationCodePath),
@@ -242,7 +235,7 @@ export class ManagedSecret extends Construct {
       memorySize: 256,
       architecture: lambda.Architecture.ARM_64,
       logGroup: new logs.LogGroup(this, "RotationLogGroup", {
-        logGroupName: `/aws/lambda/${this.projectName}-${this.deploymentEnvironment}-${props.secretName}-rotation`,
+        logGroupName: `/aws/lambda/${this.projectName}-${this.deploymentEnvironment}-${sanitizedSecretName}-rotation`,
         retention: props.config.monitoring.logRetention,
         removalPolicy: this.getRemovalPolicy(props),
       }),

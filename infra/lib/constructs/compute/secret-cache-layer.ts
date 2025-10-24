@@ -54,28 +54,12 @@ export class SecretCacheLayer extends Construct {
   constructor(scope: Construct, id: string, props: SecretCacheLayerProps = {}) {
     super(scope, id)
 
-    const layerPath = path.join(__dirname, "../../../lambdas/layers/secret-cache")
+    // Point directly to the nodejs directory which contains the pre-built layer
+    // The layer must already be built (npm install && npm run build) before deployment
+    const layerPath = path.join(__dirname, "../../../lambdas/layers/secret-cache/nodejs")
 
     this.layer = new lambda.LayerVersion(this, "Layer", {
-      code: lambda.Code.fromAsset(layerPath, {
-        bundling: {
-          image: lambda.Runtime.NODEJS_20_X.bundlingImage,
-          command: [
-            "bash",
-            "-c",
-            [
-              "cd nodejs",
-              "npm ci --production",
-              "npm run build",
-              "mkdir -p /asset-output/nodejs/node_modules",
-              "cp -r node_modules/* /asset-output/nodejs/node_modules/",
-              "cp index.js /asset-output/nodejs/",
-              "cp index.d.ts /asset-output/nodejs/",
-              "cp package.json /asset-output/nodejs/",
-            ].join(" && "),
-          ],
-        },
-      }),
+      code: lambda.Code.fromAsset(layerPath),
       compatibleRuntimes:
         props.compatibleRuntimes || [lambda.Runtime.NODEJS_18_X, lambda.Runtime.NODEJS_20_X],
       description: props.description || "Secret cache layer for AWS Lambda",

@@ -8,6 +8,7 @@ export interface BaseStackProps extends cdk.StackProps {
   config: IEnvironmentConfig
   projectName?: string
   owner?: string
+  alertEmail?: string
 }
 
 export abstract class BaseStack extends cdk.Stack {

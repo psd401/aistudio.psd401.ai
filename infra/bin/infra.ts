@@ -12,9 +12,11 @@ import { MonitoringStack } from '../lib/monitoring-stack';
 import { SchedulerStack } from '../lib/scheduler-stack';
 import { EmailNotificationStack } from '../lib/email-notification-stack';
 import { PowerTuningStack } from '../lib/power-tuning-stack';
+import { SecretsManagerStack } from '../lib/secrets-manager-stack';
 import { SecretValue } from 'aws-cdk-lib';
 import { PermissionBoundaryConstruct } from '../lib/constructs/security';
 import { AccessAnalyzerStack } from '../lib/stacks/access-analyzer-stack';
+import { EnvironmentConfig } from '../lib/constructs/config/environment-config';
 
 const app = new cdk.App();
 
@@ -105,6 +107,16 @@ const devAccessAnalyzerStack = new AccessAnalyzerStack(app, 'AIStudio-AccessAnal
 cdk.Tags.of(devAccessAnalyzerStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devAccessAnalyzerStack).add(key, value));
 
+// Secrets Manager Stack - centralized secrets management
+const devSecretsManagerStack = new SecretsManagerStack(app, 'AIStudio-SecretsManagerStack-Dev', {
+  deploymentEnvironment: 'dev',
+  config: EnvironmentConfig.get('dev'),
+  alertEmail,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+cdk.Tags.of(devSecretsManagerStack).add('Environment', 'Dev');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devSecretsManagerStack).add(key, value));
+
 const devDbStack = new DatabaseStack(app, 'AIStudio-DatabaseStack-Dev', {
   environment: 'dev',
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
@@ -185,6 +197,16 @@ if (devEmailDomain) {
 }
 
 // Prod environment
+// Secrets Manager Stack - centralized secrets management
+const prodSecretsManagerStack = new SecretsManagerStack(app, 'AIStudio-SecretsManagerStack-Prod', {
+  deploymentEnvironment: 'prod',
+  config: EnvironmentConfig.get('prod'),
+  alertEmail,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+cdk.Tags.of(prodSecretsManagerStack).add('Environment', 'Prod');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodSecretsManagerStack).add(key, value));
+
 const prodDbStack = new DatabaseStack(app, 'AIStudio-DatabaseStack-Prod', {
   environment: 'prod',
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
