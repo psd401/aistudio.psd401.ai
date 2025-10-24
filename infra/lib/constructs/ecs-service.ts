@@ -11,6 +11,7 @@ import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cloudwatch_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as autoscaling from 'aws-cdk-lib/aws-applicationautoscaling';
 
 export interface EcsServiceConstructProps {
   vpc: ec2.IVpc;
@@ -18,6 +19,20 @@ export interface EcsServiceConstructProps {
   documentsBucketName: string;
   enableContainerInsights?: boolean;
   enableFargateSpot?: boolean;
+  /**
+   * Percentage of tasks to run on Fargate Spot (0-100).
+   * Only applies when enableFargateSpot is true.
+   * For production, recommended: 50 (mixed strategy)
+   * For dev/staging, recommended: 100 (maximum savings)
+   * @default 100 for dev, 50 for prod
+   */
+  spotRatio?: number;
+  /**
+   * Enable scheduled scaling for predictable traffic patterns.
+   * Scales up during business hours, down after hours.
+   * @default true for prod, false for dev
+   */
+  enableScheduledScaling?: boolean;
   /**
    * If false, HTTP listener will not be created automatically.
    * This allows the parent stack to configure HTTPS and HTTP->HTTPS redirect.
@@ -351,7 +366,7 @@ export class EcsServiceConstruct extends Construct {
     const containerImage = props.dockerImageSource === 'fromEcrRepository'
       ? ecs.ContainerImage.fromEcrRepository(this.repository, 'latest')
       : ecs.ContainerImage.fromAsset(props.dockerfilePath || '../', {
-          file: 'Dockerfile',
+          file: 'Dockerfile.graviton', // Use Graviton-optimized Dockerfile for ARM64
           platform: ecr_assets.Platform.LINUX_ARM64, // Match runtimePlatform
           exclude: [
             'infra/',         // Exclude CDK infrastructure code
@@ -494,21 +509,7 @@ export class EcsServiceConstruct extends Construct {
       securityGroups: [ecsSecurityGroup],
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC }, // Public subnets for internet access (Cognito auth requires internet)
       assignPublicIp: true, // CRITICAL: Tasks need public IPs to reach internet via internet gateway
-      capacityProviderStrategies: props.enableFargateSpot && environment === 'dev'
-        ? [
-            {
-              capacityProvider: 'FARGATE_SPOT',
-              weight: 1,
-              base: 0,
-            },
-          ]
-        : [
-            {
-              capacityProvider: 'FARGATE',
-              weight: 1,
-              base: 1,
-            },
-          ],
+      capacityProviderStrategies: this.createCapacityProviderStrategy(environment, props),
       circuitBreaker: {
         rollback: true, // Safe with fromAsset - image exists before service creation
       },
@@ -577,6 +578,11 @@ export class EcsServiceConstruct extends Construct {
       scaleOutCooldown: cdk.Duration.seconds(60),
     });
 
+    // Scheduled scaling for production (optional, controlled by prop)
+    if (props.enableScheduledScaling && environment === 'prod') {
+      this.addScheduledScaling(scaling);
+    }
+
     // ============================================================================
     // Outputs and SSM Parameters
     // ============================================================================
@@ -633,6 +639,95 @@ export class EcsServiceConstruct extends Construct {
       value: this.taskRole.roleArn,
       description: 'ECS Task Role ARN',
       exportName: `${environment}-ecs-EcsTaskRoleArn`,
+    });
+  }
+
+  /**
+   * Create optimized capacity provider strategy based on environment and configuration
+   */
+  private createCapacityProviderStrategy(
+    environment: string,
+    props: EcsServiceConstructProps
+  ): ecs.CapacityProviderStrategy[] {
+    // If Fargate Spot not enabled, use on-demand only
+    if (!props.enableFargateSpot) {
+      return [
+        {
+          capacityProvider: 'FARGATE',
+          base: 1,
+          weight: 1,
+        },
+      ];
+    }
+
+    // Determine spot ratio (default: 100 for dev, 50 for prod)
+    const spotRatio = props.spotRatio ?? (environment === 'prod' ? 50 : 100);
+
+    if (environment === 'prod') {
+      // Production: Mixed strategy for reliability
+      // Base capacity on-demand, burst capacity on Spot
+      return [
+        {
+          capacityProvider: 'FARGATE',
+          base: 2, // Always keep 2 tasks on-demand for stability
+          weight: 100 - spotRatio,
+        },
+        {
+          capacityProvider: 'FARGATE_SPOT',
+          weight: spotRatio,
+        },
+      ];
+    } else {
+      // Dev/Staging: Maximize Spot usage for cost savings
+      return [
+        {
+          capacityProvider: 'FARGATE_SPOT',
+          base: 1,
+          weight: spotRatio,
+        },
+        {
+          capacityProvider: 'FARGATE',
+          weight: 100 - spotRatio, // Fallback only if Spot unavailable
+        },
+      ];
+    }
+  }
+
+  /**
+   * Add scheduled scaling for predictable traffic patterns
+   */
+  private addScheduledScaling(scaling: ecs.ScalableTaskCount): void {
+    // Scale up before business hours (Mon-Fri 7:30 AM PST)
+    scaling.scaleOnSchedule('MorningScaleUp', {
+      schedule: autoscaling.Schedule.cron({
+        hour: '15', // 7:30 AM PST = 3:30 PM UTC (PST is UTC-8)
+        minute: '30',
+        weekDay: 'MON-FRI',
+      }),
+      minCapacity: 4,
+      maxCapacity: 20,
+    });
+
+    // Scale down after business hours (8:00 PM PST)
+    scaling.scaleOnSchedule('EveningScaleDown', {
+      schedule: autoscaling.Schedule.cron({
+        hour: '4', // 8:00 PM PST = 4:00 AM UTC next day
+        minute: '0',
+        weekDay: 'TUE-SAT', // Next day in UTC
+      }),
+      minCapacity: 2,
+      maxCapacity: 10,
+    });
+
+    // Weekend scaling (lower capacity)
+    scaling.scaleOnSchedule('WeekendScaling', {
+      schedule: autoscaling.Schedule.cron({
+        hour: '8', // Midnight PST = 8:00 AM UTC
+        minute: '0',
+        weekDay: 'SAT',
+      }),
+      minCapacity: 1,
+      maxCapacity: 5,
     });
   }
 

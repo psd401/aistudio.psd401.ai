@@ -82,7 +82,9 @@ export class FrontendStackEcs extends cdk.Stack {
       environment,
       documentsBucketName,
       enableContainerInsights: true,
-      enableFargateSpot: environment === 'dev', // Cost optimization for dev
+      enableFargateSpot: true, // Enable Fargate Spot for cost optimization
+      spotRatio: environment === 'prod' ? 50 : 100, // 50% Spot in prod, 100% in dev
+      enableScheduledScaling: environment === 'prod', // Scheduled scaling for production
       createHttpListener: false, // We'll create HTTP listener with redirect below
       // Docker image configuration
       dockerImageSource: 'fromAsset', // CDK builds and pushes image automatically
