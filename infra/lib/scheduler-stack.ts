@@ -66,13 +66,14 @@ export class SchedulerStack extends cdk.Stack {
     });
 
     // Lambda function for executing scheduled tasks
+    // PowerTuning Result (2025-10-24): 2048MB → 512MB (75% reduction)
     this.scheduleExecutorFunction = new lambda.Function(this, 'ScheduleExecutor', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'dist/index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/schedule-executor')),
       functionName: `aistudio-${props.environment}-schedule-executor`,
       timeout: cdk.Duration.minutes(15), // Full Lambda timeout for long-running Assistant Architect executions
-      memorySize: 2048, // 2GB for AI SDK operations
+      memorySize: 512, // Optimized via PowerTuning from 2GB
       environment: {
         NODE_OPTIONS: '--enable-source-maps',
         DATABASE_RESOURCE_ARN: databaseResourceArn,

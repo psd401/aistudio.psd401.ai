@@ -116,12 +116,13 @@ export class ProcessingStack extends cdk.Stack {
     });
 
     // File Processor Lambda
+    // PowerTuning Result (2025-10-24): 3008MB → 1024MB (66% reduction)
     const fileProcessor = new lambda.Function(this, 'FileProcessor', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/file-processor')),
       timeout: cdk.Duration.minutes(10),
-      memorySize: 3008, // 3GB (adjusted to force update)
+      memorySize: 1024, // Optimized via PowerTuning from 3GB
       environment: {
         NODE_OPTIONS: '--enable-source-maps',
         DOCUMENTS_BUCKET_NAME: documentsBucket.bucketName,

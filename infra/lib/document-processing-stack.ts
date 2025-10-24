@@ -229,13 +229,14 @@ export class DocumentProcessingStack extends cdk.Stack {
       retryAttempts: 2,
     });
 
-    // High-memory Lambda processor (10GB memory, 30 min timeout)
+    // High-memory Lambda processor
+    // PowerTuning Result (2025-10-24): 10240MB → 1536MB (85% reduction)
     this.highMemoryProcessor = new lambda.Function(this, 'HighMemoryProcessor', {
       functionName: `AIStudio-DocumentProcessor-HighMemory-${environment}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'dist/index.handler',
       code: lambda.Code.fromAsset('lambdas/document-processor-v2'),
-      memorySize: 10240, // 10GB for large file processing
+      memorySize: 1536, // Optimized via PowerTuning from 10GB
       timeout: cdk.Duration.minutes(15), // Lambda max timeout is 15 minutes
       role: processorRole,
       environment: {
