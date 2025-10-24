@@ -150,6 +150,10 @@ export class AccessAnalyzerStack extends cdk.Stack {
     )
 
     // Add read permissions for analyzing policies
+    // Note: Wildcard resource required because Access Analyzer findings can reference
+    // any IAM role, S3 bucket, or KMS key in the account. We cannot predict which
+    // resources will have security findings. This is read-only access for investigation.
+    // Consider adding tag-based conditions in the future: {"aws:ResourceTag/ManagedBy": "BaseIAMRole"}
     remediationFunction.addToRolePolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
@@ -167,6 +171,11 @@ export class AccessAnalyzerStack extends cdk.Stack {
     )
 
     // Only grant write permissions in dev for auto-remediation
+    // IMPORTANT: Tag-based condition may not work for all IAM actions.
+    // Some IAM operations (like DeleteRolePolicy) do NOT support resource tag conditions.
+    // The Python Lambda includes explicit tag checking as a fallback to prevent
+    // accidental modification of production resources.
+    // Reference: https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_actions-resources-contextkeys.html
     if (props.environment === "dev") {
       remediationFunction.addToRolePolicy(
         new iam.PolicyStatement({

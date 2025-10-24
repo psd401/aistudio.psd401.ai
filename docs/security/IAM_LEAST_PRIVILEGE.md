@@ -118,15 +118,38 @@ Permission boundaries set maximum permissions that IAM roles can have, preventin
 #### Environment-Specific Boundaries
 
 **Development (`dev-boundary.json`)**
-- Allows broad service access for development flexibility
-- Blocks IAM modifications, billing access, organization changes
-- Restricts to us-east-1 and us-west-2 regions
+
+The development boundary allows wildcard permissions for several AWS services to support rapid development:
+
+```json
+{
+  "Action": ["s3:*", "dynamodb:*", "lambda:*", "logs:*", "cloudwatch:*", "ecs:*", "sqs:*", "sns:*"],
+  "Resource": "*"
+}
+```
+
+**Rationale for broad dev permissions:**
+- **Rapid Development**: Developers need freedom to experiment and iterate without permission roadblocks
+- **Lower Risk**: Dev environment has no production data or critical resources
+- **Learning & Testing**: Developers need to test various AWS features and configurations
+- **Cost Optimization**: Temporary resources are frequently created and destroyed
+
+**Guardrails in dev boundary:**
+- ✅ All IAM operations (CreateRole, AttachPolicy, etc.) are explicitly DENIED
+- ✅ AWS billing and cost explorer access is DENIED
+- ✅ All AWS Organizations operations are DENIED
+- ✅ Most services limited to us-east-1 and us-west-2 regions
+
+**Review Schedule:**
+- **Quarterly**: Analyze CloudTrail logs to identify unused permissions and tightening opportunities
+- **Annual**: Comprehensive security audit of dev boundary permissions
 
 **Production (`prod-boundary.json`)**
-- Restrictive permissions with specific actions only
+- Restrictive permissions with specific actions only (no wildcards)
 - Denies dangerous operations (delete cluster, terminate instances)
 - Requires MFA for sensitive operations
 - Strict region restrictions
+- Tag-based conditions enforce governance
 
 #### Deployment
 
@@ -174,6 +197,28 @@ The remediation Lambda automatically:
 5. **Updates findings** in Access Analyzer
 
 **Auto-remediation is enabled only in `dev` environment** to prevent accidental production changes.
+
+#### Tag Condition Limitations
+
+**Important**: Not all IAM actions support resource tag conditions. For example, `iam:DeleteRolePolicy` may not respect tag-based conditions in IAM policies.
+
+The Access Analyzer stack uses this condition:
+```typescript
+conditions: {
+  StringEquals: {
+    "aws:ResourceTag/Environment": "dev"
+  }
+}
+```
+
+**Defense-in-depth approach:**
+1. **IAM Policy Condition**: First layer of protection (may not work for all IAM actions)
+2. **Lambda Code Validation**: Explicit tag checking in Python code as fallback
+3. **Environment Variable**: Auto-remediation only enabled when `AUTO_REMEDIATE=true`
+
+The remediation Lambda includes explicit tag checking to prevent accidental modification of production resources even if the IAM policy condition fails to restrict access.
+
+**Reference**: [AWS IAM Condition Keys Documentation](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_actions-resources-contextkeys.html)
 
 ## Migration Strategy
 

@@ -163,6 +163,11 @@ def remediate_finding(finding: Dict[str, Any]) -> Dict[str, Any]:
 def remediate_iam_role(finding: Dict[str, Any]) -> Dict[str, Any]:
     """
     Remediate overly permissive IAM role
+
+    IMPORTANT: This function includes explicit tag checking as a fallback because
+    some IAM actions (like DeleteRolePolicy) do NOT support resource tag conditions
+    in IAM policies. This code-level validation ensures we only modify dev resources
+    even if the IAM policy condition fails to restrict access.
     """
     resource_arn = finding.get('resource')
     role_name = resource_arn.split('/')[-1]
@@ -171,7 +176,8 @@ def remediate_iam_role(finding: Dict[str, Any]) -> Dict[str, Any]:
     response = iam_client.get_role(RoleName=role_name)
     role = response['Role']
 
-    # Check if role has our management tag
+    # EXPLICIT TAG CHECK - Fallback for IAM actions that don't support tag conditions
+    # This prevents accidental modification of production resources
     tags = {tag['Key']: tag['Value'] for tag in role.get('Tags', [])}
 
     if tags.get('ManagedBy') != 'BaseIAMRole':
