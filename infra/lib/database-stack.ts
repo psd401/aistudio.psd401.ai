@@ -23,8 +23,8 @@ export interface DatabaseStackProps extends cdk.StackProps {
 export class DatabaseStack extends cdk.Stack {
   public readonly databaseResourceArn: string;
   public readonly databaseSecretArn: string;
-  public readonly cluster: rds.DatabaseCluster;
-  
+  public readonly cluster: rds.IDatabaseCluster;
+
   constructor(scope: Construct, id: string, props: DatabaseStackProps) {
     super(scope, id, props);
 
@@ -41,12 +41,12 @@ export class DatabaseStack extends cdk.Stack {
       description: 'Allow inbound PostgreSQL',
       allowAllOutbound: true,
     });
-    
+
     // For development, allow PostgreSQL access from anywhere (you should restrict this to your IP)
     if (props.environment === 'dev') {
       dbSg.addIngressRule(
-        ec2.Peer.anyIpv4(), 
-        ec2.Port.tcp(5432), 
+        ec2.Peer.anyIpv4(),
+        ec2.Port.tcp(5432),
         'Allow PostgreSQL access from anywhere (DEV ONLY)'
       );
       // Better practice: restrict to your IP
@@ -54,8 +54,8 @@ export class DatabaseStack extends cdk.Stack {
     } else {
       // Production: only allow from within VPC
       dbSg.addIngressRule(
-        ec2.Peer.ipv4(vpc.vpcCidrBlock), 
-        ec2.Port.tcp(5432), 
+        ec2.Peer.ipv4(vpc.vpcCidrBlock),
+        ec2.Port.tcp(5432),
         'Allow PostgreSQL access from VPC'
       );
     }
@@ -70,217 +70,302 @@ export class DatabaseStack extends cdk.Stack {
       },
     });
 
-    // Aurora Serverless v2 cluster (using only writer/readers, no instances/instanceProps)
-    this.cluster = new rds.DatabaseCluster(this, 'AuroraCluster', {
-      engine: rds.DatabaseClusterEngine.auroraPostgres({ version: rds.AuroraPostgresEngineVersion.VER_15_3 }),
-      credentials: rds.Credentials.fromSecret(dbSecret),
-      defaultDatabaseName: 'aistudio',
-      writer: rds.ClusterInstance.serverlessV2('Writer', {
-        scaleWithWriter: true,
-        // Note: publiclyAccessible requires the DB to be in public subnets
-        // We'll keep it in private subnets and use Data API instead
-      }),
-      readers: props.environment === 'prod'
-        ? [rds.ClusterInstance.serverlessV2('Reader', {
-            scaleWithWriter: true,
-          })]
-        : [],
-      serverlessV2MinCapacity: props.environment === 'prod' ? 2 : 0.5,
-      serverlessV2MaxCapacity: props.environment === 'prod' ? 8 : 2,
-      storageEncrypted: true,
-      backup: {
-        retention: cdk.Duration.days(props.environment === 'prod' ? 7 : 1),
-      },
-      removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
-      deletionProtection: props.environment === 'prod',
-      cloudwatchLogsExports: ['postgresql'],
-      vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
-      securityGroups: [dbSg],
-      enableDataApi: true,
-    });
+    // Check if we should restore from snapshot (for one-time testing/migration)
+    const snapshotId = this.node.tryGetContext('snapshotIdentifier');
+    const restoreFromSnapshot = snapshotId !== undefined;
 
-    // RDS Proxy
-    const proxy = this.cluster.addProxy('RdsProxy', {
-      secrets: [dbSecret],
-      vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
-      securityGroups: [dbSg],
-      requireTLS: true,
-      debugLogging: props.environment !== 'prod',
-    });
+    if (restoreFromSnapshot) {
+      // ==================================================================
+      // SNAPSHOT RESTORATION PATH (One-time operation for testing)
+      // ==================================================================
+      // Use L1 CfnDBCluster to restore from snapshot
+      // Note: Snapshot already contains schema and data, so db-init Lambda will be skipped
 
-    // Add cost optimization features
-    new AuroraCostOptimizer(this, 'CostOptimizer', {
-      cluster: this.cluster,
-      environment: props.environment,
-      // Dev: Aggressive auto-pause for maximum savings
-      ...(props.environment === 'dev' && {
-        enableAutoPause: true,
-        idleMinutesBeforePause: 30,
-        enableScheduledScaling: false,
-      }),
-      // Prod: Predictive scaling only, never pause
-      // Business hours: 7am-5pm Pacific Time (M-F)
-      // Note: EventBridge uses UTC. Pacific Time = UTC-8 (PST) or UTC-7 (PDT)
-      // 7am PT = 3pm UTC (PST) / 2pm UTC (PDT) - will shift 1 hour with DST
-      // 5pm PT = 1am UTC next day (PST) / 12am UTC (PDT)
-      // DST shift is acceptable: becomes 6am-4pm PT during winter months
-      ...(props.environment === 'prod' && {
-        enableAutoPause: false,
-        enableScheduledScaling: true,
-        businessHours: {
-          scaleUpHour: 15,  // 7am Pacific Time (PST) / 6am during PDT
-          scaleDownHour: 1,  // 5pm Pacific Time (PST) / 4pm during PDT
-          daysOfWeek: 'MON-FRI',  // Weekdays only, weekends use lower capacity
+      // Get isolated subnet IDs for the cluster
+      const isolatedSubnets = vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_ISOLATED });
+
+      // Create subnet group for the cluster
+      const subnetGroup = new rds.CfnDBSubnetGroup(this, 'DbSubnetGroup', {
+        dbSubnetGroupDescription: `Subnet group for ${props.environment} Aurora cluster (restored from snapshot)`,
+        subnetIds: isolatedSubnets.subnetIds,
+        dbSubnetGroupName: `aistudio-${props.environment}-subnet-group`,
+      });
+
+      // Create cluster from snapshot using L1 construct
+      const cfnCluster = new rds.CfnDBCluster(this, 'AuroraCluster', {
+        snapshotIdentifier: snapshotId,
+        engine: 'aurora-postgresql',
+        engineVersion: '15.12', // Match snapshot version
+        dbClusterIdentifier: `aistudio-${props.environment}-cluster`,
+        serverlessV2ScalingConfiguration: {
+          minCapacity: props.environment === 'prod' ? 2 : 0.5,
+          maxCapacity: props.environment === 'prod' ? 8 : 2,
         },
-        scaling: {
-          businessHoursMin: 2.0,  // M-F 7am-5pm PT: 2-8 ACU
-          businessHoursMax: 8.0,
-          offHoursMin: 1.0,       // Nights and weekends: 1-4 ACU
-          offHoursMax: 4.0,
+        enableHttpEndpoint: true, // Enable Data API
+        storageEncrypted: true,
+        enableCloudwatchLogsExports: ['postgresql'],
+        vpcSecurityGroupIds: [dbSg.securityGroupId],
+        dbSubnetGroupName: subnetGroup.dbSubnetGroupName,
+        backupRetentionPeriod: props.environment === 'prod' ? 7 : 1,
+        deletionProtection: props.environment === 'prod',
+        // Note: masterUsername and masterUserPassword are not needed for snapshot restoration
+      });
+      cfnCluster.addDependency(subnetGroup);
+
+      // Create writer instance
+      const cfnWriter = new rds.CfnDBInstance(this, 'Writer', {
+        dbInstanceIdentifier: `aistudio-${props.environment}-writer`,
+        dbClusterIdentifier: cfnCluster.ref,
+        dbInstanceClass: 'db.serverless',
+        engine: 'aurora-postgresql',
+        enablePerformanceInsights: props.environment === 'prod',
+      });
+      cfnWriter.addDependency(cfnCluster);
+
+      // Import as IDatabaseCluster for compatibility with existing code
+      this.cluster = rds.DatabaseCluster.fromDatabaseClusterAttributes(this, 'ImportedCluster', {
+        clusterIdentifier: cfnCluster.ref,
+        clusterEndpointAddress: cfnCluster.attrEndpointAddress,
+        port: cfnCluster.attrEndpointPort ? cdk.Token.asNumber(cfnCluster.attrEndpointPort) : 5432,
+        securityGroups: [dbSg],
+        readerEndpointAddress: cfnCluster.attrReadEndpointAddress,
+      });
+
+      this.databaseResourceArn = cfnCluster.attrDbClusterArn;
+      this.databaseSecretArn = dbSecret.secretArn;
+
+    } else {
+      // ==================================================================
+      // NORMAL PATH - Fresh cluster creation
+      // ==================================================================
+      this.cluster = new rds.DatabaseCluster(this, 'AuroraCluster', {
+        clusterIdentifier: `aistudio-${props.environment}-cluster`,
+        engine: rds.DatabaseClusterEngine.auroraPostgres({ version: rds.AuroraPostgresEngineVersion.VER_15_12 }),
+        credentials: rds.Credentials.fromSecret(dbSecret),
+        defaultDatabaseName: 'aistudio',
+        writer: rds.ClusterInstance.serverlessV2('Writer', {
+          scaleWithWriter: true,
+          // Note: publiclyAccessible requires the DB to be in public subnets
+          // We'll keep it in private subnets and use Data API instead
+        }),
+        readers: props.environment === 'prod'
+          ? [rds.ClusterInstance.serverlessV2('Reader', {
+              scaleWithWriter: true,
+            })]
+          : [],
+        serverlessV2MinCapacity: props.environment === 'prod' ? 2 : 0.5,
+        serverlessV2MaxCapacity: props.environment === 'prod' ? 8 : 2,
+        storageEncrypted: true,
+        backup: {
+          retention: cdk.Duration.days(props.environment === 'prod' ? 7 : 1),
         },
-      }),
-    });
+        removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+        deletionProtection: props.environment === 'prod',
+        cloudwatchLogsExports: ['postgresql'],
+        vpc,
+        vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+        securityGroups: [dbSg],
+        enableDataApi: true,
+      });
 
-    // Add cost monitoring dashboard
-    new AuroraCostDashboard(this, 'CostDashboard', {
-      cluster: this.cluster,
-      environment: props.environment,
-    });
+      this.databaseResourceArn = this.cluster.clusterArn;
+      this.databaseSecretArn = dbSecret.secretArn;
+    }
 
-    // Create log group for database init Lambda
-    const dbInitLogGroup = new logs.LogGroup(this, 'DbInitLogGroup', {
-      logGroupName: `/aws/lambda/db-init-${props.environment}`,
-      retention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
-    });
+    // RDS Proxy (skip for snapshot restoration as imported cluster doesn't support addProxy)
+    let proxy: rds.IDatabaseProxy | undefined;
+    if (!restoreFromSnapshot && this.cluster instanceof rds.DatabaseCluster) {
+      proxy = this.cluster.addProxy('RdsProxy', {
+        secrets: [dbSecret],
+        vpc,
+        vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+        securityGroups: [dbSg],
+        requireTLS: true,
+        debugLogging: props.environment !== 'prod',
+      });
+    }
 
-    // Database initialization Lambda
-    // Note: Lambda doesn't need to be in VPC since it uses RDS Data API
-    const dbInitLambda = new lambda.Function(this, 'DbInitLambda', {
-      runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../database/lambda'), {
-        bundling: {
-          image: lambda.Runtime.NODEJS_20_X.bundlingImage,
-          command: [
-            'bash', '-c',
-            'npm install && npm run build && cp -r ../schema dist/ && cp -r dist/* /asset-output/'
-          ],
-          environment: {
-            NPM_CONFIG_CACHE: '/tmp/.npm',
+    // Add cost optimization features (skip for snapshot restoration as AuroraCostOptimizer requires DatabaseCluster)
+    if (!restoreFromSnapshot && this.cluster instanceof rds.DatabaseCluster) {
+      new AuroraCostOptimizer(this, 'CostOptimizer', {
+        cluster: this.cluster,
+        environment: props.environment,
+        // Dev: Aggressive auto-pause for maximum savings
+        ...(props.environment === 'dev' && {
+          enableAutoPause: true,
+          idleMinutesBeforePause: 30,
+          enableScheduledScaling: false,
+        }),
+        // Prod: Predictive scaling only, never pause
+        // Business hours: 7am-5pm Pacific Time (M-F)
+        // Note: EventBridge uses UTC. Pacific Time = UTC-8 (PST) or UTC-7 (PDT)
+        // 7am PT = 3pm UTC (PST) / 2pm UTC (PDT) - will shift 1 hour with DST
+        // 5pm PT = 1am UTC next day (PST) / 12am UTC (PDT)
+        // DST shift is acceptable: becomes 6am-4pm PT during winter months
+        ...(props.environment === 'prod' && {
+          enableAutoPause: false,
+          enableScheduledScaling: true,
+          businessHours: {
+            scaleUpHour: 15,  // 7am Pacific Time (PST) / 6am during PDT
+            scaleDownHour: 1,  // 5pm Pacific Time (PST) / 4pm during PDT
+            daysOfWeek: 'MON-FRI',  // Weekdays only, weekends use lower capacity
           },
-          local: {
-            tryBundle(outputDir: string) {
-              try {
-                const execSync = require('child_process').execSync;
-                const lambdaDir = path.join(__dirname, '../database/lambda');
-                
-                // Run npm install and build
-                execSync('npm install', { cwd: lambdaDir, stdio: 'inherit' });
-                execSync('npm run build', { cwd: lambdaDir, stdio: 'inherit' });
-                
-                // Copy built files to output directory
-                execSync(`cp -r ${path.join(lambdaDir, 'dist')}/* ${outputDir}/`, { stdio: 'inherit' });
-                execSync(`cp -r ${path.join(__dirname, '../database/schema')} ${outputDir}/`, { stdio: 'inherit' });
-                
-                return true;
-              } catch {
-                // If local bundling fails, fall back to Docker
-                return false;
-              }
+          scaling: {
+            businessHoursMin: 2.0,  // M-F 7am-5pm PT: 2-8 ACU
+            businessHoursMax: 8.0,
+            offHoursMin: 1.0,       // Nights and weekends: 1-4 ACU
+            offHoursMax: 4.0,
+          },
+        }),
+      });
+
+      // Add cost monitoring dashboard
+      new AuroraCostDashboard(this, 'CostDashboard', {
+        cluster: this.cluster,
+        environment: props.environment,
+      });
+    }
+
+    // Database initialization Lambda (SKIP when restoring from snapshot)
+    // Note: Snapshot already contains schema and data, so no initialization needed
+    if (!restoreFromSnapshot) {
+      // Create log group for database init Lambda
+      const dbInitLogGroup = new logs.LogGroup(this, 'DbInitLogGroup', {
+        logGroupName: `/aws/lambda/db-init-${props.environment}`,
+        retention: logs.RetentionDays.ONE_WEEK,
+        removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+      });
+
+      // Database initialization Lambda
+      // Note: Lambda doesn't need to be in VPC since it uses RDS Data API
+      const dbInitLambda = new lambda.Function(this, 'DbInitLambda', {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        handler: 'index.handler',
+        code: lambda.Code.fromAsset(path.join(__dirname, '../database/lambda'), {
+          bundling: {
+            image: lambda.Runtime.NODEJS_20_X.bundlingImage,
+            command: [
+              'bash', '-c',
+              'npm install && npm run build && cp -r ../schema dist/ && cp -r dist/* /asset-output/'
+            ],
+            environment: {
+              NPM_CONFIG_CACHE: '/tmp/.npm',
+            },
+            local: {
+              tryBundle(outputDir: string) {
+                try {
+                  const execSync = require('child_process').execSync;
+                  const lambdaDir = path.join(__dirname, '../database/lambda');
+
+                  // Run npm install and build
+                  execSync('npm install', { cwd: lambdaDir, stdio: 'inherit' });
+                  execSync('npm run build', { cwd: lambdaDir, stdio: 'inherit' });
+
+                  // Copy built files to output directory
+                  execSync(`cp -r ${path.join(lambdaDir, 'dist')}/* ${outputDir}/`, { stdio: 'inherit' });
+                  execSync(`cp -r ${path.join(__dirname, '../database/schema')} ${outputDir}/`, { stdio: 'inherit' });
+
+                  return true;
+                } catch {
+                  // If local bundling fails, fall back to Docker
+                  return false;
+                }
+              },
             },
           },
+        }),
+        // Lambda doesn't need VPC access since it uses RDS Data API
+        timeout: cdk.Duration.minutes(5),
+        memorySize: 1024,
+        environment: {
+          NODE_OPTIONS: '--enable-source-maps',
         },
-      }),
-      // Lambda doesn't need VPC access since it uses RDS Data API
-      timeout: cdk.Duration.minutes(5),
-      memorySize: 1024,
-      environment: {
-        NODE_OPTIONS: '--enable-source-maps',
-      },
-      logGroup: dbInitLogGroup,
-    });
+        logGroup: dbInitLogGroup,
+      });
 
-    // Grant the Lambda permission to use the Data API
-    this.cluster.grantDataApiAccess(dbInitLambda);
-    dbSecret.grantRead(dbInitLambda);
+      // Grant the Lambda permission to use the Data API
+      if (this.cluster instanceof rds.DatabaseCluster) {
+        this.cluster.grantDataApiAccess(dbInitLambda);
+      }
+      dbSecret.grantRead(dbInitLambda);
 
-    // Create log group for the Provider's internal Lambda function
-    const providerLogGroup = new logs.LogGroup(this, 'DbInitProviderLogGroup', {
-      logGroupName: `/aws/lambda/db-init-provider-${props.environment}`,
-      retention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
-    });
+      // Create log group for the Provider's internal Lambda function
+      const providerLogGroup = new logs.LogGroup(this, 'DbInitProviderLogGroup', {
+        logGroupName: `/aws/lambda/db-init-provider-${props.environment}`,
+        retention: logs.RetentionDays.ONE_WEEK,
+        removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+      });
 
-    // Create Custom Resource Provider with explicit log group to avoid deprecation warning
-    const dbInitProvider = new cr.Provider(this, 'DbInitProvider', {
-      onEventHandler: dbInitLambda,
-      logGroup: providerLogGroup,
-    });
+      // Create Custom Resource Provider with explicit log group to avoid deprecation warning
+      const dbInitProvider = new cr.Provider(this, 'DbInitProvider', {
+        onEventHandler: dbInitLambda,
+        logGroup: providerLogGroup,
+      });
 
-    // Create Custom Resource
-    const dbInit = new cdk.CustomResource(this, 'DbInit', {
-      serviceToken: dbInitProvider.serviceToken,
-      properties: {
-        ClusterArn: this.cluster.clusterArn,
-        SecretArn: dbSecret.secretArn,
-        DatabaseName: 'aistudio',
-        Environment: props.environment,
-        // Add a timestamp to force update on stack updates if needed - v1.0.15
-        Timestamp: new Date().toISOString(),
-      },
-    });
+      // Create Custom Resource
+      const dbInit = new cdk.CustomResource(this, 'DbInit', {
+        serviceToken: dbInitProvider.serviceToken,
+        properties: {
+          ClusterArn: this.databaseResourceArn,
+          SecretArn: dbSecret.secretArn,
+          DatabaseName: 'aistudio',
+          Environment: props.environment,
+          // Add a timestamp to force update on stack updates if needed - v1.0.15
+          Timestamp: new Date().toISOString(),
+        },
+      });
 
-    // Ensure the database is created before initialization
-    dbInit.node.addDependency(this.cluster);
+      // Ensure the database is created before initialization
+      if (this.cluster instanceof rds.DatabaseCluster) {
+        dbInit.node.addDependency(this.cluster);
+      }
+    }
 
     // Outputs
-    new cdk.CfnOutput(this, 'RdsProxyEndpoint', {
-      value: proxy.endpoint,
-      description: 'RDS Proxy endpoint',
-      exportName: `${props.environment}-RdsProxyEndpoint`,
-    });
-    
-    new cdk.CfnOutput(this, 'ClusterEndpoint', {
-      value: this.cluster.clusterEndpoint.hostname,
-      description: 'Aurora cluster writer endpoint',
-      exportName: `${props.environment}-ClusterEndpoint`,
-    });
+    if (proxy) {
+      new cdk.CfnOutput(this, 'RdsProxyEndpoint', {
+        value: proxy.endpoint,
+        description: 'RDS Proxy endpoint',
+        exportName: `${props.environment}-RdsProxyEndpoint`,
+      });
+    }
 
-    new cdk.CfnOutput(this, 'ClusterReaderEndpoint', {
-      value: this.cluster.clusterReadEndpoint.hostname,
-      description: 'Aurora cluster reader endpoint',
-      exportName: `${props.environment}-ClusterReaderEndpoint`,
-    });
+    if (!restoreFromSnapshot) {
+      new cdk.CfnOutput(this, 'ClusterEndpoint', {
+        value: this.cluster.clusterEndpoint.hostname,
+        description: 'Aurora cluster writer endpoint',
+        exportName: `${props.environment}-ClusterEndpoint`,
+      });
 
-    // Store ARNs for use by other stacks
-    this.databaseResourceArn = this.cluster.clusterArn;
-    this.databaseSecretArn = dbSecret.secretArn;
+      new cdk.CfnOutput(this, 'ClusterReaderEndpoint', {
+        value: this.cluster.clusterReadEndpoint.hostname,
+        description: 'Aurora cluster reader endpoint',
+        exportName: `${props.environment}-ClusterReaderEndpoint`,
+      });
+    }
 
     // Store values in SSM Parameter Store for cross-stack references
     new ssm.StringParameter(this, 'DbClusterArnParam', {
       parameterName: `/aistudio/${props.environment}/db-cluster-arn`,
-      stringValue: this.cluster.clusterArn,
+      stringValue: this.databaseResourceArn,
       description: 'Aurora cluster ARN for Data API',
     });
 
     new ssm.StringParameter(this, 'DbSecretArnParam', {
       parameterName: `/aistudio/${props.environment}/db-secret-arn`,
-      stringValue: dbSecret.secretArn,
+      stringValue: this.databaseSecretArn,
       description: 'Secrets Manager ARN for DB credentials',
     });
 
     // Keep CloudFormation outputs for backward compatibility and monitoring
     new cdk.CfnOutput(this, 'ClusterArn', {
-      value: this.cluster.clusterArn,
+      value: this.databaseResourceArn,
       description: 'Aurora cluster ARN for Data API',
       exportName: `${props.environment}-ClusterArn`,
     });
 
     new cdk.CfnOutput(this, 'DbSecretArn', {
-      value: dbSecret.secretArn,
+      value: this.databaseSecretArn,
       description: 'Secrets Manager ARN for DB credentials',
       exportName: `${props.environment}-DbSecretArn`,
     });
