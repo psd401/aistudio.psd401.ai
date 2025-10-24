@@ -191,6 +191,34 @@ export class ProcessingStack extends cdk.Stack {
     });
 
     // URL Processor Lambda
+    const urlProcessorRole = ServiceRoleFactory.createLambdaRole(this, 'URLProcessorRole', {
+      functionName: 'url-processor',
+      environment: props.environment,
+      region: this.region,
+      account: this.account,
+      vpcEnabled: false,
+      dynamodbTables: [this.jobStatusTable.tableName],
+      secrets: [databaseSecretArn],
+      additionalPolicies: [
+        new iam.PolicyDocument({
+          statements: [
+            // RDS Data API permissions
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'rds-data:ExecuteStatement',
+                'rds-data:BatchExecuteStatement',
+                'rds-data:BeginTransaction',
+                'rds-data:CommitTransaction',
+                'rds-data:RollbackTransaction',
+              ],
+              resources: [databaseResourceArn],
+            }),
+          ],
+        }),
+      ],
+    });
+
     const urlProcessor = new lambda.Function(this, 'URLProcessor', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
@@ -206,9 +234,37 @@ export class ProcessingStack extends cdk.Stack {
         ENVIRONMENT: props.environment,
       },
       layers: [processingLayer],
+      role: urlProcessorRole,
     });
 
     // Embedding Generator Lambda
+    const embeddingGeneratorRole = ServiceRoleFactory.createLambdaRole(this, 'EmbeddingGeneratorRole', {
+      functionName: 'embedding-generator',
+      environment: props.environment,
+      region: this.region,
+      account: this.account,
+      vpcEnabled: false,
+      secrets: [databaseSecretArn],
+      additionalPolicies: [
+        new iam.PolicyDocument({
+          statements: [
+            // RDS Data API permissions
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'rds-data:ExecuteStatement',
+                'rds-data:BatchExecuteStatement',
+                'rds-data:BeginTransaction',
+                'rds-data:CommitTransaction',
+                'rds-data:RollbackTransaction',
+              ],
+              resources: [databaseResourceArn],
+            }),
+          ],
+        }),
+      ],
+    });
+
     const embeddingGenerator = new lambda.Function(this, 'EmbeddingGenerator', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
@@ -223,9 +279,49 @@ export class ProcessingStack extends cdk.Stack {
         ENVIRONMENT: props.environment,
       },
       layers: [processingLayer],
+      role: embeddingGeneratorRole,
     });
 
     // Textract Processor Lambda
+    const textractProcessorRole = ServiceRoleFactory.createLambdaRole(this, 'TextractProcessorRole', {
+      functionName: 'textract-processor',
+      environment: props.environment,
+      region: this.region,
+      account: this.account,
+      vpcEnabled: false,
+      sqsQueues: [this.embeddingQueue.queueArn],
+      secrets: [databaseSecretArn],
+      additionalPolicies: [
+        new iam.PolicyDocument({
+          statements: [
+            // RDS Data API permissions
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'rds-data:ExecuteStatement',
+                'rds-data:BatchExecuteStatement',
+                'rds-data:BeginTransaction',
+                'rds-data:CommitTransaction',
+                'rds-data:RollbackTransaction',
+              ],
+              resources: [databaseResourceArn],
+            }),
+            // Textract permissions - requires wildcard (AWS Textract limitation)
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'textract:StartDocumentTextDetection',
+                'textract:StartDocumentAnalysis',
+                'textract:GetDocumentTextDetection',
+                'textract:GetDocumentAnalysis',
+              ],
+              resources: ['*'],  // Required: Textract doesn't support resource-level permissions
+            }),
+          ],
+        }),
+      ],
+    });
+
     const textractProcessor = new lambda.Function(this, 'TextractProcessor', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
@@ -241,6 +337,7 @@ export class ProcessingStack extends cdk.Stack {
         ENVIRONMENT: props.environment,
       },
       layers: [processingLayer],
+      role: textractProcessorRole,
     });
 
     // Subscribe Textract processor to SNS topic
@@ -248,47 +345,9 @@ export class ProcessingStack extends cdk.Stack {
       new snsSubscriptions.LambdaSubscription(textractProcessor)
     );
 
-    // Grant permissions (only for functions not yet migrated to ServiceRoleFactory)
-    // fileProcessor: Uses ServiceRoleFactory - permissions already included
-    this.jobStatusTable.grantReadWriteData(urlProcessor);
-    this.embeddingQueue.grantSendMessages(textractProcessor);
-
-    // Grant RDS Data API permissions to non-migrated functions
-    const rdsDataApiPolicy = new iam.PolicyStatement({
-      actions: [
-        'rds-data:ExecuteStatement',
-        'rds-data:BatchExecuteStatement',
-        'rds-data:BeginTransaction',
-        'rds-data:CommitTransaction',
-        'rds-data:RollbackTransaction',
-      ],
-      resources: [databaseResourceArn],
-    });
-
-    const secretsManagerPolicy = new iam.PolicyStatement({
-      actions: ['secretsmanager:GetSecretValue'],
-      resources: [databaseSecretArn],
-    });
-
-    // Apply to non-migrated functions
-    urlProcessor.addToRolePolicy(rdsDataApiPolicy);
-    urlProcessor.addToRolePolicy(secretsManagerPolicy);
-    embeddingGenerator.addToRolePolicy(rdsDataApiPolicy);
-    embeddingGenerator.addToRolePolicy(secretsManagerPolicy);
-    textractProcessor.addToRolePolicy(rdsDataApiPolicy);
-    textractProcessor.addToRolePolicy(secretsManagerPolicy);
-
-    // Grant Textract result retrieval permissions to textract processor
-    const textractPolicy = new iam.PolicyStatement({
-      actions: [
-        'textract:StartDocumentTextDetection',
-        'textract:StartDocumentAnalysis',
-        'textract:GetDocumentTextDetection',
-        'textract:GetDocumentAnalysis',
-      ],
-      resources: ['*'],
-    });
-    textractProcessor.addToRolePolicy(textractPolicy);
+    // All Lambda functions now use ServiceRoleFactory with secure roles
+    // Permissions are defined in the role creation above
+    // No manual permission grants needed!
 
     // SQS event source for file processor
     fileProcessor.addEventSource(new lambdaEventSources.SqsEventSource(this.fileProcessingQueue, {
