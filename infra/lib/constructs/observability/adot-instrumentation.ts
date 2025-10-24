@@ -132,12 +132,8 @@ export class ADOTInstrumentation extends Construct {
       ],
     });
 
-    // Output the layer ARN
-    new cdk.CfnOutput(this, 'ADOTLayerArn', {
-      value: this.lambdaLayer.layerVersionArn,
-      description: 'ADOT Lambda Layer ARN',
-      exportName: `${environment}-ADOTLayerArn`,
-    });
+    // Note: Layer ARN output is managed by the parent MonitoringStack
+    // to avoid duplicate exports across multiple construct instances
   }
 
   /**
