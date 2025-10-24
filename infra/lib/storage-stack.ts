@@ -112,10 +112,14 @@ export class StorageStack extends cdk.Stack {
       buckets: [optimizedBucket.bucket.bucketName],
     });
 
-    // Create cost monitoring and optimization
+    // Create cost monitoring and optimization with specific bucket ARNs (IAM least privilege)
     new CostMonitor(this, 'CostMonitor', {
-      environment: props.environment,
+      environment: props.environment as 'dev' | 'prod', // Type assertion for Environment type
       alertEmail: props.alertEmail,
+      monitoredBucketArns: [
+        optimizedBucket.bucket.bucketArn,
+        reportsBucket.bucketArn,
+      ],
     });
 
     // Store bucket name in SSM Parameter Store for cross-stack references

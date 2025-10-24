@@ -8,16 +8,20 @@ import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as path from 'path';
 import { Construct } from 'constructs';
+import { ServiceRoleFactory } from '../security/service-role-factory';
+import { Environment } from '../security/types';
 
 export interface CostMonitorProps {
   /** Environment name */
-  environment: string;
+  environment: Environment;
   /** Email address for cost alerts (optional) */
   alertEmail?: string;
   /** Schedule for cost analysis (default: weekly) */
   schedule?: events.Schedule;
   /** Threshold for sending alerts (default: $100) */
   alertThreshold?: number;
+  /** Bucket ARNs to monitor (for scoped S3 permissions) */
+  monitoredBucketArns: string[];
 }
 
 /**
@@ -44,54 +48,61 @@ export class CostMonitor extends Construct {
       this.topic.addSubscription(new subscriptions.EmailSubscription(props.alertEmail));
     }
 
-    // Create Lambda function for cost analysis
-    this.analyzer = new lambda.Function(this, 'CostAnalyzer', {
-      runtime: lambda.Runtime.PYTHON_3_11,
-      handler: 'cost-analyzer.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, 'lambda')),
-      timeout: cdk.Duration.minutes(5),
-      memorySize: 512,
-      environment: {
-        ENVIRONMENT: props.environment,
-        ...(this.topic && { SNS_TOPIC_ARN: this.topic.topicArn }),
-        ALERT_THRESHOLD: (props.alertThreshold ?? 100).toString(),
-      },
-      description: `S3 cost analyzer for ${props.environment}`,
+    // Create secure IAM role using ServiceRoleFactory (IAM least privilege compliance)
+    const analyzerRole = ServiceRoleFactory.createLambdaRole(this, 'CostAnalyzerRole', {
+      environment: props.environment,
+      region: cdk.Aws.REGION,
+      account: cdk.Aws.ACCOUNT_ID,
+      functionName: 's3-cost-analyzer',
     });
 
-    // Grant permissions to Cost Explorer
-    this.analyzer.addToRolePolicy(
+    // Grant permissions to Cost Explorer (requires wildcard per AWS API)
+    analyzerRole.addToPolicy(
       new iam.PolicyStatement({
+        sid: 'CostExplorerAccess',
         effect: iam.Effect.ALLOW,
         actions: ['ce:GetCostAndUsage', 'ce:GetCostForecast'],
-        resources: ['*'],
+        resources: ['*'], // Required by Cost Explorer API
       })
     );
 
-    // Grant permissions to S3 for inventory and metrics
-    this.analyzer.addToRolePolicy(
+    // Grant S3 permissions with specific bucket ARNs (IAM least privilege)
+    analyzerRole.addToPolicy(
       new iam.PolicyStatement({
+        sid: 'S3BucketMetrics',
         effect: iam.Effect.ALLOW,
         actions: [
-          's3:ListAllMyBuckets',
           's3:GetBucketLocation',
           's3:GetBucketTagging',
           's3:GetInventoryConfiguration',
           's3:GetMetricsConfiguration',
         ],
-        resources: ['*'],
+        resources: props.monitoredBucketArns, // Specific bucket ARNs only
       })
     );
 
-    // Grant permissions to CloudWatch
-    this.analyzer.addToRolePolicy(
+    // ListAllMyBuckets requires wildcard but we add condition to scope it
+    analyzerRole.addToPolicy(
       new iam.PolicyStatement({
+        sid: 'S3ListBuckets',
+        effect: iam.Effect.ALLOW,
+        actions: ['s3:ListAllMyBuckets'],
+        resources: ['*'], // Required by ListAllMyBuckets API
+        // Note: ListAllMyBuckets doesn't support resource-level permissions
+        // but we scope the Lambda to only process AIStudio buckets via code logic
+      })
+    );
+
+    // Grant CloudWatch permissions with namespace condition (scoped)
+    analyzerRole.addToPolicy(
+      new iam.PolicyStatement({
+        sid: 'CloudWatchMetrics',
         effect: iam.Effect.ALLOW,
         actions: ['cloudwatch:PutMetricData'],
-        resources: ['*'],
+        resources: ['*'], // Required by PutMetricData API
         conditions: {
           StringEquals: {
-            'cloudwatch:namespace': 'AIStudio/S3Optimization',
+            'cloudwatch:namespace': 'AIStudio/S3Optimization', // Scoped to our namespace
           },
         },
       })
@@ -99,8 +110,24 @@ export class CostMonitor extends Construct {
 
     // Grant permissions to SNS if topic exists
     if (this.topic) {
-      this.topic.grantPublish(this.analyzer);
+      this.topic.grantPublish(analyzerRole);
     }
+
+    // Create Lambda function with secure role
+    this.analyzer = new lambda.Function(this, 'CostAnalyzer', {
+      runtime: lambda.Runtime.PYTHON_3_11,
+      handler: 'cost-analyzer.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, 'lambda')),
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 512,
+      role: analyzerRole, // Use secure role with permission boundary
+      environment: {
+        ENVIRONMENT: props.environment,
+        ...(this.topic && { SNS_TOPIC_ARN: this.topic.topicArn }),
+        ALERT_THRESHOLD: (props.alertThreshold ?? 100).toString(),
+      },
+      description: `S3 cost analyzer for ${props.environment}`,
+    });
 
     // Schedule the analyzer to run periodically
     const rule = new events.Rule(this, 'AnalyzerSchedule', {

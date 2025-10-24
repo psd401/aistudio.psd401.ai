@@ -64,10 +64,19 @@ def handler(event, context):
         }
 
     except Exception as e:
+        # Log full error details to CloudWatch for debugging
+        import traceback
         print(f"Error in cost analyzer: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
+
+        # Return safe, generic error message to prevent information disclosure
         return {
             'statusCode': 500,
-            'body': json.dumps({'error': str(e)})
+            'body': json.dumps({
+                'error': 'Cost analysis failed',
+                'message': 'An error occurred during S3 cost analysis. Check CloudWatch logs for details.',
+                'requestId': context.request_id if context else 'unknown'
+            })
         }
 
 
