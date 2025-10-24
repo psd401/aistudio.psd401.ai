@@ -52,6 +52,28 @@ Vector embedding and semantic search implementation.
 - **[ASSISTANT_ARCHITECT_DEPLOYMENT.md](./ASSISTANT_ARCHITECT_DEPLOYMENT.md)** - Assistant Architect deployment and execution guide
 - **[architecture/ADR-003-ecs-streaming-migration.md](./architecture/ADR-003-ecs-streaming-migration.md)** - Migration from Lambda to ECS (PR #340)
 
+### Infrastructure
+
+#### [infrastructure/VPC-CONSOLIDATION.md](./infrastructure/VPC-CONSOLIDATION.md)
+VPC consolidation and network architecture optimization.
+
+#### [infrastructure/AURORA_COST_OPTIMIZATION.md](./infrastructure/AURORA_COST_OPTIMIZATION.md)
+Aurora Serverless v2 cost optimization and monitoring strategies.
+
+#### [infrastructure/LAMBDA_OPTIMIZATION.md](./infrastructure/LAMBDA_OPTIMIZATION.md)
+Lambda optimization framework with power tuning and cost analysis.
+
+#### [infrastructure/multi-arch-build.md](./infrastructure/multi-arch-build.md)
+Multi-architecture Docker builds for ARM64/AMD64 support.
+
+### Security
+
+#### [security/IAM_LEAST_PRIVILEGE.md](./security/IAM_LEAST_PRIVILEGE.md)
+Comprehensive IAM security with least privilege, permission boundaries, and Access Analyzer.
+
+#### [security/MIGRATION_GUIDE.md](./security/MIGRATION_GUIDE.md)
+Step-by-step guide for migrating to secure IAM constructs.
+
 ### Operations
 
 #### [operations/OPERATIONS.md](./operations/OPERATIONS.md)
