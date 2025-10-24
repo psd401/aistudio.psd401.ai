@@ -50,11 +50,15 @@ export class SecretsManagerStack extends BaseStack {
       topicName: `${this.projectName}-${this.deploymentEnvironment}-secrets-alerts`,
     })
 
-    // Add email subscription in production
-    if (this.deploymentEnvironment === "prod") {
-      // TODO: Replace with actual security team email
+    // Add email subscription if configured
+    const securityEmail = process.env.SECURITY_ALERT_EMAIL || props.config.securityAlertEmail
+    if (securityEmail) {
       this.alertTopic.addSubscription(
-        new subscriptions.EmailSubscription("security@psd401.ai")
+        new subscriptions.EmailSubscription(securityEmail)
+      )
+    } else if (this.deploymentEnvironment === "prod") {
+      console.warn(
+        "WARNING: No security alert email configured. Set SECURITY_ALERT_EMAIL environment variable or config.securityAlertEmail"
       )
     }
 

@@ -11,11 +11,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "moduleResolution": "node",
-    "baseUrl": ".",
-    "paths": {
-      "@/lib/logger": ["../../../../lib/logger"]
-    }
+    "moduleResolution": "node"
   },
   "include": ["index.ts"],
   "exclude": ["node_modules", "dist"]

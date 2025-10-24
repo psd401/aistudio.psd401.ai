@@ -78,6 +78,25 @@ class SecretsMigrator {
   }
 
   /**
+   * Sanitize secret mapping for logging
+   * Redacts the sourceValue to prevent secret exposure in logs
+   */
+  private sanitizeForLogging(mapping: SecretMapping): Partial<SecretMapping> {
+    return {
+      ...mapping,
+      sourceValue: "***REDACTED***",
+    }
+  }
+
+  /**
+   * Sanitize migrations array for report generation
+   * Redacts sourceValue from all mappings
+   */
+  private sanitizeForReport(migrations: SecretMapping[]): Partial<SecretMapping>[] {
+    return migrations.map((m) => this.sanitizeForLogging(m))
+  }
+
+  /**
    * Execute the migration process
    */
   async migrate(): Promise<void> {
@@ -369,9 +388,14 @@ class SecretsMigrator {
       fs.mkdirSync(reportDir, { recursive: true })
     }
 
-    // Generate migration report
+    console.log("\n⚠️  WARNING: Migration reports contain sensitive data.")
+    console.log("   Please store securely and delete after use.")
+    console.log("   Consider encrypting reports before storing.\n")
+
+    // Generate migration report with sanitized secrets
     const reportPath = path.join(reportDir, `migration-${timestamp}.json`)
-    fs.writeFileSync(reportPath, JSON.stringify(this.migrations, null, 2))
+    const sanitizedMigrations = this.sanitizeForReport(this.migrations)
+    fs.writeFileSync(reportPath, JSON.stringify(sanitizedMigrations, null, 2))
 
     // Generate rollback script
     const rollbackPath = path.join(reportDir, `rollback-${timestamp}.sh`)

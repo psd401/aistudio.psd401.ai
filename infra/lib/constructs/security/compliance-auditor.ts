@@ -5,6 +5,7 @@ import * as targets from "aws-cdk-lib/aws-events-targets"
 import * as iam from "aws-cdk-lib/aws-iam"
 import * as logs from "aws-cdk-lib/aws-logs"
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch"
+import * as cloudwatch_actions from "aws-cdk-lib/aws-cloudwatch-actions"
 import * as sns from "aws-cdk-lib/aws-sns"
 import { Construct } from "constructs"
 import { IEnvironmentConfig } from "../config/environment-config"
@@ -350,7 +351,7 @@ export class ComplianceAuditor extends Construct {
 
     // Add SNS action if topic provided
     if (props.alertTopic) {
-      const snsAction = new cdk.aws_cloudwatch_actions.SnsAction(props.alertTopic)
+      const snsAction = new cloudwatch_actions.SnsAction(props.alertTopic)
       rotationFailureAlarm.addAlarmAction(snsAction)
       noRotationAlarm.addAlarmAction(snsAction)
     }

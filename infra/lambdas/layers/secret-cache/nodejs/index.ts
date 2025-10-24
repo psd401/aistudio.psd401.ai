@@ -19,9 +19,21 @@ import {
   GetSecretValueCommand,
   GetSecretValueCommandOutput,
 } from "@aws-sdk/client-secrets-manager"
-import { createLogger, generateRequestId } from "@/lib/logger"
 
-const log = createLogger({ context: "SecretCache" })
+/**
+ * Simple logging utility for Lambda Layer
+ * Lambda layers cannot use path aliases, so we use a simple console-based logger
+ */
+const log = {
+  info: (...args: unknown[]) => console.log('[SecretCache]', ...args),
+  warn: (...args: unknown[]) => console.warn('[SecretCache]', ...args),
+  error: (...args: unknown[]) => console.error('[SecretCache]', ...args)
+}
+
+/**
+ * Generate a simple request ID for tracking
+ */
+const generateRequestId = () => `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
 /**
  * Cached secret entry with metadata

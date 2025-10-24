@@ -22,6 +22,8 @@ import boto3
 import os
 from typing import Dict, Any, Optional
 import psycopg2
+from psycopg2 import sql
+import re
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -31,6 +33,48 @@ secretsmanager = boto3.client(
     'secretsmanager',
     endpoint_url=os.environ.get('SECRETS_MANAGER_ENDPOINT')
 )
+
+
+def sanitize_for_logging(text: str) -> str:
+    """
+    Sanitize sensitive information from log messages
+
+    Removes:
+    - ARNs (Amazon Resource Names)
+    - IP addresses
+    - Email addresses
+
+    Args:
+        text: Text to sanitize
+
+    Returns:
+        Sanitized text safe for logging
+    """
+    if not text:
+        return text
+
+    # Remove ARNs
+    text = re.sub(r'arn:aws:[^:]+:[^:]+:\d+:[^\s]+', '[ARN_REDACTED]', text)
+    # Remove IP addresses
+    text = re.sub(r'\d+\.\d+\.\d+\.\d+', '[IP_REDACTED]', text)
+    # Remove email addresses
+    text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[EMAIL_REDACTED]', text)
+
+    return text
+
+
+def sanitize_error(error: Exception) -> str:
+    """
+    Sanitize error messages to remove sensitive data
+
+    Args:
+        error: Exception to sanitize
+
+    Returns:
+        Sanitized error message
+    """
+    error_str = str(error)
+    return sanitize_for_logging(error_str)
 
 
 def handler(event: Dict[str, Any], context: Any) -> None:
@@ -44,23 +88,28 @@ def handler(event: Dict[str, Any], context: Any) -> None:
             - Step: Rotation step (createSecret, setSecret, testSecret, finishSecret)
         context: Lambda context object
     """
-    logger.info(f"Rotation event: {json.dumps(event)}")
+    # Log sanitized event (don't log full ARN)
+    logger.info(f"Rotation event received for step: {event.get('Step')}")
 
     arn = event['SecretId']
     token = event['ClientRequestToken']
     step = event['Step']
 
-    # Dispatch to appropriate step handler
-    if step == "createSecret":
-        create_secret(arn, token)
-    elif step == "setSecret":
-        set_secret(arn, token)
-    elif step == "testSecret":
-        test_secret(arn, token)
-    elif step == "finishSecret":
-        finish_secret(arn, token)
-    else:
-        raise ValueError(f"Invalid step: {step}")
+    try:
+        # Dispatch to appropriate step handler
+        if step == "createSecret":
+            create_secret(arn, token)
+        elif step == "setSecret":
+            set_secret(arn, token)
+        elif step == "testSecret":
+            test_secret(arn, token)
+        elif step == "finishSecret":
+            finish_secret(arn, token)
+        else:
+            raise ValueError(f"Invalid step: {step}")
+    except Exception as e:
+        logger.error(f"Rotation failed: {sanitize_error(e)}")
+        raise
 
 
 def create_secret(arn: str, token: str) -> None:
@@ -148,14 +197,17 @@ def set_secret(arn: str, token: str) -> None:
         username = pending_dict['username']
         new_password = pending_dict['password']
 
-        # Use parameterized query to prevent SQL injection
+        # Use SQL composition with Identifier to safely quote username
+        # This prevents SQL injection while allowing dynamic usernames
         cursor.execute(
-            f"ALTER USER {username} WITH PASSWORD %s",
+            sql.SQL("ALTER USER {} WITH PASSWORD %s").format(
+                sql.Identifier(username)
+            ),
             (new_password,)
         )
 
         conn.commit()
-        logger.info(f"Successfully updated password for user {username}")
+        logger.info(f"Successfully updated password for user {sanitize_for_logging(username)}")
 
     finally:
         if conn:

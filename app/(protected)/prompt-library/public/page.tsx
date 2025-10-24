@@ -16,21 +16,22 @@ export const metadata: Metadata = {
 }
 
 interface PageProps {
-  searchParams: {
+  searchParams: Promise<{
     q?: string
     tags?: string
     sort?: string
     page?: string
-  }
+  }>
 }
 
 export default async function PublicPromptLibraryPage({
   searchParams
 }: PageProps) {
-  const query = searchParams.q || ""
-  const tags = searchParams.tags ? searchParams.tags.split(",") : []
-  const sort = (searchParams.sort as 'created' | 'usage' | 'views') || 'usage'
-  const page = parseInt(searchParams.page || "1", 10)
+  const params = await searchParams
+  const query = params.q || ""
+  const tags = params.tags ? params.tags.split(",") : []
+  const sort = (params.sort as 'created' | 'usage' | 'views') || 'usage'
+  const page = parseInt(params.page || "1", 10)
 
   const structuredData = generateGalleryStructuredData()
 
