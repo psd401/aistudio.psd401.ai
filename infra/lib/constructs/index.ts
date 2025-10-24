@@ -14,6 +14,22 @@ export {
 
 // Compute constructs
 export { LambdaConstruct, LambdaConstructProps } from "./compute/lambda-construct"
+export {
+  OptimizedLambda,
+  OptimizedLambdaProps,
+  PerformanceProfile,
+  CostTarget,
+  PowerTuningConfig,
+  ConcurrencyConfig,
+} from "./compute/optimized-lambda"
+export {
+  PowerTuningStateMachine,
+  PowerTuningStateMachineProps,
+} from "./compute/power-tuning"
+export {
+  LambdaCostDashboard,
+  LambdaCostDashboardProps,
+} from "./compute/lambda-cost-dashboard"
 
 // Network constructs
 export { SharedVPC, SharedVPCProps } from "./network/shared-vpc"
