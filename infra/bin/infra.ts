@@ -111,6 +111,7 @@ Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devAccessAnal
 const devSecretsManagerStack = new SecretsManagerStack(app, 'AIStudio-SecretsManagerStack-Dev', {
   deploymentEnvironment: 'dev',
   config: EnvironmentConfig.get('dev'),
+  alertEmail,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
 cdk.Tags.of(devSecretsManagerStack).add('Environment', 'Dev');
@@ -196,10 +197,11 @@ if (devEmailDomain) {
 }
 
 // Prod environment
-// Secrets Manager Stack - centralized secrets management (requires SECURITY_ALERT_EMAIL)
+// Secrets Manager Stack - centralized secrets management
 const prodSecretsManagerStack = new SecretsManagerStack(app, 'AIStudio-SecretsManagerStack-Prod', {
   deploymentEnvironment: 'prod',
   config: EnvironmentConfig.get('prod'),
+  alertEmail,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
 cdk.Tags.of(prodSecretsManagerStack).add('Environment', 'Prod');
