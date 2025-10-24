@@ -6,6 +6,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as sns_subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import { Construct } from 'constructs';
+import { ServiceRoleFactory } from '../security';
 
 export interface IntelligentAlertingProps {
   environment: 'dev' | 'prod';
@@ -211,9 +212,33 @@ export class IntelligentAlerting extends Construct {
   private createAlertRouter(props: IntelligentAlertingProps): lambda.Function {
     const { environment, alarmTopic, pagerDutyKey, slackWebhook } = props;
 
+    // Create Lambda role using ServiceRoleFactory
+    const routerRole = ServiceRoleFactory.createLambdaRole(this, 'AlertRouterRole', {
+      functionName: 'alert-router',
+      environment,
+      region: cdk.Stack.of(this).region,
+      account: cdk.Stack.of(this).account,
+      additionalPolicies: [
+        // CloudWatch permissions for alarm introspection
+        new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['cloudwatch:DescribeAlarms', 'cloudwatch:DescribeAlarmHistory'],
+              resources: [
+                `arn:aws:cloudwatch:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:alarm:*`,
+              ],
+            }),
+          ],
+        }),
+      ],
+      snsTopics: [alarmTopic.topicArn], // Grant publish permission to SNS topic
+    });
+
     const router = new lambda.Function(this, 'AlertRouter', {
       runtime: lambda.Runtime.PYTHON_3_11,
       handler: 'index.handler',
+      role: routerRole, // Use ServiceRoleFactory-created role
       code: lambda.Code.fromInline(`
 import json
 import boto3
@@ -297,15 +322,6 @@ def calculate_priority(alarm):
       timeout: cdk.Duration.seconds(30),
       description: 'Routes and enriches CloudWatch alarms with context',
     });
-
-    // Grant permissions
-    alarmTopic.grantPublish(router);
-    router.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ['cloudwatch:DescribeAlarms', 'cloudwatch:DescribeAlarmHistory'],
-        resources: ['*'],
-      })
-    );
 
     return router;
   }

@@ -5,6 +5,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
+import { ServiceRoleFactory } from '../security';
 
 export interface ADOTInstrumentationProps {
   environment: 'dev' | 'prod';
@@ -53,12 +54,64 @@ export class ADOTInstrumentation extends Construct {
       tier: ssm.ParameterTier.STANDARD,
     });
 
+    // Create IAM role for ADOT collector using ServiceRoleFactory
+    const collectorRole = ServiceRoleFactory.createECSTaskRole(this, 'ADOTCollectorRole', {
+      taskName: 'adot-collector',
+      environment,
+      region: cdk.Stack.of(this).region,
+      account: cdk.Stack.of(this).account,
+      additionalPolicies: [
+        // X-Ray permissions (requires wildcard per AWS documentation)
+        new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['xray:PutTraceSegments', 'xray:PutTelemetryRecords'],
+              resources: ['*'], // X-Ray does not support resource-level permissions
+            }),
+          ],
+        }),
+        // CloudWatch Metrics permissions (requires wildcard per AWS documentation)
+        new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['cloudwatch:PutMetricData'],
+              resources: ['*'], // CloudWatch Metrics does not support resource-level permissions
+            }),
+          ],
+        }),
+        // CloudWatch Logs permissions (scoped to ADOT log groups)
+        new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'logs:CreateLogGroup',
+                'logs:CreateLogStream',
+                'logs:PutLogEvents',
+                'logs:DescribeLogStreams',
+              ],
+              resources: [
+                `arn:aws:logs:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:log-group:/aws/aistudio/${environment}/traces:*`,
+                `arn:aws:logs:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:log-group:/aws/ecs/adot-collector:*`,
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+
+    // Grant read access to SSM parameter for collector config
+    this.collectorConfigParam.grantRead(collectorRole);
+
     // ADOT Collector for ECS as sidecar
     this.collectorTaskDefinition = new ecs.TaskDefinition(this, 'ADOTCollectorTask', {
       compatibility: ecs.Compatibility.FARGATE,
       cpu: '256',
       memoryMiB: '512',
       networkMode: ecs.NetworkMode.AWS_VPC,
+      taskRole: collectorRole, // Use ServiceRoleFactory-created role
     });
 
     this.collectorTaskDefinition.addContainer('ADOTCollector', {
@@ -79,25 +132,6 @@ export class ADOTInstrumentation extends Construct {
       ],
     });
 
-    // Grant permissions to collector
-    this.collectorTaskDefinition.addToTaskRolePolicy(
-      new iam.PolicyStatement({
-        actions: [
-          'xray:PutTraceSegments',
-          'xray:PutTelemetryRecords',
-          'cloudwatch:PutMetricData',
-          'logs:CreateLogGroup',
-          'logs:CreateLogStream',
-          'logs:PutLogEvents',
-          'logs:DescribeLogStreams',
-        ],
-        resources: ['*'],
-      })
-    );
-
-    // Grant read access to config parameter
-    this.collectorConfigParam.grantRead(this.collectorTaskDefinition.taskRole);
-
     // Output the layer ARN
     new cdk.CfnOutput(this, 'ADOTLayerArn', {
       value: this.lambdaLayer.layerVersionArn,
@@ -108,6 +142,13 @@ export class ADOTInstrumentation extends Construct {
 
   /**
    * Instrument a Lambda function with ADOT
+   *
+   * NOTE: The Lambda function's execution role must already have X-Ray permissions.
+   * When creating Lambda functions that need ADOT instrumentation, use ServiceRoleFactory.createLambdaRole()
+   * which automatically includes X-Ray permissions.
+   *
+   * @param func - Lambda function to instrument
+   * @param props - Instrumentation properties including ADOT layer
    */
   public instrumentLambda(func: lambda.Function, props: InstrumentLambdaProps): void {
     // Add ADOT layer
@@ -132,21 +173,23 @@ export class ADOTInstrumentation extends Construct {
     );
     func.addEnvironment('AWS_LAMBDA_EXEC_WRAPPER', '/opt/otel-handler');
 
-    // Grant X-Ray permissions
-    func.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ['xray:PutTraceSegments', 'xray:PutTelemetryRecords'],
-        resources: ['*'],
-      })
-    );
-
     // Custom metrics via EMF
     func.addEnvironment('AWS_EMF_NAMESPACE', `AIStudio/${props.environment}`);
     func.addEnvironment('AWS_EMF_SERVICE_NAME', func.functionName);
+
+    // Note: X-Ray permissions are NOT added here - they must be included in the function's role
+    // when created via ServiceRoleFactory.createLambdaRole() (which includes X-Ray by default)
   }
 
   /**
    * Instrument an ECS service with ADOT sidecar
+   *
+   * NOTE: The ECS task role must already have X-Ray and CloudWatch permissions.
+   * When creating ECS services that need ADOT instrumentation, use ServiceRoleFactory.createECSTaskRole()
+   * with appropriate observability policies included via additionalPolicies.
+   *
+   * @param service - ECS Fargate service to instrument
+   * @param props - Instrumentation properties
    */
   public instrumentECSService(service: ecs.FargateService, props: InstrumentECSProps): void {
     // Add ADOT sidecar to the service's task definition
@@ -177,20 +220,8 @@ export class ADOTInstrumentation extends Construct {
       `service.namespace=aistudio,deployment.environment=${props.environment}`
     );
 
-    // Grant permissions to task role
-    service.taskDefinition.addToTaskRolePolicy(
-      new iam.PolicyStatement({
-        actions: [
-          'xray:PutTraceSegments',
-          'xray:PutTelemetryRecords',
-          'cloudwatch:PutMetricData',
-          'logs:CreateLogGroup',
-          'logs:CreateLogStream',
-          'logs:PutLogEvents',
-        ],
-        resources: ['*'],
-      })
-    );
+    // Note: X-Ray, CloudWatch, and Logs permissions are NOT added here
+    // They must be included in the task role when created via ServiceRoleFactory.createECSTaskRole()
 
     // Enable Container Insights on the cluster
     const cfnCluster = props.cluster.node.defaultChild as ecs.CfnCluster;
