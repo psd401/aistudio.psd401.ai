@@ -41,9 +41,12 @@ export class SecretsManagerStack extends BaseStack {
 
   // Secret references for use by other stacks
   public databaseSecret?: ManagedSecret
-  public readonly apiKeySecrets: Map<string, ManagedSecret> = new Map()
+  public readonly apiKeySecrets!: Map<string, ManagedSecret>
 
   protected defineResources(props: BaseStackProps): void {
+    // Initialize secret references
+    (this as any).apiKeySecrets = new Map<string, ManagedSecret>()
+
     // Create SNS topic for alerts
     this.alertTopic = new sns.Topic(this, "SecretAlertTopic", {
       displayName: `${this.projectName} Secrets Manager Alerts - ${this.deploymentEnvironment}`,
