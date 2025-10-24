@@ -68,11 +68,14 @@ Multi-architecture Docker builds for ARM64/AMD64 support.
 
 ### Security
 
+#### [security/USING_IAM_SECURITY.md](./security/USING_IAM_SECURITY.md) ⭐ **START HERE**
+**How to use the IAM security framework** - Examples, patterns, and best practices for creating secure roles.
+
 #### [security/IAM_LEAST_PRIVILEGE.md](./security/IAM_LEAST_PRIVILEGE.md)
-Comprehensive IAM security with least privilege, permission boundaries, and Access Analyzer.
+Comprehensive IAM security architecture with least privilege, permission boundaries, and Access Analyzer.
 
 #### [security/MIGRATION_GUIDE.md](./security/MIGRATION_GUIDE.md)
-Step-by-step guide for migrating to secure IAM constructs.
+Step-by-step guide for migrating existing infrastructure to secure IAM constructs.
 
 ### Operations
 
