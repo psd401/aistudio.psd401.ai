@@ -44,3 +44,27 @@ export {
   AuroraCostDashboard,
   AuroraCostDashboardProps,
 } from "./database/aurora-cost-dashboard"
+
+// Security constructs
+export {
+  BaseIAMRole,
+  BaseIAMRoleProps,
+  ServiceRoleFactory,
+  PermissionBoundaryConstruct,
+  PermissionBoundaryConstructProps,
+  PolicyValidator,
+  NoWildcardResourcesRule,
+  MinimalActionsRule,
+  RequireConditionsRule,
+  NoAdminAccessRule,
+  ResourceTagRequirementRule,
+  Environment,
+  SecurityLevel,
+  ValidationResult,
+  ValidationRule,
+  PolicyViolation,
+  PolicyValidationError,
+  LambdaRoleProps,
+  ECSTaskRoleProps,
+  ServiceRoleProps,
+} from "./security"
