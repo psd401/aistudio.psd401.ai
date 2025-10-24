@@ -22,7 +22,18 @@ import {
 
 /**
  * Simple logging utility for Lambda Layer
- * Lambda layers cannot use path aliases, so we use a simple console-based logger
+ *
+ * EXCEPTION TO CLAUDE.md LOGGING RULES:
+ * Lambda layers cannot use path aliases like @/lib/logger because:
+ * 1. Layers are packaged separately from the main application
+ * 2. TypeScript path mappings don't resolve at runtime in layers
+ * 3. Layers must be self-contained with no external dependencies
+ *
+ * Therefore, this layer uses console methods directly as the only viable option.
+ * This is an explicit, documented exception to the "no console.log" rule.
+ *
+ * @see CLAUDE.md - Logging rules
+ * @see PR #420 review feedback
  */
 const log = {
   info: (...args: unknown[]) => console.log('[SecretCache]', ...args),
@@ -369,7 +380,12 @@ export const getDatabaseSecret = async (secretId: string): Promise<DatabaseSecre
     return secret as DatabaseSecret
   }
 
-  throw new Error("Secret is not in expected database format")
+  const actualType = secret === null ? "null" : typeof secret
+  throw new Error(
+    `Secret "${secretId}" is not in expected database format. ` +
+    `Expected object with 'username' and 'password' fields, got ${actualType}. ` +
+    `Ensure the secret contains a JSON object with these required fields.`
+  )
 }
 
 /**
@@ -389,5 +405,14 @@ export const getApiKeySecret = async (secretId: string): Promise<string> => {
     return (secret as { apiKey: string }).apiKey
   }
 
-  throw new Error("Secret is not in expected API key format")
+  const actualType = secret === null ? "null" : typeof secret
+  const hasApiKey = typeof secret === "object" && secret !== null && "apiKey" in secret
+  throw new Error(
+    `Secret "${secretId}" is not in expected API key format. ` +
+    `Expected a string or object with 'apiKey' field, got ${actualType}` +
+    (typeof secret === "object" && secret !== null && !hasApiKey
+      ? `. Available fields: ${Object.keys(secret).join(", ")}`
+      : "") +
+    `. Ensure the secret contains either a plain string API key or a JSON object with an 'apiKey' field.`
+  )
 }

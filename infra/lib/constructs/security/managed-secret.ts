@@ -6,6 +6,7 @@ import * as iam from "aws-cdk-lib/aws-iam"
 import * as logs from "aws-cdk-lib/aws-logs"
 import { Construct } from "constructs"
 import { IEnvironmentConfig } from "../config/environment-config"
+import * as path from "path"
 
 /**
  * Supported secret types with their default configurations
@@ -229,11 +230,14 @@ export class ManagedSecret extends Construct {
    * Creates a rotation Lambda function for non-database secrets
    */
   private createRotationLambda(props: ManagedSecretProps): lambda.Function {
+    // Get the path to the rotation Lambda code based on secret type
+    const rotationCodePath = this.getRotationCodePath(props.secretType)
+
     const rotationFunction = new lambda.Function(this, "RotationFunction", {
       functionName: `${this.projectName}-${this.deploymentEnvironment}-${props.secretName}-rotation`,
       runtime: lambda.Runtime.PYTHON_3_11,
       handler: "index.handler",
-      code: lambda.Code.fromInline(this.getRotationCode(props.secretType)),
+      code: lambda.Code.fromAsset(rotationCodePath),
       timeout: cdk.Duration.minutes(5),
       memorySize: 256,
       architecture: lambda.Architecture.ARM_64,
@@ -395,93 +399,25 @@ export class ManagedSecret extends Construct {
   }
 
   /**
-   * Returns Python code for rotation Lambda based on secret type
+   * Returns the file path to the rotation Lambda code based on secret type
+   *
+   * Maps secret types to their corresponding Lambda handler directories:
+   * - DATABASE -> infra/lambdas/secret-rotation/database
+   * - API_KEY -> infra/lambdas/secret-rotation/api-key
+   * - OAUTH -> infra/lambdas/secret-rotation/oauth
+   * - CUSTOM -> infra/lambdas/secret-rotation/custom
+   * - CERTIFICATE -> infra/lambdas/secret-rotation/custom
    */
-  private getRotationCode(secretType: SecretType): string {
-    // This is a basic template - in production, use proper Lambda code from assets
-    return `
-import json
-import boto3
-import os
+  private getRotationCodePath(secretType: SecretType): string {
+    const rotationPaths: Record<SecretType, string> = {
+      [SecretType.DATABASE]: path.join(__dirname, "../../../lambdas/secret-rotation/database"),
+      [SecretType.API_KEY]: path.join(__dirname, "../../../lambdas/secret-rotation/api-key"),
+      [SecretType.OAUTH]: path.join(__dirname, "../../../lambdas/secret-rotation/oauth"),
+      [SecretType.CERTIFICATE]: path.join(__dirname, "../../../lambdas/secret-rotation/custom"),
+      [SecretType.CUSTOM]: path.join(__dirname, "../../../lambdas/secret-rotation/custom"),
+    }
 
-def handler(event, context):
-    """
-    Rotation handler for ${secretType} secrets
-    """
-    service_client = boto3.client('secretsmanager')
-    arn = event['SecretId']
-    token = event['ClientRequestToken']
-    step = event['Step']
-
-    # Implement rotation steps
-    if step == "createSecret":
-        create_secret(service_client, arn, token)
-    elif step == "setSecret":
-        set_secret(service_client, arn, token)
-    elif step == "testSecret":
-        test_secret(service_client, arn, token)
-    elif step == "finishSecret":
-        finish_secret(service_client, arn, token)
-    else:
-        raise ValueError("Invalid step parameter")
-
-def create_secret(service_client, arn, token):
-    """Generate new secret value"""
-    # Get current secret
-    current = service_client.get_secret_value(SecretId=arn, VersionStage="AWSCURRENT")
-
-    # Generate new secret value
-    new_secret = service_client.get_random_password(
-        PasswordLength=32,
-        ExcludePunctuation=True
-    )
-
-    # Put new secret version
-    service_client.put_secret_value(
-        SecretId=arn,
-        ClientRequestToken=token,
-        SecretString=new_secret['RandomPassword'],
-        VersionStages=['AWSPENDING']
-    )
-
-def set_secret(service_client, arn, token):
-    """Set the secret in the service (if applicable)"""
-    # For API keys, this might involve calling an external API
-    # For now, this is a no-op for simple secrets
-    pass
-
-def test_secret(service_client, arn, token):
-    """Test the AWSPENDING secret"""
-    # Get the pending secret value
-    pending = service_client.get_secret_value(
-        SecretId=arn,
-        VersionId=token,
-        VersionStage="AWSPENDING"
-    )
-
-    # Validate the secret (implementation depends on secret type)
-    # For now, just verify it's not empty
-    if not pending.get('SecretString'):
-        raise ValueError("New secret value is empty")
-
-def finish_secret(service_client, arn, token):
-    """Finalize the rotation"""
-    # Move AWSCURRENT to AWSPREVIOUS
-    metadata = service_client.describe_secret(SecretId=arn)
-    current_version = None
-    for version in metadata["VersionIdsToStages"]:
-        if "AWSCURRENT" in metadata["VersionIdsToStages"][version]:
-            current_version = version
-            break
-
-    # Update version stages
-    service_client.update_secret_version_stage(
-        SecretId=arn,
-        VersionStage="AWSCURRENT",
-        MoveToVersionId=token,
-        RemoveFromVersionId=current_version
-    )
-`
+    return rotationPaths[secretType]
   }
 
   /**

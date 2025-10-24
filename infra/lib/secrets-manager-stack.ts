@@ -57,8 +57,9 @@ export class SecretsManagerStack extends BaseStack {
         new subscriptions.EmailSubscription(securityEmail)
       )
     } else if (this.deploymentEnvironment === "prod") {
-      console.warn(
-        "WARNING: No security alert email configured. Set SECURITY_ALERT_EMAIL environment variable or config.securityAlertEmail"
+      throw new Error(
+        "SECURITY_ALERT_EMAIL is required for production deployments. " +
+        "Set the SECURITY_ALERT_EMAIL environment variable or config.securityAlertEmail field."
       )
     }
 
