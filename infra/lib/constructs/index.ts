@@ -30,6 +30,10 @@ export {
   LambdaCostDashboard,
   LambdaCostDashboardProps,
 } from "./compute/lambda-cost-dashboard"
+export {
+  SecretCacheLayer,
+  SecretCacheLayerProps,
+} from "./compute/secret-cache-layer"
 
 // Network constructs
 export { SharedVPC, SharedVPCProps } from "./network/shared-vpc"

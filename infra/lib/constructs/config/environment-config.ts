@@ -36,6 +36,7 @@ export interface IEnvironmentConfig {
   monitoring: MonitoringConfig
   network: NetworkConfig
   costOptimization: boolean
+  securityAlertEmail?: string
 }
 
 export class EnvironmentConfig {

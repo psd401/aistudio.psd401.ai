@@ -1,0 +1,27 @@
+{
+  "name": "@aistudio/secret-cache-layer",
+  "version": "1.0.0",
+  "description": "AWS Lambda Layer for caching Secrets Manager secrets",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist *.js *.d.ts",
+    "prepublish": "npm run build"
+  },
+  "keywords": [
+    "aws",
+    "lambda",
+    "secrets-manager",
+    "cache"
+  ],
+  "author": "Peninsula SD - TSD Engineering",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.504.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}
