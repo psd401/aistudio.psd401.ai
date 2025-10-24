@@ -75,10 +75,8 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
 # ARM64 memory optimization flags
-# MALLOC_ARENA_MAX reduces memory fragmentation on ARM
+# MALLOC_ARENA_MAX reduces memory fragmentation on ARM (applies to glibc/musl allocator)
 ENV MALLOC_ARENA_MAX=2
-# Better memory release for ARM64
-ENV GODEBUG=madvdontneed=1
 
 # Copy only necessary files from builder
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
@@ -91,9 +89,9 @@ USER nextjs
 # Expose application port
 EXPOSE 3000
 
-# Health check endpoint
-HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:3000/api/healthz || exit 1
+# Note: Health checks are defined in ECS task definition (ecs-service.ts)
+# Dockerfile HEALTHCHECK is redundant since ECS task definition overrides it
+# Removed to follow AWS best practice: single source of truth for health checks
 
 # Use tini as PID 1 for proper signal handling and graceful shutdown
 ENTRYPOINT ["/sbin/tini", "--"]

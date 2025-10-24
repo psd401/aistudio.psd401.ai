@@ -695,12 +695,24 @@ export class EcsServiceConstruct extends Construct {
 
   /**
    * Add scheduled scaling for predictable traffic patterns
+   *
+   * IMPORTANT: Times are in UTC and assume PST (UTC-8) year-round.
+   * During PDT (Daylight Saving Time, March-November), scaling will occur 1 hour early.
+   *
+   * To adjust for DST, manually update these schedules twice per year:
+   * - March (PDT begins): Add 1 hour to all UTC times
+   * - November (PST returns): Subtract 1 hour from all UTC times
+   *
+   * Alternative: Monitor actual traffic patterns and adjust based on CloudWatch metrics.
    */
   private addScheduledScaling(scaling: ecs.ScalableTaskCount): void {
-    // Scale up before business hours (Mon-Fri 7:30 AM PST)
+    // Scale up before business hours (Mon-Fri 7:30 AM PST/PDT)
+    // PST (Nov-Mar): 7:30 AM PST = 3:30 PM UTC (15:30)
+    // PDT (Mar-Nov): 7:30 AM PDT = 2:30 PM UTC (14:30)
+    // Currently configured for PST
     scaling.scaleOnSchedule('MorningScaleUp', {
       schedule: autoscaling.Schedule.cron({
-        hour: '15', // 7:30 AM PST = 3:30 PM UTC (PST is UTC-8)
+        hour: '15', // 7:30 AM PST = 3:30 PM UTC (adjust to 14 during PDT)
         minute: '30',
         weekDay: 'MON-FRI',
       }),
@@ -708,10 +720,12 @@ export class EcsServiceConstruct extends Construct {
       maxCapacity: 20,
     });
 
-    // Scale down after business hours (8:00 PM PST)
+    // Scale down after business hours (8:00 PM PST/PDT)
+    // PST: 8:00 PM PST = 4:00 AM UTC next day
+    // PDT: 8:00 PM PDT = 3:00 AM UTC next day
     scaling.scaleOnSchedule('EveningScaleDown', {
       schedule: autoscaling.Schedule.cron({
-        hour: '4', // 8:00 PM PST = 4:00 AM UTC next day
+        hour: '4', // 8:00 PM PST = 4:00 AM UTC next day (adjust to 3 during PDT)
         minute: '0',
         weekDay: 'TUE-SAT', // Next day in UTC
       }),
@@ -719,10 +733,10 @@ export class EcsServiceConstruct extends Construct {
       maxCapacity: 10,
     });
 
-    // Weekend scaling (lower capacity)
+    // Weekend scaling (lower capacity on Saturday midnight PST/PDT)
     scaling.scaleOnSchedule('WeekendScaling', {
       schedule: autoscaling.Schedule.cron({
-        hour: '8', // Midnight PST = 8:00 AM UTC
+        hour: '8', // Midnight PST = 8:00 AM UTC (adjust to 7 during PDT)
         minute: '0',
         weekDay: 'SAT',
       }),
