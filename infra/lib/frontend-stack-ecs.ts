@@ -270,9 +270,10 @@ export class FrontendStackEcs extends cdk.Stack {
     });
 
     // ============================================================================
-    // CloudWatch Dashboard
+    // CloudWatch Dashboard - DISABLED (now consolidated in MonitoringStack)
     // ============================================================================
-    const dashboard = this.ecsService.createDashboard({ environment });
+    // Metrics are exported via ecsService construct for consolidated monitoring
+    // const dashboard = this.ecsService.createDashboard({ environment });
 
     // ============================================================================
     // SSM Parameters for Cross-Stack References

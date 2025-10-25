@@ -104,23 +104,23 @@ export class StorageStack extends cdk.Stack {
     this.documentsBucket = optimizedBucket.bucket;
     this.documentsBucketName = optimizedBucket.bucket.bucketName;
 
-    // Create Storage Lens configuration for analytics
-    new StorageLensConfig(this, 'StorageLens', {
-      environment: props.environment,
-      reportBucket: reportsBucket,
-      regions: [cdk.Aws.REGION],
-      buckets: [optimizedBucket.bucket.bucketName],
-    });
+    // Storage Lens and Cost Monitoring - DISABLED (now consolidated in MonitoringStack)
+    // Metrics are exported via S3 bucket metrics for consolidated monitoring
+    // new StorageLensConfig(this, 'StorageLens', {
+    //   environment: props.environment,
+    //   reportBucket: reportsBucket,
+    //   regions: [cdk.Aws.REGION],
+    //   buckets: [optimizedBucket.bucket.bucketName],
+    // });
 
-    // Create cost monitoring and optimization with specific bucket ARNs (IAM least privilege)
-    new CostMonitor(this, 'CostMonitor', {
-      environment: props.environment as 'dev' | 'prod', // Type assertion for Environment type
-      alertEmail: props.alertEmail,
-      monitoredBucketArns: [
-        optimizedBucket.bucket.bucketArn,
-        reportsBucket.bucketArn,
-      ],
-    });
+    // new CostMonitor(this, 'CostMonitor', {
+    //   environment: props.environment as 'dev' | 'prod',
+    //   alertEmail: props.alertEmail,
+    //   monitoredBucketArns: [
+    //     optimizedBucket.bucket.bucketArn,
+    //     reportsBucket.bucketArn,
+    //   ],
+    // });
 
     // Store bucket name in SSM Parameter Store for cross-stack references
     new ssm.StringParameter(this, 'DocumentsBucketParam', {

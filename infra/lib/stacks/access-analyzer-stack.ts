@@ -67,8 +67,9 @@ export class AccessAnalyzerStack extends cdk.Stack {
     // Create EventBridge rule for findings
     this.createFindingsRule(props)
 
-    // Create CloudWatch dashboard
-    this.createComplianceDashboard(props)
+    // CloudWatch Dashboard - DISABLED (now consolidated in MonitoringStack)
+    // Metrics are exported via IAM Access Analyzer metrics for consolidated monitoring
+    // this.createComplianceDashboard(props)
 
     // Create alarms
     this.createAlarms(props)
