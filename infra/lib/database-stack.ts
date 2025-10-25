@@ -24,6 +24,7 @@ export class DatabaseStack extends cdk.Stack {
   public readonly databaseResourceArn: string;
   public readonly databaseSecretArn: string;
   public readonly cluster: rds.IDatabaseCluster;
+  public readonly costDashboard?: AuroraCostDashboard;
 
   constructor(scope: Construct, id: string, props: DatabaseStackProps) {
     super(scope, id, props);
@@ -219,8 +220,8 @@ export class DatabaseStack extends cdk.Stack {
         }),
       });
 
-      // Add cost monitoring dashboard
-      new AuroraCostDashboard(this, 'CostDashboard', {
+      // Export Aurora metrics for consolidated monitoring dashboard
+      this.costDashboard = new AuroraCostDashboard(this, 'CostDashboard', {
         cluster: this.cluster,
         environment: props.environment,
       });
