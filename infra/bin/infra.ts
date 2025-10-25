@@ -4,8 +4,7 @@ import { InfraStack } from '../lib/infra-stack';
 import { DatabaseStack } from '../lib/database-stack';
 import { AuthStack } from '../lib/auth-stack';
 import { StorageStack } from '../lib/storage-stack';
-// import { FrontendStack } from '../lib/frontend-stack'; // Legacy Amplify stack - retained for rollback
-import { FrontendStackEcs } from '../lib/frontend-stack-ecs'; // New ECS Fargate stack
+import { FrontendStackEcs } from '../lib/frontend-stack-ecs';
 import { ProcessingStack } from '../lib/processing-stack';
 import { DocumentProcessingStack } from '../lib/document-processing-stack';
 import { MonitoringStack } from '../lib/monitoring-stack';
@@ -34,7 +33,7 @@ const alertEmail = app.node.tryGetContext('alertEmail');
 function getCallbackAndLogoutUrls(environment: string, baseDomain?: string): { callbackUrls: string[], logoutUrls: string[] } {
   // Determine ECS subdomain based on environment
   const ecsSubdomain = environment === 'dev'
-    ? `dev-ecs.${baseDomain}`
+    ? `dev.${baseDomain}`
     : baseDomain; // Prod uses root domain for ECS
 
   const urls = {
@@ -287,8 +286,6 @@ if (prodEmailDomain) {
   Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodEmailNotificationStack!).add(key, value));
 }
 // Frontend stacks - ECS Fargate with ALB for streaming support
-// Note: Old Amplify stacks are retained in AWS but not deployed by this code
-// To rollback, uncomment FrontendStack import and restore this block
 if (baseDomain) {
   // Skip DNS/certificate setup in CI (when baseDomain is a dummy value like example.com)
   // VPC lookup will use cached context from cdk.context.json (committed to version control)
@@ -297,7 +294,7 @@ if (baseDomain) {
   const devFrontendStack = new FrontendStackEcs(app, 'AIStudio-FrontendStack-ECS-Dev', {
     environment: 'dev',
     baseDomain: 'aistudio.psd401.ai', // The subdomain for AI Studio
-    customSubdomain: 'dev-ecs', // Creates dev-ecs.aistudio.psd401.ai (won't conflict with Amplify's dev.aistudio.psd401.ai)
+    customSubdomain: 'dev', // Creates dev.aistudio.psd401.ai
     documentsBucketName: devStorageStack.documentsBucketName,
     useExistingVpc: setupDns, // Use VPC sharing in real deployments, create new VPC for CI validation
     setupDns, // Enable DNS/certificate setup (false for CI validation with example.com)

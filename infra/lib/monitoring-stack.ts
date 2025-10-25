@@ -18,7 +18,6 @@ import { AuroraCostDashboard } from './constructs/database/aurora-cost-dashboard
 export interface MonitoringStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
   alertEmail?: string;
-  amplifyAppId?: string;
   pagerDutyKey?: string;
   slackWebhook?: string;
   // Metrics from other stacks for consolidated dashboards
@@ -47,14 +46,7 @@ export class MonitoringStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: MonitoringStackProps) {
     super(scope, id, props);
 
-    const { environment, alertEmail, amplifyAppId, pagerDutyKey, slackWebhook, auroraCostDashboard } = props;
-
-    // Get Amplify app ID from props or SSM Parameter Store
-    const amplifyAppIdValue =
-      amplifyAppId || ssm.StringParameter.valueForStringParameter(this, `/aistudio/${environment}/amplify-app-id`);
-
-    // Construct the actual log group name using the app ID
-    const amplifyLogGroupName = `/aws/amplify/${amplifyAppIdValue}`;
+    const { environment, alertEmail, pagerDutyKey, slackWebhook, auroraCostDashboard } = props;
 
     // ============================================================================
     // SNS Topic for Alarms
@@ -377,7 +369,6 @@ export class MonitoringStack extends cdk.Stack {
 
     this.observabilityDashboards = new ObservabilityDashboards(this, 'ObservabilityDashboards', {
       environment,
-      amplifyAppId: amplifyAppIdValue,
       consolidatedMetrics,
       featureFlags: {
         enableConsolidatedDashboards: true,
@@ -391,11 +382,8 @@ export class MonitoringStack extends cdk.Stack {
     this.dashboard = this.observabilityDashboards.serviceDashboard;
 
     // ============================================================================
-    // Legacy Monitoring Components (Enhanced)
+    // SSE Streaming Monitoring
     // ============================================================================
-    // Add enhanced log insights and alarm widgets
-    this.addEnhancedMonitoring(environment, amplifyLogGroupName);
-
     // Add SSE Streaming monitoring (issue #365)
     new SSEStreamingMonitoring(this, 'SSEStreamingMonitoring', {
       environment,

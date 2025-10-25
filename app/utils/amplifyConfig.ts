@@ -12,14 +12,18 @@ export const config = {
           scopes: ["openid", "email", "profile"],
           redirectSignIn: [
             "http://localhost:3000/",
-            "https://dev.aistudio.psd401.ai/",
+            "http://localhost:3001/",
             "http://localhost:3000",
+            "http://localhost:3001",
+            "https://dev.aistudio.psd401.ai/",
             "https://dev.aistudio.psd401.ai"
           ],
           redirectSignOut: [
             "http://localhost:3000/",
-            "https://dev.aistudio.psd401.ai/",
+            "http://localhost:3001/",
             "http://localhost:3000",
+            "http://localhost:3001",
+            "https://dev.aistudio.psd401.ai/",
             "https://dev.aistudio.psd401.ai"
           ],
           responseType: "code" as const
