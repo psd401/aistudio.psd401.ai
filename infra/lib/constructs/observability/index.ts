@@ -8,3 +8,5 @@
 export * from './adot-instrumentation';
 export * from './intelligent-alerting';
 export * from './observability-dashboards';
+export * from './metrics-types';
+export * from './dashboard-widget-factory';
