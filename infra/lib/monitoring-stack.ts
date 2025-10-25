@@ -12,12 +12,17 @@ import {
 } from './constructs/observability';
 import { SSEStreamingMonitoring } from './constructs/sse-streaming-monitoring';
 
+import { ConsolidatedMetrics } from './constructs/observability/metrics-types';
+import { AuroraCostDashboard } from './constructs/database/aurora-cost-dashboard';
+
 export interface MonitoringStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
   alertEmail?: string;
   amplifyAppId?: string;
   pagerDutyKey?: string;
   slackWebhook?: string;
+  // Metrics from other stacks for consolidated dashboards
+  auroraCostDashboard?: AuroraCostDashboard;
 }
 
 /**
@@ -42,7 +47,7 @@ export class MonitoringStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: MonitoringStackProps) {
     super(scope, id, props);
 
-    const { environment, alertEmail, amplifyAppId, pagerDutyKey, slackWebhook } = props;
+    const { environment, alertEmail, amplifyAppId, pagerDutyKey, slackWebhook, auroraCostDashboard } = props;
 
     // Get Amplify app ID from props or SSM Parameter Store
     const amplifyAppIdValue =
@@ -86,9 +91,31 @@ export class MonitoringStack extends cdk.Stack {
     // ============================================================================
     // Observability Dashboards
     // ============================================================================
+    // Build consolidated metrics from all infrastructure stacks
+    const consolidatedMetrics: ConsolidatedMetrics = {};
+
+    // Add Aurora database metrics if available
+    if (auroraCostDashboard?.metrics) {
+      consolidatedMetrics.aurora = auroraCostDashboard.metrics;
+    }
+
+    // Add cost metrics if available
+    if (auroraCostDashboard?.estimatedMonthlyCost) {
+      consolidatedMetrics.cost = {
+        auroraCost: auroraCostDashboard.estimatedMonthlyCost,
+      };
+    }
+
     this.observabilityDashboards = new ObservabilityDashboards(this, 'ObservabilityDashboards', {
       environment,
       amplifyAppId: amplifyAppIdValue,
+      consolidatedMetrics,
+      featureFlags: {
+        enableConsolidatedDashboards: true,
+        keepLegacyDashboards: false,
+        enableCostDashboard: true,
+        enableDeepDiveDashboards: false,
+      },
     });
 
     // Use the service dashboard as the primary dashboard

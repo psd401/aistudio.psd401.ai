@@ -302,11 +302,12 @@ export class FrontendStackEcs extends cdk.Stack {
       exportName: `${environment}-ecs-WAFArn`,
     });
 
-    new cdk.CfnOutput(this, 'DashboardName', {
-      value: dashboard.dashboardName,
-      description: 'CloudWatch Dashboard Name',
-      exportName: `${environment}-ecs-DashboardName`,
-    });
+    // Dashboard output - DISABLED (now consolidated in MonitoringStack)
+    // new cdk.CfnOutput(this, 'DashboardName', {
+    //   value: dashboard.dashboardName,
+    //   description: 'CloudWatch Dashboard Name',
+    //   exportName: `${environment}-ecs-DashboardName`,
+    // });
 
     // ============================================================================
     // Deployment Information

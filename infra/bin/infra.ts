@@ -332,20 +332,24 @@ if (baseDomain) {
 }
 
 // Monitoring stacks - created after all other stacks for comprehensive monitoring
-// Optional: pass alertEmail context to enable email notifications
+// Now receives metrics from infrastructure stacks for consolidated dashboards
 const devMonitoringStack = new MonitoringStack(app, 'AIStudio-MonitoringStack-Dev', {
   environment: 'dev',
   alertEmail,
+  auroraCostDashboard: devDbStack.costDashboard,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
+devMonitoringStack.addDependency(devDbStack); // Need Aurora metrics
 cdk.Tags.of(devMonitoringStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devMonitoringStack).add(key, value));
 
 const prodMonitoringStack = new MonitoringStack(app, 'AIStudio-MonitoringStack-Prod', {
   environment: 'prod',
   alertEmail,
+  auroraCostDashboard: prodDbStack.costDashboard,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
+prodMonitoringStack.addDependency(prodDbStack); // Need Aurora metrics
 cdk.Tags.of(prodMonitoringStack).add('Environment', 'Prod');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodMonitoringStack).add(key, value));
 
