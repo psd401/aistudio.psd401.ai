@@ -78,8 +78,8 @@ export class ObservabilityDashboards extends Construct {
     environment: string,
     metrics?: ConsolidatedMetrics
   ): cloudwatch.Dashboard {
-    const dashboard = new cloudwatch.Dashboard(this, 'OperationsDashboard', {
-      dashboardName: `AIStudio-${environment}-Operations`,
+    const dashboard = new cloudwatch.Dashboard(this, 'ServiceDashboard', {
+      dashboardName: `AIStudio-${environment}-Service`,
       defaultInterval: cdk.Duration.hours(3),
       periodOverride: cloudwatch.PeriodOverride.AUTO,
     });
@@ -87,7 +87,7 @@ export class ObservabilityDashboards extends Construct {
     // Title
     dashboard.addWidgets(
       DashboardWidgetFactory.createDashboardTitle(
-        'AI Studio Operations',
+        'AI Studio Service Dashboard',
         environment,
         'Comprehensive operational metrics for infrastructure health, performance, and cost'
       )
@@ -120,7 +120,7 @@ export class ObservabilityDashboards extends Construct {
     environment: string,
     metrics?: ConsolidatedMetrics
   ): cloudwatch.Dashboard {
-    const dashboard = new cloudwatch.Dashboard(this, 'EnhancedExecutiveDashboard', {
+    const dashboard = new cloudwatch.Dashboard(this, 'ExecutiveDashboard', {
       dashboardName: `AIStudio-${environment}-Executive`,
       defaultInterval: cdk.Duration.hours(24),
       periodOverride: cloudwatch.PeriodOverride.AUTO,
