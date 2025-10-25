@@ -4,6 +4,8 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { OptimizedBucket } from './constructs/storage/optimized-bucket';
 import { DataClassification, DataClassificationRule } from './constructs/storage/data-classification';
+import { StorageLensConfig } from './constructs/storage/storage-lens';
+import { CostMonitor } from './constructs/storage/cost-monitor';
 
 export interface StorageStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
@@ -30,8 +32,8 @@ export class StorageStack extends cdk.Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       versioned: false,
-      removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: props.environment !== 'prod',
+      removalPolicy: cdk.RemovalPolicy.RETAIN, // Always retain to prevent data loss
+      autoDeleteObjects: false, // Never auto-delete - could contain important reports
       lifecycleRules: [
         {
           id: 'ExpireOldReports',
@@ -71,8 +73,8 @@ export class StorageStack extends cdk.Stack {
       enableReplication: props.enableReplication ?? (props.environment === 'prod'),
       replicationRegions: props.replicationRegions ?? ['us-east-1'],
       versioned: true,
-      removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: props.environment !== 'prod',
+      removalPolicy: cdk.RemovalPolicy.RETAIN, // Always retain - contains user data
+      autoDeleteObjects: false, // Never auto-delete - contains production user documents
       enableIntelligentTiering: true,
       enableInventory: true,
       inventoryBucket: reportsBucket,
@@ -102,6 +104,23 @@ export class StorageStack extends cdk.Stack {
     this.documentsBucket = optimizedBucket.bucket;
     this.documentsBucketName = optimizedBucket.bucket.bucketName;
 
+    // Create Storage Lens configuration for analytics
+    new StorageLensConfig(this, 'StorageLens', {
+      environment: props.environment,
+      reportBucket: reportsBucket,
+      regions: [cdk.Aws.REGION],
+      buckets: [optimizedBucket.bucket.bucketName],
+    });
+
+    // Create cost monitoring and optimization with specific bucket ARNs (IAM least privilege)
+    new CostMonitor(this, 'CostMonitor', {
+      environment: props.environment as 'dev' | 'prod',
+      alertEmail: props.alertEmail,
+      monitoredBucketArns: [
+        optimizedBucket.bucket.bucketArn,
+        reportsBucket.bucketArn,
+      ],
+    });
 
     // Store bucket name in SSM Parameter Store for cross-stack references
     new ssm.StringParameter(this, 'DocumentsBucketParam', {
