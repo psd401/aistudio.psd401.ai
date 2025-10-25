@@ -107,7 +107,7 @@ cdk.Tags.of(devAccessAnalyzerStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devAccessAnalyzerStack).add(key, value));
 
 // Secrets Manager Stack - centralized secrets management
-const devSecretsManagerStack = new SecretsManagerStack(app, 'AIStudio-SecretsManagerStack-Dev', {
+const devSecretsManagerStack = new SecretsManagerStack(app, 'SecretsManagerStack', {
   deploymentEnvironment: 'dev',
   config: EnvironmentConfig.get('dev'),
   alertEmail,
@@ -197,7 +197,8 @@ if (devEmailDomain) {
 
 // Prod environment
 // Secrets Manager Stack - centralized secrets management
-const prodSecretsManagerStack = new SecretsManagerStack(app, 'AIStudio-SecretsManagerStack-Prod', {
+// Note: CDK construct ID must be unique per app, so we use different IDs for dev/prod
+const prodSecretsManagerStack = new SecretsManagerStack(app, 'SecretsManagerStackProd', {
   deploymentEnvironment: 'prod',
   config: EnvironmentConfig.get('prod'),
   alertEmail,
