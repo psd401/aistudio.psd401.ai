@@ -281,153 +281,29 @@ export class VPCProvider {
   }
 
   /**
-   * Import existing VPC from SSM Parameter Store using runtime lookup.
+   * Import existing VPC using CDK's built-in lookup mechanism.
    *
-   * This method uses AwsCustomResource to look up VPC attributes at deploy time,
-   * then constructs the VPC using fromVpcAttributes with actual values.
+   * This method uses Vpc.fromLookup() which resolves VPC attributes at synthesis time,
+   * avoiding the CloudFormation list token warnings that occur with runtime lookups.
+   *
+   * The VPC is identified by its name tag, which is set when the VPC is created.
+   * CDK caches the lookup results in cdk.context.json for consistent deployments.
+   *
+   * Benefits over previous AwsCustomResource approach:
+   * - Resolves subnet lists at synthesis time (no list tokens)
+   * - Automatically includes route table IDs
+   * - Works with all CDK constructs requiring subnet information
+   * - Simpler code (no custom resources needed)
    *
    * @param scope - The construct scope
    * @param environment - The environment name
    * @returns The imported VPC with full metadata
    */
   public static import(scope: Construct, environment: string): ec2.IVpc {
-    // Use AwsCustomResource to get VPC attributes at deploy time
-    const vpcIdLookup = new cr.AwsCustomResource(scope, "VpcIdLookup", {
-      onUpdate: {
-        service: "SSM",
-        action: "getParameter",
-        parameters: {
-          Name: `/aistudio/${environment}/vpc-id`,
-        },
-        physicalResourceId: cr.PhysicalResourceId.of(
-          `vpc-id-lookup-${environment}`
-        ),
-      },
-      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
-        resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
-      }),
-    })
-
-    const vpcCidrLookup = new cr.AwsCustomResource(scope, "VpcCidrLookup", {
-      onUpdate: {
-        service: "SSM",
-        action: "getParameter",
-        parameters: {
-          Name: `/aistudio/${environment}/vpc-cidr`,
-        },
-        physicalResourceId: cr.PhysicalResourceId.of(
-          `vpc-cidr-lookup-${environment}`
-        ),
-      },
-      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
-        resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
-      }),
-    })
-
-    const vpcAzsLookup = new cr.AwsCustomResource(scope, "VpcAzsLookup", {
-      onUpdate: {
-        service: "SSM",
-        action: "getParameter",
-        parameters: {
-          Name: `/aistudio/${environment}/vpc-azs`,
-        },
-        physicalResourceId: cr.PhysicalResourceId.of(
-          `vpc-azs-lookup-${environment}`
-        ),
-      },
-      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
-        resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
-      }),
-    })
-
-    const publicSubnetsLookup = new cr.AwsCustomResource(
-      scope,
-      "PublicSubnetsLookup",
-      {
-        onUpdate: {
-          service: "SSM",
-          action: "getParameter",
-          parameters: {
-            Name: `/aistudio/${environment}/vpc-public-subnet-ids`,
-          },
-          physicalResourceId: cr.PhysicalResourceId.of(
-            `public-subnets-lookup-${environment}`
-          ),
-        },
-        policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
-          resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
-        }),
-      }
-    )
-
-    const privateSubnetsLookup = new cr.AwsCustomResource(
-      scope,
-      "PrivateSubnetsLookup",
-      {
-        onUpdate: {
-          service: "SSM",
-          action: "getParameter",
-          parameters: {
-            Name: `/aistudio/${environment}/vpc-private-subnet-ids`,
-          },
-          physicalResourceId: cr.PhysicalResourceId.of(
-            `private-subnets-lookup-${environment}`
-          ),
-        },
-        policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
-          resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
-        }),
-      }
-    )
-
-    const isolatedSubnetsLookup = new cr.AwsCustomResource(
-      scope,
-      "IsolatedSubnetsLookup",
-      {
-        onUpdate: {
-          service: "SSM",
-          action: "getParameter",
-          parameters: {
-            Name: `/aistudio/${environment}/vpc-isolated-subnet-ids`,
-          },
-          physicalResourceId: cr.PhysicalResourceId.of(
-            `isolated-subnets-lookup-${environment}`
-          ),
-        },
-        policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
-          resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
-        }),
-      }
-    )
-
-    // Extract values from custom resources
-    const vpcId = vpcIdLookup.getResponseField("Parameter.Value")
-    const vpcCidrBlock = vpcCidrLookup.getResponseField("Parameter.Value")
-    const availabilityZones = cdk.Fn.split(
-      ",",
-      vpcAzsLookup.getResponseField("Parameter.Value")
-    )
-    const publicSubnetIds = cdk.Fn.split(
-      ",",
-      publicSubnetsLookup.getResponseField("Parameter.Value")
-    )
-    const privateSubnetIds = cdk.Fn.split(
-      ",",
-      privateSubnetsLookup.getResponseField("Parameter.Value")
-    )
-    const isolatedSubnetIds = cdk.Fn.split(
-      ",",
-      isolatedSubnetsLookup.getResponseField("Parameter.Value")
-    )
-
-    // Construct VPC from runtime-resolved attributes
-    return ec2.Vpc.fromVpcAttributes(scope, "ImportedVPC", {
-      vpcId,
-      vpcCidrBlock,
-      availabilityZones,
-      publicSubnetIds,
-      privateSubnetIds,
-      isolatedSubnetIds,
+    // Use CDK's built-in VPC lookup which resolves at synthesis time
+    // This avoids CloudFormation list tokens and provides full subnet metadata
+    return ec2.Vpc.fromLookup(scope, "ImportedVPC", {
+      vpcName: `aistudio-${environment}-vpc`,
     })
   }
 
