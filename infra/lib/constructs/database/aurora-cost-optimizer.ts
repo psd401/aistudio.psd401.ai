@@ -144,6 +144,19 @@ export class AuroraCostOptimizer extends Construct {
       })
     )
 
+    // Create log group for pause/resume function
+    const pauseResumeLogGroup = new logs.LogGroup(this, "PauseResumeFunctionLogGroup", {
+      logGroupName: `/aws/lambda/aistudio-${props.environment}-aurora-pause-resume`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    // Add tags for cost tracking and resource management
+    cdk.Tags.of(pauseResumeLogGroup).add("Environment", props.environment)
+    cdk.Tags.of(pauseResumeLogGroup).add("CostCenter", "Database")
+    cdk.Tags.of(pauseResumeLogGroup).add("Component", "AuroraCostOptimizer")
+    cdk.Tags.of(pauseResumeLogGroup).add("ManagedBy", "CDK")
+
     this.pauseResumeFunction = new lambda.Function(this, "PauseResumeFunction", {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: "pause_resume.handler",
@@ -161,7 +174,7 @@ export class AuroraCostOptimizer extends Construct {
           props.idleMinutesBeforePause ?? 30
         ).toString(),
       },
-      logRetention: logs.RetentionDays.ONE_WEEK,
+      logGroup: pauseResumeLogGroup,
       description: `Aurora cost optimizer for ${props.environment} environment`,
     })
 
@@ -212,6 +225,19 @@ export class AuroraCostOptimizer extends Construct {
         })
       )
 
+      // Create log group for scaling function
+      const scalingLogGroup = new logs.LogGroup(this, "ScalingFunctionLogGroup", {
+        logGroupName: `/aws/lambda/aistudio-${props.environment}-aurora-scaling`,
+        retention: logs.RetentionDays.ONE_WEEK,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      })
+
+      // Add tags for cost tracking and resource management
+      cdk.Tags.of(scalingLogGroup).add("Environment", props.environment)
+      cdk.Tags.of(scalingLogGroup).add("CostCenter", "Database")
+      cdk.Tags.of(scalingLogGroup).add("Component", "AuroraCostOptimizer")
+      cdk.Tags.of(scalingLogGroup).add("ManagedBy", "CDK")
+
       this.scalingFunction = new lambda.Function(this, "ScalingFunction", {
         runtime: lambda.Runtime.PYTHON_3_12,
         handler: "predictive_scaling.handler",
@@ -226,7 +252,7 @@ export class AuroraCostOptimizer extends Construct {
           CLUSTER_IDENTIFIER: props.cluster.clusterIdentifier,
           ENVIRONMENT: props.environment,
         },
-        logRetention: logs.RetentionDays.ONE_WEEK,
+        logGroup: scalingLogGroup,
         description: `Aurora predictive scaling for ${props.environment} environment`,
       })
 

@@ -157,7 +157,17 @@ export class EcsServiceConstruct extends Construct {
     this.cluster = new ecs.Cluster(this, 'Cluster', {
       clusterName: `aistudio-${environment}`,
       vpc,
-      containerInsights: props.enableContainerInsights ?? true,
+      /**
+       * Container Insights V2 for enhanced ECS monitoring
+       * Default: ENABLED for comprehensive observability
+       * - Provides task-level CPU/memory metrics
+       * - Enables AWS Distro for OpenTelemetry (ADOT) integration
+       * - Required for CloudWatch Container Insights dashboards
+       * Can be disabled via props.enableContainerInsights = false
+       */
+      containerInsightsV2: (props.enableContainerInsights ?? true)
+        ? ecs.ContainerInsights.ENABLED
+        : ecs.ContainerInsights.DISABLED,
     });
 
     // ============================================================================

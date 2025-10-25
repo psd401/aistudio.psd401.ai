@@ -118,6 +118,19 @@ export class PowerTuningStateMachine extends Construct {
   private createInitializerFunction(
     props: PowerTuningStateMachineProps
   ): lambda.Function {
+    // Create log group for initializer function
+    const initializerLogGroup = new logs.LogGroup(this, "InitializerLogGroup", {
+      logGroupName: `/aws/lambda/power-tuning-initializer-${props.environment}`,
+      retention: props.logRetention || logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    // Add tags for cost tracking
+    cdk.Tags.of(initializerLogGroup).add("Environment", props.environment)
+    cdk.Tags.of(initializerLogGroup).add("CostCenter", "Compute")
+    cdk.Tags.of(initializerLogGroup).add("Component", "PowerTuning")
+    cdk.Tags.of(initializerLogGroup).add("ManagedBy", "CDK")
+
     const fn = new lambda.Function(this, "Initializer", {
       functionName: `power-tuning-initializer-${props.environment}`,
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -161,7 +174,7 @@ export class PowerTuningStateMachine extends Construct {
       environment: {
         ENVIRONMENT: props.environment,
       },
-      logRetention: props.logRetention || logs.RetentionDays.ONE_WEEK,
+      logGroup: initializerLogGroup,
     })
 
     return fn
@@ -173,6 +186,19 @@ export class PowerTuningStateMachine extends Construct {
   private createExecutorFunction(
     props: PowerTuningStateMachineProps
   ): lambda.Function {
+    // Create log group for executor function
+    const executorLogGroup = new logs.LogGroup(this, "ExecutorLogGroup", {
+      logGroupName: `/aws/lambda/power-tuning-executor-${props.environment}`,
+      retention: props.logRetention || logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    // Add tags for cost tracking
+    cdk.Tags.of(executorLogGroup).add("Environment", props.environment)
+    cdk.Tags.of(executorLogGroup).add("CostCenter", "Compute")
+    cdk.Tags.of(executorLogGroup).add("Component", "PowerTuning")
+    cdk.Tags.of(executorLogGroup).add("ManagedBy", "CDK")
+
     const fn = new lambda.Function(this, "Executor", {
       functionName: `power-tuning-executor-${props.environment}`,
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -320,7 +346,7 @@ export class PowerTuningStateMachine extends Construct {
       environment: {
         ENVIRONMENT: props.environment,
       },
-      logRetention: props.logRetention || logs.RetentionDays.ONE_WEEK,
+      logGroup: executorLogGroup,
     })
 
     // Grant permission to invoke and update target functions
@@ -344,6 +370,19 @@ export class PowerTuningStateMachine extends Construct {
   private createCleanerFunction(
     props: PowerTuningStateMachineProps
   ): lambda.Function {
+    // Create log group for cleaner function
+    const cleanerLogGroup = new logs.LogGroup(this, "CleanerLogGroup", {
+      logGroupName: `/aws/lambda/power-tuning-cleaner-${props.environment}`,
+      retention: props.logRetention || logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    // Add tags for cost tracking
+    cdk.Tags.of(cleanerLogGroup).add("Environment", props.environment)
+    cdk.Tags.of(cleanerLogGroup).add("CostCenter", "Compute")
+    cdk.Tags.of(cleanerLogGroup).add("Component", "PowerTuning")
+    cdk.Tags.of(cleanerLogGroup).add("ManagedBy", "CDK")
+
     const fn = new lambda.Function(this, "Cleaner", {
       functionName: `power-tuning-cleaner-${props.environment}`,
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -358,7 +397,7 @@ export class PowerTuningStateMachine extends Construct {
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       architecture: lambda.Architecture.ARM_64,
-      logRetention: props.logRetention || logs.RetentionDays.ONE_WEEK,
+      logGroup: cleanerLogGroup,
     })
 
     return fn
@@ -370,6 +409,19 @@ export class PowerTuningStateMachine extends Construct {
   private createAnalyzerFunction(
     props: PowerTuningStateMachineProps
   ): lambda.Function {
+    // Create log group for analyzer function
+    const analyzerLogGroup = new logs.LogGroup(this, "AnalyzerLogGroup", {
+      logGroupName: `/aws/lambda/power-tuning-analyzer-${props.environment}`,
+      retention: props.logRetention || logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    // Add tags for cost tracking
+    cdk.Tags.of(analyzerLogGroup).add("Environment", props.environment)
+    cdk.Tags.of(analyzerLogGroup).add("CostCenter", "Compute")
+    cdk.Tags.of(analyzerLogGroup).add("Component", "PowerTuning")
+    cdk.Tags.of(analyzerLogGroup).add("ManagedBy", "CDK")
+
     const fn = new lambda.Function(this, "Analyzer", {
       functionName: `power-tuning-analyzer-${props.environment}`,
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -445,7 +497,7 @@ export class PowerTuningStateMachine extends Construct {
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       architecture: lambda.Architecture.ARM_64,
-      logRetention: props.logRetention || logs.RetentionDays.ONE_WEEK,
+      logGroup: analyzerLogGroup,
     })
 
     return fn
@@ -457,6 +509,19 @@ export class PowerTuningStateMachine extends Construct {
   private createOptimizerFunction(
     props: PowerTuningStateMachineProps
   ): lambda.Function {
+    // Create log group for optimizer function
+    const optimizerLogGroup = new logs.LogGroup(this, "OptimizerLogGroup", {
+      logGroupName: `/aws/lambda/power-tuning-optimizer-${props.environment}`,
+      retention: props.logRetention || logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    // Add tags for cost tracking
+    cdk.Tags.of(optimizerLogGroup).add("Environment", props.environment)
+    cdk.Tags.of(optimizerLogGroup).add("CostCenter", "Compute")
+    cdk.Tags.of(optimizerLogGroup).add("Component", "PowerTuning")
+    cdk.Tags.of(optimizerLogGroup).add("ManagedBy", "CDK")
+
     const fn = new lambda.Function(this, "Optimizer", {
       functionName: `power-tuning-optimizer-${props.environment}`,
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -508,7 +573,7 @@ export class PowerTuningStateMachine extends Construct {
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       architecture: lambda.Architecture.ARM_64,
-      logRetention: props.logRetention || logs.RetentionDays.ONE_WEEK,
+      logGroup: optimizerLogGroup,
     })
 
     // Grant permission to update function configuration and tags
