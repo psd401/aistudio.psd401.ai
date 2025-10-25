@@ -67,10 +67,6 @@ export class AccessAnalyzerStack extends cdk.Stack {
     // Create EventBridge rule for findings
     this.createFindingsRule(props)
 
-    // CloudWatch Dashboard - DISABLED (now consolidated in MonitoringStack)
-    // Metrics are exported via IAM Access Analyzer metrics for consolidated monitoring
-    // this.createComplianceDashboard(props)
-
     // Create alarms
     this.createAlarms(props)
   }
@@ -224,82 +220,6 @@ export class AccessAnalyzerStack extends cdk.Stack {
     })
   }
 
-  /**
-   * Create CloudWatch dashboard for compliance monitoring
-   */
-  private createComplianceDashboard(props: AccessAnalyzerStackProps): void {
-    const dashboard = new cloudwatch.Dashboard(this, "ComplianceDashboard", {
-      dashboardName: `IAM-Compliance-${props.environment}`,
-    })
-
-    // Lambda metrics
-    const lambdaInvocations = new cloudwatch.Metric({
-      namespace: "AWS/Lambda",
-      metricName: "Invocations",
-      dimensionsMap: {
-        FunctionName: this.remediationLambda.functionName,
-      },
-      statistic: "Sum",
-      period: cdk.Duration.hours(1),
-    })
-
-    const lambdaErrors = new cloudwatch.Metric({
-      namespace: "AWS/Lambda",
-      metricName: "Errors",
-      dimensionsMap: {
-        FunctionName: this.remediationLambda.functionName,
-      },
-      statistic: "Sum",
-      period: cdk.Duration.hours(1),
-    })
-
-    // Create custom metrics for findings
-    const findingsMetric = new cloudwatch.Metric({
-      namespace: "AIStudio/Security",
-      metricName: "AccessAnalyzerFindings",
-      statistic: "Sum",
-      period: cdk.Duration.hours(1),
-    })
-
-    const remediationsMetric = new cloudwatch.Metric({
-      namespace: "AIStudio/Security",
-      metricName: "AutomaticRemediations",
-      statistic: "Sum",
-      period: cdk.Duration.hours(1),
-    })
-
-    // Add widgets to dashboard
-    dashboard.addWidgets(
-      new cloudwatch.GraphWidget({
-        title: "Access Analyzer Findings",
-        left: [findingsMetric],
-        width: 12,
-        height: 6,
-      }),
-      new cloudwatch.GraphWidget({
-        title: "Automatic Remediations",
-        left: [remediationsMetric],
-        width: 12,
-        height: 6,
-      })
-    )
-
-    dashboard.addWidgets(
-      new cloudwatch.GraphWidget({
-        title: "Remediation Lambda Invocations",
-        left: [lambdaInvocations],
-        right: [lambdaErrors],
-        width: 12,
-        height: 6,
-      }),
-      new cloudwatch.SingleValueWidget({
-        title: "Current Findings",
-        metrics: [findingsMetric],
-        width: 12,
-        height: 6,
-      })
-    )
-  }
 
   /**
    * Create CloudWatch alarms

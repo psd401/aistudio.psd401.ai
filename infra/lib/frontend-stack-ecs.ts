@@ -269,11 +269,6 @@ export class FrontendStackEcs extends cdk.Stack {
       webAclArn: webAcl.attrArn,
     });
 
-    // ============================================================================
-    // CloudWatch Dashboard - DISABLED (now consolidated in MonitoringStack)
-    // ============================================================================
-    // Metrics are exported via ecsService construct for consolidated monitoring
-    // const dashboard = this.ecsService.createDashboard({ environment });
 
     // ============================================================================
     // SSM Parameters for Cross-Stack References
@@ -302,12 +297,6 @@ export class FrontendStackEcs extends cdk.Stack {
       exportName: `${environment}-ecs-WAFArn`,
     });
 
-    // Dashboard output - DISABLED (now consolidated in MonitoringStack)
-    // new cdk.CfnOutput(this, 'DashboardName', {
-    //   value: dashboard.dashboardName,
-    //   description: 'CloudWatch Dashboard Name',
-    //   exportName: `${environment}-ecs-DashboardName`,
-    // });
 
     // ============================================================================
     // Deployment Information

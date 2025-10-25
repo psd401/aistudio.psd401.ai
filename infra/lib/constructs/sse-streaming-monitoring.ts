@@ -353,28 +353,4 @@ Monitor Server-Sent Events streaming for field mismatches, parse errors, and unk
       })
     )
   }
-
-  /**
-   * Create a standalone dashboard for SSE streaming monitoring
-   * Use this if you want a dedicated dashboard instead of adding to main dashboard
-   */
-  public static createStandaloneDashboard(
-    scope: Construct,
-    id: string,
-    props: SSEStreamingMonitoringProps
-  ): cloudwatch.Dashboard {
-    const dashboard = new cloudwatch.Dashboard(scope, id, {
-      dashboardName: `${props.environment}-SSE-Streaming-Monitoring`,
-      defaultInterval: cdk.Duration.hours(3),
-      periodOverride: cloudwatch.PeriodOverride.AUTO
-    })
-
-    // Create monitoring construct with this dashboard
-    new SSEStreamingMonitoring(scope, `${id}Monitoring`, {
-      ...props,
-      dashboard
-    })
-
-    return dashboard
-  }
 }
