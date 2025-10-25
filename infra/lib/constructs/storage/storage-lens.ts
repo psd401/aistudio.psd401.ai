@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { Construct } from 'constructs';
 
@@ -47,8 +48,9 @@ export class StorageLensConfig extends Construct {
             },
           },
         },
+        // Use region-level monitoring (account-wide)
+        // Note: Specific bucket filtering doesn't work well with data export
         include: {
-          buckets: props.buckets ?? [],
           regions: props.regions ?? [cdk.Aws.REGION],
         },
         dataExport: {
@@ -66,6 +68,22 @@ export class StorageLensConfig extends Construct {
         isEnabled: true,
       },
     });
+
+    // Grant Storage Lens permission to write export reports
+    props.reportBucket.addToResourcePolicy(
+      new iam.PolicyStatement({
+        sid: 'AllowStorageLensExport',
+        effect: iam.Effect.ALLOW,
+        principals: [new iam.ServicePrincipal('storage-lens.s3.amazonaws.com')],
+        actions: ['s3:PutObject'],
+        resources: [`${props.reportBucket.bucketArn}/storage-lens/*`],
+        conditions: {
+          StringEquals: {
+            'aws:SourceAccount': cdk.Aws.ACCOUNT_ID,
+          },
+        },
+      })
+    );
 
     // Create CloudWatch Dashboard for Storage analytics
     this.dashboard = new cloudwatch.Dashboard(this, 'StorageDashboard', {

@@ -27,10 +27,6 @@ export {
   PowerTuningStateMachineProps,
 } from "./compute/power-tuning"
 export {
-  LambdaCostDashboard,
-  LambdaCostDashboardProps,
-} from "./compute/lambda-cost-dashboard"
-export {
   SecretCacheLayer,
   SecretCacheLayerProps,
 } from "./compute/secret-cache-layer"

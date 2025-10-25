@@ -80,7 +80,6 @@ export interface ComplianceAuditorProps {
  */
 export class ComplianceAuditor extends Construct {
   public readonly auditorFunction: lambda.Function
-  public readonly dashboard: cloudwatch.Dashboard
   private readonly projectName: string
 
   constructor(scope: Construct, id: string, props: ComplianceAuditorProps) {
@@ -96,9 +95,6 @@ export class ComplianceAuditor extends Construct {
 
     // Create EventBridge rule for rotation events
     this.createRotationMonitor(props)
-
-    // Create CloudWatch dashboard
-    this.dashboard = this.createDashboard(props)
 
     // Create compliance metrics
     this.createMetrics(props)
@@ -229,87 +225,6 @@ export class ComplianceAuditor extends Construct {
     )
   }
 
-  /**
-   * Creates CloudWatch dashboard for compliance visualization
-   */
-  private createDashboard(props: ComplianceAuditorProps): cloudwatch.Dashboard {
-    const dashboard = new cloudwatch.Dashboard(this, "ComplianceDashboard", {
-      dashboardName: `${this.projectName}-${props.deploymentEnvironment}-SecretsCompliance`,
-    })
-
-    const namespace = `${this.projectName}/SecretsCompliance`
-
-    // Widget for total secrets
-    dashboard.addWidgets(
-      new cloudwatch.GraphWidget({
-        title: "Total Secrets",
-        left: [
-          new cloudwatch.Metric({
-            namespace,
-            metricName: "TotalSecrets",
-            statistic: "Average",
-          }),
-        ],
-        width: 12,
-      })
-    )
-
-    // Widget for rotation compliance
-    dashboard.addWidgets(
-      new cloudwatch.GraphWidget({
-        title: "Rotation Compliance",
-        left: [
-          new cloudwatch.Metric({
-            namespace,
-            metricName: "SecretsWithRotation",
-            statistic: "Average",
-            color: cloudwatch.Color.GREEN,
-          }),
-          new cloudwatch.Metric({
-            namespace,
-            metricName: "SecretsWithoutRotation",
-            statistic: "Average",
-            color: cloudwatch.Color.RED,
-          }),
-        ],
-        width: 12,
-      })
-    )
-
-    // Widget for secret age distribution
-    dashboard.addWidgets(
-      new cloudwatch.GraphWidget({
-        title: "Secret Age Violations",
-        left: [
-          new cloudwatch.Metric({
-            namespace,
-            metricName: "OverageSecrets",
-            statistic: "Sum",
-            color: cloudwatch.Color.ORANGE,
-          }),
-        ],
-        width: 12,
-      })
-    )
-
-    // Widget for rotation failures
-    dashboard.addWidgets(
-      new cloudwatch.GraphWidget({
-        title: "Rotation Failures (24h)",
-        left: [
-          new cloudwatch.Metric({
-            namespace,
-            metricName: "RotationFailures",
-            statistic: "Sum",
-            color: cloudwatch.Color.RED,
-          }),
-        ],
-        width: 12,
-      })
-    )
-
-    return dashboard
-  }
 
   /**
    * Creates CloudWatch alarms for critical compliance violations

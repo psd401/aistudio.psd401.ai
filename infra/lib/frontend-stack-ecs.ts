@@ -269,10 +269,6 @@ export class FrontendStackEcs extends cdk.Stack {
       webAclArn: webAcl.attrArn,
     });
 
-    // ============================================================================
-    // CloudWatch Dashboard
-    // ============================================================================
-    const dashboard = this.ecsService.createDashboard({ environment });
 
     // ============================================================================
     // SSM Parameters for Cross-Stack References
@@ -301,11 +297,6 @@ export class FrontendStackEcs extends cdk.Stack {
       exportName: `${environment}-ecs-WAFArn`,
     });
 
-    new cdk.CfnOutput(this, 'DashboardName', {
-      value: dashboard.dashboardName,
-      description: 'CloudWatch Dashboard Name',
-      exportName: `${environment}-ecs-DashboardName`,
-    });
 
     // ============================================================================
     // Deployment Information

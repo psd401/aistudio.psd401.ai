@@ -78,10 +78,6 @@ export class SecretsManagerStack extends BaseStack {
   private addStackOutputs(): void {
     // SecretCacheLayer construct already creates its own output with exportName
 
-    new cdk.CfnOutput(this, "ComplianceDashboardUrl", {
-      value: `https://console.aws.amazon.com/cloudwatch/deeplink.js?region=${this.region}#dashboards:name=${this.complianceAuditor.dashboard.dashboardName}`,
-      description: "URL to Secrets Compliance Dashboard",
-    })
 
     new cdk.CfnOutput(this, "AlertTopicArn", {
       value: this.alertTopic.topicArn,

@@ -67,17 +67,17 @@ export class VPCProvider {
     const stack = cdk.Stack.of(scope)
     const stackId = stack.stackName
 
-    // Check if VPC already created in this synthesis (for multiple stacks)
-    const cachedVpc = this.vpcInstances.get(environment)
-    if (cachedVpc) {
-      return cachedVpc.vpc
-    }
-
     // Determine if this stack should own the VPC based on stack name
     // DatabaseStack creates the VPC, other stacks import it
     const shouldOwnVpc = stackId.includes("DatabaseStack")
 
     if (shouldOwnVpc) {
+      // Check if VPC already created in this synthesis (only cache for owner stack)
+      const cachedVpc = this.vpcInstances.get(environment)
+      if (cachedVpc) {
+        return cachedVpc.vpc
+      }
+
       // This stack owns the VPC - create it
       const vpcInstance = new SharedVPC(scope, "SharedVPC", {
         environment: environment as "dev" | "staging" | "prod",
@@ -89,12 +89,13 @@ export class VPCProvider {
       // Store VPC metadata in SSM for cross-stack references
       this.storeVpcMetadata(scope, environment, vpcInstance, stackId)
 
-      // Cache for this synthesis
+      // Cache for this synthesis (owner stack only)
       this.vpcInstances.set(environment, vpcInstance)
 
       return vpcInstance.vpc
     } else {
       // Another stack owns the VPC - import it using runtime lookup
+      // DO NOT cache imported VPCs to ensure each stack gets its own import construct
       return this.import(scope, environment)
     }
   }

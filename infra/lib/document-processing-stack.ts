@@ -288,40 +288,8 @@ export class DocumentProcessingStack extends cdk.Stack {
       period: cdk.Duration.minutes(5),
     });
 
-    // Create CloudWatch Dashboard
-    const dashboard = new cdk.aws_cloudwatch.Dashboard(this, 'DocumentProcessingDashboard', {
-      dashboardName: `AIStudio-DocumentProcessing-${environment}`,
-    });
-
-    dashboard.addWidgets(
-      new cdk.aws_cloudwatch.GraphWidget({
-        title: 'Processing Errors',
-        left: [processingErrors, highMemoryErrors],
-        width: 12,
-        height: 6,
-      }),
-      new cdk.aws_cloudwatch.GraphWidget({
-        title: 'Dead Letter Queue Messages',
-        left: [dlqMessages],
-        width: 12,
-        height: 6,
-      }),
-      new cdk.aws_cloudwatch.GraphWidget({
-        title: 'Lambda Duration',
-        left: [
-          this.standardProcessor.metricDuration({
-            statistic: 'Average',
-            period: cdk.Duration.minutes(5),
-          }),
-          this.highMemoryProcessor.metricDuration({
-            statistic: 'Average',
-            period: cdk.Duration.minutes(5),
-          }),
-        ],
-        width: 12,
-        height: 6,
-      })
-    );
+    // CloudWatch Dashboard removed - metrics now exported to consolidated dashboards via MonitoringStack
+    // Metrics available: processingErrors, highMemoryErrors, dlqMessages
 
     // Stack outputs
     new cdk.CfnOutput(this, 'DocumentJobsTableName', {

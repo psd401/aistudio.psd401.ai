@@ -64,21 +64,16 @@ export class StorageStack extends cdk.Stack {
       },
     ];
 
-    // Create optimized S3 bucket for document storage with intelligent tiering
-    const optimizedBucket = new OptimizedBucket(this, 'DocumentsBucket', {
-      bucketName: `aistudio-documents-${props.environment}`,
-      dataClassification: DataClassification.INTERNAL,
-      classificationRules,
-      enableCdn: props.enableCdn ?? false,
-      enableReplication: props.enableReplication ?? (props.environment === 'prod'),
-      replicationRegions: props.replicationRegions ?? ['us-east-1'],
+    // Create S3 bucket for document storage
+    // NOTE: Using direct s3.Bucket instead of OptimizedBucket to preserve CloudFormation logical ID
+    // This prevents bucket replacement. OptimizedBucket will be re-introduced in a future PR with proper migration.
+    // IMPORTANT: bucketName is omitted to match the currently deployed bucket (auto-generated name)
+    const documentsBucket = new s3.Bucket(this, 'DocumentsBucket', {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
       versioned: true,
       removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: props.environment !== 'prod',
-      enableIntelligentTiering: true,
-      enableInventory: true,
-      inventoryBucket: reportsBucket,
-      enableMetrics: true,
       cors: [
         {
           allowedMethods: [
@@ -98,26 +93,28 @@ export class StorageStack extends cdk.Stack {
           maxAge: 3000,
         },
       ],
+      // Lifecycle rules removed temporarily to match deployed state
+      // Will be re-added with OptimizedBucket in future PR
     });
 
     // Store bucket references
-    this.documentsBucket = optimizedBucket.bucket;
-    this.documentsBucketName = optimizedBucket.bucket.bucketName;
+    this.documentsBucket = documentsBucket;
+    this.documentsBucketName = documentsBucket.bucketName;
 
     // Create Storage Lens configuration for analytics
     new StorageLensConfig(this, 'StorageLens', {
       environment: props.environment,
       reportBucket: reportsBucket,
       regions: [cdk.Aws.REGION],
-      buckets: [optimizedBucket.bucket.bucketName],
+      buckets: [documentsBucket.bucketName],
     });
 
     // Create cost monitoring and optimization with specific bucket ARNs (IAM least privilege)
     new CostMonitor(this, 'CostMonitor', {
-      environment: props.environment as 'dev' | 'prod', // Type assertion for Environment type
+      environment: props.environment as 'dev' | 'prod',
       alertEmail: props.alertEmail,
       monitoredBucketArns: [
-        optimizedBucket.bucket.bucketArn,
+        documentsBucket.bucketArn,
         reportsBucket.bucketArn,
       ],
     });
@@ -125,51 +122,25 @@ export class StorageStack extends cdk.Stack {
     // Store bucket name in SSM Parameter Store for cross-stack references
     new ssm.StringParameter(this, 'DocumentsBucketParam', {
       parameterName: `/aistudio/${props.environment}/documents-bucket-name`,
-      stringValue: optimizedBucket.bucket.bucketName,
-      description: 'S3 bucket name for optimized document storage',
+      stringValue: documentsBucket.bucketName,
+      description: 'S3 bucket name for document storage',
     });
 
-    // Add SSM parameters for CloudFront distribution if CDN is enabled
-    if (props.enableCdn && optimizedBucket.distribution) {
-      new ssm.StringParameter(this, 'CloudFrontDistributionParam', {
-        parameterName: `/aistudio/${props.environment}/cloudfront-distribution-id`,
-        stringValue: optimizedBucket.distribution.distributionId,
-        description: 'CloudFront distribution ID for document storage',
-      });
-
-      new ssm.StringParameter(this, 'CloudFrontDomainParam', {
-        parameterName: `/aistudio/${props.environment}/cloudfront-domain`,
-        stringValue: optimizedBucket.distribution.distributionDomainName,
-        description: 'CloudFront distribution domain name',
-      });
-    }
+    // CDN/CloudFront temporarily disabled while using direct S3 bucket
+    // Will be re-enabled when OptimizedBucket is properly migrated
 
     // Keep CloudFormation outputs for backward compatibility and monitoring
     new cdk.CfnOutput(this, 'DocumentsBucketName', {
-      value: optimizedBucket.bucket.bucketName,
+      value: documentsBucket.bucketName,
       description: 'S3 bucket for document storage',
       exportName: `${props.environment}-DocumentsBucketName`,
     });
 
     new cdk.CfnOutput(this, 'DocumentsBucketArn', {
-      value: optimizedBucket.bucket.bucketArn,
+      value: documentsBucket.bucketArn,
       description: 'S3 bucket ARN for document storage',
       exportName: `${props.environment}-DocumentsBucketArn`,
     });
-
-    if (props.enableCdn && optimizedBucket.distribution) {
-      new cdk.CfnOutput(this, 'CloudFrontDistributionId', {
-        value: optimizedBucket.distribution.distributionId,
-        description: 'CloudFront distribution ID',
-        exportName: `${props.environment}-CloudFrontDistributionId`,
-      });
-
-      new cdk.CfnOutput(this, 'CloudFrontDomainName', {
-        value: optimizedBucket.distribution.distributionDomainName,
-        description: 'CloudFront distribution domain name',
-        exportName: `${props.environment}-CloudFrontDomainName`,
-      });
-    }
 
     new cdk.CfnOutput(this, 'StorageLensReportsBucket', {
       value: reportsBucket.bucketName,

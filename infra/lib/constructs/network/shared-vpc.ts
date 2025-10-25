@@ -434,59 +434,9 @@ export class SharedVPC extends Construct {
   private addVpcMetrics(environment: string): void {
     const isProd = this.isProduction(environment)
 
-    // Custom CloudWatch dashboard for VPC metrics
-    const dashboard = new cloudwatch.Dashboard(this, "VPCDashboard", {
-      dashboardName: `${environment}-vpc-metrics`,
-    })
-
-    // NAT Gateway metrics (for production/staging using NAT gateways)
-    // Note: Metrics are aggregated across all NAT gateways in the VPC
-    // Individual NAT gateway metrics will appear after deployment
-    if (isProd) {
-      const natGatewayBytes = new cloudwatch.Metric({
-        namespace: "AWS/NATGateway",
-        metricName: "BytesOutToDestination",
-        statistic: "Sum",
-        period: cdk.Duration.hours(1),
-      })
-
-      const natGatewayPackets = new cloudwatch.Metric({
-        namespace: "AWS/NATGateway",
-        metricName: "PacketsOutToDestination",
-        statistic: "Sum",
-        period: cdk.Duration.hours(1),
-      })
-
-      dashboard.addWidgets(
-        new cloudwatch.GraphWidget({
-          title: "NAT Gateway Data Transfer (All Gateways)",
-          left: [natGatewayBytes],
-          width: 12,
-        }),
-        new cloudwatch.GraphWidget({
-          title: "NAT Gateway Packets (All Gateways)",
-          left: [natGatewayPackets],
-          width: 12,
-        })
-      )
-    }
-
-    // VPC Endpoint metrics (aggregated across all endpoints)
-    // Individual endpoint metrics will appear after deployment
-    const vpcEndpointBytes = new cloudwatch.Metric({
-      namespace: "AWS/PrivateLinkEndpoints",
-      metricName: "BytesProcessed",
-      statistic: "Sum",
-      period: cdk.Duration.hours(1),
-    })
-
-    dashboard.addWidgets(
-      new cloudwatch.GraphWidget({
-        title: "VPC Endpoint Data Transfer (All Endpoints)",
-        left: [vpcEndpointBytes],
-        width: 12,
-      })
-    )
+    // Custom CloudWatch dashboard for VPC metrics removed
+    // Metrics now exported to consolidated dashboards via MonitoringStack
+    // VPC/NAT Gateway metrics available for consolidation
   }
 
   /**
