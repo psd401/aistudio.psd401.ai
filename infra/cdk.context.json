@@ -302,5 +302,165 @@
         ]
       }
     ]
+  },
+  "vpc-provider:account=123456789012:filter.tag:Name=aistudio-dev-vpc:region=us-east-1:returnAsymmetricSubnets=true": {
+    "vpcId": "vpc-dummy1",
+    "vpcCidrBlock": "10.0.0.0/16",
+    "ownerAccountId": "123456789012",
+    "availabilityZones": [],
+    "subnetGroups": [
+      {
+        "name": "Public",
+        "type": "Public",
+        "subnets": [
+          {
+            "subnetId": "subnet-public1",
+            "cidr": "10.0.0.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-public1"
+          },
+          {
+            "subnetId": "subnet-public2",
+            "cidr": "10.0.1.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-public2"
+          }
+        ]
+      },
+      {
+        "name": "Private-Data",
+        "type": "Private",
+        "subnets": [
+          {
+            "subnetId": "subnet-data1",
+            "cidr": "10.0.12.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-data1"
+          },
+          {
+            "subnetId": "subnet-data2",
+            "cidr": "10.0.13.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-data2"
+          }
+        ]
+      },
+      {
+        "name": "Isolated",
+        "type": "Isolated",
+        "subnets": [
+          {
+            "subnetId": "subnet-isolated1",
+            "cidr": "10.0.14.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-isolated1"
+          },
+          {
+            "subnetId": "subnet-isolated2",
+            "cidr": "10.0.15.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-isolated2"
+          }
+        ]
+      },
+      {
+        "name": "Private-Application",
+        "type": "Private",
+        "subnets": [
+          {
+            "subnetId": "subnet-app1",
+            "cidr": "10.0.4.0/22",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-app1"
+          },
+          {
+            "subnetId": "subnet-app2",
+            "cidr": "10.0.8.0/22",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-app2"
+          }
+        ]
+      }
+    ]
+  },
+  "vpc-provider:account=123456789012:filter.tag:Name=aistudio-prod-vpc:region=us-east-1:returnAsymmetricSubnets=true": {
+    "vpcId": "vpc-dummy2",
+    "vpcCidrBlock": "10.1.0.0/16",
+    "ownerAccountId": "123456789012",
+    "availabilityZones": [],
+    "subnetGroups": [
+      {
+        "name": "Public",
+        "type": "Public",
+        "subnets": [
+          {
+            "subnetId": "subnet-public3",
+            "cidr": "10.1.0.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-public3"
+          },
+          {
+            "subnetId": "subnet-public4",
+            "cidr": "10.1.1.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-public4"
+          }
+        ]
+      },
+      {
+        "name": "Private-Data",
+        "type": "Private",
+        "subnets": [
+          {
+            "subnetId": "subnet-data3",
+            "cidr": "10.1.12.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-data3"
+          },
+          {
+            "subnetId": "subnet-data4",
+            "cidr": "10.1.13.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-data4"
+          }
+        ]
+      },
+      {
+        "name": "Isolated",
+        "type": "Isolated",
+        "subnets": [
+          {
+            "subnetId": "subnet-isolated3",
+            "cidr": "10.1.14.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-isolated3"
+          },
+          {
+            "subnetId": "subnet-isolated4",
+            "cidr": "10.1.15.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-isolated4"
+          }
+        ]
+      },
+      {
+        "name": "Private-Application",
+        "type": "Private",
+        "subnets": [
+          {
+            "subnetId": "subnet-app3",
+            "cidr": "10.1.4.0/22",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-app3"
+          },
+          {
+            "subnetId": "subnet-app4",
+            "cidr": "10.1.8.0/22",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-app4"
+          }
+        ]
+      }
+    ]
   }
 }
