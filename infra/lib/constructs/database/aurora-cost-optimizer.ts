@@ -151,6 +151,12 @@ export class AuroraCostOptimizer extends Construct {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     })
 
+    // Add tags for cost tracking and resource management
+    cdk.Tags.of(pauseResumeLogGroup).add("Environment", props.environment)
+    cdk.Tags.of(pauseResumeLogGroup).add("CostCenter", "Database")
+    cdk.Tags.of(pauseResumeLogGroup).add("Component", "AuroraCostOptimizer")
+    cdk.Tags.of(pauseResumeLogGroup).add("ManagedBy", "CDK")
+
     this.pauseResumeFunction = new lambda.Function(this, "PauseResumeFunction", {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: "pause_resume.handler",
@@ -225,6 +231,12 @@ export class AuroraCostOptimizer extends Construct {
         retention: logs.RetentionDays.ONE_WEEK,
         removalPolicy: cdk.RemovalPolicy.DESTROY,
       })
+
+      // Add tags for cost tracking and resource management
+      cdk.Tags.of(scalingLogGroup).add("Environment", props.environment)
+      cdk.Tags.of(scalingLogGroup).add("CostCenter", "Database")
+      cdk.Tags.of(scalingLogGroup).add("Component", "AuroraCostOptimizer")
+      cdk.Tags.of(scalingLogGroup).add("ManagedBy", "CDK")
 
       this.scalingFunction = new lambda.Function(this, "ScalingFunction", {
         runtime: lambda.Runtime.PYTHON_3_12,
