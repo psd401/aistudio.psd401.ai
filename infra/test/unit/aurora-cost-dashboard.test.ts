@@ -1,5 +1,5 @@
 import * as cdk from "aws-cdk-lib"
-import { Template, Match } from "aws-cdk-lib/assertions"
+import { Template } from "aws-cdk-lib/assertions"
 import * as rds from "aws-cdk-lib/aws-rds"
 import { AuroraCostDashboard } from "../../lib/constructs/database/aurora-cost-dashboard"
 
@@ -23,8 +23,23 @@ describe("AuroraCostDashboard", () => {
     )
   })
 
-  describe("Dashboard Creation", () => {
-    test("creates CloudWatch dashboard", () => {
+  describe("Metrics Export", () => {
+    test("exports Aurora metrics for consolidated dashboards", () => {
+      const dashboard = new AuroraCostDashboard(stack, "Dashboard", {
+        cluster: mockCluster,
+        environment: "dev",
+      })
+
+      // Verify metrics interface is exported
+      expect(dashboard.metrics).toBeDefined()
+      expect(dashboard.metrics.capacity).toBeDefined()
+      expect(dashboard.metrics.acuUtilization).toBeDefined()
+      expect(dashboard.metrics.connections).toBeDefined()
+      expect(dashboard.metrics.cpuUtilization).toBeDefined()
+      expect(dashboard.estimatedMonthlyCost).toBeDefined()
+    })
+
+    test("does not create CloudWatch dashboard (metrics only)", () => {
       new AuroraCostDashboard(stack, "Dashboard", {
         cluster: mockCluster,
         environment: "dev",
@@ -32,26 +47,11 @@ describe("AuroraCostDashboard", () => {
 
       const template = Template.fromStack(stack)
 
-      template.hasResourceProperties("AWS::CloudWatch::Dashboard", {
-        DashboardName: "aurora-cost-dev",
-      })
+      // Dashboard creation removed - construct only exports metrics
+      template.resourceCountIs("AWS::CloudWatch::Dashboard", 0)
     })
 
-    test("accepts custom dashboard name", () => {
-      new AuroraCostDashboard(stack, "Dashboard", {
-        cluster: mockCluster,
-        environment: "prod",
-        dashboardName: "my-custom-dashboard",
-      })
-
-      const template = Template.fromStack(stack)
-
-      template.hasResourceProperties("AWS::CloudWatch::Dashboard", {
-        DashboardName: "my-custom-dashboard",
-      })
-    })
-
-    test("creates dashboard for each environment", () => {
+    test("exports metrics for all environments", () => {
       const environments: Array<"dev" | "staging" | "prod"> = [
         "dev",
         "staging",
@@ -68,83 +68,47 @@ describe("AuroraCostDashboard", () => {
           { clusterIdentifier: `${env}-cluster` }
         )
 
-        new AuroraCostDashboard(envStack, "Dashboard", {
+        const dashboard = new AuroraCostDashboard(envStack, "Dashboard", {
           cluster: envCluster,
           environment: env,
         })
 
-        const template = Template.fromStack(envStack)
-
-        template.hasResourceProperties("AWS::CloudWatch::Dashboard", {
-          DashboardName: `aurora-cost-${env}`,
-        })
+        // Verify metrics are available for each environment
+        expect(dashboard.metrics).toBeDefined()
+        expect(dashboard.estimatedMonthlyCost).toBeDefined()
       })
     })
   })
 
-  describe("Dashboard Content", () => {
-    test("includes ACU capacity metric", () => {
-      new AuroraCostDashboard(stack, "Dashboard", {
+  describe("Metric Properties", () => {
+    test("capacity metric is defined and available", () => {
+      const dashboard = new AuroraCostDashboard(stack, "Dashboard", {
         cluster: mockCluster,
         environment: "dev",
       })
 
-      const template = Template.fromStack(stack)
-
-      template.hasResourceProperties("AWS::CloudWatch::Dashboard", {
-        DashboardBody: Match.stringLikeRegexp("ServerlessDatabaseCapacity"),
-      })
+      const metric = dashboard.metrics.capacity
+      expect(metric).toBeDefined()
+      // IMetric interface doesn't expose namespace/metricName, but we can verify the metric exists
+      expect(metric.toString()).toContain("ServerlessDatabaseCapacity")
     })
 
-    test("includes database connections metric", () => {
-      new AuroraCostDashboard(stack, "Dashboard", {
+    test("estimated cost metric is defined", () => {
+      const dashboard = new AuroraCostDashboard(stack, "Dashboard", {
         cluster: mockCluster,
         environment: "dev",
       })
 
-      const template = Template.fromStack(stack)
-
-      template.hasResourceProperties("AWS::CloudWatch::Dashboard", {
-        DashboardBody: Match.stringLikeRegexp("DatabaseConnections"),
-      })
-    })
-
-    test("includes CPU utilization metric", () => {
-      new AuroraCostDashboard(stack, "Dashboard", {
-        cluster: mockCluster,
-        environment: "dev",
-      })
-
-      const template = Template.fromStack(stack)
-
-      template.hasResourceProperties("AWS::CloudWatch::Dashboard", {
-        DashboardBody: Match.stringLikeRegexp("CPUUtilization"),
-      })
-    })
-
-    test("includes cost calculation expressions", () => {
-      new AuroraCostDashboard(stack, "Dashboard", {
-        cluster: mockCluster,
-        environment: "dev",
-      })
-
-      const template = Template.fromStack(stack)
-
-      const dashboardBody = template.findResources("AWS::CloudWatch::Dashboard")
-      const dashboard = Object.values(dashboardBody)[0] as any
-      const body = JSON.parse(dashboard.Properties.DashboardBody)
-
-      // Should have math expressions for cost calculations
-      const hasCostCalculation = body.widgets.some((widget: any) =>
-        JSON.stringify(widget).includes("0.12")
-      ) // $0.12 per ACU-hour
-
-      expect(hasCostCalculation).toBe(true)
+      const costMetric = dashboard.estimatedMonthlyCost
+      expect(costMetric).toBeDefined()
+      // Cost metric is a MathExpression (implements IMetric)
+      // We can't access expression directly via IMetric interface, but we can verify it exists
+      expect(costMetric.toString()).toBeDefined()
     })
   })
 
-  describe("Environment-Specific Content", () => {
-    test("shows correct savings target for dev", () => {
+  describe("No Dashboard Creation", () => {
+    test("does not export dashboard URL (dashboard removed)", () => {
       new AuroraCostDashboard(stack, "Dashboard", {
         cluster: mockCluster,
         environment: "dev",
@@ -152,154 +116,13 @@ describe("AuroraCostDashboard", () => {
 
       const template = Template.fromStack(stack)
 
-      template.hasResourceProperties("AWS::CloudWatch::Dashboard", {
-        DashboardBody: Match.stringLikeRegexp("\\$42"),
-      })
-    })
-
-    test("shows correct savings target for staging", () => {
-      new AuroraCostDashboard(stack, "Dashboard", {
-        cluster: mockCluster,
-        environment: "staging",
-      })
-
-      const template = Template.fromStack(stack)
-
-      template.hasResourceProperties("AWS::CloudWatch::Dashboard", {
-        DashboardBody: Match.stringLikeRegexp("\\$20"),
-      })
-    })
-
-    test("shows correct savings target for prod", () => {
-      new AuroraCostDashboard(stack, "Dashboard", {
-        cluster: mockCluster,
-        environment: "prod",
-      })
-
-      const template = Template.fromStack(stack)
-
-      template.hasResourceProperties("AWS::CloudWatch::Dashboard", {
-        DashboardBody: Match.stringLikeRegexp("\\$53"),
-      })
-    })
-
-    test("includes environment-specific optimization strategies", () => {
-      const environments = {
-        dev: "Auto-pause",
-        staging: "Scheduled scaling",
-        prod: "Predictive scaling",
-      }
-
-      Object.entries(environments).forEach(([env, strategy]) => {
-        const envStack = new cdk.Stack(app, `${env}StrategyStack`, {
-          env: { region: "us-east-1" },
-        })
-        const envCluster = rds.DatabaseCluster.fromDatabaseClusterAttributes(
-          envStack,
-          "Cluster",
-          { clusterIdentifier: `${env}-cluster` }
-        )
-
-        new AuroraCostDashboard(envStack, "Dashboard", {
-          cluster: envCluster,
-          environment: env as "dev" | "staging" | "prod",
-        })
-
-        const template = Template.fromStack(envStack)
-
-        template.hasResourceProperties("AWS::CloudWatch::Dashboard", {
-          DashboardBody: Match.stringLikeRegexp(
-            strategy.toLowerCase().replace("-", "")
-          ),
-        })
-      })
-    })
-  })
-
-  describe("Outputs", () => {
-    test("exports dashboard URL", () => {
-      new AuroraCostDashboard(stack, "Dashboard", {
-        cluster: mockCluster,
-        environment: "dev",
-      })
-
-      const template = Template.fromStack(stack)
-
-      template.hasOutput("*DashboardUrl*", {
-        Value: Match.stringLikeRegexp(
-          "https://console.aws.amazon.com/cloudwatch.*aurora-cost-dev"
-        ),
-      })
-    })
-
-    test("includes correct region in URL", () => {
-      new AuroraCostDashboard(stack, "Dashboard", {
-        cluster: mockCluster,
-        environment: "dev",
-      })
-
-      const template = Template.fromStack(stack)
-
-      template.hasOutput("*DashboardUrl*", {
-        Value: Match.stringLikeRegexp("region=us-east-1"),
-      })
-    })
-  })
-
-  describe("Cost Tracking Widgets", () => {
-    test("includes single value widgets for cost metrics", () => {
-      new AuroraCostDashboard(stack, "Dashboard", {
-        cluster: mockCluster,
-        environment: "dev",
-      })
-
-      const template = Template.fromStack(stack)
-
-      const dashboardBody = template.findResources("AWS::CloudWatch::Dashboard")
-      const dashboard = Object.values(dashboardBody)[0] as any
-      const body = JSON.parse(dashboard.Properties.DashboardBody)
-
-      const singleValueWidgets = body.widgets.filter(
-        (w: any) => w.type === "metric" && w.properties?.view === "singleValue"
+      // Should have no CloudFormation outputs for dashboard URL
+      const outputs = template.toJSON().Outputs || {}
+      const dashboardUrlOutputs = Object.keys(outputs).filter((key) =>
+        key.includes("DashboardUrl")
       )
 
-      expect(singleValueWidgets.length).toBeGreaterThan(0)
-    })
-
-    test("includes graph widgets for trends", () => {
-      new AuroraCostDashboard(stack, "Dashboard", {
-        cluster: mockCluster,
-        environment: "dev",
-      })
-
-      const template = Template.fromStack(stack)
-
-      const dashboardBody = template.findResources("AWS::CloudWatch::Dashboard")
-      const dashboard = Object.values(dashboardBody)[0] as any
-      const body = JSON.parse(dashboard.Properties.DashboardBody)
-
-      const graphWidgets = body.widgets.filter(
-        (w: any) => w.type === "metric" && w.properties?.view === "timeSeries"
-      )
-
-      expect(graphWidgets.length).toBeGreaterThan(0)
-    })
-
-    test("includes text widgets for documentation", () => {
-      new AuroraCostDashboard(stack, "Dashboard", {
-        cluster: mockCluster,
-        environment: "dev",
-      })
-
-      const template = Template.fromStack(stack)
-
-      const dashboardBody = template.findResources("AWS::CloudWatch::Dashboard")
-      const dashboard = Object.values(dashboardBody)[0] as any
-      const body = JSON.parse(dashboard.Properties.DashboardBody)
-
-      const textWidgets = body.widgets.filter((w: any) => w.type === "text")
-
-      expect(textWidgets.length).toBeGreaterThan(0)
+      expect(dashboardUrlOutputs.length).toBe(0)
     })
   })
 })

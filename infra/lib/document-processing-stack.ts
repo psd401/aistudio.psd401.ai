@@ -288,5 +288,28 @@ export class DocumentProcessingStack extends cdk.Stack {
       period: cdk.Duration.minutes(5),
     });
 
-    // Create CloudWatch Dashboard
+    // CloudWatch Dashboard removed - metrics now exported to consolidated dashboards via MonitoringStack
+    // Metrics available: processingErrors, highMemoryErrors, dlqMessages
+
+    // Stack outputs
+    new cdk.CfnOutput(this, 'DocumentJobsTableName', {
+      value: this.documentJobsTable.tableName,
+      description: 'DynamoDB table for document job tracking',
+      exportName: `${props.environment}-DocumentJobsTableName`,
+    });
+
+    // Note: DocumentsBucketName is already exported by StorageStack, don't duplicate it here
+
+    new cdk.CfnOutput(this, 'ProcessingQueueUrl', {
+      value: this.processingQueue.queueUrl,
+      description: 'SQS queue for standard document processing',
+      exportName: `${props.environment}-ProcessingQueueUrl`,
+    });
+
+    new cdk.CfnOutput(this, 'HighMemoryQueueUrl', {
+      value: this.highMemoryQueue.queueUrl,
+      description: 'SQS queue for high-memory document processing',
+      exportName: `${props.environment}-HighMemoryQueueUrl`,
+    });
+  }
 }

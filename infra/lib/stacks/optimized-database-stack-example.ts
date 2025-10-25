@@ -134,10 +134,12 @@ export class OptimizedDatabaseStack extends cdk.Stack {
       description: "Aurora cost optimization is enabled",
     })
 
-    new cdk.CfnOutput(this, "DashboardName", {
-      value: this.costDashboard.dashboard.dashboardName,
-      description: "CloudWatch dashboard for cost monitoring",
-    })
+    // Dashboard output removed - AuroraCostDashboard now only exports metrics
+    // Metrics are available via this.costDashboard.metrics for consolidated dashboards
+    // new cdk.CfnOutput(this, "DashboardName", {
+    //   value: this.costDashboard.dashboard.dashboardName,
+    //   description: "CloudWatch dashboard for cost monitoring",
+    // })
   }
 
   private getOptimizationStrategy(): string {

@@ -434,7 +434,10 @@ export class SharedVPC extends Construct {
   private addVpcMetrics(environment: string): void {
     const isProd = this.isProduction(environment)
 
-    // Custom CloudWatch dashboard for VPC metrics
+    // Custom CloudWatch dashboard for VPC metrics removed
+    // Metrics now exported to consolidated dashboards via MonitoringStack
+    // VPC/NAT Gateway metrics available for consolidation
+  }
 
   /**
    * Helper method to get subnets for specific workload types.

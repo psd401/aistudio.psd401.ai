@@ -122,7 +122,7 @@ export class OptimizedLambda extends Construct {
   public readonly logGroup: logs.LogGroup
   public readonly alias?: lambda.Alias
   public readonly dashboard?: cloudwatch.Dashboard
-  private readonly metrics: Map<string, cloudwatch.Metric>
+  private readonly metrics: Map<string, cloudwatch.IMetric>
 
   constructor(scope: Construct, id: string, props: OptimizedLambdaProps) {
     super(scope, id)
@@ -254,13 +254,10 @@ export class OptimizedLambda extends Construct {
       }
     }
 
-    // Create monitoring dashboard if enhanced monitoring enabled
-    if (
-      props.enableInsights !== false ||
-      props.config.monitoring.detailedMetrics
-    ) {
-      this.dashboard = this.createMonitoringDashboard(props.functionName)
-    }
+    // Store metrics for consolidated dashboards
+    // Dashboard creation removed - metrics now exported via MonitoringStack
+    this.storeMetricsForConsolidation(props.functionName)
+    this.dashboard = undefined // Dashboard property deprecated, will be removed in future PR
 
     // Add cost allocation tags for tracking
     this.addCostTags(props, config)
@@ -449,12 +446,12 @@ export class OptimizedLambda extends Construct {
   }
 
   /**
-   * Create CloudWatch monitoring dashboard
+   * Store Lambda metrics for external access (dashboard consolidation)
+   *
+   * Metrics are stored in this.metrics Map and can be accessed via metric() method.
+   * Dashboard creation removed - metrics now exported to consolidated dashboards.
    */
-  private createMonitoringDashboard(
-    functionName: string
-  ): cloudwatch.Dashboard {
-
+  private storeMetricsForConsolidation(functionName: string): void {
     // Core Lambda metrics
     const invocations = this.function.metricInvocations({
       statistic: "Sum",
@@ -491,53 +488,25 @@ export class OptimizedLambda extends Construct {
     this.metrics.set("duration", duration)
     this.metrics.set("concurrentExecutions", concurrentExecutions)
 
-    // Error rate calculation
+    // Error rate calculation (MathExpression - cast to IMetric for Map storage)
     const errorRate = new cloudwatch.MathExpression({
       expression: "(errors / invocations) * 100",
       usingMetrics: { errors, invocations },
       label: "Error Rate (%)",
       period: cdk.Duration.minutes(5),
     })
+    this.metrics.set("errorRate", errorRate as cloudwatch.IMetric)
 
-    // Cost estimation (approximate)
+    // Cost estimation (approximate) (MathExpression - cast to IMetric for Map storage)
     const estimatedCost = new cloudwatch.MathExpression({
       expression: "(invocations * duration / 1000) * 0.0000166667",
       usingMetrics: { invocations, duration },
       label: "Estimated Cost ($/hour)",
       period: cdk.Duration.hours(1),
     })
+    this.metrics.set("estimatedCost", estimatedCost as cloudwatch.IMetric)
 
-    // Create dashboard widgets
-    dashboard.addWidgets(
-      new cloudwatch.GraphWidget({
-        title: "Invocations, Errors & Throttles",
-        left: [invocations],
-        right: [errors, throttles],
-        width: 12,
-        height: 6,
-      }),
-      new cloudwatch.GraphWidget({
-        title: "Performance Metrics",
-        left: [duration],
-        right: [concurrentExecutions],
-        width: 12,
-        height: 6,
-      }),
-      new cloudwatch.GraphWidget({
-        title: "Error Rate",
-        left: [errorRate],
-        width: 12,
-        height: 6,
-      }),
-      new cloudwatch.SingleValueWidget({
-        title: "Estimated Hourly Cost",
-        metrics: [estimatedCost],
-        width: 12,
-        height: 6,
-      })
-    )
-
-    return dashboard
+    // Dashboard creation removed - metrics available via metric() method for consolidated dashboards
   }
 
   /**
@@ -580,7 +549,7 @@ export class OptimizedLambda extends Construct {
   /**
    * Get a metric by name
    */
-  public metric(metricName: string): cloudwatch.Metric | undefined {
+  public metric(metricName: string): cloudwatch.IMetric | undefined {
     return this.metrics.get(metricName)
   }
 
