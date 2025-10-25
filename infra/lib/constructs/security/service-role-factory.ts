@@ -33,17 +33,29 @@ export class ServiceRoleFactory {
 
     // S3 bucket access
     if (props.s3Buckets && props.s3Buckets.length > 0) {
-      policies.push(this.buildS3AccessPolicy(props.s3Buckets, props))
+      policies.push(this.buildS3AccessPolicy(props.s3Buckets, {
+        region: props.region,
+        account: props.account,
+        environment: props.environment
+      }))
     }
 
     // DynamoDB table access
     if (props.dynamodbTables && props.dynamodbTables.length > 0) {
-      policies.push(this.buildDynamoDBAccessPolicy(props.dynamodbTables, props))
+      policies.push(this.buildDynamoDBAccessPolicy(props.dynamodbTables, {
+        region: props.region,
+        account: props.account,
+        environment: props.environment
+      }))
     }
 
     // SQS queue access
     if (props.sqsQueues && props.sqsQueues.length > 0) {
-      policies.push(this.buildSQSAccessPolicy(props.sqsQueues, props))
+      policies.push(this.buildSQSAccessPolicy(props.sqsQueues, {
+        region: props.region,
+        account: props.account,
+        environment: props.environment
+      }))
     }
 
     // SNS topic access
@@ -85,17 +97,29 @@ export class ServiceRoleFactory {
 
     // S3 bucket access
     if (props.s3Buckets && props.s3Buckets.length > 0) {
-      policies.push(this.buildS3AccessPolicy(props.s3Buckets, props))
+      policies.push(this.buildS3AccessPolicy(props.s3Buckets, {
+        region: props.region,
+        account: props.account,
+        environment: props.environment
+      }))
     }
 
     // DynamoDB table access
     if (props.dynamodbTables && props.dynamodbTables.length > 0) {
-      policies.push(this.buildDynamoDBAccessPolicy(props.dynamodbTables, props))
+      policies.push(this.buildDynamoDBAccessPolicy(props.dynamodbTables, {
+        region: props.region,
+        account: props.account,
+        environment: props.environment
+      }))
     }
 
     // SQS queue access
     if (props.sqsQueues && props.sqsQueues.length > 0) {
-      policies.push(this.buildSQSAccessPolicy(props.sqsQueues, props))
+      policies.push(this.buildSQSAccessPolicy(props.sqsQueues, {
+        region: props.region,
+        account: props.account,
+        environment: props.environment
+      }))
     }
 
     // SNS topic access
@@ -258,11 +282,11 @@ export class ServiceRoleFactory {
   }
 
   /**
-   * Build S3 access policy
+   * Build S3 access policy with tag-based conditions for enhanced security
    */
   private static buildS3AccessPolicy(
     bucketNames: string[],
-    props: { region: string; account: string }
+    props: { region: string; account: string; environment: string }
   ): iam.PolicyDocument {
     const bucketArns = bucketNames.map((bucket) =>
       bucket.startsWith("arn:") ? bucket : `arn:aws:s3:::${bucket}`
@@ -279,22 +303,34 @@ export class ServiceRoleFactory {
             "s3:DeleteObject",
           ],
           resources: bucketArns.map((arn) => `${arn}/*`),
+          conditions: {
+            StringEquals: {
+              "s3:ExistingObjectTag/Environment": props.environment,
+              "s3:ExistingObjectTag/ManagedBy": "cdk",
+            },
+          },
         }),
         new iam.PolicyStatement({
           effect: iam.Effect.ALLOW,
           actions: ["s3:ListBucket", "s3:GetBucketLocation"],
           resources: bucketArns,
+          conditions: {
+            StringEquals: {
+              "aws:ResourceTag/Environment": props.environment,
+              "aws:ResourceTag/ManagedBy": "cdk",
+            },
+          },
         }),
       ],
     })
   }
 
   /**
-   * Build DynamoDB access policy
+   * Build DynamoDB access policy with tag-based conditions for enhanced security
    */
   private static buildDynamoDBAccessPolicy(
     tableNames: string[],
-    props: { region: string; account: string }
+    props: { region: string; account: string; environment: string }
   ): iam.PolicyDocument {
     const tableArns = tableNames.map((table) =>
       table.startsWith("arn:")
@@ -315,17 +351,23 @@ export class ServiceRoleFactory {
             "dynamodb:Scan",
           ],
           resources: [...tableArns, ...tableArns.map((arn) => `${arn}/index/*`)],
+          conditions: {
+            StringEquals: {
+              "aws:ResourceTag/Environment": props.environment,
+              "aws:ResourceTag/ManagedBy": "cdk",
+            },
+          },
         }),
       ],
     })
   }
 
   /**
-   * Build SQS access policy
+   * Build SQS access policy with tag-based conditions for enhanced security
    */
   private static buildSQSAccessPolicy(
     queueNames: string[],
-    props: { region: string; account: string }
+    props: { region: string; account: string; environment: string }
   ): iam.PolicyDocument {
     const queueArns = queueNames.map((queue) =>
       queue.startsWith("arn:")
@@ -344,6 +386,12 @@ export class ServiceRoleFactory {
             "sqs:GetQueueAttributes",
           ],
           resources: queueArns,
+          conditions: {
+            StringEquals: {
+              "aws:ResourceTag/Environment": props.environment,
+              "aws:ResourceTag/ManagedBy": "cdk",
+            },
+          },
         }),
       ],
     })

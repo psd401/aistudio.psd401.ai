@@ -222,5 +222,85 @@
   "hosted-zone:account=390844780692:domainName=psd401.ai:region=us-east-1": {
     "Id": "/hostedzone/Z09050661L2GGY7QQRSBW",
     "Name": "psd401.ai."
+  },
+  "vpc-provider:account=390844780692:filter.tag:Name=aistudio-dev-vpc:region=us-east-1:returnAsymmetricSubnets=true": {
+    "vpcId": "vpc-0689a37406ef24c69",
+    "vpcCidrBlock": "10.0.0.0/16",
+    "ownerAccountId": "390844780692",
+    "availabilityZones": [],
+    "subnetGroups": [
+      {
+        "name": "Public",
+        "type": "Public",
+        "subnets": [
+          {
+            "subnetId": "subnet-0dafc6cb0557df6df",
+            "cidr": "10.0.0.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-0c3face06d425df69"
+          },
+          {
+            "subnetId": "subnet-05194a593e5f1ecd4",
+            "cidr": "10.0.1.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-0d4f3bb57f7f79580"
+          }
+        ]
+      },
+      {
+        "name": "Private-Data",
+        "type": "Private",
+        "subnets": [
+          {
+            "subnetId": "subnet-0d175da54f1af8ed2",
+            "cidr": "10.0.12.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-07479b0aaa6dad0ff"
+          },
+          {
+            "subnetId": "subnet-00a86990ec9221d06",
+            "cidr": "10.0.13.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-09688aaae35a67e86"
+          }
+        ]
+      },
+      {
+        "name": "Isolated",
+        "type": "Isolated",
+        "subnets": [
+          {
+            "subnetId": "subnet-0ab39f0fefeef44d8",
+            "cidr": "10.0.14.0/24",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-0a39f4f0a4bbb7d42"
+          },
+          {
+            "subnetId": "subnet-026d02ff9aa8094d1",
+            "cidr": "10.0.15.0/24",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-01d888655b210bc69"
+          }
+        ]
+      },
+      {
+        "name": "Private-Application",
+        "type": "Private",
+        "subnets": [
+          {
+            "subnetId": "subnet-02486533ad5b01d19",
+            "cidr": "10.0.4.0/22",
+            "availabilityZone": "us-east-1a",
+            "routeTableId": "rtb-079873df55bf04d18"
+          },
+          {
+            "subnetId": "subnet-00f1fe24680c840f6",
+            "cidr": "10.0.8.0/22",
+            "availabilityZone": "us-east-1b",
+            "routeTableId": "rtb-0718d386c6bf24226"
+          }
+        ]
+      }
+    ]
   }
 }
