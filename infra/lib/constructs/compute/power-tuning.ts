@@ -611,7 +611,7 @@ export class PowerTuningStateMachine extends Construct {
     const executeMap = new sfn.Map(this, "ExecuteConfigurations", {
       itemsPath: "$.value",
       maxConcurrency: 1,
-      parameters: {
+      itemSelector: {
         "lambdaARN.$": "$.lambdaARN",
         "value.$": "$$.Map.Item.Value",
         "num.$": "$.num",
