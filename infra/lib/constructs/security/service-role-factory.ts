@@ -28,7 +28,11 @@ export class ServiceRoleFactory {
 
     // Secrets Manager access
     if (props.secrets && props.secrets.length > 0) {
-      policies.push(this.buildSecretsAccessPolicy(props.secrets, props))
+      policies.push(this.buildSecretsAccessPolicy(props.secrets, {
+        region: props.region,
+        account: props.account,
+        environment: props.environment
+      }))
     }
 
     // S3 bucket access
@@ -60,7 +64,11 @@ export class ServiceRoleFactory {
 
     // SNS topic access
     if (props.snsTopics && props.snsTopics.length > 0) {
-      policies.push(this.buildSNSAccessPolicy(props.snsTopics, props))
+      policies.push(this.buildSNSAccessPolicy(props.snsTopics, {
+        region: props.region,
+        account: props.account,
+        environment: props.environment
+      }))
     }
 
     // Add any additional policies
@@ -92,7 +100,11 @@ export class ServiceRoleFactory {
 
     // Secrets Manager access
     if (props.secrets && props.secrets.length > 0) {
-      policies.push(this.buildSecretsAccessPolicy(props.secrets, props))
+      policies.push(this.buildSecretsAccessPolicy(props.secrets, {
+        region: props.region,
+        account: props.account,
+        environment: props.environment
+      }))
     }
 
     // S3 bucket access
@@ -124,12 +136,20 @@ export class ServiceRoleFactory {
 
     // SNS topic access
     if (props.snsTopics && props.snsTopics.length > 0) {
-      policies.push(this.buildSNSAccessPolicy(props.snsTopics, props))
+      policies.push(this.buildSNSAccessPolicy(props.snsTopics, {
+        region: props.region,
+        account: props.account,
+        environment: props.environment
+      }))
     }
 
     // ECR repository access
     if (props.ecrRepositories && props.ecrRepositories.length > 0) {
-      policies.push(this.buildECRAccessPolicy(props.ecrRepositories, props))
+      policies.push(this.buildECRAccessPolicy(props.ecrRepositories, {
+        region: props.region,
+        account: props.account,
+        environment: props.environment
+      }))
     }
 
     // Add any additional policies
@@ -163,12 +183,20 @@ export class ServiceRoleFactory {
 
     // ECR access for pulling images
     if (props.ecrRepositories && props.ecrRepositories.length > 0) {
-      policies.push(this.buildECRAccessPolicy(props.ecrRepositories, props))
+      policies.push(this.buildECRAccessPolicy(props.ecrRepositories, {
+        region: props.region,
+        account: props.account,
+        environment: props.environment
+      }))
     }
 
     // Secrets access for environment variables
     if (props.secrets && props.secrets.length > 0) {
-      policies.push(this.buildSecretsAccessPolicy(props.secrets, props))
+      policies.push(this.buildSecretsAccessPolicy(props.secrets, {
+        region: props.region,
+        account: props.account,
+        environment: props.environment
+      }))
     }
 
     const baseRole = new BaseIAMRole(scope, id, {
@@ -260,11 +288,11 @@ export class ServiceRoleFactory {
   }
 
   /**
-   * Build Secrets Manager access policy
+   * Build Secrets Manager access policy with tag-based conditions for enhanced security
    */
   private static buildSecretsAccessPolicy(
     secretArns: string[],
-    props: { region: string; account: string }
+    props: { region: string; account: string; environment: string }
   ): iam.PolicyDocument {
     return new iam.PolicyDocument({
       statements: [
@@ -276,6 +304,12 @@ export class ServiceRoleFactory {
               ? secretName
               : `arn:aws:secretsmanager:${props.region}:${props.account}:secret:${secretName}*`
           ),
+          conditions: {
+            StringEquals: {
+              "aws:ResourceTag/Environment": props.environment,
+              "aws:ResourceTag/ManagedBy": "cdk",
+            },
+          },
         }),
       ],
     })
@@ -283,6 +317,12 @@ export class ServiceRoleFactory {
 
   /**
    * Build S3 access policy with tag-based conditions for enhanced security
+   *
+   * Note: Tag conditions are applied at bucket level only. Object-level tag conditions
+   * (s3:ExistingObjectTag) are not used because:
+   * - They don't apply to PutObject operations on new objects
+   * - Bucket-level tags provide sufficient environment isolation
+   * - Avoids requiring object tagging in application code
    */
   private static buildS3AccessPolicy(
     bucketNames: string[],
@@ -294,6 +334,7 @@ export class ServiceRoleFactory {
 
     return new iam.PolicyDocument({
       statements: [
+        // Object operations - no tag conditions (bucket-level tags provide isolation)
         new iam.PolicyStatement({
           effect: iam.Effect.ALLOW,
           actions: [
@@ -303,13 +344,8 @@ export class ServiceRoleFactory {
             "s3:DeleteObject",
           ],
           resources: bucketArns.map((arn) => `${arn}/*`),
-          conditions: {
-            StringEquals: {
-              "s3:ExistingObjectTag/Environment": props.environment,
-              "s3:ExistingObjectTag/ManagedBy": "cdk",
-            },
-          },
         }),
+        // Bucket operations - tag conditions enforce environment isolation
         new iam.PolicyStatement({
           effect: iam.Effect.ALLOW,
           actions: ["s3:ListBucket", "s3:GetBucketLocation"],
@@ -398,11 +434,11 @@ export class ServiceRoleFactory {
   }
 
   /**
-   * Build SNS access policy
+   * Build SNS access policy with tag-based conditions for enhanced security
    */
   private static buildSNSAccessPolicy(
     topicNames: string[],
-    props: { region: string; account: string }
+    props: { region: string; account: string; environment: string }
   ): iam.PolicyDocument {
     const topicArns = topicNames.map((topic) =>
       topic.startsWith("arn:")
@@ -416,17 +452,23 @@ export class ServiceRoleFactory {
           effect: iam.Effect.ALLOW,
           actions: ["sns:Publish"],
           resources: topicArns,
+          conditions: {
+            StringEquals: {
+              "aws:ResourceTag/Environment": props.environment,
+              "aws:ResourceTag/ManagedBy": "cdk",
+            },
+          },
         }),
       ],
     })
   }
 
   /**
-   * Build ECR access policy
+   * Build ECR access policy with tag-based conditions for enhanced security
    */
   private static buildECRAccessPolicy(
     repositoryNames: string[],
-    props: { region: string; account: string }
+    props: { region: string; account: string; environment: string }
   ): iam.PolicyDocument {
     const repositoryArns = repositoryNames.map((repo) =>
       repo.startsWith("arn:")
@@ -444,6 +486,12 @@ export class ServiceRoleFactory {
             "ecr:BatchCheckLayerAvailability",
           ],
           resources: repositoryArns,
+          conditions: {
+            StringEquals: {
+              "aws:ResourceTag/Environment": props.environment,
+              "aws:ResourceTag/ManagedBy": "cdk",
+            },
+          },
         }),
         new iam.PolicyStatement({
           effect: iam.Effect.ALLOW,

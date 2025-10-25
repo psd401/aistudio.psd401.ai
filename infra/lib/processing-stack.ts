@@ -144,6 +144,12 @@ export class ProcessingStack extends cdk.Stack {
                 'rds-data:RollbackTransaction',
               ],
               resources: [databaseResourceArn],
+              conditions: {
+                StringEquals: {
+                  'aws:ResourceTag/Environment': props.environment,
+                  'aws:ResourceTag/ManagedBy': 'cdk',
+                },
+              },
             }),
             // Textract permissions - requires wildcard (AWS Textract limitation)
             // See: https://docs.aws.amazon.com/textract/latest/dg/security_iam_service-with-iam.html
@@ -213,6 +219,12 @@ export class ProcessingStack extends cdk.Stack {
                 'rds-data:RollbackTransaction',
               ],
               resources: [databaseResourceArn],
+              conditions: {
+                StringEquals: {
+                  'aws:ResourceTag/Environment': props.environment,
+                  'aws:ResourceTag/ManagedBy': 'cdk',
+                },
+              },
             }),
           ],
         }),
@@ -259,6 +271,12 @@ export class ProcessingStack extends cdk.Stack {
                 'rds-data:RollbackTransaction',
               ],
               resources: [databaseResourceArn],
+              conditions: {
+                StringEquals: {
+                  'aws:ResourceTag/Environment': props.environment,
+                  'aws:ResourceTag/ManagedBy': 'cdk',
+                },
+              },
             }),
           ],
         }),
@@ -305,6 +323,12 @@ export class ProcessingStack extends cdk.Stack {
                 'rds-data:RollbackTransaction',
               ],
               resources: [databaseResourceArn],
+              conditions: {
+                StringEquals: {
+                  'aws:ResourceTag/Environment': props.environment,
+                  'aws:ResourceTag/ManagedBy': 'cdk',
+                },
+              },
             }),
             // Textract permissions - requires wildcard (AWS Textract limitation)
             new iam.PolicyStatement({
