@@ -454,9 +454,6 @@ export class OptimizedLambda extends Construct {
   private createMonitoringDashboard(
     functionName: string
   ): cloudwatch.Dashboard {
-    const dashboard = new cloudwatch.Dashboard(this, "Dashboard", {
-      dashboardName: `${functionName}-metrics`,
-    })
 
     // Core Lambda metrics
     const invocations = this.function.metricInvocations({
