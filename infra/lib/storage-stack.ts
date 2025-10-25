@@ -32,8 +32,8 @@ export class StorageStack extends cdk.Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       versioned: false,
-      removalPolicy: cdk.RemovalPolicy.RETAIN, // Always retain to prevent data loss
-      autoDeleteObjects: false, // Never auto-delete - could contain important reports
+      removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: props.environment !== 'prod',
       lifecycleRules: [
         {
           id: 'ExpireOldReports',
@@ -73,8 +73,8 @@ export class StorageStack extends cdk.Stack {
       enableReplication: props.enableReplication ?? (props.environment === 'prod'),
       replicationRegions: props.replicationRegions ?? ['us-east-1'],
       versioned: true,
-      removalPolicy: cdk.RemovalPolicy.RETAIN, // Always retain - contains user data
-      autoDeleteObjects: false, // Never auto-delete - contains production user documents
+      removalPolicy: props.environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: props.environment !== 'prod',
       enableIntelligentTiering: true,
       enableInventory: true,
       inventoryBucket: reportsBucket,
