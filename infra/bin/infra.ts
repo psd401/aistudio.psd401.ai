@@ -137,7 +137,6 @@ Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devAuthStack)
 
 const devStorageStack = new StorageStack(app, 'AIStudio-StorageStack-Dev', {
   environment: 'dev',
-  alertEmail,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
 cdk.Tags.of(devStorageStack).add('Environment', 'Dev');
@@ -228,7 +227,6 @@ Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodAuthStack
 
 const prodStorageStack = new StorageStack(app, 'AIStudio-StorageStack-Prod', {
   environment: 'prod',
-  alertEmail,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
 cdk.Tags.of(prodStorageStack).add('Environment', 'Prod');

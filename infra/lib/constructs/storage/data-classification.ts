@@ -282,28 +282,20 @@ export class DataClassifier {
    * Get all lifecycle rules for a bucket based on classification rules
    */
   getLifecycleRules(): s3.LifecycleRule[] {
-    const rulesMap = new Map<string, s3.LifecycleRule>();
+    const rules: s3.LifecycleRule[] = [];
 
     for (const rule of this.rules) {
       if (rule.customLifecycle) {
         // Use custom lifecycle rules
-        for (const lifecycleRule of rule.customLifecycle) {
-          if (lifecycleRule.id && !rulesMap.has(lifecycleRule.id)) {
-            rulesMap.set(lifecycleRule.id, lifecycleRule);
-          }
-        }
+        rules.push(...rule.customLifecycle);
       } else {
         // Use default rules for classification
         const defaultRules = LifecyclePolicyFactory.getDefaultRules(rule.classification);
-        for (const lifecycleRule of defaultRules) {
-          if (lifecycleRule.id && !rulesMap.has(lifecycleRule.id)) {
-            rulesMap.set(lifecycleRule.id, lifecycleRule);
-          }
-        }
+        rules.push(...defaultRules);
       }
     }
 
-    return Array.from(rulesMap.values());
+    return rules;
   }
 
   /**
