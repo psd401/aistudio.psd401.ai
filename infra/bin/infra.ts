@@ -339,7 +339,8 @@ const devMonitoringStack = new MonitoringStack(app, 'AIStudio-MonitoringStack-De
   auroraCostDashboard: devDbStack.costDashboard,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
-devMonitoringStack.addDependency(devDbStack); // Need Aurora metrics
+// Ensure DatabaseStack deploys first - MonitoringStack requires Aurora metrics for consolidated dashboards
+devMonitoringStack.addDependency(devDbStack);
 cdk.Tags.of(devMonitoringStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devMonitoringStack).add(key, value));
 
@@ -349,7 +350,8 @@ const prodMonitoringStack = new MonitoringStack(app, 'AIStudio-MonitoringStack-P
   auroraCostDashboard: prodDbStack.costDashboard,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
-prodMonitoringStack.addDependency(prodDbStack); // Need Aurora metrics
+// Ensure DatabaseStack deploys first - MonitoringStack requires Aurora metrics for consolidated dashboards
+prodMonitoringStack.addDependency(prodDbStack);
 cdk.Tags.of(prodMonitoringStack).add('Environment', 'Prod');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodMonitoringStack).add(key, value));
 

@@ -121,6 +121,11 @@ export class OptimizedLambda extends Construct {
   public readonly function: lambda.Function
   public readonly logGroup: logs.LogGroup
   public readonly alias?: lambda.Alias
+  /**
+   * @deprecated Dashboard creation removed in favor of consolidated dashboards (PR #424).
+   * Metrics are now exported via the metrics Map and rendered in MonitoringStack.
+   * This property will be removed in a future PR.
+   */
   public readonly dashboard?: cloudwatch.Dashboard
   private readonly metrics: Map<string, cloudwatch.IMetric>
 
@@ -255,9 +260,8 @@ export class OptimizedLambda extends Construct {
     }
 
     // Store metrics for consolidated dashboards
-    // Dashboard creation removed - metrics now exported via MonitoringStack
     this.storeMetricsForConsolidation(props.functionName)
-    this.dashboard = undefined // Dashboard property deprecated, will be removed in future PR
+    this.dashboard = undefined
 
     // Add cost allocation tags for tracking
     this.addCostTags(props, config)
@@ -488,23 +492,23 @@ export class OptimizedLambda extends Construct {
     this.metrics.set("duration", duration)
     this.metrics.set("concurrentExecutions", concurrentExecutions)
 
-    // Error rate calculation (MathExpression - cast to IMetric for Map storage)
+    // Error rate calculation
     const errorRate = new cloudwatch.MathExpression({
       expression: "(errors / invocations) * 100",
       usingMetrics: { errors, invocations },
       label: "Error Rate (%)",
       period: cdk.Duration.minutes(5),
     })
-    this.metrics.set("errorRate", errorRate as cloudwatch.IMetric)
+    this.metrics.set("errorRate", errorRate)
 
-    // Cost estimation (approximate) (MathExpression - cast to IMetric for Map storage)
+    // Cost estimation (approximate)
     const estimatedCost = new cloudwatch.MathExpression({
       expression: "(invocations * duration / 1000) * 0.0000166667",
       usingMetrics: { invocations, duration },
       label: "Estimated Cost ($/hour)",
       period: cdk.Duration.hours(1),
     })
-    this.metrics.set("estimatedCost", estimatedCost as cloudwatch.IMetric)
+    this.metrics.set("estimatedCost", estimatedCost)
 
     // Dashboard creation removed - metrics available via metric() method for consolidated dashboards
   }

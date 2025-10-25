@@ -101,14 +101,6 @@ export class ObservabilityDashboards extends Construct {
       )
     );
 
-    // TODO: Legacy widget methods removed - will be replaced with consolidated metrics
-    // Placeholder for backwards compatibility during migration
-    // dashboard.addWidgets(
-    //   this.createRequestRateWidget(environment),
-    //   this.createErrorRateWidget(environment),
-    //   this.createLatencyWidget(environment)
-    // );
-
     // Infrastructure Health Section
     if (metrics) {
       this.addInfrastructureHealthSection(dashboard, environment, metrics);
@@ -117,15 +109,6 @@ export class ObservabilityDashboards extends Construct {
       this.addNetworkSection(dashboard, environment, metrics);
       this.addSecuritySection(dashboard, environment, metrics);
     }
-
-    // TODO: Legacy sections removed - will be replaced with consolidated metrics
-    // dashboard.addWidgets(
-    //   DashboardWidgetFactory.createSectionHeader('Legacy Metrics', 'Application performance metrics')
-    // );
-    // dashboard.addWidgets(
-    //   this.createLambdaHealthWidget(environment),
-    //   this.createDatabaseHealthWidget(environment)
-    // );
 
     return dashboard;
   }
