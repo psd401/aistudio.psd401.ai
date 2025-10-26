@@ -1,4 +1,4 @@
-import { streamText, type LanguageModel, type CoreMessage } from 'ai';
+import { streamText, type LanguageModel, type CoreMessage, type ToolSet } from 'ai';
 import { createLogger } from '@/lib/logger';
 import type { 
   ProviderAdapter, 
@@ -16,7 +16,8 @@ const log = createLogger({ module: 'base-provider-adapter' });
  */
 export abstract class BaseProviderAdapter implements ProviderAdapter {
   protected abstract providerName: string;
-  
+  protected providerClient?: unknown; // Store provider client instance
+
   /**
    * Create a model instance for this provider
    * Must be implemented by each provider
@@ -35,23 +36,50 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
    */
   getProviderOptions(modelId: string, options?: StreamRequest['options']): Record<string, unknown> {
     const baseOptions: Record<string, unknown> = {};
-    
+
     // Add common options
     if (options?.reasoningEffort) {
       baseOptions.reasoningEffort = options.reasoningEffort;
     }
-    
+
     if (options?.responseMode) {
       baseOptions.responseMode = options.responseMode;
     }
-    
+
     if (options?.backgroundMode) {
       baseOptions.backgroundMode = options.backgroundMode;
     }
-    
+
     return baseOptions;
   }
-  
+
+  /**
+   * Create provider-native tools from stored client instance
+   * Override in subclasses to implement provider-specific tools
+   */
+  async createTools(enabledTools: string[]): Promise<ToolSet> {
+    // Base implementation returns empty - providers override this
+    log.debug(`No tools available for ${this.providerName}`, { enabledTools });
+    return {};
+  }
+
+  /**
+   * Get list of tools supported by a specific model
+   * Override in subclasses to report model-specific tool capabilities
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  getSupportedTools(_modelId: string): string[] {
+    // Base implementation returns empty - providers override this
+    return [];
+  }
+
+  /**
+   * Get stored provider client instance (for debugging/testing)
+   */
+  getProviderClient(): unknown {
+    return this.providerClient;
+  }
+
   /**
    * Stream with provider-specific enhancements
    * Base implementation using AI SDK streamText
@@ -87,13 +115,14 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
     try {
       // Create enhanced configuration
       const enhancedConfig = this.enhanceStreamConfig(config);
-      
+
       // Start streaming with AI SDK
       const result = streamText({
         model: enhancedConfig.model,
         messages: enhancedConfig.messages as CoreMessage[],
         system: enhancedConfig.system,
         tools: enhancedConfig.tools,
+        toolChoice: enhancedConfig.toolChoice,
         temperature: enhancedConfig.temperature,
         ...(enhancedConfig.experimental_telemetry && enhancedConfig.experimental_telemetry.isEnabled && {
           experimental_telemetry: {
@@ -198,6 +227,8 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
       system: config.system,
       maxTokens: config.maxTokens,
       temperature: config.temperature,
+      tools: config.tools,
+      toolChoice: config.toolChoice,
       experimental_telemetry: config.experimental_telemetry
     };
   }

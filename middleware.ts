@@ -9,6 +9,7 @@ const PUBLIC_PATHS = [
   "/api/auth",
   "/api/public",
   "/api/health",
+  "/api/healthz", // Lightweight health check for ECS/Docker
   "/api/ping",
   "/api/auth/federated-signout",
   "/auth/error",

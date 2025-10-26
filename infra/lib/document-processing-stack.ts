@@ -229,13 +229,14 @@ export class DocumentProcessingStack extends cdk.Stack {
       retryAttempts: 2,
     });
 
-    // High-memory Lambda processor (10GB memory, 30 min timeout)
+    // High-memory Lambda processor
+    // PowerTuning Result (2025-10-24): 10240MB → 1536MB (85% reduction)
     this.highMemoryProcessor = new lambda.Function(this, 'HighMemoryProcessor', {
       functionName: `AIStudio-DocumentProcessor-HighMemory-${environment}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'dist/index.handler',
       code: lambda.Code.fromAsset('lambdas/document-processor-v2'),
-      memorySize: 10240, // 10GB for large file processing
+      memorySize: 1536, // Optimized via PowerTuning from 10GB
       timeout: cdk.Duration.minutes(15), // Lambda max timeout is 15 minutes
       role: processorRole,
       environment: {
@@ -287,60 +288,28 @@ export class DocumentProcessingStack extends cdk.Stack {
       period: cdk.Duration.minutes(5),
     });
 
-    // Create CloudWatch Dashboard
-    const dashboard = new cdk.aws_cloudwatch.Dashboard(this, 'DocumentProcessingDashboard', {
-      dashboardName: `AIStudio-DocumentProcessing-${environment}`,
-    });
-
-    dashboard.addWidgets(
-      new cdk.aws_cloudwatch.GraphWidget({
-        title: 'Processing Errors',
-        left: [processingErrors, highMemoryErrors],
-        width: 12,
-        height: 6,
-      }),
-      new cdk.aws_cloudwatch.GraphWidget({
-        title: 'Dead Letter Queue Messages',
-        left: [dlqMessages],
-        width: 12,
-        height: 6,
-      }),
-      new cdk.aws_cloudwatch.GraphWidget({
-        title: 'Lambda Duration',
-        left: [
-          this.standardProcessor.metricDuration({
-            statistic: 'Average',
-            period: cdk.Duration.minutes(5),
-          }),
-          this.highMemoryProcessor.metricDuration({
-            statistic: 'Average',
-            period: cdk.Duration.minutes(5),
-          }),
-        ],
-        width: 12,
-        height: 6,
-      })
-    );
+    // CloudWatch Dashboard removed - metrics now exported to consolidated dashboards via MonitoringStack
+    // Metrics available: processingErrors, highMemoryErrors, dlqMessages
 
     // Stack outputs
     new cdk.CfnOutput(this, 'DocumentJobsTableName', {
       value: this.documentJobsTable.tableName,
       description: 'DynamoDB table for document job tracking',
+      exportName: `${props.environment}-DocumentJobsTableName`,
     });
 
-    new cdk.CfnOutput(this, 'DocumentsBucketName', {
-      value: this.documentsBucket.bucketName,
-      description: 'S3 bucket for document storage',
-    });
+    // Note: DocumentsBucketName is already exported by StorageStack, don't duplicate it here
 
     new cdk.CfnOutput(this, 'ProcessingQueueUrl', {
       value: this.processingQueue.queueUrl,
       description: 'SQS queue for standard document processing',
+      exportName: `${props.environment}-ProcessingQueueUrl`,
     });
 
     new cdk.CfnOutput(this, 'HighMemoryQueueUrl', {
       value: this.highMemoryQueue.queueUrl,
       description: 'SQS queue for high-memory document processing',
+      exportName: `${props.environment}-HighMemoryQueueUrl`,
     });
   }
 }

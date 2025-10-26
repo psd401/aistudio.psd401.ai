@@ -1,6 +1,7 @@
 "use client";
 
 import "@assistant-ui/react-markdown/styles/dot.css";
+import "katex/dist/katex.min.css";
 
 import {
   type CodeHeaderProps,
@@ -9,23 +10,33 @@ import {
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { type FC, memo, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { SyntaxHighlighter } from "@/components/assistant-ui/shiki-highlighter";
 import { MermaidDiagram } from "@/components/assistant-ui/mermaid-diagram";
+import { CollapsibleDocument } from "@/components/assistant-ui/collapsible-document";
 import { cn } from "@/lib/utils";
 
 const MarkdownTextImpl = () => {
   return (
     <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[rehypeKatex]}
       className="aui-md"
       components={defaultComponents}
       componentsByLanguage={{
         mermaid: {
           SyntaxHighlighter: MermaidDiagram
+        },
+        document: {
+          SyntaxHighlighter: ({ language, code }: { language: string; code: string }) => {
+            const fileName = language.split(':')[1] || 'Document';
+            return <CollapsibleDocument fileName={fileName} content={code} />;
+          }
         },
       }}
     />

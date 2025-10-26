@@ -1,6 +1,6 @@
 import { vectorSearch, hybridSearch } from "@/lib/repositories/search-service"
 import { executeSQL } from "@/lib/db/data-api-adapter"
-import logger from "@/lib/logger"
+import { createLogger, generateRequestId } from "@/lib/logger"
 import { encodingForModel } from "js-tiktoken"
 
 interface KnowledgeChunk {
@@ -37,20 +37,21 @@ let tokenizer: ReturnType<typeof encodingForModel> | null = null
  * Count tokens in a string using proper tokenization
  * Falls back to approximation if tokenizer fails
  */
-function countTokens(text: string): number {
+function countTokens(text: string, requestId?: string): number {
   if (!text) return 0
-  
+
   try {
     // Initialize tokenizer lazily to avoid startup cost
     if (!tokenizer) {
       tokenizer = encodingForModel("gpt-3.5-turbo")
     }
-    
+
     const tokens = tokenizer.encode(text)
     return tokens.length
   } catch (error) {
     // Fall back to approximation if tokenization fails
-    logger.warn("Token counting failed, using approximation", { error })
+    const log = createLogger({ requestId: requestId || generateRequestId(), module: 'knowledge-retrieval' })
+    log.warn('Token counting failed, using approximation', { error })
     return Math.ceil(text.length / 4)
   }
 }
@@ -63,10 +64,15 @@ export async function retrieveKnowledgeForPrompt(
   repositoryIds: number[],
   userCognitoSub: string,
   assistantOwnerSub?: string,
-  options: KnowledgeRetrievalOptions = {}
+  options: KnowledgeRetrievalOptions = {},
+  requestId?: string
 ): Promise<KnowledgeChunk[]> {
   const opts = { ...DEFAULT_OPTIONS, ...options }
-  
+  const log = createLogger({
+    requestId: requestId || generateRequestId(),
+    module: 'knowledge-retrieval'
+  })
+
   if (!repositoryIds || repositoryIds.length === 0) {
     return []
   }
@@ -115,7 +121,10 @@ export async function retrieveKnowledgeForPrompt(
     if (accessibleRepos.length !== repositoryIds.length) {
       const accessibleIds = accessibleRepos.map(r => r.id)
       const inaccessibleIds = repositoryIds.filter(id => !accessibleIds.includes(id))
-      logger.warn(`User ${userCognitoSub} attempted to access repositories without permission: ${inaccessibleIds}`)
+      log.warn('User attempted to access repositories without permission', {
+        userCognitoSub,
+        inaccessibleIds
+      })
       // Continue with only accessible repositories
     }
 
@@ -149,7 +158,7 @@ export async function retrieveKnowledgeForPrompt(
           repositoryName: repo.name
         }))
       } catch (error) {
-        logger.error(`Error searching repository ${repo.id}:`, error)
+        log.error('Error searching repository', { repositoryId: repo.id, error })
         return []
       }
     })
@@ -190,7 +199,7 @@ export async function retrieveKnowledgeForPrompt(
 
     return topResults
   } catch (error) {
-    logger.error("Error retrieving knowledge for prompt:", error)
+    log.error('Error retrieving knowledge for prompt', { error })
     return []
   }
 }

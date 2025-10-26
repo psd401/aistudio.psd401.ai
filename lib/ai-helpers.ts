@@ -16,7 +16,7 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { createOpenAI } from '@ai-sdk/openai'
 import { z } from 'zod'
 import logger from "@/lib/logger"
-import { createProviderModel } from '@/app/api/chat/lib/provider-factory'
+import { createProviderModel } from '@/lib/ai/provider-factory'
 import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service'
 import type { StreamRequest } from '@/lib/streaming/types'
 

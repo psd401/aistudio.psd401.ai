@@ -1,4 +1,6 @@
 import type { UIMessage, LanguageModel, CoreMessage, ToolSet } from 'ai';
+import type { SSEEventEmitter } from '@/types/sse-events';
+import type { SSEEvent } from './sse-event-types';
 
 /**
  * Core streaming types for the unified streaming architecture
@@ -16,7 +18,7 @@ export interface StreamRequest {
   conversationId?: string | number;
   
   // Request source and metadata
-  source: 'chat' | 'compare' | 'assistant_execution' | 'ai-helpers';
+  source: 'chat' | 'compare' | 'assistant_execution' | 'ai-helpers' | 'nexus';
   executionId?: number;
   documentId?: string;
   
@@ -28,7 +30,8 @@ export interface StreamRequest {
   
   // Tools configuration
   tools?: ToolSet;
-  
+  enabledTools?: string[]; // Tool names to enable (tools will be created by adapter)
+
   // Advanced model options
   options?: {
     // Reasoning configuration
@@ -84,6 +87,7 @@ export interface StreamConfig {
   temperature?: number;
   timeout?: number;
   tools?: ToolSet;
+  toolChoice?: 'auto' | 'required' | { type: 'tool'; toolName: string };
   providerOptions?: Record<string, unknown>;
   experimental_telemetry?: {
     isEnabled: boolean;
@@ -139,11 +143,26 @@ export interface TelemetryConfig {
   };
 }
 
+/**
+ * Streaming progress event with typed SSE event
+ * This replaces the generic metadata-based approach with typed SSE events
+ */
 export interface StreamingProgress {
-  type: 'token' | 'reasoning' | 'thinking' | 'tool_call' | 'tool_result';
-  content?: string;
-  text?: string; // For token events
+  /** Typed SSE event - provides compile-time safety for all event types */
+  event: SSEEvent;
+  /** Optional token count for progress tracking */
+  tokens?: number;
+  /** Timestamp for debugging and monitoring */
   timestamp: number;
+
+  // Legacy fields for backward compatibility
+  /** @deprecated Use event.type instead */
+  type?: 'token' | 'reasoning' | 'thinking' | 'tool_call' | 'tool_result';
+  /** @deprecated Use event-specific fields (e.g., event.delta) instead */
+  content?: string;
+  /** @deprecated Use event.delta for text-delta events instead */
+  text?: string;
+  /** @deprecated Use typed event fields instead */
   metadata?: Record<string, unknown>;
 }
 
@@ -163,6 +182,12 @@ export interface StreamingCallbacks {
     finishReason: string;
   }) => void;
   onError?: (error: Error) => void;
+
+  /**
+   * SSE event emitter for custom progress events
+   * Only used for assistant architect execution
+   */
+  sseEventEmitter?: SSEEventEmitter;
 }
 
 export interface ProviderAdapter {
@@ -180,7 +205,17 @@ export interface ProviderAdapter {
    * Get provider-specific options for streaming
    */
   getProviderOptions(modelId: string, options?: StreamRequest['options']): Record<string, unknown>;
-  
+
+  /**
+   * Create provider-native tools from stored client instance
+   */
+  createTools(enabledTools: string[]): Promise<ToolSet>;
+
+  /**
+   * Get list of tools supported by a specific model
+   */
+  getSupportedTools(modelId: string): string[];
+
   /**
    * Stream with provider-specific enhancements
    */

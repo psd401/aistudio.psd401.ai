@@ -1,0 +1,23 @@
+{
+  "name": "@aistudio/secrets-migration",
+  "version": "1.0.0",
+  "description": "Migration scripts for moving secrets to AWS Secrets Manager",
+  "private": true,
+  "scripts": {
+    "migrate": "ts-node migrate-to-secrets-manager.ts",
+    "migrate:dev": "ts-node migrate-to-secrets-manager.ts --environment dev --dry-run",
+    "migrate:dev:execute": "ts-node migrate-to-secrets-manager.ts --environment dev --execute",
+    "migrate:prod": "ts-node migrate-to-secrets-manager.ts --environment prod --dry-run",
+    "migrate:prod:execute": "ts-node migrate-to-secrets-manager.ts --environment prod --execute"
+  },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.504.0",
+    "@aws-sdk/client-ssm": "^3.504.0",
+    "@aws-sdk/client-lambda": "^3.504.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}

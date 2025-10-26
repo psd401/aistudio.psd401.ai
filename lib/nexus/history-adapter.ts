@@ -1,7 +1,14 @@
 'use client'
 
 import { createLogger } from '@/lib/client-logger'
-import type { ThreadHistoryAdapter, ThreadMessage } from '@assistant-ui/react'
+import type {
+  ThreadHistoryAdapter,
+  ThreadMessage,
+  MessageFormatAdapter,
+  MessageFormatRepository,
+  MessageFormatItem,
+  GenericThreadHistoryAdapter
+} from '@assistant-ui/react'
 import { INTERNAL } from '@assistant-ui/react'
 
 // Import ExportedMessageRepository type and utility
@@ -94,7 +101,7 @@ export function useConversationContext() {
  * Creates a ThreadHistoryAdapter that loads and saves conversation messages
  */
 export function createNexusHistoryAdapter(conversationId: string | null): ThreadHistoryAdapter {
-  return {
+  const adapter: ThreadHistoryAdapter = {
     async load(): Promise<ExportedMessageRepository & { unstable_resume?: boolean }> {
       if (!conversationId) {
         log.debug('No conversation ID, returning empty repository')
@@ -103,9 +110,9 @@ export function createNexusHistoryAdapter(conversationId: string | null): Thread
 
       try {
         log.debug('Loading conversation messages', { conversationId })
-        
+
         const response = await fetch(`/api/nexus/conversations/${conversationId}/messages`)
-        
+
         if (!response.ok) {
           if (response.status === 404) {
             log.warn('Conversation not found', { conversationId })
@@ -113,26 +120,26 @@ export function createNexusHistoryAdapter(conversationId: string | null): Thread
           }
           throw new Error(`Failed to load messages: ${response.status}`)
         }
-        
+
         const data = await response.json()
         const { messages = [] } = data
-        
+
         // Convert messages using our helper function
         const repository = createExportedMessageRepository(messages)
-        
-        log.debug('Messages loaded successfully', { 
+
+        log.debug('Messages loaded successfully', {
           conversationId,
           messageCount: repository.messages.length
         })
-        
+
         return repository
-        
+
       } catch (error) {
         log.error('Failed to load conversation messages', {
           conversationId,
           error: error instanceof Error ? error.message : String(error)
         })
-        
+
         return { messages: [] }
       }
     },
@@ -146,8 +153,80 @@ export function createNexusHistoryAdapter(conversationId: string | null): Thread
         messageId: item.message.id
       })
       return
+    },
+
+    withFormat<TMessage, TStorageFormat>(
+      formatAdapter: MessageFormatAdapter<TMessage, TStorageFormat>
+    ): GenericThreadHistoryAdapter<TMessage> {
+      return {
+        async load(): Promise<MessageFormatRepository<TMessage>> {
+          // Load from base adapter (returns ExportedMessageRepository with ThreadMessages)
+          const exportedRepo = await adapter.load();
+
+          log.debug('withFormat.load called', {
+            conversationId,
+            messageCount: exportedRepo.messages.length
+          });
+
+          // Convert ThreadMessage format to storage format, then decode to TMessage
+          return {
+            headId: exportedRepo.headId || null,
+            messages: exportedRepo.messages.map(item => {
+              // ThreadMessage has .content (array of parts)
+              // Storage format expects .parts (array of parts)
+              const threadMessage = item.message;
+
+              // Create MessageStorageEntry for the format adapter
+              const storageEntry = {
+                id: threadMessage.id,
+                parent_id: item.parentId,
+                format: formatAdapter.format,
+                content: {
+                  role: threadMessage.role,
+                  parts: threadMessage.content, // Convert .content → .parts
+                  ...(threadMessage.createdAt && { createdAt: threadMessage.createdAt }),
+                } as unknown as TStorageFormat
+              };
+
+              // Use format adapter to decode into the expected message format
+              return formatAdapter.decode(storageEntry);
+            })
+          };
+        },
+
+        async append(item: MessageFormatItem<TMessage>): Promise<void> {
+          log.debug('withFormat.append called', { conversationId });
+
+          // Encode the message to storage format
+          const encoded = formatAdapter.encode(item);
+          const encodedAny = encoded as {
+            role: 'user' | 'assistant' | 'system';
+            parts: Array<{ type: 'text'; text: string }>;
+            createdAt?: Date;
+          };
+
+          // Convert storage format back to ThreadMessage format
+          // Storage has .parts, ThreadMessage expects .content
+          const threadMessage = INTERNAL.fromThreadMessageLike({
+            id: formatAdapter.getId(item.message),
+            role: encodedAny.role,
+            content: encodedAny.parts, // Convert .parts → .content
+            ...(encodedAny.createdAt && {
+              createdAt: encodedAny.createdAt
+            }),
+          }, formatAdapter.getId(item.message), { type: 'complete', reason: 'unknown' });
+
+          // Delegate to base adapter
+          await adapter.append({
+            parentId: item.parentId,
+            message: threadMessage
+          });
+        }
+      };
     }
-  }
+  };
+
+  return adapter;
 }
 
 /**

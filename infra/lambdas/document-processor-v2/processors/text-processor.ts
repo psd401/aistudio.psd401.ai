@@ -1,12 +1,13 @@
-import { 
-  ProcessingParams, 
-  ProcessingResult, 
-  DocumentProcessor, 
-  ProcessorConfig 
+import {
+  ProcessingParams,
+  ProcessingResult,
+  DocumentProcessor,
+  ProcessorConfig
 } from './factory';
 import { parse as csvParse } from 'csv-parse/sync';
 import { marked } from 'marked';
 import { createLambdaLogger } from '../utils/lambda-logger';
+import { sanitizeTextWithMetrics } from '../../../../lib/utils/text-sanitizer';
 
 /**
  * Securely removes HTML tags to prevent injection attacks
@@ -56,8 +57,21 @@ export class TextProcessor implements DocumentProcessor {
     logger.info('Starting text document processing', { fileName, fileType, bufferSize: buffer.length });
     
     await onProgress?.('parsing_text', 40);
-    
+
     const textContent = buffer.toString('utf-8');
+
+    // Sanitize the text content to remove null bytes and invalid UTF-8 sequences
+    // that PostgreSQL cannot store (fixes issue #347)
+    const sanitizationResult = sanitizeTextWithMetrics(textContent);
+    if (sanitizationResult.bytesRemoved > 0) {
+      logger.info('Text sanitization performed during buffer conversion', {
+        originalLength: sanitizationResult.originalLength,
+        sanitizedLength: sanitizationResult.sanitizedLength,
+        nullBytesRemoved: sanitizationResult.nullBytesRemoved,
+        controlCharsRemoved: sanitizationResult.controlCharsRemoved,
+      });
+    }
+
     let extractedContent: any;
     
     try {
@@ -66,20 +80,20 @@ export class TextProcessor implements DocumentProcessor {
       
       switch (extension) {
         case 'csv':
-          extractedContent = await this.processCsv(textContent);
+          extractedContent = await this.processCsv(sanitizationResult.sanitized);
           break;
         case 'md':
         case 'markdown':
-          extractedContent = await this.processMarkdown(textContent);
+          extractedContent = await this.processMarkdown(sanitizationResult.sanitized);
           break;
         case 'json':
-          extractedContent = await this.processJson(textContent);
+          extractedContent = await this.processJson(sanitizationResult.sanitized);
           break;
         case 'xml':
-          extractedContent = await this.processXml(textContent);
+          extractedContent = await this.processXml(sanitizationResult.sanitized);
           break;
         default:
-          extractedContent = await this.processPlainText(textContent);
+          extractedContent = await this.processPlainText(sanitizationResult.sanitized);
       }
     } catch (error) {
       logger.error('Error processing text document', error);

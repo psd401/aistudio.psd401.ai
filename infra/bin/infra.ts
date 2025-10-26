@@ -4,13 +4,18 @@ import { InfraStack } from '../lib/infra-stack';
 import { DatabaseStack } from '../lib/database-stack';
 import { AuthStack } from '../lib/auth-stack';
 import { StorageStack } from '../lib/storage-stack';
-import { FrontendStack } from '../lib/frontend-stack';
+import { FrontendStackEcs } from '../lib/frontend-stack-ecs';
 import { ProcessingStack } from '../lib/processing-stack';
 import { DocumentProcessingStack } from '../lib/document-processing-stack';
 import { MonitoringStack } from '../lib/monitoring-stack';
 import { SchedulerStack } from '../lib/scheduler-stack';
 import { EmailNotificationStack } from '../lib/email-notification-stack';
+import { PowerTuningStack } from '../lib/power-tuning-stack';
+import { SecretsManagerStack } from '../lib/secrets-manager-stack';
 import { SecretValue } from 'aws-cdk-lib';
+import { PermissionBoundaryConstruct } from '../lib/constructs/security';
+import { AccessAnalyzerStack } from '../lib/stacks/access-analyzer-stack';
+import { EnvironmentConfig } from '../lib/constructs/config/environment-config';
 
 const app = new cdk.App();
 
@@ -20,49 +25,97 @@ const standardTags = {
   Owner: 'TSD Engineering',
 };
 
-// Get baseDomain from context first
+// Get configuration from context
 const baseDomain = app.node.tryGetContext('baseDomain');
+const alertEmail = app.node.tryGetContext('alertEmail');
 
 // Helper to get callback/logout URLs for any environment
 function getCallbackAndLogoutUrls(environment: string, baseDomain?: string): { callbackUrls: string[], logoutUrls: string[] } {
+  // Determine ECS subdomain based on environment
+  const ecsSubdomain = environment === 'dev'
+    ? `dev.${baseDomain}`
+    : baseDomain; // Prod uses root domain for ECS
+
+  const urls = {
+    callbackUrls: [
+      baseDomain ? `https://${baseDomain}/` : 'https://example.com/',
+      baseDomain ? `https://${baseDomain}/api/auth/callback/cognito` : 'https://example.com/api/auth/callback/cognito',
+      // ECS URLs
+      baseDomain ? `https://${ecsSubdomain}/` : undefined,
+      baseDomain ? `https://${ecsSubdomain}/api/auth/callback/cognito` : undefined,
+    ].filter(Boolean) as string[],
+    logoutUrls: [
+      baseDomain ? `https://${baseDomain}/` : 'https://example.com/',
+      baseDomain ? `https://${baseDomain}/oauth2/idpresponse` : 'https://example.com/oauth2/idpresponse',
+      // ECS URLs
+      baseDomain ? `https://${ecsSubdomain}/` : undefined,
+      baseDomain ? `https://${ecsSubdomain}/oauth2/idpresponse` : undefined,
+    ].filter(Boolean) as string[],
+  };
+
+  // Add dev-specific URLs (localhost and Amplify dev subdomain)
   if (environment === 'dev') {
-    return {
-      callbackUrls: [
-        'http://localhost:3000/',
-        'http://localhost:3001/',
-        'http://localhost:3000/api/auth/callback/cognito',
-        'http://localhost:3001/api/auth/callback/cognito',
-        baseDomain ? `https://dev.${baseDomain}/` : undefined,
-        baseDomain ? `https://dev.${baseDomain}/api/auth/callback/cognito` : undefined,
-      ].filter(Boolean) as string[],
-      logoutUrls: [
-        'http://localhost:3000/',
-        'http://localhost:3001/',
-        'http://localhost:3000/oauth2/idpresponse',
-        'http://localhost:3001/oauth2/idpresponse',
-        baseDomain ? `https://dev.${baseDomain}/` : undefined,
-        baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : undefined,
-      ].filter(Boolean) as string[],
-    };
-  } else {
-    return {
-      callbackUrls: [
-        baseDomain ? `https://${baseDomain}/` : 'https://example.com/',
-        baseDomain ? `https://dev.${baseDomain}/` : 'https://dev.example.com/',
-        baseDomain ? `https://${baseDomain}/api/auth/callback/cognito` : 'https://example.com/api/auth/callback/cognito',
-        baseDomain ? `https://dev.${baseDomain}/api/auth/callback/cognito` : 'https://dev.example.com/api/auth/callback/cognito',
-      ],
-      logoutUrls: [
-        baseDomain ? `https://${baseDomain}/` : 'https://example.com/',
-        baseDomain ? `https://dev.${baseDomain}/` : 'https://dev.example.com/',
-        baseDomain ? `https://${baseDomain}/oauth2/idpresponse` : 'https://example.com/oauth2/idpresponse',
-        baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : 'https://dev.example.com/oauth2/idpresponse',
-      ],
-    };
+    urls.callbackUrls.push(
+      'http://localhost:3000/',
+      'http://localhost:3001/',
+      'http://localhost:3000/api/auth/callback/cognito',
+      'http://localhost:3001/api/auth/callback/cognito',
+      baseDomain ? `https://dev.${baseDomain}/` : 'https://dev.example.com/',
+      baseDomain ? `https://dev.${baseDomain}/api/auth/callback/cognito` : 'https://dev.example.com/api/auth/callback/cognito'
+    );
+    urls.logoutUrls.push(
+      'http://localhost:3000/',
+      'http://localhost:3001/',
+      'http://localhost:3000/oauth2/idpresponse',
+      'http://localhost:3001/oauth2/idpresponse',
+      baseDomain ? `https://dev.${baseDomain}/` : 'https://dev.example.com/',
+      baseDomain ? `https://dev.${baseDomain}/oauth2/idpresponse` : 'https://dev.example.com/oauth2/idpresponse'
+    );
   }
+
+  return urls;
 }
 
 // Dev environment
+
+// PowerTuning Stack - utility for Lambda optimization
+const devPowerTuningStack = new PowerTuningStack(app, 'AIStudio-PowerTuningStack-Dev', {
+  environment: 'dev',
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+cdk.Tags.of(devPowerTuningStack).add('Environment', 'Dev');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devPowerTuningStack).add(key, value));
+
+// Permission Boundary Stack - must be deployed first before other stacks
+const devPermissionBoundaryStack = new cdk.Stack(app, 'AIStudio-PermissionBoundary-Dev', {
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+new PermissionBoundaryConstruct(devPermissionBoundaryStack, 'PermissionBoundary', {
+  environment: 'dev',
+});
+cdk.Tags.of(devPermissionBoundaryStack).add('Environment', 'Dev');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devPermissionBoundaryStack).add(key, value));
+
+// Access Analyzer Stack - continuous IAM compliance monitoring
+const devAccessAnalyzerStack = new AccessAnalyzerStack(app, 'AIStudio-AccessAnalyzer-Dev', {
+  config: {} as any, // Config not used by current implementation
+  environment: 'dev',
+  alertEmail,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+cdk.Tags.of(devAccessAnalyzerStack).add('Environment', 'Dev');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devAccessAnalyzerStack).add(key, value));
+
+// Secrets Manager Stack - centralized secrets management
+const devSecretsManagerStack = new SecretsManagerStack(app, 'AIStudio-SecretsManagerStack-Dev', {
+  deploymentEnvironment: 'dev',
+  config: EnvironmentConfig.get('dev'),
+  alertEmail,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+cdk.Tags.of(devSecretsManagerStack).add('Environment', 'Dev');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devSecretsManagerStack).add(key, value));
+
 const devDbStack = new DatabaseStack(app, 'AIStudio-DatabaseStack-Dev', {
   environment: 'dev',
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
@@ -143,6 +196,26 @@ if (devEmailDomain) {
 }
 
 // Prod environment
+// Permission Boundary Stack - must be deployed first before other stacks
+const prodPermissionBoundaryStack = new cdk.Stack(app, 'AIStudio-PermissionBoundary-Prod', {
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+new PermissionBoundaryConstruct(prodPermissionBoundaryStack, 'PermissionBoundary', {
+  environment: 'prod',
+});
+cdk.Tags.of(prodPermissionBoundaryStack).add('Environment', 'Prod');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodPermissionBoundaryStack).add(key, value));
+
+// Secrets Manager Stack - centralized secrets management
+const prodSecretsManagerStack = new SecretsManagerStack(app, 'AIStudio-SecretsManagerStack-Prod', {
+  deploymentEnvironment: 'prod',
+  config: EnvironmentConfig.get('prod'),
+  alertEmail,
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+cdk.Tags.of(prodSecretsManagerStack).add('Environment', 'Prod');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodSecretsManagerStack).add(key, value));
+
 const prodDbStack = new DatabaseStack(app, 'AIStudio-DatabaseStack-Prod', {
   environment: 'prod',
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
@@ -222,48 +295,70 @@ if (prodEmailDomain) {
   cdk.Tags.of(prodEmailNotificationStack).add('Environment', 'Prod');
   Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodEmailNotificationStack!).add(key, value));
 }
-// Frontend stacks - created after all other stacks
+// Frontend stacks - ECS Fargate with ALB for streaming support
 if (baseDomain) {
-  const devFrontendStack = new FrontendStack(app, 'AIStudio-FrontendStack-Dev', {
+  // Skip DNS/certificate setup in CI (when baseDomain is a dummy value like example.com)
+  // VPC lookup will use cached context from cdk.context.json (committed to version control)
+  const setupDns = baseDomain !== 'example.com';
+
+  const devFrontendStack = new FrontendStackEcs(app, 'AIStudio-FrontendStack-ECS-Dev', {
     environment: 'dev',
-    githubToken: SecretValue.secretsManager('aistudio-github-token'),
-    baseDomain,
+    baseDomain: 'aistudio.psd401.ai', // The subdomain for AI Studio
+    customSubdomain: 'dev', // Creates dev.aistudio.psd401.ai
+    documentsBucketName: devStorageStack.documentsBucketName,
+    useExistingVpc: setupDns, // Use VPC sharing in real deployments, create new VPC for CI validation
+    setupDns, // Enable DNS/certificate setup (false for CI validation with example.com)
     env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
   });
+  devFrontendStack.addDependency(devDbStack); // Need VPC from DB stack
+  devFrontendStack.addDependency(devStorageStack); // Need bucket name
+  devFrontendStack.addDependency(devAuthStack); // Need auth secret ARN export
+  devFrontendStack.addDependency(devSchedulerStack); // Need internal API secret ARN from SSM (no CloudFormation dependency)
   cdk.Tags.of(devFrontendStack).add('Environment', 'Dev');
   Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devFrontendStack).add(key, value));
 
-  const prodFrontendStack = new FrontendStack(app, 'AIStudio-FrontendStack-Prod', {
+  const prodFrontendStack = new FrontendStackEcs(app, 'AIStudio-FrontendStack-ECS-Prod', {
     environment: 'prod',
-    githubToken: SecretValue.secretsManager('aistudio-github-token'),
-    baseDomain,
+    baseDomain: 'aistudio.psd401.ai', // The subdomain for AI Studio
+    // No customSubdomain for prod - will use root: aistudio.psd401.ai
+    documentsBucketName: prodStorageStack.documentsBucketName,
+    useExistingVpc: setupDns, // Use VPC sharing in real deployments, create new VPC for CI validation
+    setupDns, // Enable DNS/certificate setup (false for CI validation with example.com)
     env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
   });
+  prodFrontendStack.addDependency(prodDbStack); // Need VPC from DB stack
+  prodFrontendStack.addDependency(prodStorageStack); // Need bucket name
+  prodFrontendStack.addDependency(prodAuthStack); // Need auth secret ARN export
+  prodFrontendStack.addDependency(prodSchedulerStack); // Need internal API secret ARN from SSM (no CloudFormation dependency)
   cdk.Tags.of(prodFrontendStack).add('Environment', 'Prod');
   Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodFrontendStack).add(key, value));
 
   // To deploy, use:
-  // cdk deploy AIStudio-FrontendStack-Dev --context baseDomain=yourdomain.com
-  // cdk deploy AIStudio-FrontendStack-Prod --context baseDomain=yourdomain.com
+  // cdk deploy AIStudio-FrontendStack-ECS-Dev --context baseDomain=yourdomain.com
+  // cdk deploy AIStudio-FrontendStack-ECS-Prod --context baseDomain=yourdomain.com
 }
 
 // Monitoring stacks - created after all other stacks for comprehensive monitoring
-// Optional: pass alertEmail context to enable email notifications
-const alertEmail = app.node.tryGetContext('alertEmail');
-
+// Now receives metrics from infrastructure stacks for consolidated dashboards
 const devMonitoringStack = new MonitoringStack(app, 'AIStudio-MonitoringStack-Dev', {
   environment: 'dev',
   alertEmail,
+  auroraCostDashboard: devDbStack.costDashboard,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
+// Ensure DatabaseStack deploys first - MonitoringStack requires Aurora metrics for consolidated dashboards
+devMonitoringStack.addDependency(devDbStack);
 cdk.Tags.of(devMonitoringStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devMonitoringStack).add(key, value));
 
 const prodMonitoringStack = new MonitoringStack(app, 'AIStudio-MonitoringStack-Prod', {
   environment: 'prod',
   alertEmail,
+  auroraCostDashboard: prodDbStack.costDashboard,
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
+// Ensure DatabaseStack deploys first - MonitoringStack requires Aurora metrics for consolidated dashboards
+prodMonitoringStack.addDependency(prodDbStack);
 cdk.Tags.of(prodMonitoringStack).add('Environment', 'Prod');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodMonitoringStack).add(key, value));
 

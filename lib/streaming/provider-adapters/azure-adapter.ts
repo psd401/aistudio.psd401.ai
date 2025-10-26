@@ -1,4 +1,5 @@
 import { createAzure } from '@ai-sdk/azure';
+import type { ToolSet } from 'ai';
 import { createLogger } from '@/lib/logger';
 import { Settings } from '@/lib/settings-manager';
 import { ErrorFactories } from '@/lib/error-utils';
@@ -14,7 +15,8 @@ const log = createLogger({ module: 'azure-adapter' });
  */
 export class AzureAdapter extends BaseProviderAdapter {
   protected providerName = 'azure';
-  
+  private azureClient?: ReturnType<typeof createAzure>;
+
   async createModel(modelId: string) {
     try {
       const config = await Settings.getAzureOpenAI();
@@ -22,18 +24,20 @@ export class AzureAdapter extends BaseProviderAdapter {
         log.error('Azure OpenAI not configured');
         throw ErrorFactories.sysConfigurationError('Azure OpenAI not configured');
       }
-      
-      log.debug(`Creating Azure model: ${modelId}`, { 
+
+      log.debug(`Creating Azure model: ${modelId}`, {
         modelId,
         resourceName: config.resourceName
       });
-      
-      const azure = createAzure({
+
+      // Create and store client instance
+      this.azureClient = createAzure({
         apiKey: config.key,
         resourceName: config.resourceName
       });
-      
-      return azure(modelId);
+      this.providerClient = this.azureClient;
+
+      return this.azureClient(modelId);
       
     } catch (error) {
       log.error('Failed to create Azure model', {
@@ -43,7 +47,28 @@ export class AzureAdapter extends BaseProviderAdapter {
       throw error;
     }
   }
-  
+
+  /**
+   * Create provider-native tools for Azure OpenAI
+   * TODO: Implement when Azure tool support is needed
+   */
+  async createTools(enabledTools: string[]): Promise<ToolSet> {
+    // Azure OpenAI may support tools depending on deployment configuration
+    // TODO: Implement when needed
+    log.info('Azure tool creation not yet implemented', { enabledTools });
+    return {};
+  }
+
+  /**
+   * Get list of tools supported by Azure OpenAI models
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  getSupportedTools(_modelId: string): string[] {
+    // Azure OpenAI tool support depends on deployment configuration
+    // For now, return empty
+    return [];
+  }
+
   getCapabilities(modelId: string): ProviderCapabilities {
     // Azure typically hosts OpenAI models, so capabilities are similar
     // but may have enterprise-specific differences
@@ -154,10 +179,16 @@ export class AzureAdapter extends BaseProviderAdapter {
     // Handle Azure-specific content filtering results
     if (data.contentFilterResults && callbacks.onProgress) {
       callbacks.onProgress({
+        event: {
+          type: 'tool-output-available',
+          toolCallId: `azure-content-filter-${Date.now()}`,
+          output: data.contentFilterResults
+        },
+        timestamp: Date.now(),
+        // Legacy fields for backward compatibility
         type: 'tool_result',
         content: `Content filtering: ${JSON.stringify(data.contentFilterResults)}`,
-        timestamp: Date.now(),
-        metadata: { 
+        metadata: {
           tool: 'content_filter',
           azure: true
         }

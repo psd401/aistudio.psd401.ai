@@ -11,6 +11,7 @@ import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as path from 'path';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
+import { ServiceRoleFactory } from './constructs/security';
 
 export interface ProcessingStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
@@ -25,10 +26,6 @@ export class ProcessingStack extends cdk.Stack {
   public readonly embeddingQueue: sqs.Queue;
   public readonly jobStatusTable: dynamodb.Table;
   public readonly textractCompletionTopic: sns.Topic;
-  
-  // AI Streaming Jobs - Universal polling architecture
-  public readonly streamingJobsQueue: sqs.Queue;
-  public readonly streamingJobsWorker: lambda.Function;
 
   constructor(scope: Construct, id: string, props: ProcessingStackProps) {
     super(scope, id, props);
@@ -103,23 +100,6 @@ export class ProcessingStack extends cdk.Stack {
       displayName: 'Textract Job Completion Notifications',
     });
 
-    // AI Streaming Jobs Queue - Universal polling architecture for AWS Amplify timeout mitigation
-    const streamingJobsDlq = new sqs.Queue(this, 'StreamingJobsDLQ', {
-      queueName: `aistudio-${props.environment}-streaming-jobs-dlq`,
-      retentionPeriod: cdk.Duration.days(14),
-    });
-
-    this.streamingJobsQueue = new sqs.Queue(this, 'StreamingJobsQueue', {
-      queueName: `aistudio-${props.environment}-streaming-jobs-queue`,
-      visibilityTimeout: cdk.Duration.minutes(15), // Full Lambda timeout
-      deadLetterQueue: {
-        queue: streamingJobsDlq,
-        maxReceiveCount: 3,
-      },
-      // Higher throughput settings for universal polling
-      receiveMessageWaitTime: cdk.Duration.seconds(20), // Long polling
-    });
-
     // IAM Role for Textract to publish to SNS
     const textractRole = new iam.Role(this, 'TextractServiceRole', {
       assumedBy: new iam.ServicePrincipal('textract.amazonaws.com'),
@@ -137,12 +117,69 @@ export class ProcessingStack extends cdk.Stack {
     });
 
     // File Processor Lambda
+    // PowerTuning Result (2025-10-24): 3008MB → 1024MB (66% reduction)
+
+    // Create secure role using ServiceRoleFactory
+    const fileProcessorRole = ServiceRoleFactory.createLambdaRole(this, 'FileProcessorRole', {
+      functionName: 'file-processor',
+      environment: props.environment,
+      region: this.region,
+      account: this.account,
+      vpcEnabled: false,
+      s3Buckets: [documentsBucketName],
+      dynamodbTables: [this.jobStatusTable.tableName],
+      sqsQueues: [this.embeddingQueue.queueArn],
+      secrets: [databaseSecretArn],
+      additionalPolicies: [
+        new iam.PolicyDocument({
+          statements: [
+            // RDS Data API permissions
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'rds-data:ExecuteStatement',
+                'rds-data:BatchExecuteStatement',
+                'rds-data:BeginTransaction',
+                'rds-data:CommitTransaction',
+                'rds-data:RollbackTransaction',
+              ],
+              resources: [databaseResourceArn],
+              conditions: {
+                StringEquals: {
+                  'aws:ResourceTag/Environment': props.environment,
+                  'aws:ResourceTag/ManagedBy': 'cdk',
+                },
+              },
+            }),
+            // Textract permissions - requires wildcard (AWS Textract limitation)
+            // See: https://docs.aws.amazon.com/textract/latest/dg/security_iam_service-with-iam.html
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'textract:StartDocumentTextDetection',
+                'textract:StartDocumentAnalysis',
+                'textract:GetDocumentTextDetection',
+                'textract:GetDocumentAnalysis',
+              ],
+              resources: ['*'],  // Required: Textract doesn't support resource-level permissions
+            }),
+            // Pass Textract service role
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['iam:PassRole'],
+              resources: [textractRole.roleArn],
+            }),
+          ],
+        }),
+      ],
+    });
+
     const fileProcessor = new lambda.Function(this, 'FileProcessor', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/file-processor')),
       timeout: cdk.Duration.minutes(10),
-      memorySize: 3008, // 3GB (adjusted to force update)
+      memorySize: 1024, // Optimized via PowerTuning from 3GB
       environment: {
         NODE_OPTIONS: '--enable-source-maps',
         DOCUMENTS_BUCKET_NAME: documentsBucket.bucketName,
@@ -156,9 +193,44 @@ export class ProcessingStack extends cdk.Stack {
         TEXTRACT_ROLE_ARN: textractRole.roleArn,
       },
       layers: [processingLayer],
+      role: fileProcessorRole,  // Use secure role from ServiceRoleFactory
     });
 
     // URL Processor Lambda
+    const urlProcessorRole = ServiceRoleFactory.createLambdaRole(this, 'URLProcessorRole', {
+      functionName: 'url-processor',
+      environment: props.environment,
+      region: this.region,
+      account: this.account,
+      vpcEnabled: false,
+      dynamodbTables: [this.jobStatusTable.tableName],
+      secrets: [databaseSecretArn],
+      additionalPolicies: [
+        new iam.PolicyDocument({
+          statements: [
+            // RDS Data API permissions
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'rds-data:ExecuteStatement',
+                'rds-data:BatchExecuteStatement',
+                'rds-data:BeginTransaction',
+                'rds-data:CommitTransaction',
+                'rds-data:RollbackTransaction',
+              ],
+              resources: [databaseResourceArn],
+              conditions: {
+                StringEquals: {
+                  'aws:ResourceTag/Environment': props.environment,
+                  'aws:ResourceTag/ManagedBy': 'cdk',
+                },
+              },
+            }),
+          ],
+        }),
+      ],
+    });
+
     const urlProcessor = new lambda.Function(this, 'URLProcessor', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
@@ -174,9 +246,43 @@ export class ProcessingStack extends cdk.Stack {
         ENVIRONMENT: props.environment,
       },
       layers: [processingLayer],
+      role: urlProcessorRole,
     });
 
     // Embedding Generator Lambda
+    const embeddingGeneratorRole = ServiceRoleFactory.createLambdaRole(this, 'EmbeddingGeneratorRole', {
+      functionName: 'embedding-generator',
+      environment: props.environment,
+      region: this.region,
+      account: this.account,
+      vpcEnabled: false,
+      secrets: [databaseSecretArn],
+      additionalPolicies: [
+        new iam.PolicyDocument({
+          statements: [
+            // RDS Data API permissions
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'rds-data:ExecuteStatement',
+                'rds-data:BatchExecuteStatement',
+                'rds-data:BeginTransaction',
+                'rds-data:CommitTransaction',
+                'rds-data:RollbackTransaction',
+              ],
+              resources: [databaseResourceArn],
+              conditions: {
+                StringEquals: {
+                  'aws:ResourceTag/Environment': props.environment,
+                  'aws:ResourceTag/ManagedBy': 'cdk',
+                },
+              },
+            }),
+          ],
+        }),
+      ],
+    });
+
     const embeddingGenerator = new lambda.Function(this, 'EmbeddingGenerator', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
@@ -191,9 +297,55 @@ export class ProcessingStack extends cdk.Stack {
         ENVIRONMENT: props.environment,
       },
       layers: [processingLayer],
+      role: embeddingGeneratorRole,
     });
 
     // Textract Processor Lambda
+    const textractProcessorRole = ServiceRoleFactory.createLambdaRole(this, 'TextractProcessorRole', {
+      functionName: 'textract-processor',
+      environment: props.environment,
+      region: this.region,
+      account: this.account,
+      vpcEnabled: false,
+      sqsQueues: [this.embeddingQueue.queueArn],
+      secrets: [databaseSecretArn],
+      additionalPolicies: [
+        new iam.PolicyDocument({
+          statements: [
+            // RDS Data API permissions
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'rds-data:ExecuteStatement',
+                'rds-data:BatchExecuteStatement',
+                'rds-data:BeginTransaction',
+                'rds-data:CommitTransaction',
+                'rds-data:RollbackTransaction',
+              ],
+              resources: [databaseResourceArn],
+              conditions: {
+                StringEquals: {
+                  'aws:ResourceTag/Environment': props.environment,
+                  'aws:ResourceTag/ManagedBy': 'cdk',
+                },
+              },
+            }),
+            // Textract permissions - requires wildcard (AWS Textract limitation)
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'textract:StartDocumentTextDetection',
+                'textract:StartDocumentAnalysis',
+                'textract:GetDocumentTextDetection',
+                'textract:GetDocumentAnalysis',
+              ],
+              resources: ['*'],  // Required: Textract doesn't support resource-level permissions
+            }),
+          ],
+        }),
+      ],
+    });
+
     const textractProcessor = new lambda.Function(this, 'TextractProcessor', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
@@ -209,6 +361,7 @@ export class ProcessingStack extends cdk.Stack {
         ENVIRONMENT: props.environment,
       },
       layers: [processingLayer],
+      role: textractProcessorRole,
     });
 
     // Subscribe Textract processor to SNS topic
@@ -216,119 +369,9 @@ export class ProcessingStack extends cdk.Stack {
       new snsSubscriptions.LambdaSubscription(textractProcessor)
     );
 
-    // AI Streaming Jobs Worker - Universal polling architecture
-    this.streamingJobsWorker = new lambda.Function(this, 'StreamingJobsWorker', {
-      runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../lambdas/streaming-jobs-worker')),
-      timeout: cdk.Duration.minutes(15), // Full Lambda timeout for long-running AI requests
-      memorySize: 2048, // 2GB for AI SDK operations
-      environment: {
-        NODE_OPTIONS: '--enable-source-maps',
-        DATABASE_RESOURCE_ARN: databaseResourceArn,
-        DATABASE_SECRET_ARN: databaseSecretArn,
-        DATABASE_NAME: 'aistudio',
-        ENVIRONMENT: props.environment,
-        STREAMING_QUEUE_URL: this.streamingJobsQueue.queueUrl,
-        DOCUMENTS_BUCKET_NAME: documentsBucket.bucketName,
-      },
-      // No layer needed - uses shared package with built-in dependencies
-      // Higher concurrency for processing all requests
-      reservedConcurrentExecutions: props.environment === 'prod' ? 20 : 10,
-    });
-
-    // Grant permissions
-    documentsBucket.grantRead(fileProcessor);
-    documentsBucket.grantReadWrite(this.streamingJobsWorker);
-    this.jobStatusTable.grantReadWriteData(fileProcessor);
-    this.jobStatusTable.grantReadWriteData(urlProcessor);
-    this.embeddingQueue.grantSendMessages(fileProcessor);
-    this.embeddingQueue.grantSendMessages(textractProcessor);
-
-    // Grant RDS Data API permissions
-    const rdsDataApiPolicy = new iam.PolicyStatement({
-      actions: [
-        'rds-data:ExecuteStatement',
-        'rds-data:BatchExecuteStatement',
-        'rds-data:BeginTransaction',
-        'rds-data:CommitTransaction',
-        'rds-data:RollbackTransaction',
-      ],
-      resources: [databaseResourceArn],
-    });
-
-    const secretsManagerPolicy = new iam.PolicyStatement({
-      actions: ['secretsmanager:GetSecretValue'],
-      resources: [databaseSecretArn],
-    });
-
-    fileProcessor.addToRolePolicy(rdsDataApiPolicy);
-    fileProcessor.addToRolePolicy(secretsManagerPolicy);
-    urlProcessor.addToRolePolicy(rdsDataApiPolicy);
-    urlProcessor.addToRolePolicy(secretsManagerPolicy);
-    embeddingGenerator.addToRolePolicy(rdsDataApiPolicy);
-    embeddingGenerator.addToRolePolicy(secretsManagerPolicy);
-    textractProcessor.addToRolePolicy(rdsDataApiPolicy);
-    textractProcessor.addToRolePolicy(secretsManagerPolicy);
-    this.streamingJobsWorker.addToRolePolicy(rdsDataApiPolicy);
-    this.streamingJobsWorker.addToRolePolicy(secretsManagerPolicy);
-
-    // Grant streaming worker access to AI provider configurations (SSM Parameter Store)
-    const ssmParameterPolicy = new iam.PolicyStatement({
-      actions: [
-        'ssm:GetParameter',
-        'ssm:GetParameters',
-        'ssm:GetParametersByPath',
-      ],
-      resources: [
-        `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/providers/*`,
-        `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/openai/*`,
-        `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/google/*`,
-        `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/azure/*`,
-        `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/bedrock/*`,
-        // Add notification queue URL parameter access
-        `arn:aws:ssm:${this.region}:${this.account}:parameter/aistudio/${props.environment}/notification-queue-url`,
-      ],
-    });
-    this.streamingJobsWorker.addToRolePolicy(ssmParameterPolicy);
-
-    // Grant streaming worker access to notification queue (for scheduled execution notifications)
-    const notificationQueuePolicy = new iam.PolicyStatement({
-      actions: [
-        'sqs:SendMessage',
-        'sqs:GetQueueAttributes',
-      ],
-      resources: [
-        // Allow access to notification queue (will be created by email notification stack)
-        `arn:aws:sqs:${this.region}:${this.account}:aistudio-${props.environment}-notification-queue`,
-      ],
-    });
-    this.streamingJobsWorker.addToRolePolicy(notificationQueuePolicy);
-
-    // Grant Bedrock access for AWS-hosted models (when running in Lambda)
-    const bedrockPolicy = new iam.PolicyStatement({
-      actions: [
-        'bedrock:InvokeModel',
-        'bedrock:InvokeModelWithResponseStream',
-      ],
-      resources: ['*'], // Bedrock model ARNs vary by region
-    });
-    this.streamingJobsWorker.addToRolePolicy(bedrockPolicy);
-
-    // Grant Textract permissions to file processor
-    const textractPolicy = new iam.PolicyStatement({
-      actions: [
-        'textract:StartDocumentTextDetection',
-        'textract:StartDocumentAnalysis',
-        'textract:GetDocumentTextDetection',
-        'textract:GetDocumentAnalysis',
-      ],
-      resources: ['*'],
-    });
-    fileProcessor.addToRolePolicy(textractPolicy);
-
-    // Grant Textract result retrieval permissions to textract processor
-    textractProcessor.addToRolePolicy(textractPolicy);
+    // All Lambda functions now use ServiceRoleFactory with secure roles
+    // Permissions are defined in the role creation above
+    // No manual permission grants needed!
 
     // SQS event source for file processor
     fileProcessor.addEventSource(new lambdaEventSources.SqsEventSource(this.fileProcessingQueue, {
@@ -340,12 +383,6 @@ export class ProcessingStack extends cdk.Stack {
     embeddingGenerator.addEventSource(new lambdaEventSources.SqsEventSource(this.embeddingQueue, {
       batchSize: 1, // Process one item at a time to avoid rate limits
       maxBatchingWindow: cdk.Duration.seconds(5),
-    }));
-
-    // SQS event source for streaming jobs worker
-    this.streamingJobsWorker.addEventSource(new lambdaEventSources.SqsEventSource(this.streamingJobsQueue, {
-      batchSize: 1, // Process one job at a time for proper error handling
-      maxBatchingWindow: cdk.Duration.seconds(1), // Faster pickup for AI requests
     }));
 
     // Outputs
@@ -413,32 +450,6 @@ export class ProcessingStack extends cdk.Stack {
       value: textractProcessor.functionName,
       description: 'Name of the Textract processor Lambda function',
       exportName: `${props.environment}-TextractProcessorFunctionName`,
-    });
-
-    // AI Streaming Jobs outputs
-    new cdk.CfnOutput(this, 'StreamingJobsQueueUrl', {
-      value: this.streamingJobsQueue.queueUrl,
-      description: 'URL of the AI streaming jobs queue',
-      exportName: `${props.environment}-StreamingJobsQueueUrl`,
-    });
-
-    new cdk.CfnOutput(this, 'StreamingJobsQueueArn', {
-      value: this.streamingJobsQueue.queueArn,
-      description: 'ARN of the AI streaming jobs queue',
-      exportName: `${props.environment}-StreamingJobsQueueArn`,
-    });
-
-    new cdk.CfnOutput(this, 'StreamingJobsWorkerFunctionName', {
-      value: this.streamingJobsWorker.functionName,
-      description: 'Name of the AI streaming jobs worker Lambda function',
-      exportName: `${props.environment}-StreamingJobsWorkerFunctionName`,
-    });
-
-    // Store the streaming jobs queue URL in SSM for other stacks to reference
-    new ssm.StringParameter(this, 'StreamingJobsQueueUrlParam', {
-      parameterName: `/aistudio/${props.environment}/streaming-jobs-queue-url`,
-      stringValue: this.streamingJobsQueue.queueUrl,
-      description: 'URL of the AI streaming jobs queue for cross-stack access',
     });
   }
 }

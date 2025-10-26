@@ -42,15 +42,40 @@ Document upload and processing system with S3 integration.
 #### [features/EMBEDDING_SYSTEM.md](./features/EMBEDDING_SYSTEM.md)
 Vector embedding and semantic search implementation.
 
-#### Universal Polling Architecture (NEW)
-**Critical system** - Enables long-running AI requests beyond AWS Amplify's 30-second timeout:
+#### AI Streaming Architecture
+**Real-time AI streaming** via ECS Fargate with HTTP/2 support:
 
-- **[features/universal-polling-architecture.md](./features/universal-polling-architecture.md)** - System architecture, request flow, and design decisions
-- **[features/ai-streaming-core-package.md](./features/ai-streaming-core-package.md)** - Shared package structure, provider adapters, and message processing  
+- **[features/ai-streaming-core-package.md](./features/ai-streaming-core-package.md)** - Shared package structure, provider adapters, and message processing
 - **[features/polling-api-integration.md](./features/polling-api-integration.md)** - Client integration patterns and API endpoints
-- **[operations/streaming-infrastructure.md](./operations/streaming-infrastructure.md)** - Infrastructure setup, monitoring, and operations
+- **[operations/streaming-infrastructure.md](./operations/streaming-infrastructure.md)** - ECS infrastructure, monitoring, and operations
 - **[guides/adding-ai-providers.md](./guides/adding-ai-providers.md)** - Step-by-step provider integration guide
-- **[ASSISTANT_ARCHITECT_LAMBDA_DEPLOYMENT.md](./ASSISTANT_ARCHITECT_LAMBDA_DEPLOYMENT.md)** - **CRITICAL:** Special deployment guide for Lambda workers with local dependencies
+- **[ASSISTANT_ARCHITECT_DEPLOYMENT.md](./ASSISTANT_ARCHITECT_DEPLOYMENT.md)** - Assistant Architect deployment and execution guide
+- **[architecture/ADR-003-ecs-streaming-migration.md](./architecture/ADR-003-ecs-streaming-migration.md)** - Migration from Lambda to ECS (PR #340)
+
+### Infrastructure
+
+#### [infrastructure/VPC-CONSOLIDATION.md](./infrastructure/VPC-CONSOLIDATION.md)
+VPC consolidation and network architecture optimization.
+
+#### [infrastructure/AURORA_COST_OPTIMIZATION.md](./infrastructure/AURORA_COST_OPTIMIZATION.md)
+Aurora Serverless v2 cost optimization and monitoring strategies.
+
+#### [infrastructure/LAMBDA_OPTIMIZATION.md](./infrastructure/LAMBDA_OPTIMIZATION.md)
+Lambda optimization framework with power tuning and cost analysis.
+
+#### [infrastructure/multi-arch-build.md](./infrastructure/multi-arch-build.md)
+Multi-architecture Docker builds for ARM64/AMD64 support.
+
+### Security
+
+#### [security/USING_IAM_SECURITY.md](./security/USING_IAM_SECURITY.md) ⭐ **START HERE**
+**How to use the IAM security framework** - Examples, patterns, and best practices for creating secure roles.
+
+#### [security/IAM_LEAST_PRIVILEGE.md](./security/IAM_LEAST_PRIVILEGE.md)
+Comprehensive IAM security architecture with least privilege, permission boundaries, and Access Analyzer.
+
+#### [security/MIGRATION_GUIDE.md](./security/MIGRATION_GUIDE.md)
+Step-by-step guide for migrating existing infrastructure to secure IAM constructs.
 
 ### Operations
 
@@ -61,14 +86,14 @@ Operational procedures, monitoring, and maintenance guidelines.
 
 ### For New Developers
 1. Start with [ARCHITECTURE.md](./ARCHITECTURE.md) to understand the system
-2. **NEW:** Review [features/universal-polling-architecture.md](./features/universal-polling-architecture.md) for the critical streaming system
+2. Review [ARCHITECTURE.md#streaming-architecture-evolution](./ARCHITECTURE.md#streaming-architecture-evolution) for the streaming system
 3. Review [ENVIRONMENT_VARIABLES.md](./ENVIRONMENT_VARIABLES.md) for setup
 4. Follow [guides/TYPESCRIPT.md](./guides/TYPESCRIPT.md) for code standards
 5. Reference [guides/LOGGING.md](./guides/LOGGING.md) for logging patterns
 
 ### For DevOps/Infrastructure
 1. Follow [DEPLOYMENT.md](./DEPLOYMENT.md) for initial deployment
-2. **NEW:** Study [operations/streaming-infrastructure.md](./operations/streaming-infrastructure.md) for polling architecture operations
+2. Study [operations/streaming-infrastructure.md](./operations/streaming-infrastructure.md) for ECS streaming operations
 3. Review [operations/OPERATIONS.md](./operations/OPERATIONS.md) for maintenance
 4. Check [ARCHITECTURE.md](./ARCHITECTURE.md#infrastructure) for infrastructure details
 
@@ -91,10 +116,10 @@ Every operation gets a unique request ID for end-to-end tracing. See [guides/LOG
 ### Settings Management
 Database-first configuration with environment fallback. See [ARCHITECTURE.md#settings-management](./ARCHITECTURE.md#settings-management).
 
-### Universal Polling Architecture (NEW)
-Asynchronous AI request processing beyond AWS Amplify's 30-second timeout. See [features/universal-polling-architecture.md](./features/universal-polling-architecture.md).
+### ECS Streaming Architecture
+Direct ECS execution for real-time AI streaming with HTTP/2 support. See [ARCHITECTURE.md#streaming-architecture-evolution](./ARCHITECTURE.md#streaming-architecture-evolution).
 
-### AI Streaming Core Package (NEW)
+### AI Streaming Core Package
 Shared provider abstraction for consistent AI integration. See [features/ai-streaming-core-package.md](./features/ai-streaming-core-package.md).
 
 ## 🔧 Common Tasks
@@ -106,10 +131,10 @@ Shared provider abstraction for consistent AI integration. See [features/ai-stre
 4. Add E2E tests
 5. Update documentation
 
-### Adding a New AI Provider (NEW)
+### Adding a New AI Provider
 1. Follow [guides/adding-ai-providers.md](./guides/adding-ai-providers.md)
-2. Create provider adapter extending BaseProviderAdapter
-3. Add to provider factory and database models
+2. Create provider adapter in AI SDK provider factory
+3. Add to database models and configuration
 4. Test with real API and update monitoring
 5. Deploy and verify in staging environment
 
@@ -124,11 +149,12 @@ Shared provider abstraction for consistent AI integration. See [features/ai-stre
 3. Deploy with CDK: `npx cdk deploy`
 4. Monitor CloudWatch for errors
 
-### Deploying Lambda Workers (Special Cases)
-For Lambda functions with local dependencies (like streaming-jobs-worker):
-1. **IMPORTANT:** Follow [ASSISTANT_ARCHITECT_LAMBDA_DEPLOYMENT.md](./ASSISTANT_ARCHITECT_LAMBDA_DEPLOYMENT.md) for complete build process
-2. Build and copy dependencies before CDK deployment
-3. Commit build artifacts to ensure consistent deployments
+### Deploying Background Lambdas
+For Lambda functions used for background processing (document processing, embeddings):
+1. Build and package Lambda functions in `/infra/lambdas/`
+2. Deploy via CDK: `npx cdk deploy AIStudio-ProcessingStack-Dev`
+3. Verify function logs in CloudWatch
+4. Note: AI streaming is handled by ECS, not Lambda
 
 ## 📁 Archive
 
@@ -176,7 +202,15 @@ When contributing to documentation:
 4. Cross-reference related documents
 5. Update this README index
 
+## 🏗️ Architecture Decision Records
+
+Key architectural decisions documented:
+
+- **[ADR-001: Authentication Optimization](./architecture/ADR-001-authentication-optimization.md)** - NextAuth v5 with Cognito integration
+- **[ADR-002: Streaming Architecture Migration](./architecture/ADR-002-streaming-architecture-migration.md)** - Amplify to ECS Fargate migration
+- **[ADR-003: ECS Streaming Migration](./architecture/ADR-003-ecs-streaming-migration.md)** - Lambda workers to direct ECS execution
+
 ---
 
-*Last updated: August 2025*
+*Last updated: October 2025*
 *For AI assistant guidelines, see [CLAUDE.md](../CLAUDE.md)*

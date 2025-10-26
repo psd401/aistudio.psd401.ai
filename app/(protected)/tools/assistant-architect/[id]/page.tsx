@@ -1,5 +1,5 @@
 import { getAssistantArchitectAction } from "@/actions/db/assistant-architect-actions"
-import { AssistantArchitectExecution } from "@/components/features/assistant-architect/assistant-architect-execution"
+import { AssistantArchitectStreaming } from "@/components/features/assistant-architect/assistant-architect-streaming"
 import { Card, CardContent } from "@/components/ui/card"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Terminal } from "lucide-react"
@@ -55,7 +55,7 @@ export default async function AssistantArchitectToolPage({
     <div className="container py-8">
       <Card>
         <CardContent className="pt-1.5">
-          <AssistantArchitectExecution tool={tool} />
+          <AssistantArchitectStreaming tool={tool} />
         </CardContent>
       </Card>
     </div>

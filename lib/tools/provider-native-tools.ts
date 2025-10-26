@@ -50,8 +50,11 @@ async function createOpenAINativeTools(enabledTools: string[]): Promise<ToolSet>
 
     const openai = createOpenAI({ apiKey })
 
-    // Web search tool
-    if (enabledTools.includes('webSearch')) {
+    // Web search tool - accept both friendly name and provider name
+    const hasWebSearch = enabledTools.some(t =>
+      ['webSearch', 'web_search_preview'].includes(t)
+    )
+    if (hasWebSearch) {
       tools.web_search_preview = openai.tools.webSearchPreview({
         searchContextSize: 'high',
       })
@@ -59,7 +62,10 @@ async function createOpenAINativeTools(enabledTools: string[]): Promise<ToolSet>
     }
 
     // Code interpreter tool - native OpenAI execution
-    if (enabledTools.includes('codeInterpreter')) {
+    const hasCodeInterpreter = enabledTools.some(t =>
+      ['codeInterpreter', 'code_interpreter'].includes(t)
+    )
+    if (hasCodeInterpreter) {
       tools.code_interpreter = openai.tools.codeInterpreter({})
       log.debug('Added OpenAI code interpreter tool')
     }
@@ -87,14 +93,20 @@ async function createGoogleNativeTools(enabledTools: string[]): Promise<ToolSet>
     // Set environment variable for Google SDK
     process.env.GOOGLE_GENERATIVE_AI_API_KEY = apiKey
 
-    // Web search tool
-    if (enabledTools.includes('webSearch')) {
+    // Web search tool - accept both friendly name and provider name
+    const hasWebSearch = enabledTools.some(t =>
+      ['webSearch', 'google_search'].includes(t)
+    )
+    if (hasWebSearch) {
       tools.google_search = google.tools.googleSearch({})
       log.debug('Added Google search tool')
     }
 
     // Code execution is built into Gemini models
-    if (enabledTools.includes('codeInterpreter')) {
+    const hasCodeInterpreter = enabledTools.some(t =>
+      ['codeInterpreter', 'code_interpreter'].includes(t)
+    )
+    if (hasCodeInterpreter) {
       log.debug('Code execution enabled - Gemini models have built-in support')
     }
 

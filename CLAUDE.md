@@ -27,13 +27,14 @@ cd infra && npx cdk deploy AIStudio-FrontendStack-Dev     # Deploy single stack
 
 ## 🏗️ Architecture
 
-**Stack**: Next.js 15 App Router • AWS Amplify SSR • Aurora Serverless v2 • Cognito Auth
+**Stack**: Next.js 15 App Router • ECS Fargate (SSR) • Aurora Serverless v2 • Cognito Auth
 
 **Core Patterns**:
-- Server Actions return `ActionState<T>` 
+- Server Actions return `ActionState<T>`
 - RDS Data API for all DB operations
 - JWT sessions via NextAuth v5
 - Layered architecture (presentation → application → infrastructure)
+- **Reusable CDK constructs** for infrastructure consistency
 
 **File Structure**:
 ```
@@ -42,6 +43,14 @@ cd infra && npx cdk deploy AIStudio-FrontendStack-Dev     # Deploy single stack
 /components  → UI components
 /lib         → Core utilities & adapters
 /infra       → AWS CDK infrastructure
+  ├── lib/constructs/        → Reusable CDK patterns
+  │   ├── security/          → IAM, secrets, roles
+  │   ├── network/           → VPC, shared networking
+  │   ├── compute/           → Lambda, ECS patterns
+  │   ├── monitoring/        → CloudWatch, ADOT
+  │   └── config/            → Environment configs
+  ├── lib/stacks/            → CDK stack definitions
+  └── database/              → RDS, migrations
 ```
 
 ## 🤖 AI Integration
@@ -74,6 +83,12 @@ createProviderModel(provider: string, modelId: string): Promise<LanguageModel>
 mcp__awslabs_postgres-mcp-server__get_table_schema
 mcp__awslabs_postgres-mcp-server__run_query
 ```
+
+**Aurora Serverless v2 Configuration**:
+- **Dev**: Auto-pause enabled (scales to 0 ACU when idle, saves ~$44/month)
+- **Prod**: Min 2 ACU, Max 8 ACU, always-on for reliability
+- **Connection**: RDS Data API (no connection pooling needed)
+- **Backups**: Automated daily snapshots, 7-day retention (dev), 30-day (prod)
 
 **Data API Parameters**:
 - `stringValue`, `longValue`, `booleanValue`, `doubleValue`, `isNull`
@@ -136,13 +151,114 @@ export async function actionName(params: ParamsType): Promise<ActionState<Return
 - CI/CD: Add to `/tests/e2e/working-tests.spec.ts`
 - Documentation: Update `/tests/e2e/playwright-mcp-examples.md`
 
-## 🔒 Security
+## 🏗️ Infrastructure Patterns
 
+### VPC & Networking
+**Shared VPC Architecture** (consolidated from 2 VPCs to 1):
+- All stacks use `VPCProvider.getOrCreate()` for consistent networking
+- DatabaseStack creates VPC, other stacks import via `Vpc.fromLookup()`
+- **Subnets**: Public, Private-Application, Private-Data, Isolated
+- **VPC Endpoints**: S3, DynamoDB (gateway), plus 14+ interface endpoints
+- **NAT Gateways**: Managed NAT gateways in all environments
+- See `/infra/lib/constructs/network/` for patterns
+
+```typescript
+import { VPCProvider } from './constructs/network'
+
+const vpc = VPCProvider.getOrCreate(this, environment, config)
+// Automatically handles VPC creation vs. import based on stack
+```
+
+### Lambda Optimization
+**PowerTuning Results** (use these defaults):
+- **Standard functions**: 1024 MB (66% reduction from previous 3GB)
+- **Memory-intensive**: 2048 MB
+- **Lightweight**: 512 MB
+- All functions use **Node.js 20.x** runtime
+- X-Ray tracing enabled for observability
+
+**Lambda Best Practices**:
+- Always use `ServiceRoleFactory` for IAM roles
+- Enable VPC only when accessing RDS/ElastiCache
+- Use environment variables for configuration
+- Add CloudWatch Logs retention (7 days dev, 30 days prod)
+
+### ECS Fargate Optimization
+- **Non-critical workloads**: Fargate Spot (70% cost savings)
+- **Production frontend**: Fargate on-demand with auto-scaling
+- **Task sizing**: Right-sized via load testing
+- **Graviton2**: Not yet enabled (future optimization)
+
+### Monitoring & Observability
+**Consolidated Monitoring** (see `/infra/lib/constructs/monitoring/`):
+- **AWS Distro for OpenTelemetry (ADOT)** for distributed tracing
+- **Unified CloudWatch Dashboard** with 115+ widgets across all services
+- **Metrics tracked**: Lambda performance, ECS health, RDS metrics, API latency
+- **Alarms**: Configured for critical thresholds (errors, latency, resource utilization)
+
+**Access Dashboards**:
+- AWS Console → CloudWatch → Dashboards → "AIStudio-Consolidated-[Environment]"
+
+**Custom Metrics** (add via ADOT):
+```typescript
+// In Lambda/ECS code
+import { metrics } from '@aws-lambda-powertools/metrics'
+
+metrics.addMetric('customMetric', 'Count', 1)
+```
+
+### Cost Optimization Patterns
+**Implemented Optimizations**:
+1. **Aurora Serverless**: Auto-pause in dev (saves ~$44/month)
+2. **ECS Spot**: 70% savings on non-critical workloads
+3. **Lambda Right-Sizing**: 66% memory reduction via PowerTuning
+4. **S3 Lifecycle**: Intelligent-Tiering + automatic archival
+5. **VPC Endpoints**: Reduces NAT gateway data transfer costs
+
+**Cost Monitoring**:
+- AWS Cost Explorer: Track by service and environment tags
+- Budget alerts configured for each environment
+- Monthly cost reports automated via CloudWatch Events
+
+## 🔒 Security & IAM
+
+### Application Security
 - Routes under `/(protected)` require authentication
 - Role-based access via `hasToolAccess("tool-name")` - checks if user has permission
 - Parameterized queries prevent SQL injection
-- Secrets in AWS Secrets Manager
+- All secrets in AWS Secrets Manager with automatic rotation
 - `sanitizeForLogging()` for PII protection
+
+### Infrastructure Security (IAM Least Privilege)
+**CRITICAL**: All new Lambda/ECS roles MUST use `ServiceRoleFactory`:
+
+```typescript
+import { ServiceRoleFactory } from './constructs/security'
+
+const role = ServiceRoleFactory.createLambdaRole(this, 'MyFunctionRole', {
+  functionName: 'my-function',
+  environment: props.environment,  // REQUIRED for tag-based access
+  region: this.region,
+  account: this.account,
+  vpcEnabled: false,
+  s3Buckets: ['bucket-name'],           // Auto-scoped with tags
+  dynamodbTables: ['table-name'],       // Auto-scoped with tags
+  sqsQueues: ['queue-arn'],             // Auto-scoped with tags
+  secrets: ['secret-arn'],              // Auto-scoped with tags
+})
+```
+
+**Tag-Based Access Control** (Enforced):
+- All AWS resources MUST have tags: `Environment` (dev/staging/prod), `ManagedBy` (cdk)
+- IAM policies enforce tag-based conditions (dev Lambda cannot access prod S3)
+- Cross-environment access is blocked at IAM level
+- See `/infra/lib/constructs/security/service-role-factory.ts` for patterns
+
+**Secrets Management**:
+- All secrets stored in AWS Secrets Manager (never hardcoded)
+- Access via `SecretsManagerClient` from AWS SDK
+- Secrets scoped by environment tags
+- Automatic rotation enabled where supported
 
 ## 📦 Key Dependencies
 
@@ -155,12 +271,28 @@ export async function actionName(params: ParamsType): Promise<ActionState<Return
 
 ## 🚨 Common Pitfalls
 
-- **Don't** modify files 001-005 in `/infra/database/schema/`
-- **Don't** use console methods - ESLint will catch this
-- **Don't** create PRs against `main` - use `dev`
+### Code Quality
+- **Don't** use `any` types - full TypeScript strict mode required
+- **Don't** use console methods - use `@/lib/logger` instead
 - **Don't** skip type checking - entire codebase must pass
-- **Don't** trust app code for DB schema - use MCP tools
 - **Don't** commit without running lint and typecheck
+
+### Git & Deployment
+- **Don't** create PRs against `main` - always use `dev`
+- **Don't** modify files 001-005 in `/infra/database/schema/` (immutable migrations)
+
+### Infrastructure
+- **Don't** create Lambda/ECS roles manually - use `ServiceRoleFactory`
+- **Don't** create resources without `Environment` and `ManagedBy` tags
+- **Don't** use `Vpc.fromVpcAttributes` - use `VPCProvider.getOrCreate()`
+- **Don't** hardcode secrets - use AWS Secrets Manager
+- **Don't** trust app code for DB schema - use MCP tools
+- **Don't** deploy infrastructure without running `npx cdk synth` first
+
+### Security
+- **Don't** grant `resources: ['*']` in IAM policies (except where AWS requires it)
+- **Don't** allow cross-environment access (dev → prod blocked by tags)
+- **Don't** skip tag-based conditions in custom IAM policies
 
 ## 📖 Documentation
 
@@ -189,4 +321,5 @@ export async function actionName(params: ParamsType): Promise<ActionState<Return
 **Knowledge Base**: Stored in S3, retrieved during execution
 
 ---
-*Token-optimized for Claude Code efficiency. Last updated: August 2025*
+*Token-optimized for Claude Code efficiency. Last updated: January 2025*
+*Infrastructure optimized via Epic #372 - AWS Well-Architected Framework aligned*

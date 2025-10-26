@@ -4,85 +4,105 @@ import { getServerSession } from '@/lib/auth/server-session';
 import { getCurrentUserAction } from '@/actions/db/get-current-user-action';
 import { createLogger, generateRequestId, startTimer, sanitizeForLogging } from '@/lib/logger';
 import { executeSQL } from '@/lib/db/data-api-adapter';
-import { buildToolsForRequest } from '@/lib/tools/tool-registry';
-import { jobManagementService } from '@/lib/streaming/job-management-service';
-import type { CreateJobRequest } from '@/lib/streaming/job-management-service';
-import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
-import { ErrorFactories } from '@/lib/error-utils';
-import { getStreamingJobsQueueUrl } from '@/lib/aws/queue-config';
 import { processMessagesWithAttachments } from '@/lib/services/attachment-storage-service';
+import { unifiedStreamingService } from '@/lib/streaming/unified-streaming-service';
+import type { StreamRequest } from '@/lib/streaming/types';
+import { getModelConfig } from '@/lib/ai/model-config';
+import { sanitizeTextForDatabase } from '@/lib/utils/text-sanitizer';
 
-// Allow streaming responses up to 30 seconds
-export const maxDuration = 30;
+// Allow streaming responses up to 5 minutes for long-running conversations
+export const maxDuration = 300;
 
-// SQS client for sending jobs to worker queue with explicit configuration
-const sqsClient = new SQSClient({
-  region: process.env.NEXT_PUBLIC_AWS_REGION || process.env.AWS_REGION || 'us-east-1'
-});
-
-// Queue URL is now handled by the queue configuration service
-
-// Basic input validation schema - keeping it minimal to avoid breaking existing data flows
+// Flexible message validation that accepts various formats from the UI
+// We use z.any() here for the message array because the actual UIMessage type
+// is complex with generics and we validate the critical fields (role, id) at runtime
 const ChatRequestSchema = z.object({
-  messages: z.array(z.any()), // Keep flexible for UI message format
+  messages: z.array(z.object({
+    id: z.string(),
+    role: z.enum(['system', 'user', 'assistant']),
+    // Allow flexible content/parts format - validated at runtime
+    parts: z.array(z.any()).optional(),
+    content: z.any().optional(),
+    metadata: z.any().optional(),
+  })),
   modelId: z.string(),
   provider: z.string().optional(),
-  conversationId: z.string().optional(),
+  conversationId: z.string().nullable().optional(), // Accept null, undefined, or string
   enabledTools: z.array(z.string()).optional(),
   reasoningEffort: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
   responseMode: z.enum(['standard', 'priority', 'flex']).optional()
 });
 
 /**
- * Nexus Chat API - AI SDK v5 Compatible
- * Follows the same patterns as /api/chat but uses Nexus tables
+ * Nexus Chat API - Native Streaming with AI SDK v5
+ * Migrated from polling architecture to direct streaming for better performance
  */
 export async function POST(req: Request) {
   const requestId = generateRequestId();
   const timer = startTimer('api.nexus.chat');
   const log = createLogger({ requestId, route: 'api.nexus.chat' });
-  
-  log.info('POST /api/nexus/chat - Processing chat request');
-  
+
+  log.info('POST /api/nexus/chat - Processing chat request with native streaming');
+
   try {
     // 1. Parse and validate request with Zod schema
     const body = await req.json();
-    
+
     const validationResult = ChatRequestSchema.safeParse(body);
     if (!validationResult.success) {
-      log.warn('Invalid request format', { 
+      log.warn('Invalid request format', {
         errors: validationResult.error.issues.map(issue => ({
           path: issue.path.join('.'),
           message: issue.message
         }))
       });
       return new Response(
-        JSON.stringify({ 
-          error: 'Invalid request format', 
+        JSON.stringify({
+          error: 'Invalid request format',
           details: validationResult.error.issues,
-          requestId 
+          requestId
         }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
-    
+
     // Extract validated fields
-    const { 
-      messages, 
-      modelId, 
-      provider = 'openai', 
+    const {
+      messages,
+      modelId,
+      provider = 'openai',
       conversationId: existingConversationId,
       enabledTools = []
     } = validationResult.data;
-    
+
+    // Handle null conversationId (treat as undefined for new conversations)
+    const conversationIdValue = existingConversationId || undefined;
+
+    // Validate conversationId format if provided (must be valid UUID for database operations)
+    if (conversationIdValue) {
+      const uuidSchema = z.string().uuid();
+      const uuidValidation = uuidSchema.safeParse(conversationIdValue);
+      if (!uuidValidation.success) {
+        log.warn('Invalid conversation ID format', { conversationId: conversationIdValue });
+        return new Response(
+          JSON.stringify({
+            error: 'Invalid conversation ID format',
+            details: 'Conversation ID must be a valid UUID',
+            requestId
+          }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     log.info('Request parsed', sanitizeForLogging({
       messageCount: messages.length,
       modelId,
       provider,
-      hasConversationId: !!existingConversationId,
+      hasConversationId: !!conversationIdValue,
       enabledTools
     }));
-    
+
     // 2. Authenticate user
     const session = await getServerSession();
     if (!session) {
@@ -90,98 +110,156 @@ export async function POST(req: Request) {
       timer({ status: 'error', reason: 'unauthorized' });
       return new Response('Unauthorized', { status: 401 });
     }
-    
+
     log.debug('User authenticated', sanitizeForLogging({ userId: session.sub }));
-    
+
     // 3. Get current user
     const currentUser = await getCurrentUserAction();
     if (!currentUser.isSuccess) {
       log.error('Failed to get current user');
       return new Response('Unauthorized', { status: 401 });
     }
-    
+
     const userId = currentUser.data.user.id;
-    
-    // 4. Get model configuration from database
-    const modelResult = await executeSQL(
-      `SELECT id, provider, model_id, nexus_capabilities, chat_enabled
-       FROM ai_models 
-       WHERE model_id = :modelId 
-       AND active = true 
-       LIMIT 1`,
-      [{ name: 'modelId', value: { stringValue: modelId } }]
-    );
-    
-    if (modelResult.length === 0) {
+
+    // 4. Get model configuration using shared helper (ensures proper field mapping)
+    const modelConfig = await getModelConfig(modelId);
+
+    if (!modelConfig) {
       log.error('Model not found', { modelId });
       return new Response(
         JSON.stringify({ error: 'Selected model not found' }),
         { status: 404, headers: { 'Content-Type': 'application/json' } }
       );
     }
-    
-    const modelConfig = modelResult[0];
-    const dbModelId = modelConfig.id as number;
-    const capabilities = typeof modelConfig.nexusCapabilities === 'string' 
-      ? (() => {
-          try {
-            return JSON.parse(modelConfig.nexusCapabilities);
-          } catch (error) {
-            log.error('Failed to parse nexus capabilities', { 
-              modelId, 
-              capabilities: modelConfig.nexusCapabilities,
-              error: error instanceof Error ? error.message : String(error)
-            });
-            return null;
-          }
-        })()
-      : modelConfig.nexusCapabilities;
+
+    const dbModelId = modelConfig.id;
+
+    // Check if this is an image generation model
+    // Note: getModelConfig doesn't return nexus_capabilities, so we query it separately if needed
+    const nexusCapabilitiesResult = await executeSQL(
+      `SELECT nexus_capabilities FROM ai_models WHERE id = :id LIMIT 1`,
+      [{ name: 'id', value: { longValue: dbModelId } }]
+    );
+
+    const capabilities = nexusCapabilitiesResult.length > 0 && nexusCapabilitiesResult[0].nexus_capabilities
+      ? (typeof nexusCapabilitiesResult[0].nexus_capabilities === 'string'
+          ? JSON.parse(nexusCapabilitiesResult[0].nexus_capabilities)
+          : nexusCapabilitiesResult[0].nexus_capabilities)
+      : null;
+
     const isImageGenerationModel = capabilities?.imageGeneration === true;
-    const isChatEnabled = modelConfig.chatEnabled || modelConfig.chat_enabled;
-    
-    // Image generation models don't need chat_enabled=true since they work differently
-    if (!isImageGenerationModel && !isChatEnabled) {
-      log.error('Model not enabled for chat', { modelId, isChatEnabled });
-      return new Response(
-        JSON.stringify({ error: 'Selected model not enabled for chat' }),
-        { status: 404, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-    
+
+    // Note: getModelConfig already filters by chat_enabled=true, so if we got a model, it's chat-enabled
+    // Image generation models are handled separately below
+
     log.info('Model configured', sanitizeForLogging({
       provider: modelConfig.provider,
       modelId: modelConfig.model_id,
       dbId: dbModelId,
       isImageGeneration: isImageGenerationModel,
-      isChatEnabled
+      modelIdType: typeof modelConfig.model_id,
+      providerType: typeof modelConfig.provider
     }));
-    
-    // 5. Handle conversation (create new or use existing)
-    let conversationId: string = existingConversationId || '';
+
+    // 5. Handle image generation models separately (not via streaming)
+    if (isImageGenerationModel) {
+      log.info('Image generation model detected - using direct API call');
+
+      // Extract prompt from the last user message
+      const lastMessage = messages[messages.length - 1];
+      let imagePrompt = '';
+
+      if (lastMessage && lastMessage.role === 'user') {
+        const messageContent = (lastMessage as UIMessage & {
+          content?: string | Array<{ type: string; text?: string }>
+        }).content;
+
+        if (typeof messageContent === 'string') {
+          imagePrompt = messageContent.trim();
+        } else if (Array.isArray(messageContent)) {
+          const textPart = messageContent.find(part => part.type === 'text' && part.text);
+          imagePrompt = (textPart?.text || '').trim();
+        } else if (lastMessage.parts && Array.isArray(lastMessage.parts)) {
+          const textPart = lastMessage.parts.find((part: { type: string; text?: string }) => part.type === 'text' && part.text) as { type: string; text: string } | undefined;
+          imagePrompt = (textPart?.text || '').trim();
+        }
+      }
+
+      // Validate prompt
+      if (imagePrompt.length === 0) {
+        return new Response(
+          JSON.stringify({ error: 'Image generation requires a text prompt' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (imagePrompt.length > 4000) {
+        return new Response(
+          JSON.stringify({
+            error: 'Image prompt is too long. Maximum 4000 characters allowed.',
+            maxLength: 4000,
+            currentLength: imagePrompt.length
+          }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Content policy validation
+      const lowercasePrompt = imagePrompt.toLowerCase();
+      const forbiddenPatterns = [
+        'nude', 'naked', 'nsfw', 'explicit', 'sexual', 'porn', 'erotic',
+        'violence', 'blood', 'gore', 'weapon', 'harm', 'kill', 'death',
+        'hate', 'racist', 'discriminatory', 'offensive'
+      ];
+
+      if (forbiddenPatterns.some(pattern => lowercasePrompt.includes(pattern))) {
+        return new Response(
+          JSON.stringify({
+            error: 'Image prompt violates content policy. Please revise your request.'
+          }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // TODO: Implement actual image generation
+      // This would call the OpenAI DALL-E API or equivalent
+      // For now, return error indicating feature not yet implemented in streaming mode
+      return new Response(
+        JSON.stringify({
+          error: 'Image generation via streaming is not yet implemented. Please use the legacy endpoint.',
+          suggestion: 'Image generation support will be added in a future update.'
+        }),
+        { status: 501, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // 6. Handle conversation (create new or use existing)
+    let conversationId: string = conversationIdValue || '';
     let conversationTitle = 'New Conversation';
-    
+
     if (!conversationId) {
       // Generate a title from the first user message
       const firstUserMessage = messages.find(m => m.role === 'user');
       if (firstUserMessage) {
         // Extract text content for title generation
         let messageText = '';
-        
+
         // Handle both legacy content format and new parts format
-        const messageWithContent = firstUserMessage as UIMessage & { 
+        const messageWithContent = firstUserMessage as UIMessage & {
           content?: string | Array<{ type: string; text?: string }>;
           parts?: Array<{ type: string; text?: string; [key: string]: unknown }>;
         };
-        
+
         // Check if message has parts (new format)
         if (messageWithContent.parts && Array.isArray(messageWithContent.parts)) {
-          const textPart = messageWithContent.parts.find((part): part is { type: 'text'; text: string } => 
+          const textPart = messageWithContent.parts.find((part): part is { type: 'text'; text: string } =>
             part.type === 'text' && typeof (part as Record<string, unknown>).text === 'string'
           );
           if (textPart?.text) {
             messageText = textPart.text;
           }
-        } 
+        }
         // Fallback to legacy content format
         else if (messageWithContent.content) {
           if (typeof messageWithContent.content === 'string') {
@@ -193,7 +271,7 @@ export async function POST(req: Request) {
             }
           }
         }
-        
+
         // Generate a concise title (max 40 chars)
         if (messageText) {
           // Remove newlines and extra whitespace for header compatibility
@@ -204,11 +282,14 @@ export async function POST(req: Request) {
           }
         }
       }
-      
+
+      // Sanitize conversation title to remove null bytes and invalid UTF-8 sequences
+      const sanitizedTitle = sanitizeTextForDatabase(conversationTitle);
+
       // Create new Nexus conversation with generated title
       const createResult = await executeSQL(
         `INSERT INTO nexus_conversations (
-          user_id, provider, model_used, title, 
+          user_id, provider, model_used, title,
           message_count, total_tokens, metadata,
           created_at, updated_at
         ) VALUES (
@@ -220,47 +301,63 @@ export async function POST(req: Request) {
           { name: 'userId', value: { longValue: userId } },
           { name: 'provider', value: { stringValue: provider } },
           { name: 'modelId', value: { stringValue: modelId } },
-          { name: 'title', value: { stringValue: conversationTitle } },
-          { name: 'metadata', value: { stringValue: JSON.stringify({ source: 'nexus' }) } }
+          { name: 'title', value: { stringValue: sanitizedTitle } },
+          { name: 'metadata', value: { stringValue: JSON.stringify({ source: 'nexus', streaming: true }) } }
         ]
       );
-      
+
+      // Validate conversation creation result
+      if (!createResult || createResult.length === 0 || !createResult[0]?.id) {
+        log.error('Failed to create conversation - no ID returned', {
+          resultLength: createResult?.length,
+          result: createResult
+        });
+        return new Response(
+          JSON.stringify({
+            error: 'Failed to create conversation',
+            requestId
+          }),
+          { status: 500, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
       conversationId = createResult[0].id as string;
-      
-      log.info('Created new Nexus conversation', sanitizeForLogging({ 
+
+      log.info('Created new Nexus conversation', sanitizeForLogging({
         conversationId,
         userId,
         title: conversationTitle
       }));
     }
-    
-    // 6. Save user message to nexus_messages
+
+    // 7. Save user message to nexus_messages
     const lastMessage = messages[messages.length - 1];
     if (lastMessage && lastMessage.role === 'user') {
       // Extract text content from message
       let userContent = '';
       let serializableParts: unknown[] = [];
-      
+
       // Handle both legacy content format and new parts format
-      const messageWithContent = lastMessage as UIMessage & { 
+      const messageWithContent = lastMessage as UIMessage & {
         content?: string | Array<{ type: string; text?: string; image?: string }>;
         parts?: Array<{ type: string; text?: string; image?: string; [key: string]: unknown }>;
       };
-      
+
       // Check if message has parts (new format)
       if (messageWithContent.parts && Array.isArray(messageWithContent.parts)) {
         messageWithContent.parts.forEach((part) => {
           const typedPart = part as Record<string, unknown>;
           if (part.type === 'text' && typeof typedPart.text === 'string') {
-            userContent += (userContent ? ' ' : '') + typedPart.text;
-            serializableParts.push({ type: 'text', text: typedPart.text });
+            // Sanitize text before adding to arrays to prevent JSONB parse errors
+            const sanitizedText = sanitizeTextForDatabase(typedPart.text);
+            userContent += (userContent ? ' ' : '') + sanitizedText;
+            serializableParts.push({ type: 'text', text: sanitizedText });
           } else if (typedPart.type === 'image' && typedPart.image) {
             // Store only boolean flag - no image data or prefixes
-            serializableParts.push({ 
+            serializableParts.push({
               type: 'image',
               metadata: {
                 hasImage: true
-                // No image data or prefixes stored for security/memory reasons
               }
             });
           }
@@ -269,32 +366,35 @@ export async function POST(req: Request) {
       // Fallback to legacy content format
       else if (messageWithContent.content) {
         if (typeof messageWithContent.content === 'string') {
-          // Simple string content
-          userContent = messageWithContent.content;
-          serializableParts = [{ type: 'text', text: messageWithContent.content }];
+          // Sanitize text before adding to arrays to prevent JSONB parse errors
+          const sanitizedText = sanitizeTextForDatabase(messageWithContent.content);
+          userContent = sanitizedText;
+          serializableParts = [{ type: 'text', text: sanitizedText }];
         } else if (Array.isArray(messageWithContent.content)) {
-          // Content parts array (includes attachments from assistant-ui)
           messageWithContent.content.forEach((part) => {
             if (part.type === 'text' && part.text) {
-              userContent += (userContent ? ' ' : '') + part.text;
-              serializableParts.push({ type: 'text', text: part.text });
+              // Sanitize text before adding to arrays to prevent JSONB parse errors
+              const sanitizedText = sanitizeTextForDatabase(part.text);
+              userContent += (userContent ? ' ' : '') + sanitizedText;
+              serializableParts.push({ type: 'text', text: sanitizedText });
             } else if (part.type === 'image' && part.image) {
-              // Store only boolean flag - no image data or prefixes
-              serializableParts.push({ 
+              serializableParts.push({
                 type: 'image',
                 metadata: {
                   hasImage: true
-                  // No image data or prefixes stored for security/memory reasons
                 }
               });
             }
           });
         }
       }
-      
+
+      // Note: userContent and serializableParts already contain sanitized text
+      // Sanitization happens when extracting text from message parts above
+
       await executeSQL(
         `INSERT INTO nexus_messages (
-          conversation_id, role, content, parts, 
+          conversation_id, role, content, parts,
           model_id, metadata, created_at
         ) VALUES (
           :conversationId::uuid, :role, :content, :parts::jsonb,
@@ -309,184 +409,48 @@ export async function POST(req: Request) {
           { name: 'metadata', value: { stringValue: JSON.stringify({}) } }
         ]
       );
-      
+
       // Update conversation's last_message_at and message_count
       await executeSQL(
-        `UPDATE nexus_conversations 
-         SET last_message_at = NOW(), 
+        `UPDATE nexus_conversations
+         SET last_message_at = NOW(),
              message_count = message_count + 1,
              updated_at = NOW()
          WHERE id = :conversationId::uuid`,
         [{ name: 'conversationId', value: { stringValue: conversationId } }]
       );
-      
+
       log.debug('User message saved to nexus_messages');
     }
-    
-    // 7. Build tools based on model capabilities and user selection
-    log.info('About to build tools', sanitizeForLogging({
-      modelId,
-      provider, 
-      enabledTools,
-      enabledToolsLength: enabledTools?.length || 0
-    }));
-    
-    const tools = await buildToolsForRequest(modelId, enabledTools, provider);
-    
-    log.info('Built tools for request', sanitizeForLogging({ 
-      modelId,
-      provider,
-      enabledTools,
-      availableToolCount: Object.keys(tools).length,
-      toolNames: Object.keys(tools)
-    }));
 
-    // 8. Build system prompt (optional, can add Nexus-specific context here)
+    // 8. Tools will be created by UnifiedStreamingService from enabledTools
+
+    // 9. Build system prompt (optional, can add Nexus-specific context here)
     const systemPrompt = `You are a helpful AI assistant in the Nexus interface.`;
-    
-    // 9. Universal Polling Architecture - Create streaming job for all Nexus requests
-    log.info('Creating streaming job for universal polling architecture', sanitizeForLogging({ 
-      provider,
-      model: modelId,
-      conversationId,
-      userId,
-      toolsEnabled: Object.keys(tools).length > 0
-    }));
-    
-    // Validate messages before creating job
-    if (!messages || !Array.isArray(messages)) {
-      log.error('Messages invalid before job creation', sanitizeForLogging({
-        messagesProvided: !!messages,
-        isArray: Array.isArray(messages),
-        type: typeof messages
-      }));
-      return new Response(
-        JSON.stringify({ error: 'Invalid messages array' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-    
-    // Prepare job creation request for Nexus
-    let jobOptions: CreateJobRequest['options'] = {
-      reasoningEffort: validationResult.data.reasoningEffort || 'medium',
-      responseMode: validationResult.data.responseMode || 'standard'
-    };
 
-    // For any image generation model, set up image generation options
-    if (isImageGenerationModel) {
-      // Extract prompt from the last user message for image generation
-      const lastMessage = messages[messages.length - 1];
-      let imagePrompt = '';
-      
-      if (lastMessage && lastMessage.role === 'user') {
-        const messageContent = (lastMessage as UIMessage & { 
-          content?: string | Array<{ type: string; text?: string }> 
-        }).content;
-        
-        if (typeof messageContent === 'string') {
-          imagePrompt = messageContent.trim();
-        } else if (Array.isArray(messageContent)) {
-          const textPart = messageContent.find(part => part.type === 'text' && part.text);
-          imagePrompt = (textPart?.text || '').trim();
-        } else if (lastMessage.parts && Array.isArray(lastMessage.parts)) {
-          const textPart = lastMessage.parts.find((part: { type: string; text?: string }) => part.type === 'text' && part.text);
-          imagePrompt = (textPart?.text || '').trim();
-        }
-      }
-
-      // Validate prompt length (reject if too long instead of truncating)
-      if (imagePrompt.length > 4000) {
-        log.warn('Image prompt exceeds maximum length', { 
-          originalLength: imagePrompt.length,
-          modelId,
-          maxLength: 4000
-        });
-        return new Response(
-          JSON.stringify({ 
-            error: 'Image prompt is too long. Maximum 4000 characters allowed.',
-            maxLength: 4000,
-            currentLength: imagePrompt.length
-          }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-
-      if (imagePrompt.length === 0) {
-        log.error('Empty image generation prompt');
-        return new Response(
-          JSON.stringify({ error: 'Image generation requires a text prompt' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-
-      // Basic content policy validation - reject obvious harmful requests
-      const lowercasePrompt = imagePrompt.toLowerCase();
-      const forbiddenPatterns = [
-        'nude', 'naked', 'nsfw', 'explicit', 'sexual', 'porn', 'erotic',
-        'violence', 'blood', 'gore', 'weapon', 'harm', 'kill', 'death',
-        'hate', 'racist', 'discriminatory', 'offensive'
-      ];
-      
-      const hasForbiddenContent = forbiddenPatterns.some(pattern => 
-        lowercasePrompt.includes(pattern)
-      );
-
-      if (hasForbiddenContent) {
-        log.warn('Image prompt violates content policy', {
-          promptLength: imagePrompt.length,
-          modelId
-        });
-        return new Response(
-          JSON.stringify({ 
-            error: 'Image prompt violates content policy. Please revise your request.' 
-          }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-      
-      // Set image generation options for the worker
-      jobOptions = {
-        ...jobOptions,
-        imageGeneration: {
-          prompt: imagePrompt,
-          size: '1024x1024', // Default size
-          style: 'natural' // Default style
-        }
-      };
-      
-      log.info('Image generation job configured', sanitizeForLogging({
-        modelId,
-        promptLength: imagePrompt.length,
-        size: jobOptions.imageGeneration?.size
-      }));
-    }
-
-    // Convert messages to AI SDK v5 format (parts array) before processing attachments
-    const messagesWithParts: UIMessage[] = messages.map(message => {
+    // 10. Convert messages to AI SDK v5 format (parts array) before processing attachments
+    const messagesWithParts = messages.map(message => {
       // If message already has parts, use as-is
       if (message.parts) {
         return message;
       }
-      
+
       // Convert legacy content format to parts format
-      const messageContent = (message as UIMessage & { 
-        content?: string | Array<{ type: string; text?: string; image?: string }> 
+      const messageContent = (message as UIMessage & {
+        content?: string | Array<{ type: string; text?: string; image?: string }>
       }).content;
-      
+
       if (typeof messageContent === 'string') {
-        // Simple string content
         return {
           ...message,
           parts: [{ type: 'text', text: messageContent }]
         };
       } else if (Array.isArray(messageContent)) {
-        // Content parts array - convert to parts format
         return {
           ...message,
           parts: messageContent
         };
       } else {
-        // No content, create empty parts
         return {
           ...message,
           parts: []
@@ -494,147 +458,165 @@ export async function POST(req: Request) {
       }
     });
 
-    // Process messages to store attachments in S3 and create lightweight versions
-    const { lightweightMessages, attachmentReferences } = await processMessagesWithAttachments(
+    // 11. Process messages to store attachments in S3 and create lightweight versions
+    const { lightweightMessages } = await processMessagesWithAttachments(
       conversationId,
-      messagesWithParts
+      messagesWithParts as UIMessage[]
     );
 
-    const jobRequest: CreateJobRequest = {
-      conversationId: conversationId, // Keep as UUID string for nexus
-      userId: userId,
-      modelId: dbModelId,
-      messages: lightweightMessages as UIMessage[], // Lightweight messages (attachments in S3)
-      provider: provider,
-      modelIdString: modelId,
-      systemPrompt,
-      options: jobOptions,
-      maxTokens: undefined,
-      temperature: undefined,
-      tools,
+    // 12. Use unified streaming service (same as /api/chat)
+    log.info('Starting unified streaming service', {
+      provider: modelConfig.provider,
+      model: modelConfig.model_id,
+      conversationId
+    });
+
+    // Add debug logging before streaming
+    log.info('StreamRequest validation', {
+      hasModelId: !!modelConfig.model_id,
+      modelIdType: typeof modelConfig.model_id,
+      modelIdValue: modelConfig.model_id,
+      hasProvider: !!modelConfig.provider,
+      providerValue: modelConfig.provider,
+      hasMessages: !!lightweightMessages,
+      messageCount: lightweightMessages?.length
+    });
+
+    // Create streaming request with callbacks
+    const streamRequest: StreamRequest = {
+      messages: lightweightMessages as UIMessage[],
+      modelId: modelConfig.model_id, // getModelConfig returns proper string type
+      provider: modelConfig.provider, // getModelConfig returns proper string type
+      userId: userId.toString(),
+      sessionId: session.sub,
+      conversationId,
       source: 'nexus',
-      sessionId: session.sub
+      systemPrompt,
+      enabledTools, // Pass enabledTools - UnifiedStreamingService will create tools from adapter
+      options: {
+        reasoningEffort: validationResult.data.reasoningEffort || 'medium',
+        responseMode: validationResult.data.responseMode || 'standard'
+      },
+      callbacks: {
+        onFinish: async ({ text, usage, finishReason }) => {
+          log.info('Stream finished, saving assistant message', {
+            conversationId,
+            hasText: !!text,
+            textLength: text?.length || 0,
+            hasUsage: !!usage,
+            finishReason
+          });
+
+          try {
+            // Save assistant message to nexus_messages
+            if (!text || text.length === 0) {
+              log.warn('No text content to save for assistant message');
+              return;
+            }
+
+            // Sanitize assistant content to remove null bytes and invalid UTF-8 sequences
+            const sanitizedAssistantContent = sanitizeTextForDatabase(text);
+
+            await executeSQL(
+              `INSERT INTO nexus_messages (
+                conversation_id, role, content, parts,
+                model_id, token_usage, finish_reason, metadata,
+                created_at, updated_at
+              ) VALUES (
+                :conversationId::uuid, 'assistant', :content, :parts::jsonb,
+                :modelId, :tokenUsage::jsonb, :finishReason, '{}'::jsonb,
+                NOW(), NOW()
+              )`,
+              [
+                { name: 'conversationId', value: { stringValue: conversationId } },
+                { name: 'content', value: { stringValue: sanitizedAssistantContent } },
+                { name: 'parts', value: { stringValue: JSON.stringify([{ type: 'text', text: sanitizedAssistantContent }]) } },
+                { name: 'modelId', value: { longValue: dbModelId } },
+                { name: 'tokenUsage', value: {
+                  stringValue: JSON.stringify({
+                    promptTokens: usage?.promptTokens || 0,
+                    completionTokens: usage?.completionTokens || 0,
+                    totalTokens: usage?.totalTokens || 0
+                  })
+                }},
+                { name: 'finishReason', value: { stringValue: finishReason || 'stop' } }
+              ]
+            );
+
+            // Update conversation statistics
+            await executeSQL(
+              `UPDATE nexus_conversations
+               SET message_count = message_count + 1,
+                   total_tokens = total_tokens + :totalTokens,
+                   last_message_at = NOW(),
+                   updated_at = NOW()
+               WHERE id = :conversationId::uuid`,
+              [
+                { name: 'conversationId', value: { stringValue: conversationId } },
+                { name: 'totalTokens', value: { longValue: usage?.totalTokens || 0 } }
+              ]
+            );
+
+            log.info('Assistant message saved successfully', {
+              conversationId,
+              textLength: text.length,
+              totalTokens: usage?.totalTokens
+            });
+          } catch (saveError) {
+            log.error('Failed to save assistant message', {
+              error: saveError,
+              conversationId,
+              modelId: dbModelId
+            });
+            // Error is logged but not thrown to avoid breaking the stream
+          }
+
+          timer({
+            status: 'success',
+            conversationId,
+            tokensUsed: usage?.totalTokens
+          });
+        }
+      }
     };
-    
-    // Create the streaming job in database
-    const jobId = await jobManagementService.createJob(jobRequest);
-    
-    log.info('Nexus streaming job created successfully', sanitizeForLogging({
-      jobId,
+
+    const streamResponse = await unifiedStreamingService.stream(streamRequest);
+
+    // Return unified streaming response
+    log.info('Returning unified streaming response', {
       conversationId,
       requestId,
-      provider,
-      modelId
-    }));
-    
-    // Send job to SQS queue for worker processing
-    const queueUrl = getStreamingJobsQueueUrl();
-    if (queueUrl) {
-      try {
-        const sqsCommand = new SendMessageCommand({
-          QueueUrl: queueUrl,
-          MessageBody: JSON.stringify({
-            jobId,
-            hasAttachments: attachmentReferences.length > 0,
-            attachmentCount: attachmentReferences.length,
-            attachmentReferences: attachmentReferences // S3 metadata for reconstruction
-          }),
-          MessageAttributes: {
-            jobType: {
-              DataType: 'String',
-              StringValue: 'ai-streaming-nexus'
-            },
-            provider: {
-              DataType: 'String',
-              StringValue: provider
-            },
-            modelId: {
-              DataType: 'String',
-              StringValue: modelId
-            },
-            conversationId: {
-              DataType: 'String',
-              StringValue: conversationId
-            },
-            userId: {
-              DataType: 'Number',
-              StringValue: userId.toString()
-            },
-            source: {
-              DataType: 'String',
-              StringValue: 'nexus'
-            }
-          }
-        });
-        
-        await sqsClient.send(sqsCommand);
-        
-        log.info('Nexus job sent to SQS queue successfully', sanitizeForLogging({
-          jobId,
-          messageAttributes: sqsCommand.input.MessageAttributes
-        }));
-      } catch (sqsError) {
-        log.error('Failed to send Nexus job to SQS queue', sanitizeForLogging({
-          jobId,
-          error: sqsError instanceof Error ? sqsError.message : String(sqsError)
-        }));
-        
-        // Mark job as failed if we can't queue it
-        try {
-          await jobManagementService.failJob(jobId, `Failed to queue job: ${sqsError}`);
-        } catch (failError) {
-          log.error('Failed to mark job as failed', { jobId, error: failError });
-        }
-        
-        throw ErrorFactories.externalServiceError('SQS', new Error('Failed to queue streaming job for processing'));
-      }
-    } else {
-      log.warn('No SQS queue URL configured for Nexus, job created but not queued', { jobId });
-    }
-    
-    // Return job information for client polling
+      hasConversationId: !!conversationId,
+      supportsReasoning: streamResponse.capabilities.supportsReasoning
+    });
+
+    // Set response headers
     const responseHeaders: Record<string, string> = {
       'X-Request-Id': requestId,
-      'X-Job-Id': jobId,
-      'X-Universal-Polling': 'true',
-      'Content-Type': 'application/json'
+      'X-Unified-Streaming': 'true',
+      'X-Supports-Reasoning': streamResponse.capabilities.supportsReasoning.toString()
     };
-    
-    if (!existingConversationId && conversationId) {
+
+    // Only send conversation ID header for new conversations
+    if (!conversationIdValue && conversationId) {
       responseHeaders['X-Conversation-Id'] = conversationId;
       responseHeaders['X-Conversation-Title'] = encodeURIComponent(conversationTitle || 'New Conversation');
     }
-    
-    timer({ 
-      status: 'success',
-      jobId,
-      conversationId,
-      operation: 'job_created'
-    });
-    
-    return new Response(JSON.stringify({
-      jobId,
-      conversationId,
-      status: 'pending',
-      message: 'Nexus streaming job created successfully. Use the job ID to poll for results.',
-      requestId,
-      ...(conversationTitle && !existingConversationId ? { title: conversationTitle } : {})
-    }), {
-      status: 202, // Accepted - processing asynchronously
+
+    return streamResponse.result.toUIMessageStreamResponse({
       headers: responseHeaders
     });
-    
+
   } catch (error) {
-    log.error('Nexus chat API error', { 
+    log.error('Nexus chat API error', {
       error: error instanceof Error ? {
         message: error.message,
         name: error.name
-        // Stack traces removed for security - internal paths not exposed in logs
       } : String(error)
     });
-    
+
     timer({ status: 'error' });
-    
+
     // Return generic error response
     return new Response(
       JSON.stringify({

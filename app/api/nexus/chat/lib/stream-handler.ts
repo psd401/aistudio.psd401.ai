@@ -1,5 +1,13 @@
 import { createLogger, generateRequestId } from '@/lib/logger';
 import OpenAI from 'openai';
+import type {
+  TextDeltaEvent,
+  TextStartEvent,
+  TextEndEvent,
+  ToolCallEvent,
+  ErrorEvent,
+  FinishEvent
+} from '@/lib/streaming/sse-event-types';
 
 // Extended chunk interface for reasoning and usage data
 interface ExtendedChunk {
@@ -46,6 +54,11 @@ interface GeminiChunk {
 
 const log = createLogger({ module: 'stream-handler' });
 
+/**
+ * Legacy StreamEvent interface for backward compatibility
+ * New code should use SSEEvent types from sse-event-types.ts
+ * @deprecated Use SSEEvent union type instead
+ */
 export interface StreamEvent {
   type: 'text' | 'tool_use' | 'artifact' | 'thinking' | 'error' | 'metadata' | 'done';
   content: string;
@@ -64,73 +77,139 @@ export interface StreamEvent {
   };
 }
 
+/**
+ * Extended SSE event types for Nexus Chat specific needs
+ * These complement the canonical SSE events with Nexus-specific metadata
+ */
+export interface NexusToolUseEvent {
+  type: 'tool-use';
+  toolCallId: string;
+  toolName: string;
+  args: unknown;
+  id?: string;
+  timestamp?: string;
+}
+
+export interface NexusThinkingEvent {
+  type: 'thinking';
+  trace: string;
+  id?: string;
+  timestamp?: string;
+}
+
+export interface NexusArtifactEvent {
+  type: 'artifact';
+  artifactId: string;
+  content: unknown;
+  id?: string;
+  timestamp?: string;
+}
+
+/**
+ * Union of all Nexus-specific SSE events plus canonical events
+ */
+export type NexusSSEEvent =
+  | TextStartEvent
+  | TextDeltaEvent
+  | TextEndEvent
+  | ToolCallEvent
+  | ErrorEvent
+  | FinishEvent
+  | NexusToolUseEvent
+  | NexusThinkingEvent
+  | NexusArtifactEvent;
+
 export class NexusStreamHandler {
   private encoder = new TextEncoder();
-  
+
   /**
-   * Convert OpenAI stream to Server-Sent Events
+   * Safely parse JSON with error handling
+   * @param jsonString - JSON string to parse
+   * @param context - Context for logging (e.g., 'openai-tool-call')
+   * @returns Parsed object or undefined if parsing fails
+   */
+  private safeParseJSON(jsonString: string, context: string): Record<string, unknown> | undefined {
+    try {
+      return JSON.parse(jsonString) as Record<string, unknown>;
+    } catch (error) {
+      log.warn('Failed to parse JSON', {
+        context,
+        error: error instanceof Error ? error.message : String(error),
+        jsonStringLength: jsonString.length
+      });
+      return undefined;
+    }
+  }
+
+  /**
+   * Convert OpenAI stream to Server-Sent Events using canonical SSE types
    */
   async *handleOpenAIStream(
     stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>,
     responseId?: string
   ): AsyncGenerator<Uint8Array> {
     const requestId = generateRequestId();
-    
+
     log.info('Starting OpenAI stream handling', {
       requestId,
       responseId
     });
-    
+
     try {
       let totalContent = '';
       let usage: { promptTokens: number; completionTokens: number; totalTokens: number; reasoningTokens?: number } | undefined;
-      
+
+      // Emit text-start event at the beginning of the stream
+      if (responseId) {
+        const startEvent: TextStartEvent = {
+          type: 'text-start',
+          id: responseId
+        };
+        yield this.formatSSE(startEvent);
+      }
+
       for await (const chunk of stream) {
-        // Handle text content
+
+        // Handle text content using canonical text-delta event
         if (chunk.choices?.[0]?.delta?.content) {
           const content = chunk.choices[0].delta.content;
           totalContent += content;
-          
-          const event: StreamEvent = {
-            type: 'text',
-            content,
-            metadata: responseId ? { responseId } : undefined
+
+          const event: TextDeltaEvent = {
+            type: 'text-delta',
+            delta: content  // Use canonical 'delta' field instead of 'content'
           };
-          
+
           yield this.formatSSE(event);
         }
-        
-        // Handle tool calls
+
+        // Handle tool calls using canonical tool-call event
         if (chunk.choices?.[0]?.delta?.tool_calls) {
           for (const toolCall of chunk.choices[0].delta.tool_calls) {
-            const event: StreamEvent = {
-              type: 'tool_use',
-              content: JSON.stringify(toolCall),
-              metadata: {
-                responseId,
-                toolName: toolCall.function?.name
-              }
+            const event: ToolCallEvent = {
+              type: 'tool-call',
+              toolCallId: toolCall.id || `tool-${Date.now()}`,
+              toolName: toolCall.function?.name || 'unknown',
+              args: toolCall.function?.arguments
+                ? this.safeParseJSON(toolCall.function.arguments, 'openai-tool-call')
+                : undefined
             };
-            
+
             yield this.formatSSE(event);
           }
         }
-        
-        // Handle reasoning traces (for o1, o3 models)
+
+        // Handle reasoning traces (for o1, o3 models) using custom thinking event
         const extendedChunk = chunk as ExtendedChunk;
         if (extendedChunk.reasoning?.encrypted_content) {
-          const event: StreamEvent = {
+          const event: NexusThinkingEvent = {
             type: 'thinking',
-            content: '',
-            metadata: {
-              responseId,
-              thinkingTrace: extendedChunk.reasoning.encrypted_content
-            }
+            trace: extendedChunk.reasoning.encrypted_content
           };
-          
+
           yield this.formatSSE(event);
         }
-        
+
         // Capture usage data
         if (extendedChunk.usage) {
           usage = {
@@ -141,203 +220,239 @@ export class NexusStreamHandler {
           };
         }
       }
-      
-      // Send done event with usage
-      const doneEvent: StreamEvent = {
-        type: 'done',
-        content: totalContent,
-        metadata: usage ? {
-          responseId,
-          usage
-        } : responseId ? { responseId } : undefined
+
+      // Send text-end event
+      if (responseId) {
+        const endEvent: TextEndEvent = {
+          type: 'text-end',
+          id: responseId
+        };
+        yield this.formatSSE(endEvent);
+      }
+
+      // Send finish event with usage using canonical finish event
+      const finishEvent: FinishEvent = {
+        type: 'finish',
+        usage: usage ? {
+          promptTokens: usage.promptTokens,
+          completionTokens: usage.completionTokens,
+          totalTokens: usage.totalTokens
+        } : undefined
       };
-      
-      yield this.formatSSE(doneEvent);
-      
+
+      yield this.formatSSE(finishEvent);
+
       log.info('OpenAI stream completed', {
         requestId,
         responseId,
         contentLength: totalContent.length,
         usage
       });
-      
+
     } catch (error) {
       log.error('Error in OpenAI stream handling', {
         requestId,
         error: error instanceof Error ? error.message : String(error)
       });
-      
-      const errorEvent: StreamEvent = {
+
+      // Use canonical error event
+      const errorEvent: ErrorEvent = {
         type: 'error',
-        content: error instanceof Error ? error.message : 'Stream processing error'
+        error: error instanceof Error ? error.message : 'Stream processing error'
       };
-      
+
       yield this.formatSSE(errorEvent);
       throw error;
     }
   }
   
   /**
-   * Handle Anthropic streaming with artifacts
+   * Handle Anthropic streaming with artifacts using canonical SSE types
    */
   async *handleAnthropicStream(
     stream: AsyncIterable<AnthropicChunk>,
     conversationId: string
   ): AsyncGenerator<Uint8Array> {
     const requestId = generateRequestId();
-    
+
     log.info('Starting Anthropic stream handling', {
       requestId,
       conversationId
     });
-    
+
     try {
       let totalContent = '';
       const artifacts: Artifact[] = [];
-      
+
+      // Emit text-start event
+      const startEvent: TextStartEvent = {
+        type: 'text-start',
+        id: conversationId
+      };
+      yield this.formatSSE(startEvent);
+
       for await (const chunk of stream) {
-        // Handle text content
+        // Handle text content using canonical text-delta event
         if (chunk.type === 'content_block_delta' && chunk.delta?.text) {
           const content = chunk.delta.text;
           totalContent += content;
-          
-          const event: StreamEvent = {
-            type: 'text',
-            content
+
+          const event: TextDeltaEvent = {
+            type: 'text-delta',
+            delta: content  // Use canonical 'delta' field
           };
-          
+
           yield this.formatSSE(event);
         }
-        
-        // Handle artifacts
+
+        // Handle artifacts using custom Nexus artifact event
         if (chunk.type === 'artifact') {
           const artifact = chunk as unknown as Artifact;
           artifacts.push(artifact);
-          
-          const event: StreamEvent = {
+
+          const event: NexusArtifactEvent = {
             type: 'artifact',
-            content: JSON.stringify(chunk),
-            metadata: {
-              artifactId: artifact.id
-            }
+            artifactId: artifact.id,
+            content: chunk
           };
-          
+
           yield this.formatSSE(event);
         }
-        
+
         // Handle completion
         if (chunk.type === 'message_complete') {
           const usage = chunk.usage;
-          
-          const doneEvent: StreamEvent = {
-            type: 'done',
-            content: totalContent,
-            metadata: {
-              usage: usage ? {
-                promptTokens: usage.input_tokens,
-                completionTokens: usage.output_tokens,
-                totalTokens: usage.input_tokens + usage.output_tokens
-              } : undefined
-            }
+
+          // Emit text-end event
+          const endEvent: TextEndEvent = {
+            type: 'text-end',
+            id: conversationId
           };
-          
-          yield this.formatSSE(doneEvent);
+          yield this.formatSSE(endEvent);
+
+          // Send finish event with usage using canonical finish event
+          const finishEvent: FinishEvent = {
+            type: 'finish',
+            usage: usage ? {
+              promptTokens: usage.input_tokens,
+              completionTokens: usage.output_tokens,
+              totalTokens: usage.input_tokens + usage.output_tokens
+            } : undefined
+          };
+
+          yield this.formatSSE(finishEvent);
         }
       }
-      
+
       log.info('Anthropic stream completed', {
         requestId,
         conversationId,
         contentLength: totalContent.length,
         artifactCount: artifacts.length
       });
-      
+
     } catch (error) {
       log.error('Error in Anthropic stream handling', {
         requestId,
         error: error instanceof Error ? error.message : String(error)
       });
-      
-      const errorEvent: StreamEvent = {
+
+      // Use canonical error event
+      const errorEvent: ErrorEvent = {
         type: 'error',
-        content: error instanceof Error ? error.message : 'Stream processing error'
+        error: error instanceof Error ? error.message : 'Stream processing error'
       };
-      
+
       yield this.formatSSE(errorEvent);
       throw error;
     }
   }
   
   /**
-   * Handle Google Gemini streaming
+   * Handle Google Gemini streaming using canonical SSE types
    */
   async *handleGeminiStream(
     stream: AsyncIterable<GeminiChunk>,
     conversationId: string
   ): AsyncGenerator<Uint8Array> {
     const requestId = generateRequestId();
-    
+
     log.info('Starting Gemini stream handling', {
       requestId,
       conversationId
     });
-    
+
     try {
       let totalContent = '';
-      
+      let toolCallCounter = 0;
+
+      // Emit text-start event
+      const startEvent: TextStartEvent = {
+        type: 'text-start',
+        id: conversationId
+      };
+      yield this.formatSSE(startEvent);
+
       for await (const chunk of stream) {
-        // Handle text content
+        // Handle text content using canonical text-delta event
         if (chunk.text) {
           const content = chunk.text;
           totalContent += content;
-          
-          const event: StreamEvent = {
-            type: 'text',
-            content
+
+          const event: TextDeltaEvent = {
+            type: 'text-delta',
+            delta: content  // Use canonical 'delta' field
           };
-          
+
           yield this.formatSSE(event);
         }
-        
-        // Handle function calls
+
+        // Handle function calls using canonical tool-call event
         if (chunk.functionCall) {
-          const event: StreamEvent = {
-            type: 'tool_use',
-            content: JSON.stringify(chunk.functionCall),
-            metadata: {
-              toolName: chunk.functionCall.name
-            }
+          const event: ToolCallEvent = {
+            type: 'tool-call',
+            // Use counter to prevent ID collisions for multiple tool calls in same millisecond
+            toolCallId: `gemini-tool-${requestId}-${toolCallCounter++}`,
+            toolName: chunk.functionCall.name,
+            args: chunk.functionCall.args as Record<string, unknown> | undefined
           };
-          
+
           yield this.formatSSE(event);
         }
       }
-      
-      // Send done event
-      const doneEvent: StreamEvent = {
-        type: 'done',
-        content: totalContent
+
+      // Emit text-end event
+      const endEvent: TextEndEvent = {
+        type: 'text-end',
+        id: conversationId
       };
-      
-      yield this.formatSSE(doneEvent);
-      
+      yield this.formatSSE(endEvent);
+
+      // Send finish event using canonical finish event
+      const finishEvent: FinishEvent = {
+        type: 'finish'
+      };
+
+      yield this.formatSSE(finishEvent);
+
       log.info('Gemini stream completed', {
         requestId,
         conversationId,
         contentLength: totalContent.length
       });
-      
+
     } catch (error) {
       log.error('Error in Gemini stream handling', {
         requestId,
         error: error instanceof Error ? error.message : String(error)
       });
-      
-      const errorEvent: StreamEvent = {
+
+      // Use canonical error event
+      const errorEvent: ErrorEvent = {
         type: 'error',
-        content: error instanceof Error ? error.message : 'Stream processing error'
+        error: error instanceof Error ? error.message : 'Stream processing error'
       };
-      
+
       yield this.formatSSE(errorEvent);
       throw error;
     }
@@ -345,12 +460,20 @@ export class NexusStreamHandler {
   
   /**
    * Format event as Server-Sent Event
+   * Accepts both canonical SSE events and legacy StreamEvent for backward compatibility
    */
-  private formatSSE(event: StreamEvent): Uint8Array {
+  private formatSSE(event: NexusSSEEvent | StreamEvent): Uint8Array {
+    // Validate event structure
+    if (!event.type) {
+      const error = new Error('SSE event missing required type field');
+      log.error('Invalid SSE event', { error: error.message });
+      throw error;
+    }
+
     const data = JSON.stringify(event);
     return this.encoder.encode(`data: ${data}\n\n`);
   }
-  
+
   /**
    * Create a readable stream from async generator
    */

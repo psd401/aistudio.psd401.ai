@@ -144,22 +144,38 @@ export async function getAvailableToolsForModel(modelId: string): Promise<ToolCo
 
 /**
  * Build tools object for AI SDK based on enabled tools and model capabilities
- * Now uses provider-native tool implementations
+ * Now uses provider adapter's native tool implementations
  */
 export async function buildToolsForRequest(
   modelId: string,
   enabledTools: string[] = [],
   provider?: string
 ): Promise<ToolSet> {
-  // If provider is specified, use native tools
-  if (provider) {
-    const { createProviderNativeTools } = await import('./provider-native-tools')
-    return await createProviderNativeTools(provider, modelId, enabledTools)
+  // If no provider specified, return empty
+  if (!provider) {
+    return {};
   }
 
-  // Fallback: return empty toolset if no provider specified
-  // The legacy tool system is deprecated in favor of provider-native tools
-  return {}
+  // Use provider adapter to build tools (new pattern)
+  try {
+    const { getProviderAdapter } = await import('@/lib/streaming/provider-adapters');
+    const adapter = await getProviderAdapter(provider);
+
+    // Create model to initialize adapter's client
+    await adapter.createModel(modelId);
+
+    // Create tools from adapter
+    return await adapter.createTools(enabledTools);
+  } catch (error) {
+    const log = await import('@/lib/logger').then(m => m.createLogger({ module: 'tool-registry' }));
+    log.error('Failed to build tools via adapter', {
+      error: error instanceof Error ? error.message : String(error),
+      provider,
+      modelId,
+      enabledTools
+    });
+    return {};
+  }
 }
 
 /**

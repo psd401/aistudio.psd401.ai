@@ -2,17 +2,21 @@
   "name": "schedule-executor",
   "version": "1.0.0",
   "description": "EventBridge Scheduler Lambda - Executes scheduled Assistant Architect workflows",
-  "main": "index.js",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "prebuild": "rm -rf dist"
+  },
   "dependencies": {
     "@aws-sdk/client-rds-data": "^3.0.0",
-    "@aws-sdk/client-sqs": "^3.0.0",
     "@aws-sdk/client-scheduler": "^3.0.0",
-    "@aistudio/streaming-core": "file:../../../packages/ai-streaming-core",
-    "ai": "^5.0.23",
-    "@ai-sdk/openai": "^2.0.20",
-    "@ai-sdk/google": "^2.0.8",
-    "@ai-sdk/amazon-bedrock": "^3.0.10",
-    "@ai-sdk/azure": "^2.0.20"
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
   },
   "keywords": ["aws", "lambda", "eventbridge", "scheduler", "ai", "assistant-architect"]
 }

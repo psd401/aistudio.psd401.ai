@@ -1,0 +1,101 @@
+# syntax=docker.io/docker/dockerfile:1
+# Multi-stage Dockerfile for Next.js AI Studio Application
+# Optimized for AWS Graviton2 (ARM64) processors
+# Provides 40% better price/performance compared to x86
+
+# ============================================================================
+# Stage 1: Dependencies
+# ============================================================================
+FROM --platform=linux/arm64 node:22-alpine AS deps
+WORKDIR /app
+
+# Install dependencies for native packages on ARM64
+RUN apk add --no-cache libc6-compat python3 make g++
+
+# Copy package files
+COPY package.json package-lock.json* ./
+
+# Install ALL dependencies with BuildKit cache mount
+# Native modules will be compiled for ARM64
+RUN --mount=type=cache,target=/root/.npm,id=npm-arm64 \
+    npm ci --legacy-peer-deps
+
+# ============================================================================
+# Stage 2: Builder
+# ============================================================================
+FROM --platform=linux/arm64 node:22-alpine AS builder
+WORKDIR /app
+
+# Install build dependencies for native modules on ARM64
+RUN apk add --no-cache python3 make g++
+
+# Copy dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+
+# Copy all source files
+COPY . .
+
+# Set build-time environment variables
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+
+# ARM64-specific optimizations
+ENV CFLAGS="-O3 -march=armv8-a+crc+simd"
+ENV CXXFLAGS="-O3 -march=armv8-a+crc+simd"
+
+# Dummy environment variables required for Next.js build
+ENV DOCUMENTS_BUCKET_NAME=build-time-placeholder
+ENV NEXT_PUBLIC_AWS_REGION=us-east-1
+ENV RDS_RESOURCE_ARN=arn:aws:rds:us-east-1:000000000000:cluster:build-placeholder
+ARG RDS_SECRET_ARN=arn:aws:secretsmanager:us-east-1:000000000000:secret:build-placeholder
+ENV RDS_SECRET_ARN=${RDS_SECRET_ARN}
+
+# Build with cache mount for Next.js build artifacts
+RUN --mount=type=cache,target=/app/.next/cache,id=nextjs-arm64 \
+    npm run build
+
+# ============================================================================
+# Stage 3: Production Runner
+# ============================================================================
+FROM --platform=linux/arm64 node:22-alpine AS runner
+WORKDIR /app
+
+# Install runtime dependencies optimized for ARM64
+# curl for health checks, tini for proper signal handling
+RUN apk add --no-cache curl tini
+
+# Create non-root user for security
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# Set production environment with ARM64 optimizations
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+# ARM64 memory optimization flags
+# MALLOC_ARENA_MAX reduces memory fragmentation on ARM (applies to glibc/musl allocator)
+ENV MALLOC_ARENA_MAX=2
+
+# Copy only necessary files from builder
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Switch to non-root user
+USER nextjs
+
+# Expose application port
+EXPOSE 3000
+
+# Note: Health checks are defined in ECS task definition (ecs-service.ts)
+# Dockerfile HEALTHCHECK is redundant since ECS task definition overrides it
+# Removed to follow AWS best practice: single source of truth for health checks
+
+# Use tini as PID 1 for proper signal handling and graceful shutdown
+ENTRYPOINT ["/sbin/tini", "--"]
+
+# Start application
+# Node.js memory limit will be set via NODE_OPTIONS environment variable in ECS task definition
+CMD ["node", "server.js"]

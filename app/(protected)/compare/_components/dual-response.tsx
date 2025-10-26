@@ -4,11 +4,9 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Message } from "@/app/(protected)/chat/_components/message"
+import { ResponseDisplay } from "./response-display"
 import { IconPlayerStop, IconCopy, IconCheck, IconLoader2 } from "@tabler/icons-react"
 import type { SelectAiModel } from "@/types"
-import type { SelectMessage } from "@/types/schema-types"
-import { nanoid } from 'nanoid'
 
 interface ModelResponse {
   model: SelectAiModel | null
@@ -100,26 +98,10 @@ export function DualResponse({
               </span>
             </div>
           )}
-          
+
           {response.response && (
-            <Message 
-              message={{
-                id: parseInt(nanoid(6), 36), // Generate numeric-like id
-                content: response.response,
-                role: 'assistant',
-                modelName: response.model?.name,
-                modelProvider: response.model?.provider,
-                conversationId: 0,
-                userId: 0,
-                createdAt: new Date(),
-                updatedAt: new Date(),
-                tokenUsage: null,
-                reasoning_content: null,
-                modelId: null,
-                modelIdentifier: null
-              } as SelectMessage}
-              messageId={`${modelKey}-response`}
-              isStreaming={response.status === 'streaming'}
+            <ResponseDisplay
+              content={response.response}
             />
           )}
         </ScrollArea>
