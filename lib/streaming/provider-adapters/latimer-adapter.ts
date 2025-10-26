@@ -1,21 +1,22 @@
-import { createOpenAI } from '@ai-sdk/openai';
+import { type LanguageModel, type CoreMessage } from 'ai';
 import { createLogger } from '@/lib/logger';
 import { Settings } from '@/lib/settings-manager';
 import { ErrorFactories } from '@/lib/error-utils';
 import { BaseProviderAdapter } from './base-adapter';
-import type { ProviderCapabilities, StreamRequest } from '../types';
+import type { ProviderCapabilities, StreamRequest, StreamConfig, StreamingCallbacks } from '../types';
 
 const log = createLogger({ module: 'latimer-adapter' });
 
 /**
  * Latimer AI provider adapter
- * Utilizes OpenAI-compatible API with custom endpoint
+ * Uses custom Latimer API (NOT OpenAI-compatible)
+ * API: POST https://api.latimer.ai/getCompletion
  */
 export class LatimerAdapter extends BaseProviderAdapter {
   protected providerName = 'latimer';
-  private latimerClient?: ReturnType<typeof createOpenAI>;
+  private apiKey?: string;
 
-  async createModel(modelId: string, options?: StreamRequest['options']) {
+  async createModel(modelId: string, options?: StreamRequest['options']): Promise<LanguageModel> {
     try {
       const apiKey = await Settings.getLatimer();
       if (!apiKey || typeof apiKey !== 'string' || apiKey.trim() === '') {
@@ -23,18 +24,16 @@ export class LatimerAdapter extends BaseProviderAdapter {
         throw ErrorFactories.sysConfigurationError('Latimer API key not configured');
       }
 
-      // Create OpenAI-compatible client with Latimer endpoint
-      this.latimerClient = createOpenAI({
-        apiKey,
-        baseURL: 'https://api.latimer.ai/v1'
-      });
-      this.providerClient = this.latimerClient;
+      this.apiKey = apiKey;
 
       log.info('Creating Latimer model', {
         modelId,
         hasOptions: !!options
       });
-      return this.latimerClient(modelId);
+
+      // Latimer uses custom API, not AI SDK
+      // Return modelId as LanguageModel (string type is valid per AI SDK v5)
+      return modelId as LanguageModel;
 
     } catch (error) {
       log.error('Failed to create Latimer model', {
@@ -45,11 +44,145 @@ export class LatimerAdapter extends BaseProviderAdapter {
     }
   }
 
+  /**
+   * Override streamWithEnhancements to use Latimer's custom API
+   */
+  async streamWithEnhancements(
+    config: StreamConfig,
+    callbacks: StreamingCallbacks
+  ): Promise<{
+    toDataStreamResponse: (options?: { headers?: Record<string, string> }) => Response;
+    toUIMessageStreamResponse: (options?: { headers?: Record<string, string> }) => Response;
+    usage: Promise<{
+      totalTokens?: number;
+      promptTokens?: number;
+      completionTokens?: number;
+    }>;
+  }> {
+    // Extract model ID (config.model can be string or object)
+    const modelId = typeof config.model === 'string' ? config.model : config.model.modelId;
+
+    log.info('Calling Latimer API', {
+      model: modelId,
+      messageCount: config.messages.length
+    });
+
+    try {
+      const apiKey = this.apiKey || await Settings.getLatimer();
+      if (!apiKey) {
+        throw ErrorFactories.sysConfigurationError('Latimer API key not configured');
+      }
+
+      // Convert AI SDK format to Latimer format
+      const latimerMessages = config.messages.map((msg: CoreMessage) => ({
+        role: msg.role,
+        content: typeof msg.content === 'string' ? msg.content :
+          msg.content.map((part: { type: string; text?: string }) => part.text).join('')
+      }));
+
+      const lastMessage = latimerMessages[latimerMessages.length - 1];
+      const additionalMessages = latimerMessages.slice(0, -1);
+
+      const payload = {
+        apiKey,
+        message: lastMessage?.content || '',
+        model: modelId,
+        additionalMessages,
+        modelTemperature: config.temperature || 0.7
+      };
+
+      log.debug('Latimer API request', {
+        model: payload.model,
+        messageCount: additionalMessages.length + 1
+      });
+
+      const response = await fetch('https://api.latimer.ai/getCompletion', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        log.error('Latimer API error', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
+        });
+        throw new Error(`Latimer API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+
+      log.info('Latimer API response received', {
+        chatId: data.chatId,
+        totalUsage: data.totalUsage,
+        billedAmount: data.billedAmount
+      });
+
+      // Call onFinish callback with the response
+      const fullText = data.message?.content || '';
+
+      if (callbacks.onFinish) {
+        await callbacks.onFinish({
+          text: fullText,
+          usage: {
+            totalTokens: data.totalUsage || 0,
+            promptTokens: data.inputUsage || 0,
+            completionTokens: data.completionUsage || 0
+          },
+          finishReason: 'stop'
+        });
+      }
+
+      // Create ReadableStream for response
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          // Send the complete text as a single chunk
+          controller.enqueue(encoder.encode(fullText));
+          controller.close();
+        }
+      });
+
+      return {
+        toDataStreamResponse: (options?: { headers?: Record<string, string> }) => {
+          return new Response(stream, {
+            headers: {
+              'Content-Type': 'text/plain; charset=utf-8',
+              ...options?.headers
+            }
+          });
+        },
+        toUIMessageStreamResponse: (options?: { headers?: Record<string, string> }) => {
+          return new Response(stream, {
+            headers: {
+              'Content-Type': 'text/plain; charset=utf-8',
+              ...options?.headers
+            }
+          });
+        },
+        usage: Promise.resolve({
+          totalTokens: data.totalUsage || 0,
+          promptTokens: data.inputUsage || 0,
+          completionTokens: data.completionUsage || 0
+        })
+      };
+
+    } catch (error) {
+      log.error('Latimer streaming failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  }
+
   getCapabilities(modelId: string): ProviderCapabilities {
     log.debug('Getting capabilities for Latimer model', { modelId });
 
-    // Default capabilities for Latimer models
-    // These can be refined once we have more specific model information
+    // Latimer uses custom API without native streaming/reasoning support
     return {
       supportsReasoning: false,
       supportsThinking: false,
