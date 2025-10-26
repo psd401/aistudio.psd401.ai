@@ -221,11 +221,12 @@ async function checkMigrationRun(
       clusterArn,
       secretArn,
       database,
-      `SELECT COUNT(*) FROM migration_log 
-       WHERE description = '${migrationFile}' 
-       AND status = 'completed'`
+      `SELECT COUNT(*) FROM migration_log
+       WHERE description = :migrationFile
+       AND status = 'completed'`,
+      [{ name: 'migrationFile', value: { stringValue: migrationFile } }]
     );
-    
+
     const count = result.records?.[0]?.[0]?.longValue || 0;
     return count > 0;
   } catch (error) {
@@ -252,19 +253,38 @@ async function recordMigration(
     database,
     `SELECT COALESCE(MAX(step_number), 0) + 1 as next_step FROM migration_log`
   );
-  
+
   const nextStep = maxStepResult.records?.[0]?.[0]?.longValue || 1;
-  
   const status = success ? 'completed' : 'failed';
-  const errorPart = errorMessage ? `, error_message = '${errorMessage.replace(/'/g, "''")}'` : '';
-  
-  await executeSql(
-    clusterArn,
-    secretArn,
-    database,
-    `INSERT INTO migration_log (step_number, description, sql_executed, status${errorMessage ? ', error_message' : ''}) 
-     VALUES (${nextStep}, '${migrationFile}', 'Migration file executed', '${status}'${errorMessage ? `, '${errorMessage.replace(/'/g, "''")}'` : ''})`
-  );
+
+  if (errorMessage) {
+    await executeSql(
+      clusterArn,
+      secretArn,
+      database,
+      `INSERT INTO migration_log (step_number, description, sql_executed, status, error_message)
+       VALUES (:nextStep, :migrationFile, 'Migration file executed', :status, :errorMessage)`,
+      [
+        { name: 'nextStep', value: { longValue: nextStep } },
+        { name: 'migrationFile', value: { stringValue: migrationFile } },
+        { name: 'status', value: { stringValue: status } },
+        { name: 'errorMessage', value: { stringValue: errorMessage } }
+      ]
+    );
+  } else {
+    await executeSql(
+      clusterArn,
+      secretArn,
+      database,
+      `INSERT INTO migration_log (step_number, description, sql_executed, status)
+       VALUES (:nextStep, :migrationFile, 'Migration file executed', :status)`,
+      [
+        { name: 'nextStep', value: { longValue: nextStep } },
+        { name: 'migrationFile', value: { stringValue: migrationFile } },
+        { name: 'status', value: { stringValue: status } }
+      ]
+    );
+  }
 }
 
 /**

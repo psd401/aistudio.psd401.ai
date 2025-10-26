@@ -71,8 +71,18 @@ export class LatimerAdapter extends BaseProviderAdapter {
   supportsModel(modelId: string): boolean {
     log.debug('Checking model support', { modelId, provider: 'latimer' });
 
-    // Support all Latimer models (they use OpenAI-compatible format)
-    // Pattern: latimer-*, or any model name from Latimer API
-    return true; // Allow all models - validation happens at API level
+    // Basic validation before API-level validation
+    if (!modelId || typeof modelId !== 'string' || modelId.trim() === '') {
+      log.warn('Invalid model ID format', { modelId });
+      return false;
+    }
+
+    // Support latimer-prefixed models
+    if (!modelId.startsWith('latimer-')) {
+      log.warn('Model ID does not match Latimer pattern', { modelId });
+      return false;
+    }
+
+    return true;
   }
 }

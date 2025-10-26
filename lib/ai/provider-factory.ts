@@ -170,21 +170,13 @@ async function createAzureModel(modelId: string): Promise<LanguageModel> {
 
 /**
  * Latimer AI Provider - OpenAI-compatible API
+ * Delegates to LatimerAdapter to avoid code duplication
  */
 async function createLatimerModel(modelId: string): Promise<LanguageModel> {
   try {
-    const apiKey = await Settings.getLatimer();
-    if (!apiKey || typeof apiKey !== 'string' || apiKey.trim() === '') {
-      log.error('Latimer API key not configured or invalid');
-      throw ErrorFactories.sysConfigurationError('Latimer API key not configured');
-    }
-
     log.debug(`Creating Latimer model: ${modelId}`);
-    const latimer = createOpenAI({
-      apiKey,
-      baseURL: 'https://api.latimer.ai/v1'
-    });
-    return latimer(modelId);
+    const adapter = await getProviderAdapter('latimer');
+    return await adapter.createModel(modelId);
   } catch (error) {
     log.error('Failed to create Latimer model', { modelId, error });
     throw error;
