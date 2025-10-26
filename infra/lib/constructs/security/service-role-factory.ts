@@ -77,7 +77,7 @@ export class ServiceRoleFactory {
     }
 
     const baseRole = new BaseIAMRole(scope, id, {
-      roleName: `${props.functionName}-execution-role`,
+      roleName: `${props.functionName}-execution-role-${props.environment}`,
       service: "lambda.amazonaws.com",
       description: `Execution role for ${props.functionName} Lambda function`,
       policies,
@@ -158,7 +158,7 @@ export class ServiceRoleFactory {
     }
 
     const baseRole = new BaseIAMRole(scope, id, {
-      roleName: `${props.taskName}-task-role`,
+      roleName: `${props.taskName}-task-role-${props.environment}`,
       service: "ecs-tasks.amazonaws.com",
       description: `Task role for ${props.taskName} ECS service`,
       policies,

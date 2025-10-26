@@ -107,7 +107,7 @@ cdk.Tags.of(devAccessAnalyzerStack).add('Environment', 'Dev');
 Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(devAccessAnalyzerStack).add(key, value));
 
 // Secrets Manager Stack - centralized secrets management
-const devSecretsManagerStack = new SecretsManagerStack(app, 'SecretsManagerStack', {
+const devSecretsManagerStack = new SecretsManagerStack(app, 'AIStudio-SecretsManagerStack-Dev', {
   deploymentEnvironment: 'dev',
   config: EnvironmentConfig.get('dev'),
   alertEmail,
@@ -196,9 +196,18 @@ if (devEmailDomain) {
 }
 
 // Prod environment
+// Permission Boundary Stack - must be deployed first before other stacks
+const prodPermissionBoundaryStack = new cdk.Stack(app, 'AIStudio-PermissionBoundary-Prod', {
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+});
+new PermissionBoundaryConstruct(prodPermissionBoundaryStack, 'PermissionBoundary', {
+  environment: 'prod',
+});
+cdk.Tags.of(prodPermissionBoundaryStack).add('Environment', 'Prod');
+Object.entries(standardTags).forEach(([key, value]) => cdk.Tags.of(prodPermissionBoundaryStack).add(key, value));
+
 // Secrets Manager Stack - centralized secrets management
-// Note: CDK construct ID must be unique per app, so we use different IDs for dev/prod
-const prodSecretsManagerStack = new SecretsManagerStack(app, 'SecretsManagerStackProd', {
+const prodSecretsManagerStack = new SecretsManagerStack(app, 'AIStudio-SecretsManagerStack-Prod', {
   deploymentEnvironment: 'prod',
   config: EnvironmentConfig.get('prod'),
   alertEmail,

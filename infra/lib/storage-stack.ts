@@ -130,16 +130,15 @@ export class StorageStack extends cdk.Stack {
     // Will be re-enabled when OptimizedBucket is properly migrated
 
     // Keep CloudFormation outputs for backward compatibility and monitoring
+    // Export names removed to allow stack deletion
     new cdk.CfnOutput(this, 'DocumentsBucketName', {
       value: documentsBucket.bucketName,
       description: 'S3 bucket for document storage',
-      exportName: `${props.environment}-DocumentsBucketName`,
     });
 
     new cdk.CfnOutput(this, 'DocumentsBucketArn', {
       value: documentsBucket.bucketArn,
       description: 'S3 bucket ARN for document storage',
-      exportName: `${props.environment}-DocumentsBucketArn`,
     });
 
     new cdk.CfnOutput(this, 'StorageLensReportsBucket', {
