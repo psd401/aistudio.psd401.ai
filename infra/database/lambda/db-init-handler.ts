@@ -73,7 +73,7 @@ const INITIAL_SETUP_FILES = [
 
 export async function handler(event: CustomResourceEvent): Promise<any> {
   console.log('Database initialization event:', JSON.stringify(event, null, 2));
-  console.log('Handler version: 2025-07-31-v8 - Added required icon field');
+  console.log('Handler version: 2025-10-26-v9 - Latimer AI migration 040');
   
   // SAFETY CHECK: Log what mode we're in
   console.log(`🔍 Checking database state for safety...`);
