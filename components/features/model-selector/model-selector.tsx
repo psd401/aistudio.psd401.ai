@@ -179,6 +179,8 @@ export function ModelSelector({
               shouldVirtualize && "will-change-scroll"
             )}
             style={{ touchAction: 'pan-y' }}
+            // Prevent Radix UI Popover from blocking scroll events
+            // See: https://github.com/pacocoursey/cmdk/issues/159
             onWheel={(e) => e.stopPropagation()}
           >
             {loading ? (
