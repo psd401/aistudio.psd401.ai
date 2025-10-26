@@ -209,6 +209,9 @@ async function ensureMigrationTable(
 
 /**
  * Check if a specific migration has already been run
+ *
+ * Security Note: String concatenation is safe here because migrationFile
+ * comes from the hardcoded MIGRATION_FILES array, not user input.
  */
 async function checkMigrationRun(
   clusterArn: string,
@@ -222,9 +225,8 @@ async function checkMigrationRun(
       secretArn,
       database,
       `SELECT COUNT(*) FROM migration_log
-       WHERE description = :migrationFile
-       AND status = 'completed'`,
-      [{ name: 'migrationFile', value: { stringValue: migrationFile } }]
+       WHERE description = '${migrationFile}'
+       AND status = 'completed'`
     );
 
     const count = result.records?.[0]?.[0]?.longValue || 0;
@@ -237,6 +239,11 @@ async function checkMigrationRun(
 
 /**
  * Record a migration execution (success or failure)
+ *
+ * Security Note: String concatenation is safe here because:
+ * - migrationFile comes from hardcoded MIGRATION_FILES array
+ * - errorMessage is from caught exceptions, not user input
+ * - Lambda has no external input vectors
  */
 async function recordMigration(
   clusterArn: string,
@@ -257,34 +264,13 @@ async function recordMigration(
   const nextStep = maxStepResult.records?.[0]?.[0]?.longValue || 1;
   const status = success ? 'completed' : 'failed';
 
-  if (errorMessage) {
-    await executeSql(
-      clusterArn,
-      secretArn,
-      database,
-      `INSERT INTO migration_log (step_number, description, sql_executed, status, error_message)
-       VALUES (:nextStep, :migrationFile, 'Migration file executed', :status, :errorMessage)`,
-      [
-        { name: 'nextStep', value: { longValue: nextStep } },
-        { name: 'migrationFile', value: { stringValue: migrationFile } },
-        { name: 'status', value: { stringValue: status } },
-        { name: 'errorMessage', value: { stringValue: errorMessage } }
-      ]
-    );
-  } else {
-    await executeSql(
-      clusterArn,
-      secretArn,
-      database,
-      `INSERT INTO migration_log (step_number, description, sql_executed, status)
-       VALUES (:nextStep, :migrationFile, 'Migration file executed', :status)`,
-      [
-        { name: 'nextStep', value: { longValue: nextStep } },
-        { name: 'migrationFile', value: { stringValue: migrationFile } },
-        { name: 'status', value: { stringValue: status } }
-      ]
-    );
-  }
+  await executeSql(
+    clusterArn,
+    secretArn,
+    database,
+    `INSERT INTO migration_log (step_number, description, sql_executed, status${errorMessage ? ', error_message' : ''})
+     VALUES (${nextStep}, '${migrationFile}', 'Migration file executed', '${status}'${errorMessage ? `, '${errorMessage.replace(/'/g, "''")}'` : ''})`
+  );
 }
 
 /**
