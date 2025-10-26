@@ -56,7 +56,8 @@ const MIGRATION_FILES = [
   '035-schedule-management-schema.sql',
   '036-remove-legacy-chat-tables.sql',
   '037-assistant-architect-events.sql',
-  '039-prompt-library-schema.sql'
+  '039-prompt-library-schema.sql',
+  '040-latimer-ai-models.sql'
   // ADD NEW MIGRATIONS HERE - they will run once and be tracked
 ];
 
