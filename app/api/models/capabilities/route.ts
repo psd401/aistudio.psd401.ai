@@ -1,6 +1,7 @@
 import { getModelCapabilities } from '@/lib/ai/provider-factory';
 import { createLogger, generateRequestId } from '@/lib/logger';
 import { ErrorFactories } from '@/lib/error-utils';
+import { executeSQL } from '@/lib/db/data-api-adapter';
 
 export const runtime = 'nodejs';
 
@@ -31,11 +32,14 @@ export async function POST(req: Request) {
       ]);
     }
 
-    // Validate provider is from known set
-    const VALID_PROVIDERS = ['openai', 'amazon-bedrock', 'google', 'azure'];
-    if (!VALID_PROVIDERS.includes(body.provider.toLowerCase())) {
+    // Validate provider exists in database - this makes the system future-proof
+    // Any provider added to the database will automatically be valid
+    const providers = await executeSQL<{ provider: string }>('SELECT DISTINCT provider FROM ai_models WHERE active = true');
+    const validProviders = providers.map((p) => p.provider.toLowerCase());
+
+    if (!validProviders.includes(body.provider.toLowerCase())) {
       throw ErrorFactories.validationFailed([
-        { field: 'provider', message: `Provider must be one of: ${VALID_PROVIDERS.join(', ')}` }
+        { field: 'provider', message: `Unknown provider. Available: ${validProviders.join(', ')}` }
       ]);
     }
     

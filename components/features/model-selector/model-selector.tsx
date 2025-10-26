@@ -120,7 +120,7 @@ export function ModelSelector({
   }, [groupedModels])
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal={true}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -172,13 +172,14 @@ export function ModelSelector({
             />
           )}
           
-          <CommandList 
+          <CommandList
             ref={commandListRef}
             className={cn(
               "max-h-[400px] overflow-y-auto overscroll-contain",
               shouldVirtualize && "will-change-scroll"
             )}
             style={{ touchAction: 'pan-y' }}
+            onWheel={(e) => e.stopPropagation()}
           >
             {loading ? (
               <div className="py-6 text-center text-sm text-muted-foreground">
