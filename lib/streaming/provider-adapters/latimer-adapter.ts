@@ -148,12 +148,14 @@ export class LatimerAdapter extends BaseProviderAdapter {
         });
       }
 
-      // Create ReadableStream for response
+      // Create AI SDK compatible data stream
+      // Format: data stream events for text chunks
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         start(controller) {
-          // Send the complete text as a single chunk
-          controller.enqueue(encoder.encode(fullText));
+          // Send text delta event (AI SDK format)
+          const textEvent = `0:"${fullText.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"\n`;
+          controller.enqueue(encoder.encode(textEvent));
           controller.close();
         }
       });
@@ -163,6 +165,7 @@ export class LatimerAdapter extends BaseProviderAdapter {
           return new Response(stream, {
             headers: {
               'Content-Type': 'text/plain; charset=utf-8',
+              'X-Vercel-AI-Data-Stream': 'v1',
               ...options?.headers
             }
           });
@@ -171,6 +174,7 @@ export class LatimerAdapter extends BaseProviderAdapter {
           return new Response(stream, {
             headers: {
               'Content-Type': 'text/plain; charset=utf-8',
+              'X-Vercel-AI-Data-Stream': 'v1',
               ...options?.headers
             }
           });
