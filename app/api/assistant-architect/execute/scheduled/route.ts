@@ -684,7 +684,7 @@ async function executePromptChainServerSide(
                   status, started_at, completed_at, execution_time_ms
                 ) VALUES (
                   :executionId, :promptId, :inputData::jsonb, :outputData,
-                  :status::execution_status, :startedAt, :completedAt, :executionTimeMs
+                  :status::execution_status, :startedAt::timestamp, :completedAt::timestamp, :executionTimeMs
                 )`,
                 [
                   { name: 'executionId', value: { longValue: context.executionId } },
