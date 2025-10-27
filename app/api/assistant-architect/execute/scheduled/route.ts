@@ -343,7 +343,7 @@ export async function POST(req: NextRequest) {
       // Update execution status to completed
       await executeSQL(
         `UPDATE tool_executions
-         SET status = 'completed',
+         SET status = 'completed'::execution_status,
              completed_at = NOW()
          WHERE id = :executionId`,
         [{ name: 'executionId', value: { longValue: executionId } }]
@@ -382,7 +382,7 @@ export async function POST(req: NextRequest) {
       // Update execution status to failed
       await executeSQL(
         `UPDATE tool_executions
-         SET status = 'failed',
+         SET status = 'failed'::execution_status,
              error_message = :errorMessage,
              completed_at = NOW()
          WHERE id = :executionId`,
@@ -684,7 +684,7 @@ async function executePromptChainServerSide(
                   status, started_at, completed_at, execution_time_ms
                 ) VALUES (
                   :executionId, :promptId, :inputData::jsonb, :outputData,
-                  :status, :startedAt, :completedAt, :executionTimeMs
+                  :status::execution_status, :startedAt, :completedAt, :executionTimeMs
                 )`,
                 [
                   { name: 'executionId', value: { longValue: context.executionId } },
@@ -786,7 +786,7 @@ async function executePromptChainServerSide(
           status, error_message, started_at, completed_at
         ) VALUES (
           :executionId, :promptId, :inputData::jsonb, :outputData,
-          'failed', :errorMessage, NOW(), NOW()
+          'failed'::execution_status, :errorMessage, NOW(), NOW()
         )`,
         [
           { name: 'executionId', value: { longValue: context.executionId } },
