@@ -138,23 +138,23 @@ export class SchedulerStack extends cdk.Stack {
     );
 
     // Allow Lambda to reach ECS ALB on port 80
-    // Get ECS security group from SSM (stored by FrontendStackEcs)
-    const ecsSecurityGroupId = ssm.StringParameter.valueForStringParameter(
+    // Get ALB security group from SSM (stored by FrontendStackEcs)
+    const albSecurityGroupId = ssm.StringParameter.valueForStringParameter(
       this,
-      `/aistudio/${props.environment}/ecs-security-group-id`
+      `/aistudio/${props.environment}/alb-security-group-id`
     );
 
-    const ecsSecurityGroup = ec2.SecurityGroup.fromSecurityGroupId(
+    const albSecurityGroup = ec2.SecurityGroup.fromSecurityGroupId(
       this,
-      'EcsSecurityGroup',
-      ecsSecurityGroupId
+      'AlbSecurityGroup',
+      albSecurityGroupId
     );
 
-    // Allow Lambda SG to connect to ECS on port 80
-    ecsSecurityGroup.addIngressRule(
+    // Allow Lambda SG to connect to ALB on port 80
+    albSecurityGroup.addIngressRule(
       lambdaSg,
       ec2.Port.tcp(80),
-      'Allow schedule executor Lambda to reach ECS'
+      'Allow schedule executor Lambda to reach ALB'
     );
 
     // IAM Role for the Lambda function

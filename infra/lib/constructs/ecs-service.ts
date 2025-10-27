@@ -620,10 +620,10 @@ export class EcsServiceConstruct extends Construct {
       description: 'ECS service name',
     });
 
-    new ssm.StringParameter(this, 'EcsSecurityGroupIdParam', {
-      parameterName: `/aistudio/${environment}/ecs-security-group-id`,
-      stringValue: ecsSecurityGroup.securityGroupId,
-      description: 'ECS task security group ID for Lambda ingress rules',
+    new ssm.StringParameter(this, 'AlbSecurityGroupIdParam', {
+      parameterName: `/aistudio/${environment}/alb-security-group-id`,
+      stringValue: albSecurityGroup.securityGroupId,
+      description: 'ALB security group ID for Lambda ingress rules',
     });
 
     // CloudFormation Outputs with unique export names
