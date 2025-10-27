@@ -1,88 +1,85 @@
-import { type LanguageModel, type CoreMessage, createUIMessageStream, createUIMessageStreamResponse } from 'ai';
+import { type LanguageModel } from 'ai';
+import {
+  LanguageModelV2,
+  type LanguageModelV2CallOptions,
+  type LanguageModelV2StreamPart,
+  type LanguageModelV2Prompt,
+  type LanguageModelV2FinishReason,
+  type LanguageModelV2Content,
+  type LanguageModelV2Usage,
+  type LanguageModelV2Message,
+  type LanguageModelV2CallWarning
+} from '@ai-sdk/provider';
 import { createLogger } from '@/lib/logger';
 import { Settings } from '@/lib/settings-manager';
 import { ErrorFactories } from '@/lib/error-utils';
 import { BaseProviderAdapter } from './base-adapter';
-import type { ProviderCapabilities, StreamRequest, StreamConfig, StreamingCallbacks } from '../types';
+import type { ProviderCapabilities, StreamRequest } from '../types';
 
 const log = createLogger({ module: 'latimer-adapter' });
 
 /**
- * Latimer AI provider adapter
- * Uses custom Latimer API (NOT OpenAI-compatible)
- * API: POST https://api.latimer.ai/getCompletion
+ * LanguageModelV2 implementation for Latimer AI
+ * Wraps Latimer's custom API in AI SDK's standard interface
  */
-export class LatimerAdapter extends BaseProviderAdapter {
-  protected providerName = 'latimer';
-  private apiKey?: string;
+class LatimerLanguageModel implements LanguageModelV2 {
+  readonly specificationVersion = 'v2' as const;
+  readonly provider = 'latimer';
+  readonly modelId: string;
+  readonly supportedUrls = Promise.resolve({});
 
-  async createModel(modelId: string, options?: StreamRequest['options']): Promise<LanguageModel> {
-    try {
-      const apiKey = await Settings.getLatimer();
-      if (!apiKey || typeof apiKey !== 'string' || apiKey.trim() === '') {
-        log.error('Latimer API key not configured or invalid');
-        throw ErrorFactories.sysConfigurationError('Latimer API key not configured');
-      }
-
-      this.apiKey = apiKey;
-
-      log.info('Creating Latimer model', {
-        modelId,
-        hasOptions: !!options
-      });
-
-      // Latimer uses custom API, not AI SDK
-      // Return modelId as LanguageModel (string type is valid per AI SDK v5)
-      return modelId as LanguageModel;
-
-    } catch (error) {
-      log.error('Failed to create Latimer model', {
-        modelId,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      throw error;
-    }
+  constructor(modelId: string, private apiKey: string) {
+    this.modelId = modelId;
   }
 
   /**
-   * Override streamWithEnhancements to use Latimer's custom API with AI SDK data stream
+   * Stream implementation - calls Latimer API and emits proper stream parts
    */
-  async streamWithEnhancements(
-    config: StreamConfig,
-    callbacks: StreamingCallbacks
+  async doStream(
+    options: LanguageModelV2CallOptions
   ): Promise<{
-    toDataStreamResponse: (options?: { headers?: Record<string, string> }) => Response;
-    toUIMessageStreamResponse: (options?: { headers?: Record<string, string> }) => Response;
-    usage: Promise<{
-      totalTokens?: number;
-      promptTokens?: number;
-      completionTokens?: number;
-    }>;
+    stream: ReadableStream<LanguageModelV2StreamPart>;
+    rawCall?: { rawPrompt?: unknown; rawSettings?: unknown };
+    rawResponse?: { headers?: Record<string, string> };
+    warnings?: LanguageModelV2CallWarning[];
   }> {
-    // Extract model ID (config.model can be string or object)
-    const modelId = typeof config.model === 'string' ? config.model : config.model.modelId;
-
-    log.info('Calling Latimer API', {
-      model: modelId,
-      messageCount: config.messages.length
+    // Log raw prompt for debugging
+    log.info('Raw prompt from AI SDK', {
+      promptLength: (options.prompt as LanguageModelV2Prompt).length,
+      prompt: JSON.stringify(options.prompt)
     });
 
-    const apiKey = this.apiKey || await Settings.getLatimer();
-    if (!apiKey) {
-      throw ErrorFactories.sysConfigurationError('Latimer API key not configured');
-    }
+    // Convert AI SDK prompt format to Latimer format
+    const messages = (options.prompt as LanguageModelV2Prompt).map((msg: LanguageModelV2Message) => {
+      if (typeof msg.content === 'string') {
+        return { role: msg.role, content: msg.content };
+      }
+      if (Array.isArray(msg.content)) {
+        const textContent = msg.content
+          .filter((part) =>
+            typeof part === 'object' && part !== null && 'type' in part && part.type === 'text'
+          )
+          .map((part) => ('text' in part ? (part as { text: string }).text : ''))
+          .join('');
+        return { role: msg.role, content: textContent };
+      }
+      return { role: msg.role, content: '' };
+    });
 
-    // Convert AI SDK format to Latimer format
-    const latimerMessages = config.messages.map((msg: CoreMessage) => ({
-      role: msg.role,
-      content: typeof msg.content === 'string' ? msg.content :
-        msg.content.map((part: { type: string; text?: string }) => part.text).join('')
-    }));
+    const lastMessage = messages[messages.length - 1];
+    // Filter out system messages and empty content (Latimer only supports user/assistant roles)
+    const additionalMessages = messages.slice(0, -1)
+      .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+      .filter(msg => msg.content && msg.content.trim() !== '');
 
-    const lastMessage = latimerMessages[latimerMessages.length - 1];
-    const additionalMessages = latimerMessages.slice(0, -1);
+    log.info('Latimer message conversion', {
+      totalMessages: messages.length,
+      additionalMessagesCount: additionalMessages.length,
+      lastMessagePreview: lastMessage?.content?.substring(0, 50),
+      allMessagesRoles: messages.map(m => `${m.role}:${m.content?.length || 0}chars`)
+    });
 
-    // Build payload - only include additionalMessages if not empty
+    // Build payload - only include additionalMessages if not empty (Latimer requirement)
     const payload: {
       apiKey: string;
       message: string;
@@ -90,13 +87,12 @@ export class LatimerAdapter extends BaseProviderAdapter {
       additionalMessages?: Array<{ role: string; content: string }>;
       modelTemperature: number;
     } = {
-      apiKey,
+      apiKey: this.apiKey,
       message: lastMessage?.content || '',
-      model: modelId,
-      modelTemperature: config.temperature || 0.7
+      model: this.modelId,
+      modelTemperature: options.temperature ?? 0.7
     };
 
-    // Only add additionalMessages if there are previous messages
     if (additionalMessages.length > 0) {
       payload.additionalMessages = additionalMessages;
     }
@@ -106,16 +102,17 @@ export class LatimerAdapter extends BaseProviderAdapter {
       messageCount: additionalMessages.length + 1
     });
 
-    // Use AI SDK's createUIMessageStream for proper formatting
-    const stream = createUIMessageStream({
-      execute: async ({ writer }) => {
+    // Create ReadableStream that emits proper LanguageModelV2StreamPart objects
+    const stream = new ReadableStream<LanguageModelV2StreamPart>({
+      async start(controller) {
         try {
           const response = await fetch('https://api.latimer.ai/getCompletion', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: options.abortSignal
           });
 
           if (!response.ok) {
@@ -138,52 +135,186 @@ export class LatimerAdapter extends BaseProviderAdapter {
 
           const fullText = data.message?.content || '';
 
-          // Write the complete text using AI SDK's writer as text delta
-          writer.write({
-            type: 'text-delta',
-            delta: fullText,
-            id: 'latimer-text'
+          // Emit stream parts in correct order:
+          // 1. Stream start
+          controller.enqueue({
+            type: 'stream-start',
+            warnings: []
           });
 
-          // Call onFinish callback with the response
-          if (callbacks.onFinish) {
-            await callbacks.onFinish({
-              text: fullText,
-              usage: {
-                totalTokens: data.totalUsage || 0,
-                promptTokens: data.inputUsage || 0,
-                completionTokens: data.completionUsage || 0
-              },
-              finishReason: 'stop'
+          // 2. Text start (required before text-delta)
+          if (fullText) {
+            controller.enqueue({
+              type: 'text-start',
+              id: 'latimer-text'
+            });
+
+            // 3. Text delta (full response since Latimer doesn't support streaming)
+            controller.enqueue({
+              type: 'text-delta',
+              delta: fullText,
+              id: 'latimer-text'
             });
           }
+
+          // 3. Finish with usage
+          controller.enqueue({
+            type: 'finish',
+            finishReason: 'stop',
+            usage: {
+              inputTokens: data.inputUsage || 0,
+              outputTokens: data.completionUsage || 0,
+              totalTokens: data.totalUsage || 0
+            }
+          });
+
+          controller.close();
         } catch (error) {
           log.error('Latimer streaming failed', {
             error: error instanceof Error ? error.message : String(error)
           });
-          throw error;
+          controller.error(error);
         }
       }
     });
 
-    // Return response using AI SDK's createUIMessageStreamResponse
-    const responseMethod = (options?: { headers?: Record<string, string> }) => {
-      return createUIMessageStreamResponse({
-        stream,
-        headers: options?.headers
-      });
-    };
-
     return {
-      toDataStreamResponse: responseMethod,
-      toUIMessageStreamResponse: responseMethod,
-      usage: Promise.resolve({
-        totalTokens: 0, // Will be updated via onFinish callback
-        promptTokens: 0,
-        completionTokens: 0
-      })
+      stream,
+      rawCall: {
+        rawPrompt: payload,
+        rawSettings: {
+          temperature: payload.modelTemperature
+        }
+      }
     };
   }
+
+  /**
+   * Generate implementation for non-streaming use cases
+   */
+  async doGenerate(
+    options: LanguageModelV2CallOptions
+  ): Promise<{
+    finishReason: LanguageModelV2FinishReason;
+    usage: LanguageModelV2Usage;
+    content: LanguageModelV2Content[];
+    rawCall?: { rawPrompt?: unknown; rawSettings?: unknown };
+    rawResponse?: { headers?: Record<string, string> };
+    warnings: LanguageModelV2CallWarning[];
+  }> {
+    // Convert AI SDK prompt format to Latimer format (same as doStream)
+    const messages = (options.prompt as LanguageModelV2Prompt).map((msg: LanguageModelV2Message) => {
+      if (typeof msg.content === 'string') {
+        return { role: msg.role, content: msg.content };
+      }
+      if (Array.isArray(msg.content)) {
+        const textContent = msg.content
+          .filter((part) =>
+            typeof part === 'object' && part !== null && 'type' in part && part.type === 'text'
+          )
+          .map((part) => ('text' in part ? (part as { text: string }).text : ''))
+          .join('');
+        return { role: msg.role, content: textContent };
+      }
+      return { role: msg.role, content: '' };
+    });
+
+    const lastMessage = messages[messages.length - 1];
+    // Filter out system messages and empty content (Latimer only supports user/assistant roles)
+    const additionalMessages = messages.slice(0, -1)
+      .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+      .filter(msg => msg.content && msg.content.trim() !== '');
+
+    const payload: {
+      apiKey: string;
+      message: string;
+      model: string;
+      additionalMessages?: Array<{ role: string; content: string }>;
+      modelTemperature: number;
+    } = {
+      apiKey: this.apiKey,
+      message: lastMessage?.content || '',
+      model: this.modelId,
+      modelTemperature: options.temperature ?? 0.7
+    };
+
+    if (additionalMessages.length > 0) {
+      payload.additionalMessages = additionalMessages;
+    }
+
+    const response = await fetch('https://api.latimer.ai/getCompletion', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload),
+      signal: options.abortSignal
+    });
+
+    if (!response.ok) {
+      throw new Error(`Latimer API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    return {
+      finishReason: 'stop' as LanguageModelV2FinishReason,
+      usage: {
+        inputTokens: data.inputUsage || 0,
+        outputTokens: data.completionUsage || 0,
+        totalTokens: data.totalUsage || 0
+      },
+      content: [
+        {
+          type: 'text',
+          text: data.message?.content || ''
+        }
+      ] as LanguageModelV2Content[],
+      rawCall: {
+        rawPrompt: payload,
+        rawSettings: {
+          temperature: payload.modelTemperature
+        }
+      },
+      warnings: []
+    };
+  }
+}
+
+/**
+ * Latimer AI provider adapter
+ * Uses custom Latimer API (NOT OpenAI-compatible)
+ * API: POST https://api.latimer.ai/getCompletion
+ */
+export class LatimerAdapter extends BaseProviderAdapter {
+  protected providerName = 'latimer';
+
+  async createModel(modelId: string, options?: StreamRequest['options']): Promise<LanguageModel> {
+    try {
+      const apiKey = await Settings.getLatimer();
+      if (!apiKey || typeof apiKey !== 'string' || apiKey.trim() === '') {
+        log.error('Latimer API key not configured or invalid');
+        throw ErrorFactories.sysConfigurationError('Latimer API key not configured');
+      }
+
+      log.info('Creating Latimer model', {
+        modelId,
+        hasOptions: !!options
+      });
+
+      // Return proper LanguageModelV2 instance
+      return new LatimerLanguageModel(modelId, apiKey);
+
+    } catch (error) {
+      log.error('Failed to create Latimer model', {
+        modelId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  }
+
+  // No streamWithEnhancements override - base adapter handles it via streamText()!
 
   getCapabilities(modelId: string): ProviderCapabilities {
     log.debug('Getting capabilities for Latimer model', { modelId });
