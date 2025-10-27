@@ -83,13 +83,24 @@ export class LatimerAdapter extends BaseProviderAdapter {
       const lastMessage = latimerMessages[latimerMessages.length - 1];
       const additionalMessages = latimerMessages.slice(0, -1);
 
-      const payload = {
+      // Build payload - only include additionalMessages if not empty
+      const payload: {
+        apiKey: string;
+        message: string;
+        model: string;
+        additionalMessages?: Array<{ role: string; content: string }>;
+        modelTemperature: number;
+      } = {
         apiKey,
         message: lastMessage?.content || '',
         model: modelId,
-        additionalMessages,
         modelTemperature: config.temperature || 0.7
       };
+
+      // Only add additionalMessages if there are previous messages
+      if (additionalMessages.length > 0) {
+        payload.additionalMessages = additionalMessages;
+      }
 
       log.debug('Latimer API request', {
         model: payload.model,
