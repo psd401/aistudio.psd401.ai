@@ -274,12 +274,12 @@ export class FrontendStackEcs extends cdk.Stack {
     // SSM Parameters for Cross-Stack References
     // ============================================================================
     // Store ECS internal endpoint URL for schedule executor Lambda
-    // Lambda will use ALB DNS via HTTPS (ALB redirects HTTP → HTTPS)
+    // Lambda must use the domain name (not ALB DNS) to match SSL certificate
     // Note: Uses SSM instead of CloudFormation export to avoid circular dependency with SchedulerStack
     new ssm.StringParameter(this, 'EcsInternalEndpointParam', {
       parameterName: `/aistudio/${environment}/ecs-internal-endpoint`,
-      stringValue: `https://${this.ecsService.loadBalancer.loadBalancerDnsName}`,
-      description: 'ECS endpoint URL for schedule executor Lambda (HTTPS via ALB)',
+      stringValue: `https://${subdomain}`,
+      description: 'ECS endpoint URL for schedule executor Lambda (HTTPS via domain name)',
     });
 
     // ============================================================================
