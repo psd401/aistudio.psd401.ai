@@ -3,6 +3,7 @@ import { Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
@@ -75,6 +76,29 @@ export class FrontendStackEcs extends cdk.Stack {
       : (environment === 'dev' ? `dev.${baseDomain}` : baseDomain);
 
     // ============================================================================
+    // Internal API Secret for Scheduled Execution Authentication
+    // ============================================================================
+    // Create secret for Lambda → ECS JWT authentication
+    const internalApiSecret = new secretsmanager.Secret(this, 'InternalApiSecret', {
+      secretName: `aistudio-${environment}-internal-api-secret`,
+      description: 'Internal API authentication secret for scheduled execution',
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({}),
+        generateStringKey: 'INTERNAL_API_SECRET',
+        excludePunctuation: true,
+        passwordLength: 32,
+      },
+      removalPolicy: environment === 'prod' ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+    });
+
+    // Export secret ARN to SSM for SchedulerStack to read
+    new ssm.StringParameter(this, 'InternalApiSecretArnParam', {
+      parameterName: `/aistudio/${environment}/internal-api-secret-arn`,
+      stringValue: internalApiSecret.secretArn,
+      description: 'Internal API secret ARN for Lambda JWT authentication',
+    });
+
+    // ============================================================================
     // Create ECS Service with ALB
     // ============================================================================
     this.ecsService = new EcsServiceConstruct(this, 'EcsService', {
@@ -98,10 +122,8 @@ export class FrontendStackEcs extends cdk.Stack {
       rdsSecretArn: ssm.StringParameter.valueForStringParameter(this, `/aistudio/${environment}/db-secret-arn`),
       // Auth secret from Secrets Manager
       authSecretArn: cdk.Fn.importValue(`${environment}-AuthSecretArn`),
-      // NEW: Internal API secret for scheduled execution authentication (from SSM to avoid circular dependency)
-      internalApiSecretArn: ssm.StringParameter.valueForStringParameter(
-        this, `/aistudio/${environment}/internal-api-secret-arn`
-      ),
+      // Internal API secret (created above)
+      internalApiSecretArn: internalApiSecret.secretArn,
     });
 
     // ============================================================================

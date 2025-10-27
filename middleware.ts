@@ -12,6 +12,7 @@ const PUBLIC_PATHS = [
   "/api/healthz", // Lightweight health check for ECS/Docker
   "/api/ping",
   "/api/auth/federated-signout",
+  "/api/assistant-architect/execute/scheduled", // Internal JWT auth for scheduled executions
   "/auth/error",
 ];
 
