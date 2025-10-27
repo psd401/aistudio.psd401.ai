@@ -6,7 +6,9 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as path from 'path';
+import { VPCProvider, EnvironmentConfig } from './constructs';
 
 export interface SchedulerStackProps extends cdk.StackProps {
   environment: 'dev' | 'prod';
@@ -34,6 +36,19 @@ export class SchedulerStack extends cdk.Stack {
       ssm.StringParameter.valueForStringParameter(
         this, `/aistudio/${props.environment}/db-secret-arn`
       );
+
+    // Get environment configuration for VPC
+    const config = EnvironmentConfig.get(props.environment);
+
+    // Use shared VPC for Lambda (required to reach internal ECS endpoint)
+    const vpc = VPCProvider.getOrCreate(this, props.environment, config);
+
+    // Create security group for Lambda
+    const lambdaSg = new ec2.SecurityGroup(this, 'ScheduleExecutorSecurityGroup', {
+      vpc,
+      description: 'Security group for schedule executor Lambda',
+      allowAllOutbound: true, // Required for Lambda to reach ECS ALB and AWS APIs
+    });
 
     // Dead Letter Queue for failed schedule executions
     this.deadLetterQueue = new sqs.Queue(this, 'ScheduleExecutionDLQ', {
@@ -74,6 +89,12 @@ export class SchedulerStack extends cdk.Stack {
       functionName: `aistudio-${props.environment}-schedule-executor`,
       timeout: cdk.Duration.minutes(15), // Full Lambda timeout for long-running Assistant Architect executions
       memorySize: 512, // Optimized via PowerTuning from 2GB
+      // VPC configuration (required to reach internal ECS endpoint)
+      vpc,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS, // Private-Application subnets
+      },
+      securityGroups: [lambdaSg],
       environment: {
         NODE_OPTIONS: '--enable-source-maps',
         DATABASE_RESOURCE_ARN: databaseResourceArn,
@@ -114,6 +135,26 @@ export class SchedulerStack extends cdk.Stack {
     this.scheduleExecutorFunction.addEnvironment(
       'SCHEDULER_EXECUTION_ROLE_ARN',
       this.schedulerExecutionRole.roleArn
+    );
+
+    // Allow Lambda to reach ECS ALB on port 80
+    // Get ECS security group from SSM (stored by FrontendStackEcs)
+    const ecsSecurityGroupId = ssm.StringParameter.valueForStringParameter(
+      this,
+      `/aistudio/${props.environment}/ecs-security-group-id`
+    );
+
+    const ecsSecurityGroup = ec2.SecurityGroup.fromSecurityGroupId(
+      this,
+      'EcsSecurityGroup',
+      ecsSecurityGroupId
+    );
+
+    // Allow Lambda SG to connect to ECS on port 80
+    ecsSecurityGroup.addIngressRule(
+      lambdaSg,
+      ec2.Port.tcp(80),
+      'Allow schedule executor Lambda to reach ECS'
     );
 
     // IAM Role for the Lambda function

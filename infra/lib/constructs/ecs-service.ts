@@ -620,6 +620,12 @@ export class EcsServiceConstruct extends Construct {
       description: 'ECS service name',
     });
 
+    new ssm.StringParameter(this, 'EcsSecurityGroupIdParam', {
+      parameterName: `/aistudio/${environment}/ecs-security-group-id`,
+      stringValue: ecsSecurityGroup.securityGroupId,
+      description: 'ECS task security group ID for Lambda ingress rules',
+    });
+
     // CloudFormation Outputs with unique export names
     new cdk.CfnOutput(this, 'LoadBalancerDnsName', {
       value: this.loadBalancer.loadBalancerDnsName,
