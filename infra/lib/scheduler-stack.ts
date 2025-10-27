@@ -109,6 +109,13 @@ export class SchedulerStack extends cdk.Stack {
     // Legacy: Grant EventBridge Scheduler permission to invoke the Lambda function via role (kept for backward compatibility)
     this.scheduleExecutorFunction.grantInvoke(this.schedulerExecutionRole);
 
+    // Add scheduler execution role ARN to Lambda environment
+    // This is required for the Lambda to create/update/delete EventBridge schedules
+    this.scheduleExecutorFunction.addEnvironment(
+      'SCHEDULER_EXECUTION_ROLE_ARN',
+      this.schedulerExecutionRole.roleArn
+    );
+
     // IAM Role for the Lambda function
     this.scheduleExecutorRole = this.scheduleExecutorFunction.role as iam.Role;
 
