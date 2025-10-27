@@ -694,16 +694,17 @@ export class EcsServiceConstruct extends Construct {
         },
       ];
     } else {
-      // Dev/Staging: Maximize Spot usage for cost savings
+      // Dev/Staging: Mixed strategy with Spot preference but on-demand fallback
+      // Changed from 100% Spot to 70/30 mix for availability resilience
       return [
         {
-          capacityProvider: 'FARGATE_SPOT',
-          base: 1,
-          weight: spotRatio,
+          capacityProvider: 'FARGATE',
+          base: 1, // Always keep 1 task on-demand for availability
+          weight: 30,
         },
         {
-          capacityProvider: 'FARGATE',
-          weight: 100 - spotRatio, // Fallback only if Spot unavailable
+          capacityProvider: 'FARGATE_SPOT',
+          weight: 70, // Prefer Spot for cost savings
         },
       ];
     }
