@@ -210,17 +210,23 @@ export async function POST(req: NextRequest) {
       id: number;
       name: string;
       content: string;
-      system_context: string | null;
-      model_id: number | null;
+      systemContext: string | null;
+      modelId: number | null;
       position: number;
-      input_mapping: string | null;
-      repository_ids: string | null;
-      enabled_tools: string | null;
-      timeout_seconds: number | null;
+      inputMapping: string | null;
+      repositoryIds: string | null;
+      enabledTools: string | null;
+      timeoutSeconds: number | null;
     }>(
       `SELECT
-        id, name, content, system_context, model_id, position,
-        input_mapping, repository_ids, enabled_tools, timeout_seconds
+        id, name, content,
+        system_context AS "systemContext",
+        model_id AS "modelId",
+        position,
+        input_mapping AS "inputMapping",
+        repository_ids AS "repositoryIds",
+        enabled_tools AS "enabledTools",
+        timeout_seconds AS "timeoutSeconds"
        FROM chain_prompts
        WHERE assistant_architect_id = :toolId
        ORDER BY position`,
@@ -260,13 +266,13 @@ export async function POST(req: NextRequest) {
       id: Number(p.id),
       name: String(p.name),
       content: String(p.content),
-      systemContext: p.system_context ? String(p.system_context) : null,
-      modelId: p.model_id ? Number(p.model_id) : null,
+      systemContext: p.systemContext ? String(p.systemContext) : null,
+      modelId: p.modelId ? Number(p.modelId) : null,
       position: Number(p.position),
-      inputMapping: safeParseJson<Record<string, string>>(p.input_mapping, 'input_mapping'),
-      repositoryIds: safeParseJson<number[]>(p.repository_ids, 'repository_ids'),
-      enabledTools: safeParseJson<string[]>(p.enabled_tools, 'enabled_tools'),
-      timeoutSeconds: p.timeout_seconds ? Number(p.timeout_seconds) : null
+      inputMapping: safeParseJson<Record<string, string>>(p.inputMapping, 'input_mapping'),
+      repositoryIds: safeParseJson<number[]>(p.repositoryIds, 'repository_ids'),
+      enabledTools: safeParseJson<string[]>(p.enabledTools, 'enabled_tools'),
+      timeoutSeconds: p.timeoutSeconds ? Number(p.timeoutSeconds) : null
     }));
 
     // Validate prompt chain length
@@ -742,16 +748,6 @@ async function executePromptChainServerSide(
               if (promptTimeoutId) clearTimeout(promptTimeoutId);
               finishPromiseReject(saveError instanceof Error ? saveError : new Error(String(saveError)));
               promiseResolved = true;
-            } finally {
-              // Safety net: if promise wasn't resolved/rejected (edge case), reject it
-              if (!promiseResolved) {
-                if (promptTimeoutId) clearTimeout(promptTimeoutId);
-                log.error('onFinish callback did not resolve promise properly', {
-                  promptId: prompt.id,
-                  executionId: context.executionId
-                });
-                finishPromiseReject(new Error('onFinish callback did not complete properly'));
-              }
             }
           }
         }
