@@ -664,13 +664,13 @@ async function executePromptChainServerSide(
 
               // Validate response content
               const hasValidContent = text && text.length > 0;
-              const resultStatus = hasValidContent ? 'completed' : 'completed_with_warning';
+              const resultStatus = hasValidContent ? 'completed' : 'completed';
 
               if (!hasValidContent) {
                 log.warn('No text content from prompt execution', {
                   promptId: prompt.id,
                   finishReason,
-                  willMarkAsWarning: true
+                  note: 'Marked as completed but with warning in logs'
                 });
               }
 
