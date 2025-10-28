@@ -406,6 +406,7 @@ export class EcsServiceConstruct extends Construct {
         AWS_REGION: cdk.Stack.of(this).region,
         NEXT_PUBLIC_AWS_REGION: cdk.Stack.of(this).region,
         PORT: '3000',
+        ENVIRONMENT: environment,
         // Memory optimization - 70% of container memory
         NODE_OPTIONS: `--max-old-space-size=${Math.floor(memory * 0.7)}`,
         // Application configuration
@@ -423,6 +424,8 @@ export class EcsServiceConstruct extends Construct {
         // Queue URLs from Document Processing Stack exports
         PROCESSING_QUEUE_URL: cdk.Fn.importValue(`${environment}-ProcessingQueueUrl`),
         HIGH_MEMORY_QUEUE_URL: cdk.Fn.importValue(`${environment}-HighMemoryQueueUrl`),
+        // Notification Queue URL from Email Notification Stack
+        NOTIFICATION_QUEUE_URL: cdk.Fn.importValue(`${environment}-NotificationQueueUrl`),
         // Table names from stack exports
         DOCUMENT_JOBS_TABLE: cdk.Fn.importValue(`${environment}-DocumentJobsTableName`),
         JOB_STATUS_TABLE_NAME: cdk.Fn.importValue(`${environment}-JobStatusTableName`),
@@ -620,6 +623,12 @@ export class EcsServiceConstruct extends Construct {
       description: 'ECS service name',
     });
 
+    new ssm.StringParameter(this, 'AlbSecurityGroupIdParam', {
+      parameterName: `/aistudio/${environment}/alb-security-group-id`,
+      stringValue: albSecurityGroup.securityGroupId,
+      description: 'ALB security group ID for Lambda ingress rules',
+    });
+
     // CloudFormation Outputs with unique export names
     new cdk.CfnOutput(this, 'LoadBalancerDnsName', {
       value: this.loadBalancer.loadBalancerDnsName,
@@ -688,16 +697,17 @@ export class EcsServiceConstruct extends Construct {
         },
       ];
     } else {
-      // Dev/Staging: Maximize Spot usage for cost savings
+      // Dev/Staging: Mixed strategy with Spot preference but on-demand fallback
+      // Changed from 100% Spot to 70/30 mix for availability resilience
       return [
         {
-          capacityProvider: 'FARGATE_SPOT',
-          base: 1,
-          weight: spotRatio,
+          capacityProvider: 'FARGATE',
+          base: 1, // Always keep 1 task on-demand for availability
+          weight: 30,
         },
         {
-          capacityProvider: 'FARGATE',
-          weight: 100 - spotRatio, // Fallback only if Spot unavailable
+          capacityProvider: 'FARGATE_SPOT',
+          weight: 70, // Prefer Spot for cost savings
         },
       ];
     }
