@@ -747,12 +747,12 @@ async function executePromptChain(
 }
 
 /**
- * Substitute {{variable}} placeholders in prompt content
+ * Substitute variable placeholders in prompt content
  *
- * Supports:
- * - Direct input mapping: {{userInput}} -> inputs.userInput
- * - Mapped variables: {{topic}} with mapping {"topic": "userInput.subject"}
- * - Previous outputs: {{previousAnalysis}} with mapping {"previousAnalysis": "prompt_1.output"}
+ * Supports both ${variable} and {{variable}} syntax:
+ * - Direct input mapping: ${userInput} or {{userInput}} -> inputs.userInput
+ * - Mapped variables: ${topic} with mapping {"topic": "userInput.subject"}
+ * - Previous outputs: ${previousAnalysis} with mapping {"previousAnalysis": "prompt_1.output"}
  */
 function substituteVariables(
   content: string,
@@ -760,7 +760,10 @@ function substituteVariables(
   previousOutputs: Map<number, string>,
   mapping: Record<string, string>
 ): string {
-  return content.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
+  // Match both ${variable} and {{variable}} patterns
+  return content.replace(/\$\{(\w+)\}|\{\{(\w+)\}\}/g, (match, dollarVar, braceVar) => {
+    const varName = dollarVar || braceVar;
+
     // 1. Check if there's an input mapping for this variable
     if (mapping[varName]) {
       const mappedPath = mapping[varName];

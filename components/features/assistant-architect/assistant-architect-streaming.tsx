@@ -625,6 +625,7 @@ function AssistantArchitectRuntimeProvider({
         tool={tool}
         hasCompletedExecution={hasCompletedExecution}
         hasCompletedExecutionRef={hasCompletedExecutionRef}
+        inputs={inputs}
       />
       {children}
     </AssistantRuntimeProvider>
@@ -699,11 +700,13 @@ function StreamingStateMonitor({
 function AutoStartExecution({
   tool,
   hasCompletedExecution,
-  hasCompletedExecutionRef
+  hasCompletedExecutionRef,
+  inputs
 }: {
   tool: AssistantArchitectWithRelations
   hasCompletedExecution: boolean
   hasCompletedExecutionRef: React.MutableRefObject<boolean>
+  inputs: Record<string, unknown>
 }) {
   const runtime = useThreadRuntime()
   const hasStarted = useRef(false)
@@ -724,9 +727,9 @@ function AutoStartExecution({
         content: [{ type: 'text', text: `Execute ${tool.name}` }]
       })
 
-      log.info('Execution started', { toolName: tool.name })
+      log.info('Execution started', { toolName: tool.name, inputKeys: Object.keys(inputs) })
     }
-  }, [runtime, tool.name, hasCompletedExecution, hasCompletedExecutionRef])
+  }, [runtime, tool.name, hasCompletedExecution, hasCompletedExecutionRef, inputs])
 
   return null
 }
