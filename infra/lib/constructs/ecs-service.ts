@@ -406,6 +406,7 @@ export class EcsServiceConstruct extends Construct {
         AWS_REGION: cdk.Stack.of(this).region,
         NEXT_PUBLIC_AWS_REGION: cdk.Stack.of(this).region,
         PORT: '3000',
+        ENVIRONMENT: environment,
         // Memory optimization - 70% of container memory
         NODE_OPTIONS: `--max-old-space-size=${Math.floor(memory * 0.7)}`,
         // Application configuration
