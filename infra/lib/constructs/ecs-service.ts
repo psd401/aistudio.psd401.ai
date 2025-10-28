@@ -301,6 +301,7 @@ export class EcsServiceConstruct extends Construct {
               ],
               resources: [
                 `arn:aws:sqs:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:aistudio-${environment}-*`,
+                `arn:aws:sqs:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:AIStudio-*-${environment}`,
               ],
             }),
             new iam.PolicyStatement({
@@ -321,6 +322,7 @@ export class EcsServiceConstruct extends Construct {
               ],
               resources: [
                 `arn:aws:dynamodb:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:table/aistudio-${environment}-*`,
+                `arn:aws:dynamodb:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:table/AIStudio-*-${environment}`,
               ],
             }),
             new iam.PolicyStatement({
