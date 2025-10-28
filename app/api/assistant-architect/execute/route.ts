@@ -20,8 +20,8 @@ export const maxDuration = 900;
 const MAX_INPUT_SIZE_BYTES = 100000; // 100KB max input size
 const MAX_INPUT_FIELDS = 50; // Max 50 input fields
 const MAX_PROMPT_CHAIN_LENGTH = 20; // Max 20 prompts per execution
-const MAX_PROMPT_CONTENT_SIZE = 1000000; // 1MB max prompt content size
-const MAX_VARIABLE_REPLACEMENTS = 1000; // Max variable placeholders per prompt
+const MAX_PROMPT_CONTENT_SIZE = 10000000; // 10MB max prompt content size (allows large context)
+const MAX_VARIABLE_REPLACEMENTS = 50; // Max 50 variable placeholders per prompt (realistic upper bound)
 
 // Request validation schema
 const ExecuteRequestSchema = z.object({
