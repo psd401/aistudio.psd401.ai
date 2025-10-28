@@ -349,6 +349,18 @@ export async function POST(req: NextRequest) {
         [{ name: 'executionId', value: { longValue: executionId } }]
       );
 
+      // Update execution_results for UI/notification
+      await executeSQL(
+        `UPDATE execution_results
+         SET status = 'success',
+             executed_at = NOW()
+         WHERE scheduled_execution_id = :scheduleId
+         AND status = 'running'
+         ORDER BY id DESC
+         LIMIT 1`,
+        [{ name: 'scheduleId', value: { longValue: scheduleId } }]
+      );
+
       timer({ status: 'success' });
       log.info('Scheduled execution completed successfully', {
         executionId,
@@ -379,6 +391,8 @@ export async function POST(req: NextRequest) {
       );
 
     } catch (executionError) {
+      const errorMessage = executionError instanceof Error ? executionError.message : String(executionError);
+
       // Update execution status to failed
       await executeSQL(
         `UPDATE tool_executions
@@ -388,16 +402,30 @@ export async function POST(req: NextRequest) {
          WHERE id = :executionId`,
         [
           { name: 'executionId', value: { longValue: executionId } },
-          { name: 'errorMessage', value: {
-            stringValue: executionError instanceof Error ? executionError.message : String(executionError)
-          }}
+          { name: 'errorMessage', value: { stringValue: errorMessage }}
+        ]
+      );
+
+      // Update execution_results for UI/notification
+      await executeSQL(
+        `UPDATE execution_results
+         SET status = 'failed',
+             error_message = :errorMessage,
+             executed_at = NOW()
+         WHERE scheduled_execution_id = :scheduleId
+         AND status = 'running'
+         ORDER BY id DESC
+         LIMIT 1`,
+        [
+          { name: 'scheduleId', value: { longValue: scheduleId } },
+          { name: 'errorMessage', value: { stringValue: errorMessage }}
         ]
       );
 
       // Return sanitized error response instead of re-throwing
       timer({ status: 'error' });
       log.error('Execution failed', {
-        error: executionError instanceof Error ? executionError.message : String(executionError),
+        error: errorMessage,
         executionId
       });
 
