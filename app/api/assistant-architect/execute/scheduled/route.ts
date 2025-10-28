@@ -9,6 +9,7 @@ import { createRepositoryTools } from '@/lib/tools/repository-tools';
 import type { StreamRequest } from '@/lib/streaming/types';
 import type { UIMessage } from 'ai';
 import jwt from 'jsonwebtoken';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 
 // Allow up to 15 minutes for long scheduled executions
 export const maxDuration = 900;
@@ -63,14 +64,15 @@ interface PromptExecutionContext {
 
 /**
  * Internal authentication - validates JWT token from schedule-executor Lambda
+ * Returns the decoded payload if valid, null otherwise
  */
-function validateInternalRequest(req: NextRequest): boolean {
+function validateInternalRequest(req: NextRequest): { scheduleId: string; executionId: string } | null {
   const log = createLogger({ operation: 'validateInternalRequest' });
 
   const authHeader = req.headers.get('authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     log.warn('Missing or invalid authorization header');
-    return false;
+    return null;
   }
 
   const token = authHeader.replace('Bearer ', '');
@@ -78,24 +80,75 @@ function validateInternalRequest(req: NextRequest): boolean {
 
   if (!internalSecret) {
     log.error('INTERNAL_API_SECRET not configured');
-    return false;
+    return null;
   }
 
   try {
     // Verify JWT with algorithm restriction and claim validation to prevent:
     // - Algorithm confusion attacks (by specifying algorithms: ['HS256'])
     // - Timing attacks (by validating claims in jwt.verify options)
-    jwt.verify(token, internalSecret, {
+    const decoded = jwt.verify(token, internalSecret, {
       algorithms: ['HS256'],
       issuer: 'schedule-executor',
       audience: 'assistant-architect-api'
-    });
+    }) as { scheduleId: string; executionId: string };
 
-    log.info('Internal request validated successfully');
-    return true;
+    log.info('Internal request validated successfully', {
+      scheduleId: decoded.scheduleId,
+      executionId: decoded.executionId
+    });
+    return decoded;
   } catch (error) {
     log.warn('JWT verification failed', { error: error instanceof Error ? error.message : String(error) });
-    return false;
+    return null;
+  }
+}
+
+/**
+ * Send notification to SQS queue for email delivery
+ */
+async function sendNotificationToQueue(
+  executionResultId: number,
+  userId: number,
+  scheduleName: string,
+  log: ReturnType<typeof createLogger>
+): Promise<void> {
+  const notificationQueueUrl = process.env.NOTIFICATION_QUEUE_URL;
+
+  if (!notificationQueueUrl) {
+    log.warn('NOTIFICATION_QUEUE_URL not configured - skipping notification');
+    return;
+  }
+
+  try {
+    const sqsClient = new SQSClient({ region: process.env.AWS_REGION || 'us-east-1' });
+
+    const message = {
+      executionResultId,
+      userId,
+      notificationType: 'email',
+      scheduleName
+    };
+
+    const command = new SendMessageCommand({
+      QueueUrl: notificationQueueUrl,
+      MessageBody: JSON.stringify(message)
+    });
+
+    await sqsClient.send(command);
+
+    log.info('Notification queued successfully', {
+      executionResultId,
+      userId,
+      scheduleName
+    });
+  } catch (error) {
+    log.error('Failed to queue notification', {
+      error: error instanceof Error ? error.message : String(error),
+      executionResultId,
+      userId
+    });
+    // Don't throw - notification failure shouldn't fail the execution
   }
 }
 
@@ -113,8 +166,9 @@ export async function POST(req: NextRequest) {
   log.info('POST /api/assistant-architect/execute/scheduled - Processing scheduled execution');
 
   try {
-    // 1. Validate internal authentication
-    if (!validateInternalRequest(req)) {
+    // 1. Validate internal authentication and extract JWT payload
+    const jwtPayload = validateInternalRequest(req);
+    if (!jwtPayload) {
       log.warn('Unauthorized internal request');
       timer({ status: 'error', reason: 'unauthorized' });
       return new Response(
@@ -125,6 +179,9 @@ export async function POST(req: NextRequest) {
         }
       );
     }
+
+    const executionResultId = Number(jwtPayload.executionId);
+    log.info('Extracted execution result ID from JWT', { executionResultId });
 
     // 2. Parse and validate request
     const body = await req.json();
@@ -337,8 +394,14 @@ export async function POST(req: NextRequest) {
     };
 
     try {
+      // Capture start time for duration calculation
+      const executionStartTime = Date.now();
+
       // Execute chain and collect complete response
       await executePromptChainServerSide(prompts, inputs, context, requestId, log);
+
+      // Calculate execution duration
+      const executionDurationMs = Date.now() - executionStartTime;
 
       // Update execution status to completed
       await executeSQL(
@@ -349,27 +412,65 @@ export async function POST(req: NextRequest) {
         [{ name: 'executionId', value: { longValue: executionId } }]
       );
 
-      // Update execution_results for UI/notification
+      // Query prompt_results to get the final AI output
+      // Note: RDS Data API returns camelCase (outputData) not snake_case (output_data)
+      const promptResultsQuery = await executeSQL<{ outputData: string }>(
+        `SELECT output_data AS "outputData"
+         FROM prompt_results
+         WHERE execution_id = :executionId
+         ORDER BY id DESC
+         LIMIT 1`,
+        [{ name: 'executionId', value: { longValue: executionId } }]
+      );
+
+      const resultData = promptResultsQuery && promptResultsQuery.length > 0 && promptResultsQuery[0].outputData
+        ? { output: promptResultsQuery[0].outputData, executionId, toolId }
+        : { output: 'No output generated', executionId, toolId };
+
+      log.info('Retrieved prompt results', {
+        executionId,
+        hasOutput: !!promptResultsQuery && promptResultsQuery.length > 0,
+        hasOutputData: !!promptResultsQuery?.[0]?.outputData,
+        outputLength: promptResultsQuery?.[0]?.outputData?.length || 0
+      });
+
+      // Update execution_results for UI/notification with result data and duration
       await executeSQL(
         `UPDATE execution_results
          SET status = 'success',
-             executed_at = NOW()
-         WHERE id = (
-           SELECT id FROM execution_results
-           WHERE scheduled_execution_id = :scheduleId
-           AND status = 'running'
-           ORDER BY id DESC
-           LIMIT 1
-         )`,
+             executed_at = NOW(),
+             result_data = :resultData::jsonb,
+             execution_duration_ms = :durationMs
+         WHERE id = :executionResultId`,
+        [
+          { name: 'executionResultId', value: { longValue: executionResultId } },
+          { name: 'resultData', value: { stringValue: JSON.stringify(resultData) } },
+          { name: 'durationMs', value: { longValue: executionDurationMs } }
+        ]
+      );
+
+      // Get schedule name for notification
+      const scheduleQuery = await executeSQL<{ name: string }>(
+        `SELECT name FROM scheduled_executions WHERE id = :scheduleId LIMIT 1`,
         [{ name: 'scheduleId', value: { longValue: scheduleId } }]
       );
+
+      const scheduleName = scheduleQuery && scheduleQuery.length > 0
+        ? scheduleQuery[0].name
+        : 'Scheduled Execution';
+
+      // Send notification to SQS queue
+      await sendNotificationToQueue(executionResultId, userId, scheduleName, log);
 
       timer({ status: 'success' });
       log.info('Scheduled execution completed successfully', {
         executionId,
         toolId,
         scheduleId,
-        promptCount: prompts.length
+        promptCount: prompts.length,
+        durationMs: executionDurationMs,
+        executionResultId,
+        scheduleName
       });
 
       return new Response(
@@ -409,21 +510,15 @@ export async function POST(req: NextRequest) {
         ]
       );
 
-      // Update execution_results for UI/notification
+      // Update execution_results for UI/notification using direct ID
       await executeSQL(
         `UPDATE execution_results
          SET status = 'failed',
              error_message = :errorMessage,
              executed_at = NOW()
-         WHERE id = (
-           SELECT id FROM execution_results
-           WHERE scheduled_execution_id = :scheduleId
-           AND status = 'running'
-           ORDER BY id DESC
-           LIMIT 1
-         )`,
+         WHERE id = :executionResultId`,
         [
-          { name: 'scheduleId', value: { longValue: scheduleId } },
+          { name: 'executionResultId', value: { longValue: executionResultId } },
           { name: 'errorMessage', value: { stringValue: errorMessage }}
         ]
       );

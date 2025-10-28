@@ -423,6 +423,8 @@ export class EcsServiceConstruct extends Construct {
         // Queue URLs from Document Processing Stack exports
         PROCESSING_QUEUE_URL: cdk.Fn.importValue(`${environment}-ProcessingQueueUrl`),
         HIGH_MEMORY_QUEUE_URL: cdk.Fn.importValue(`${environment}-HighMemoryQueueUrl`),
+        // Notification Queue URL from Email Notification Stack
+        NOTIFICATION_QUEUE_URL: cdk.Fn.importValue(`${environment}-NotificationQueueUrl`),
         // Table names from stack exports
         DOCUMENT_JOBS_TABLE: cdk.Fn.importValue(`${environment}-DocumentJobsTableName`),
         JOB_STATUS_TABLE_NAME: cdk.Fn.importValue(`${environment}-JobStatusTableName`),
