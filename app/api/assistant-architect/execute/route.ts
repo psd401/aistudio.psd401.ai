@@ -20,6 +20,8 @@ export const maxDuration = 900;
 const MAX_INPUT_SIZE_BYTES = 100000; // 100KB max input size
 const MAX_INPUT_FIELDS = 50; // Max 50 input fields
 const MAX_PROMPT_CHAIN_LENGTH = 20; // Max 20 prompts per execution
+const MAX_PROMPT_CONTENT_SIZE = 1000000; // 1MB max prompt content size
+const MAX_VARIABLE_REPLACEMENTS = 1000; // Max variable placeholders per prompt
 
 // Request validation schema
 const ExecuteRequestSchema = z.object({
@@ -753,6 +755,8 @@ async function executePromptChain(
  * - Direct input mapping: ${userInput} or {{userInput}} -> inputs.userInput
  * - Mapped variables: ${topic} with mapping {"topic": "userInput.subject"}
  * - Previous outputs: ${previousAnalysis} with mapping {"previousAnalysis": "prompt_1.output"}
+ *
+ * Security: Validates content size and placeholder count to prevent DoS attacks
  */
 function substituteVariables(
   content: string,
@@ -760,6 +764,25 @@ function substituteVariables(
   previousOutputs: Map<number, string>,
   mapping: Record<string, string>
 ): string {
+  // Validate content size before processing to prevent resource exhaustion
+  if (content.length > MAX_PROMPT_CONTENT_SIZE) {
+    throw ErrorFactories.validationFailed([{
+      field: 'content',
+      message: `Prompt content exceeds maximum size of ${MAX_PROMPT_CONTENT_SIZE} characters`
+    }]);
+  }
+
+  // Count variable placeholders to prevent DoS via excessive replacements
+  const placeholderMatches = content.match(/\$\{(\w+)\}|\{\{(\w+)\}\}/g);
+  const placeholderCount = placeholderMatches ? placeholderMatches.length : 0;
+
+  if (placeholderCount > MAX_VARIABLE_REPLACEMENTS) {
+    throw ErrorFactories.validationFailed([{
+      field: 'content',
+      message: `Too many variable placeholders (${placeholderCount}, maximum ${MAX_VARIABLE_REPLACEMENTS})`
+    }]);
+  }
+
   // Match both ${variable} and {{variable}} patterns
   return content.replace(/\$\{(\w+)\}|\{\{(\w+)\}\}/g, (match, dollarVar, braceVar) => {
     const varName = dollarVar || braceVar;

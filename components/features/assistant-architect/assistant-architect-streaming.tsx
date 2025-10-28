@@ -729,7 +729,12 @@ function AutoStartExecution({
 
       log.info('Execution started', { toolName: tool.name, inputKeys: Object.keys(inputs) })
     }
-  }, [runtime, tool.name, hasCompletedExecution, hasCompletedExecutionRef, inputs])
+  // NOTE: inputs is intentionally NOT in the dependency array to prevent re-execution
+  // if the parent component re-renders with a new inputs object reference. The inputs
+  // are captured via inputsRef in the parent component and passed to the adapter.
+  // Adding inputs here would cause the effect to re-run unnecessarily.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runtime, tool.name, hasCompletedExecution, hasCompletedExecutionRef])
 
   return null
 }
