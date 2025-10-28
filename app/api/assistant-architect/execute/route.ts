@@ -20,6 +20,8 @@ export const maxDuration = 900;
 const MAX_INPUT_SIZE_BYTES = 100000; // 100KB max input size
 const MAX_INPUT_FIELDS = 50; // Max 50 input fields
 const MAX_PROMPT_CHAIN_LENGTH = 20; // Max 20 prompts per execution
+const MAX_PROMPT_CONTENT_SIZE = 10000000; // 10MB max prompt content size (allows large context)
+const MAX_VARIABLE_REPLACEMENTS = 50; // Max 50 variable placeholders per prompt (realistic upper bound)
 
 // Request validation schema
 const ExecuteRequestSchema = z.object({
@@ -747,12 +749,14 @@ async function executePromptChain(
 }
 
 /**
- * Substitute {{variable}} placeholders in prompt content
+ * Substitute variable placeholders in prompt content
  *
- * Supports:
- * - Direct input mapping: {{userInput}} -> inputs.userInput
- * - Mapped variables: {{topic}} with mapping {"topic": "userInput.subject"}
- * - Previous outputs: {{previousAnalysis}} with mapping {"previousAnalysis": "prompt_1.output"}
+ * Supports both ${variable} and {{variable}} syntax:
+ * - Direct input mapping: ${userInput} or {{userInput}} -> inputs.userInput
+ * - Mapped variables: ${topic} with mapping {"topic": "userInput.subject"}
+ * - Previous outputs: ${previousAnalysis} with mapping {"previousAnalysis": "prompt_1.output"}
+ *
+ * Security: Validates content size and placeholder count to prevent DoS attacks
  */
 function substituteVariables(
   content: string,
@@ -760,7 +764,29 @@ function substituteVariables(
   previousOutputs: Map<number, string>,
   mapping: Record<string, string>
 ): string {
-  return content.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
+  // Validate content size before processing to prevent resource exhaustion
+  if (content.length > MAX_PROMPT_CONTENT_SIZE) {
+    throw ErrorFactories.validationFailed([{
+      field: 'content',
+      message: `Prompt content exceeds maximum size of ${MAX_PROMPT_CONTENT_SIZE} characters`
+    }]);
+  }
+
+  // Count variable placeholders to prevent DoS via excessive replacements
+  const placeholderMatches = content.match(/\$\{(\w+)\}|\{\{(\w+)\}\}/g);
+  const placeholderCount = placeholderMatches ? placeholderMatches.length : 0;
+
+  if (placeholderCount > MAX_VARIABLE_REPLACEMENTS) {
+    throw ErrorFactories.validationFailed([{
+      field: 'content',
+      message: `Too many variable placeholders (${placeholderCount}, maximum ${MAX_VARIABLE_REPLACEMENTS})`
+    }]);
+  }
+
+  // Match both ${variable} and {{variable}} patterns
+  return content.replace(/\$\{(\w+)\}|\{\{(\w+)\}\}/g, (match, dollarVar, braceVar) => {
+    const varName = dollarVar || braceVar;
+
     // 1. Check if there's an input mapping for this variable
     if (mapping[varName]) {
       const mappedPath = mapping[varName];

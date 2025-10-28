@@ -625,6 +625,7 @@ function AssistantArchitectRuntimeProvider({
         tool={tool}
         hasCompletedExecution={hasCompletedExecution}
         hasCompletedExecutionRef={hasCompletedExecutionRef}
+        inputs={inputs}
       />
       {children}
     </AssistantRuntimeProvider>
@@ -699,11 +700,13 @@ function StreamingStateMonitor({
 function AutoStartExecution({
   tool,
   hasCompletedExecution,
-  hasCompletedExecutionRef
+  hasCompletedExecutionRef,
+  inputs
 }: {
   tool: AssistantArchitectWithRelations
   hasCompletedExecution: boolean
   hasCompletedExecutionRef: React.MutableRefObject<boolean>
+  inputs: Record<string, unknown>
 }) {
   const runtime = useThreadRuntime()
   const hasStarted = useRef(false)
@@ -724,8 +727,13 @@ function AutoStartExecution({
         content: [{ type: 'text', text: `Execute ${tool.name}` }]
       })
 
-      log.info('Execution started', { toolName: tool.name })
+      log.info('Execution started', { toolName: tool.name, inputKeys: Object.keys(inputs) })
     }
+  // NOTE: inputs is intentionally NOT in the dependency array to prevent re-execution
+  // if the parent component re-renders with a new inputs object reference. The inputs
+  // are captured via inputsRef in the parent component and passed to the adapter.
+  // Adding inputs here would cause the effect to re-run unnecessarily.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runtime, tool.name, hasCompletedExecution, hasCompletedExecutionRef])
 
   return null
