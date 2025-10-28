@@ -354,10 +354,13 @@ export async function POST(req: NextRequest) {
         `UPDATE execution_results
          SET status = 'success',
              executed_at = NOW()
-         WHERE scheduled_execution_id = :scheduleId
-         AND status = 'running'
-         ORDER BY id DESC
-         LIMIT 1`,
+         WHERE id = (
+           SELECT id FROM execution_results
+           WHERE scheduled_execution_id = :scheduleId
+           AND status = 'running'
+           ORDER BY id DESC
+           LIMIT 1
+         )`,
         [{ name: 'scheduleId', value: { longValue: scheduleId } }]
       );
 
@@ -412,10 +415,13 @@ export async function POST(req: NextRequest) {
          SET status = 'failed',
              error_message = :errorMessage,
              executed_at = NOW()
-         WHERE scheduled_execution_id = :scheduleId
-         AND status = 'running'
-         ORDER BY id DESC
-         LIMIT 1`,
+         WHERE id = (
+           SELECT id FROM execution_results
+           WHERE scheduled_execution_id = :scheduleId
+           AND status = 'running'
+           ORDER BY id DESC
+           LIMIT 1
+         )`,
         [
           { name: 'scheduleId', value: { longValue: scheduleId } },
           { name: 'errorMessage', value: { stringValue: errorMessage }}
